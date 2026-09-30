@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>app.kipster.host</string>
+  <key>ProgramArguments</key><array>
+    <string>/absolute/path/to/node</string><string>/absolute/path/to/core/dist/host.js</string>
+    <string>serve</string><string>--config</string><string>/absolute/path/to/host.json</string>
+  </array>
+  <key>WorkingDirectory</key><string>/absolute/path/to/kipster</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+  <key>StandardOutPath</key><string>/absolute/path/to/kipster/logs/host.log</string>
+  <key>StandardErrorPath</key><string>/absolute/path/to/kipster/logs/host-error.log</string>
+  <key>Umask</key><integer>63</integer>
+  <key>ExitTimeOut</key><integer>20</integer>
+</dict></plist>

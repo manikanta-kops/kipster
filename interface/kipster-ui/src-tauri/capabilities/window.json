@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window-chrome",
+  "description": "Allow elements marked with data-tauri-drag-region to move the main window and toggle its zoom on double-click, as the overlay title bar has no native drag area.",
+  "windows": ["main"],
+  "permissions": [
+    "core:window:allow-start-dragging",
+    "core:window:allow-internal-toggle-maximize"
+  ]
+}

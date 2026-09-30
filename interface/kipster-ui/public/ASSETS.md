@@ -1,0 +1,1 @@
+`alpine-landscape.png` is original AI-generated scenic artwork created for Kipster. It contains no interface elements and is used only as a decorative background behind readable surfaces. Avatars use names and styled monograms rather than unverified portraits.

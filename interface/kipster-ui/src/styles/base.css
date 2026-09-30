@@ -1,0 +1,435 @@
+/* Document, controls, materials and identity primitives shared by every area. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+:root {
+  font-family: var(--font);
+  color: var(--label);
+  background: var(--canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  transition: background-color 0.4s;
+}
+html,
+body {
+  height: 100%;
+}
+body {
+  margin: 0;
+  min-width: 360px;
+  font-size: 14px;
+  line-height: 1.45;
+  letter-spacing: -0.006em;
+}
+h1,
+h2,
+p {
+  margin: 0;
+}
+h1 {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+}
+button {
+  cursor: pointer;
+  border: 0;
+  background: none;
+  -webkit-tap-highlight-color: transparent;
+}
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+:where(button:not(:disabled)):hover {
+  background-color: var(--fill-2);
+}
+:focus-visible {
+  outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
+  outline-offset: 2px;
+}
+::selection {
+  background: var(--selection);
+}
+::placeholder {
+  color: var(--label-3);
+  opacity: 1;
+}
+
+/* Scrollbars: thin and quiet; the main scrollers reveal theirs on hover. */
+* {
+  scrollbar-width: thin;
+}
+:root {
+  scrollbar-color: var(--scrollbar) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-hover);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+:is(.conversation-scroll, .thread-scroll, .side-list):not(:hover) {
+  scrollbar-color: transparent transparent;
+}
+:is(.conversation-scroll, .thread-scroll, .side-list):not(
+    :hover
+  )::-webkit-scrollbar-thumb {
+  background-color: transparent;
+}
+
+/* Scenery sits behind every screen; palettes tone it with a filter, wash and texture. */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background: var(--scenery-image) center 72% / cover no-repeat;
+  filter: var(--scenery-filter);
+  transition: filter 0.6s;
+}
+body::after {
+  background: var(--scenery-texture), var(--scenery-wash);
+}
+
+/* Materials */
+.mat {
+  --m: var(--glass);
+  background: var(--glow, none), var(--sheen), var(--m);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--edge), var(--drop);
+}
+.mat.thin {
+  --m: var(--glass-thin);
+}
+.mat.thick {
+  --m: var(--glass-thick);
+  backdrop-filter: var(--blur-thick);
+  -webkit-backdrop-filter: var(--blur-thick);
+}
+.mat.lifted {
+  box-shadow: var(--edge), var(--drop-lg);
+}
+
+/* Pointer gloss: the edge catches light near the pointer (see usePointerGloss). */
+.gloss {
+  position: relative;
+}
+.gloss:hover {
+  --glow: radial-gradient(
+    280px circle at var(--mx, 50%) var(--my, 0%),
+    var(--glow-c),
+    transparent 70%
+  );
+}
+.gloss::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  padding: 1.5px;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  background: radial-gradient(
+    200px circle at var(--mx, 50%) var(--my, 0%),
+    var(--rim-glow),
+    transparent 75%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+}
+.gloss:hover::after {
+  opacity: 1;
+}
+
+/* Shine: a specular band sweeps across on hover, for attachment tiles. */
+.shine {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+.shine::before {
+  content: '';
+  position: absolute;
+  inset: -50% auto -50% -60%;
+  width: 40%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    var(--shine-band),
+    transparent
+  );
+  transform: skewX(-18deg);
+}
+.shine:hover::before {
+  animation: shine-sweep 0.9s var(--ease);
+}
+@keyframes shine-sweep {
+  from {
+    opacity: 1;
+    transform: translateX(0) skewX(-18deg);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(420%) skewX(-18deg);
+  }
+}
+
+/* Controls */
+.capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border-radius: 999px;
+}
+.icon-button {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--label-2);
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    transform 0.15s;
+}
+.icon-button:not(:disabled):hover {
+  background-color: var(--fill-2);
+  color: var(--label);
+}
+.icon-button:not(:disabled):active {
+  transform: scale(0.94);
+}
+.icon-button svg {
+  width: 19px;
+  height: 19px;
+}
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--on-tint);
+  background:
+    radial-gradient(
+      120% 70% at 30% 0%,
+      rgba(255, 255, 255, 0.35),
+      transparent 55%
+    ),
+    linear-gradient(165deg, var(--tint-2), var(--tint));
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.45),
+    0 4px 12px color-mix(in oklab, var(--tint) 32%, transparent);
+}
+:where(.primary-button:not(:disabled)):hover {
+  background-color: transparent;
+  filter: brightness(1.06);
+}
+.fdot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--fc, var(--tint));
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
+}
+
+/* Identity */
+.avatar {
+  --hue: var(--hue-iris);
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: color-mix(in oklab, var(--hue) var(--avatar-ink-mix), #fff);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  background:
+    var(--avatar-fill),
+    radial-gradient(
+      120% 90% at 30% 15%,
+      rgba(255, 255, 255, 0.55),
+      rgba(255, 255, 255, 0) 45%
+    ),
+    linear-gradient(
+      165deg,
+      color-mix(in oklab, var(--hue) 70%, #fff),
+      var(--hue) 80%
+    );
+  box-shadow: var(--avatar-shadow);
+}
+.avatar.iris {
+  --hue: var(--hue-iris);
+}
+.avatar.rose {
+  --hue: var(--hue-rose);
+}
+.avatar.mint {
+  --hue: var(--hue-mint);
+}
+.avatar.sky {
+  --hue: var(--hue-sky);
+}
+.avatar.amber {
+  --hue: var(--hue-amber);
+}
+.avatar.sage {
+  --hue: var(--hue-sage);
+}
+.avatar.ocean {
+  --hue: var(--hue-ocean);
+}
+.avatar.plum {
+  --hue: var(--hue-plum);
+}
+.avatar.you {
+  --hue: var(--hue-you);
+}
+.avatar-slot {
+  position: relative;
+  display: inline-grid;
+  flex: none;
+}
+.presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--presence-edge);
+  background: var(--label-3);
+}
+.presence.run {
+  background: var(--run);
+  box-shadow: 0 0 var(--led) var(--run);
+}
+.presence.wait {
+  background: var(--wait);
+  box-shadow: 0 0 var(--led) var(--wait);
+}
+.admin-glyph {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--glyph-ink);
+  background:
+    var(--avatar-fill),
+    radial-gradient(
+      120% 70% at 30% 0%,
+      rgba(255, 255, 255, 0.4),
+      transparent 55%
+    ),
+    linear-gradient(165deg, var(--tint-2), var(--tint));
+  box-shadow: var(--glyph-edge);
+}
+.admin-glyph svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Floating labels for icon-only controls. */
+.tip {
+  position: fixed;
+  z-index: 80;
+  padding: 5px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateY(-50%);
+  animation: tip-in 0.18s var(--ease);
+}
+@keyframes tip-in {
+  from {
+    opacity: 0;
+    transform: translate(-4px, -50%);
+  }
+}
+
+.sr-only,
+.skip-link:not(:focus) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.skip-link:focus {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 90;
+  padding: 10px 14px;
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--tint);
+  box-shadow: var(--drop);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0s !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
+  }
+}

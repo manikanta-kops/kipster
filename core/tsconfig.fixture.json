@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "tests/.build"
+  },
+  "include": ["tests/fixtures/deterministic-adapter.ts", "src/adapter-api/index.ts"]
+}

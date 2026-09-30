@@ -1,0 +1,492 @@
+/* Files, previews, voice notes and the attachment tray. */
+
+/* Glossy extension tile */
+.file-badge {
+  --badge: #8a93ad;
+  --badge-2: #555b70;
+  width: 30px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: end center;
+  padding-bottom: 4px;
+  border-radius: 7px;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background:
+    radial-gradient(
+      100% 60% at 30% 0%,
+      rgba(255, 255, 255, 0.45),
+      transparent 60%
+    ),
+    linear-gradient(170deg, var(--badge), var(--badge-2));
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.15);
+}
+.file-badge svg {
+  width: 15px;
+  height: 15px;
+  align-self: center;
+}
+.file-badge.pdf {
+  --badge: #f06a7d;
+  --badge-2: #cf3551;
+}
+.file-badge.image {
+  --badge: #9b8cff;
+  --badge-2: #6246c8;
+}
+.file-badge.video {
+  --badge: #5fa8ff;
+  --badge-2: #2f6fd1;
+}
+.file-badge.audio {
+  --badge: #f5a05a;
+  --badge-2: #d4682a;
+}
+.file-badge.archive {
+  --badge: #e0b458;
+  --badge-2: #b07a1c;
+}
+.file-badge.code {
+  --badge: #4cc0a8;
+  --badge-2: #16806c;
+}
+.file-badge.voice {
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  color: var(--on-tint);
+  --badge: var(--tint-2);
+  --badge-2: var(--tint);
+}
+
+/* File tiles in messages */
+.artifact-card,
+.file-row {
+  width: fit-content;
+  max-width: min(100%, 420px);
+  min-width: 0;
+  margin: 8px 0 2px;
+  border-radius: 14px;
+  background: var(--glow, none), var(--sheen), var(--glass-thick);
+  box-shadow:
+    var(--edge),
+    0 3px 10px rgba(20, 30, 50, 0.08);
+  overflow-wrap: anywhere;
+}
+.artifact-card:not(:hover) {
+  --glow: none;
+}
+.artifact-card {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+  transition: translate 0.2s var(--spring);
+}
+.artifact-card:hover {
+  translate: 0 -1px;
+}
+.artifact-card.has-preview {
+  width: min(100%, 420px);
+}
+.artifact-heading,
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.file-row {
+  padding: 8px 14px 8px 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.artifact-name,
+.file-row > span {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  padding-right: 4px;
+}
+.artifact-name strong {
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+.artifact-name small,
+.file-row small {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--label-3);
+}
+.artifact-download {
+  margin-left: auto;
+}
+.artifact-card .icon-button {
+  width: 30px;
+  height: 30px;
+}
+.artifact-card .icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+.artifact-card > small,
+.artifact-meta {
+  padding: 0 6px 2px;
+  font-size: 11.5px;
+  color: var(--label-3);
+}
+.artifact-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 6px 2px;
+  font-size: 12px;
+  color: var(--danger);
+}
+.artifact-error button {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: var(--tint);
+}
+/* Image, video and audio previews */
+.media-preview {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: contain;
+  border-radius: 10px;
+  background: var(--fill);
+}
+.artifact-card audio {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+}
+
+/* Voice note player */
+.voice-note {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 4px 2px 2px;
+}
+.voice-play {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--on-tint);
+  background:
+    radial-gradient(
+      120% 70% at 30% 0%,
+      rgba(255, 255, 255, 0.38),
+      transparent 55%
+    ),
+    linear-gradient(165deg, var(--tint-2), var(--tint));
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.45),
+    0 3px 8px color-mix(in oklab, var(--tint) 28%, transparent);
+}
+.voice-play:not(:disabled):hover {
+  background-color: transparent;
+  filter: brightness(1.08);
+}
+.voice-play svg {
+  width: 12px;
+  height: 12px;
+}
+.voice-wave {
+  position: relative;
+  flex: 1 1 170px;
+  min-width: 90px;
+  max-width: 220px;
+  height: 24px;
+  border-radius: 6px;
+}
+.voice-bars {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.voice-bars span {
+  flex: 1;
+  height: calc(3px + var(--level) * 19px);
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--tint) 38%, transparent);
+  transition: background-color 0.15s;
+}
+.voice-bars span.played {
+  background: var(--tint);
+}
+.voice-seek {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.voice-seek:disabled {
+  cursor: default;
+}
+.voice-wave:has(.voice-seek:focus-visible) {
+  outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
+  outline-offset: 3px;
+}
+.voice-time {
+  min-width: 32px;
+  font-size: 12px;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+.voice-note audio {
+  display: none;
+}
+.artifact-card.voice {
+  width: min(100%, 360px);
+  padding: 6px 6px 6px 8px;
+}
+
+/* Attachment tray above the composer */
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 6px;
+  max-height: min(260px, 32vh);
+  margin: 0 0 8px;
+  padding: 2px;
+  overflow-y: auto;
+  list-style: none;
+}
+.pending-media {
+  position: relative;
+  flex: 0 1 320px;
+  max-width: 100%;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 8px 8px;
+  border-radius: 14px;
+  background: var(--sheen), var(--glass-thick);
+  backdrop-filter: var(--blur);
+  -webkit-backdrop-filter: var(--blur);
+  box-shadow: var(--edge), var(--drop-sm);
+}
+.pending-media.voice {
+  flex-basis: 320px;
+}
+.pending-media.uncertain {
+  box-shadow:
+    var(--edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--wait) 45%, transparent),
+    var(--drop-sm);
+}
+.pending-media:has(.media-error) {
+  box-shadow:
+    var(--edge),
+    inset 0 0 0 1px color-mix(in oklab, var(--danger) 45%, transparent),
+    var(--drop-sm);
+}
+.pending-info {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.pending-name {
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pending-info small {
+  font-size: 11.5px;
+  color: var(--label-3);
+}
+.pending-media.ready .pending-info > small:first-of-type {
+  color: var(--run-ink);
+}
+.pending-media.uncertain .pending-info > small:first-of-type {
+  color: var(--wait-ink);
+}
+.pending-info .media-preview {
+  width: auto;
+  max-width: 100%;
+  max-height: 88px;
+  margin-top: 4px;
+  border-radius: 8px;
+}
+.pending-info audio {
+  width: 100%;
+  height: 34px;
+  margin-top: 4px;
+}
+.upload-meter {
+  height: 4px;
+  margin: 3px 0 1px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--fill-2);
+}
+.upload-meter::before {
+  content: '';
+  display: block;
+  width: calc(max(var(--progress), 0.04) * 100%);
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--tint-2), var(--tint));
+  transition: width 0.3s var(--ease);
+}
+.pending-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  align-self: center;
+}
+.pending-actions:empty {
+  display: none;
+}
+.pending-actions button {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--tint);
+}
+.pending-remove.icon-button {
+  width: 26px;
+  height: 26px;
+  margin: -2px 0 0;
+}
+.pending-remove.icon-button svg {
+  width: 14px;
+  height: 14px;
+}
+.media-error {
+  font-size: 12px;
+  color: var(--danger);
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .pending-media {
+    flex-wrap: wrap;
+  }
+  .pending-actions {
+    flex-direction: row;
+    flex-basis: 100%;
+    justify-content: flex-end;
+  }
+  .artifact-card,
+  .artifact-card.has-preview {
+    max-width: 100%;
+  }
+}
+
+/* Outline surfaces: outlined tiles, extension text lit like a display, dot waveforms. */
+:root[data-surface='outline'] :is(.artifact-card, .file-row, .pending-media) {
+  background: var(--glow, none), var(--surface);
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
+}
+:root[data-surface='outline'] .file-badge {
+  background: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--label) 18%, transparent);
+  color: var(--label-2);
+}
+:root[data-surface='outline'] .file-badge.pdf {
+  color: var(--danger);
+}
+:root[data-surface='outline'] :is(.file-badge.voice, .voice-play) {
+  color: var(--canvas);
+  background: var(--label);
+  box-shadow: none;
+}
+:root[data-surface='outline'] .voice-bars {
+  gap: 1px;
+}
+:root[data-surface='outline'] .voice-bars span {
+  flex: 0 0 4px;
+  border-radius: 0;
+  background: radial-gradient(
+      circle,
+      color-mix(in srgb, var(--label) 30%, transparent) 1.1px,
+      transparent 1.5px
+    )
+    center bottom / 4px 4px;
+}
+:root[data-surface='outline'] .voice-bars span.played {
+  background: radial-gradient(circle, var(--label) 1.1px, transparent 1.5px)
+    center bottom / 4px 4px;
+}
+:root[data-surface='outline'] .upload-meter::before {
+  background: var(--label);
+}
+
+/* Compact, equal-width draft tiles retain room for exceptional upload states. */
+.pending-media {
+  min-height: 64px;
+}
+.pending-media.voice .pending-name {
+  padding-left: 42px;
+  color: var(--label-3);
+  font-size: 11.5px;
+}
+.pending-media.voice .voice-note {
+  padding: 0;
+  gap: 8px;
+}
+.pending-media.voice .voice-wave {
+  min-width: 40px;
+}
+.pending-media.voice .voice-time {
+  font-size: 11px;
+}
+.pending-actions .pending-rerecord {
+  padding: 0;
+  width: 26px;
+  height: 26px;
+  color: var(--label-2);
+}
+.pending-rerecord svg {
+  width: 18px;
+  height: 18px;
+}
+.pending-remove.icon-button {
+  margin: 0;
+  flex: none;
+}
+.preparation-card summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--label-3);
+}
+@media (max-width: 600px) {
+  .pending-media {
+    flex-wrap: nowrap;
+  }
+  .pending-actions {
+    flex-basis: auto;
+    flex-direction: column;
+  }
+}

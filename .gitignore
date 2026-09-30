@@ -1,0 +1,19 @@
+/internal-docs/
+
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
+
+# Local tooling and generated artifacts
+.DS_Store
+.codex/
+.agents/
+node_modules/
+*.log

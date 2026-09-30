@@ -1,0 +1,61 @@
+{
+  "name": "@kipster/ui",
+  "private": true,
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode demo",
+    "dev:core": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "typecheck": "tsc -b",
+    "check": "npm run lint && npm run format:check && npm run build",
+    "test:e2e": "playwright test",
+    "test:screenshots": "playwright test -c playwright.screenshots.config.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "tauri": "tauri",
+    "dev:desktop": "vite --mode demo --port 1420",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:demo": "tauri build --config src-tauri/tauri.demo.conf.json",
+    "desktop:check": "cargo check --manifest-path src-tauri/Cargo.toml",
+    "build:demo": "tsc -b && vite build --mode demo",
+    "build:desktop-demo": "npm run build:demo",
+    "preview:demo": "vite preview",
+    "build:test": "tsc -b && vite build --mode test",
+    "preview:test": "vite preview --mode test",
+    "test:fake-core": "node --test --test-timeout=15000 tests/fake-core-conformance.mjs tests/fake-core-media.mjs",
+    "test:real-core": "node tests/real-core-suite.mjs",
+    "test:entry": "node tests/entry-startup.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "@tanstack/react-query": "5.103.2",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-notification": "^2.4.0",
+    "dexie": "4.4.6",
+    "motion": "^13.4.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@kipster/core": "file:../../core",
+    "@playwright/test": "^1.63.0",
+    "@tauri-apps/cli": "^2.11.5",
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.7",
+    "@vitejs/plugin-react": "^6.1.1",
+    "oxlint": "^1.81.0",
+    "prettier": "^3.9.8",
+    "typescript": "~6.0.2",
+    "vite": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}
