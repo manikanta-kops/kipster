@@ -17,5 +17,8 @@
     "backend": "bash scripts/local.sh backend",
     "test:local": "bash scripts/local.sh test",
     "test:local:full": "bash scripts/local.sh test-full"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3"
   }
 }

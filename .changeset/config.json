@@ -1,0 +1,9 @@
+{
+  "$schema": "../node_modules/@changesets/config/schema.json",
+  "baseBranch": "next",
+  "changelog": "@changesets/cli/changelog",
+  "commit": false,
+  "format": false,
+  "privatePackages": { "version": true, "tag": true },
+  "snapshot": { "useCalculatedVersion": true, "prereleaseTemplate": "next.{tag}" }
+}

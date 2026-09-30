@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Kipster",
-  "version": "0.1.0",
+  "version": "../package.json",
   "identifier": "app.kipster.desktop",
   "build": {
     "frontendDist": "../dist",
