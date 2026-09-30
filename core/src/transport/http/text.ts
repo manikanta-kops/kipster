@@ -1,6 +1,7 @@
 import { applyAdminApproval } from '../../workflows/admin-approvals.js'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
 import type { Runtime } from '../../runtime.js'
 import type { TrustedActor } from '../../modules/identity/public.js'
@@ -8,6 +9,7 @@ import { resolveDirectChat, acceptText } from '../../modules/conversations/publi
 import { eventSignals, snapshot, readEvents, markNotificationRead, type Stream, type SnapshotPage } from '../../modules/synchronization/public.js'
 import { AgentNotArchivedError, OperationConflictError, OrderConflictError, readDirectory } from '../../modules/administration/public.js'
 import { administrationRoute, ServiceUnavailableError } from './admin.js'
+import { protocolRange } from '../../protocol/version.js'
 import { context as contextSchema, textSubmission, controlCommand, interactionResponseCommand, learningUpdate, agentLearningUpdate, identityWrite, identityRestore, type Context } from '../../protocol/text.js'
 import type { TextDispatcher, ControlInput } from '../../workflows/text-dispatch.js'
 import { answerInteraction, interactionReceipt, type InteractionAnswer } from '../../modules/work/public.js'
@@ -98,6 +100,7 @@ function authority(value: string): string {
 
 /** Trusted-owner HTTP binding. Public network authentication belongs to installation assembly. */
 export async function startTextServer(runtime: Runtime, actor: TrustedActor, options: { host: string; port: number; allowedOrigins?: readonly string[]; allowedHosts?: readonly string[]; afterAccepted?: (runId: string) => Promise<void>; dispatcher?: TextDispatcher }): Promise<TextServer> {
+  const coreVersion = (JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as { version: string }).version
   const streams = new Map<ServerResponse, () => void>()
   const allowedHosts = new Set((options.allowedHosts ?? []).map(authority))
   let listeningOrigin = ''
@@ -147,7 +150,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){

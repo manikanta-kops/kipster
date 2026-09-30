@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import http from 'node:http'
+import { readFileSync } from 'node:fs'
 import { startTextServer } from '../dist/runtime.js'
 
 // No database or real state: bootstrap reads return fake IDs. A malformed write must reach
@@ -73,4 +74,12 @@ test('host allowlist rejects credentials, paths and forwarded URL forms', async 
   for (const host of ['https://kipster.example', 'kipster.example/path', 'user@kipster.example', 'kipster.example#fragment', 'kipster.example?query', ' kipster.example']) {
     await assert.rejects(startTextServer(runtime, actor, { host: '127.0.0.1', port: 0, allowedHosts: [host] }))
   }
+})
+
+test('bootstrap reports the Core release and the protocol range it serves', async t => {
+  const server = await setup(t)
+  const { body } = await request(server)
+  const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
+  assert.equal(body.coreVersion, manifest.version)
+  assert.deepEqual(body.protocol, { current: 1, oldest: 1 })
 })
