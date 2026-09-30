@@ -48,7 +48,7 @@ Early development. Not yet a supported release. Setup instructions are coming so
 | [`core/`](core) | Core, the Kipster protocol and the adapter contract |
 | [`interface/`](interface) | The Kipster app for macOS and the web |
 | [`adapters/`](adapters) | Provider adapters: Codex CLI, Spokenly, Ollama |
-| [`docs/`](docs) | Architecture and design decisions |
+| [`docs/`](docs) | Architecture, design decisions and [releasing](docs/releasing.md) |
 
 ## License
 

@@ -1,0 +1,79 @@
+name: Build and publish packages
+
+on:
+  workflow_call:
+    inputs:
+      packages:
+        description: JSON list from `node scripts/release.mjs plan`
+        type: string
+        required: true
+      ref:
+        description: Commit to build
+        type: string
+        required: true
+      snapshot:
+        description: Snapshot stamp for next builds; empty for stable releases
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.package.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(inputs.packages) }}
+    runs-on: ${{ matrix.package.runner }}
+    env:
+      NAME: ${{ matrix.package.name }}
+      TAG: ${{ matrix.package.tag }}
+      VERSION: ${{ matrix.package.version }}
+      REF: ${{ inputs.ref }}
+      SNAPSHOT: ${{ inputs.snapshot }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - name: Install Rust
+        if: matrix.package.app
+        run: rustup toolchain install stable --profile minimal
+      - run: npm ci
+      - name: Apply the next version
+        if: inputs.snapshot != ''
+        run: npx changeset version --snapshot "$SNAPSHOT"
+      - name: Build
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APP: ${{ matrix.package.app }}
+        run: |
+          set -euo pipefail
+          if [ "$APP" = true ] && [ -n "$CERTIFICATE" ]; then
+            export APPLE_CERTIFICATE="$CERTIFICATE" APPLE_CERTIFICATE_PASSWORD="$CERTIFICATE_PASSWORD" APPLE_SIGNING_IDENTITY="$SIGNING_IDENTITY"
+            if [ -n "$NOTARY_KEY" ]; then
+              printf '%s' "$NOTARY_KEY" > "$RUNNER_TEMP/notary.p8"
+              export APPLE_API_KEY="$NOTARY_KEY_ID" APPLE_API_ISSUER="$NOTARY_ISSUER" APPLE_API_KEY_PATH="$RUNNER_TEMP/notary.p8"
+            fi
+          fi
+          node scripts/release.mjs build "$NAME" "$RUNNER_TEMP/release"
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          node scripts/release.mjs notes "$NAME" > "$RUNNER_TEMP/notes.md"
+          prerelease=--prerelease=false
+          if [ -n "$SNAPSHOT" ]; then prerelease=--prerelease; fi
+          gh release create "$TAG" "$RUNNER_TEMP"/release/* "$prerelease" --latest=false \
+            --target "$REF" --title "$NAME $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
