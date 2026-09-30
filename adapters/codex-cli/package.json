@@ -18,9 +18,6 @@
       "import": "./dist/index.js"
     }
   },
-  "peerDependencies": {
-    "@kipster/core": "0.0.0"
-  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -29,7 +26,7 @@
     "prepack": "npm run check"
   },
   "devDependencies": {
-    "@kipster/core": "file:../../core",
+    "@kipster/core": "*",
     "@types/node": "26.6.2",
     "typescript": "6.0.3"
   },

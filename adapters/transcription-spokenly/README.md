@@ -4,12 +4,11 @@ Implements the Core transcription contract using the installed Spokenly CLI. It 
 
 ## Development
 
-The package resolves `@kipster/core` from the Core checkout at `../../core` through a `file:` development dependency, so build Core first:
+The package resolves `@kipster/core` from the repository's npm workspace. Install from the repository root and build Core first:
 
 ```sh
-npm --prefix ../../core ci
+npm ci --prefix ../..
 npm --prefix ../../core run build
-npm ci
 npm run check
 ```
 

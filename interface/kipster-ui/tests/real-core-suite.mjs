@@ -1,5 +1,6 @@
 // One disposable database cluster owns every real-Core browser and lifecycle check.
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -161,7 +162,14 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
       })
       await vite.listen()
       await run(
-        join(ui, 'node_modules/@playwright/test/cli.js'),
+        join(
+          dirname(
+            createRequire(join(ui, 'package.json')).resolve(
+              '@playwright/test/package.json',
+            ),
+          ),
+          'cli.js',
+        ),
         [
           'test',
           '-c',

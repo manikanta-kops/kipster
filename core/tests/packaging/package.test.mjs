@@ -5,12 +5,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { createRequire } from 'node:module'
 import { runInNewContext } from 'node:vm'
 import { build } from 'esbuild'
 
 const coreRoot = fileURLToPath(new URL('../../', import.meta.url))
 const npmCli = process.env.npm_execpath
-const compiler = path.join(coreRoot, 'node_modules/typescript/bin/tsc')
+const compiler = createRequire(path.join(coreRoot, 'package.json')).resolve('typescript/bin/tsc')
 const guard = fileURLToPath(new URL('./import-guard.mjs', import.meta.url))
 
 function run(command, args, cwd, timeout = 60_000) {

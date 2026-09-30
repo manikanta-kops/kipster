@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn } from 'node:child_process'
+import { createRequire } from 'node:module'
 import { webkit, expect } from '@playwright/test'
 import { Postgres } from '../../../core/dist/platform/postgres/public.js'
 import {
@@ -154,7 +155,12 @@ try {
   vite = spawn(
     process.execPath,
     [
-      'node_modules/vite/bin/vite.js',
+      join(
+        dirname(
+          createRequire(join(ui, 'package.json')).resolve('vite/package.json'),
+        ),
+        'bin/vite.js',
+      ),
       '--host',
       '127.0.0.1',
       '--port',

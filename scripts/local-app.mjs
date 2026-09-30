@@ -31,7 +31,7 @@ export async function app({ buildOnly = false } = {}) {
       await run('cargo', ['--version'], { capture: true })
       await run('/usr/bin/xcode-select', ['-p'], { capture: true })
     } catch { throw new Error('Install Rust (cargo) and Xcode Command Line Tools, then rerun npm run app.') }
-    await dependencies(ui)
+    await dependencies()
     console.log('Building the Kipster desktop app…')
     await run('npm', ['run', 'tauri', '--', 'build', '--debug', '--bundles', 'app', '--config', JSON.stringify({ build: { devUrl: null } })], { cwd: ui, env: appEnvironment() })
     const built = join(ui, 'src-tauri/target/debug/bundle/macos/Kipster.app')

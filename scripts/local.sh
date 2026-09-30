@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 cd "$(dirname "$0")/.."
-version="$(cat core/.nvmrc)"
+version="$(cat .nvmrc)"
 if [[ "${2:-}" != "--help" && "$(node --version 2>/dev/null || true)" != "v$version" ]]; then
   nvm_script="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
   if [[ ! -f "$nvm_script" ]]; then

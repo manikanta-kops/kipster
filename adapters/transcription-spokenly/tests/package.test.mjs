@@ -25,7 +25,7 @@ test('packing a clean source tree builds both exported entry points and supports
   await mkdir(clean); await mkdir(consumer)
   for (const name of ['package.json', 'README.md', 'tsconfig.json', 'src']) await cp(join(source, name), join(clean, name), { recursive: true })
   // Reuse installed development dependencies read-only; pack builds only the temporary source tree.
-  await symlink(join(source, 'node_modules'), join(clean, 'node_modules'), 'dir')
+  await symlink(join(source, '../../node_modules'), join(clean, 'node_modules'), 'dir')
   assert.equal((await readdir(clean)).includes('dist'), false)
   const env = { ...process.env, npm_config_cache: join(root, 'npm-cache'), NODE_OPTIONS: '', NODE_PATH: '' }
   await run('npm', ['pack', '--pack-destination', root], clean, env)
