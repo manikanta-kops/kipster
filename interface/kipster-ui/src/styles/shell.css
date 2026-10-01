@@ -1062,8 +1062,9 @@
 .workspace-state:focus {
   outline: none;
 }
-.workspace-state > svg {
-  color: var(--tint);
+.workspace-state > .workspace-kip {
+  width: 44px;
+  height: 44px;
 }
 .workspace-state h1 {
   font-size: 24px;

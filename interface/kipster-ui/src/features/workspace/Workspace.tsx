@@ -19,6 +19,7 @@ import { Sidebar } from './Sidebar'
 import { Management } from './Management'
 import { defaultNavigation, type Navigation } from './navigation'
 import { StatusIsland } from '../status/StatusIsland'
+import { KipHead } from '../../components/Kip'
 import {
   summarize,
   deriveThreadState,
@@ -1315,8 +1316,8 @@ export function Workspace({
         <div
           className={`state-card mat thick lifted ${connection === connecting ? '' : 'error'}`}
         >
-          <span className="state-mark" aria-hidden="true">
-            <Icon name="kip" size={30} />
+          <span className="state-mark kip" aria-hidden="true">
+            <KipHead />
           </span>
           <h1>
             {connection === connecting
@@ -1675,7 +1676,9 @@ export function Workspace({
                 />
               ) : (
                 <div className="workspace-state">
-                  <Icon name="kip" size={38} />
+                  <span className="avatar kip workspace-kip" aria-hidden="true">
+                    <KipHead />
+                  </span>
                   <h1>
                     {!appReady
                       ? connection && connection !== connecting

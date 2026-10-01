@@ -51,67 +51,12 @@ const icons = {
   hand: HandIcon,
 } as const
 
-// Pixel Kip in profile: R comb and wattle, O beak, W head and S neck in the current color. The eye is a hole.
-const kipRows = [
-  '...RR..',
-  '..RRRR.',
-  '..WWWW.',
-  '.WWW.WO',
-  '.WWWWR.',
-  'WWWWWR.',
-  'SSSWW..',
-]
-const kipFill = {
-  R: '#ff453a',
-  O: '#ff9f0a',
-  W: 'currentColor',
-  S: 'currentColor',
-} as const
-
-function KipGlyph({
-  size = 20,
-  className,
-}: {
-  size?: IconProps['size']
-  className?: string
-}) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="-0.5 -0.5 8 8"
-      shapeRendering="crispEdges"
-      className={className}
-      aria-hidden="true"
-      focusable="false"
-    >
-      {kipRows.flatMap((row, y) =>
-        [...row].map((cell, x) =>
-          cell === '.' ? null : (
-            <rect
-              key={`${x}:${y}`}
-              x={x}
-              y={y}
-              width="1"
-              height="1"
-              fill={kipFill[cell as keyof typeof kipFill]}
-              fillOpacity={cell === 'S' ? 0.55 : undefined}
-            />
-          ),
-        ),
-      )}
-    </svg>
-  )
-}
-
 /** Direct imports keep unused icons out of the development module graph too. */
 export function Icon({
   name,
   weight = 'regular',
   ...props
-}: Omit<IconProps, 'name'> & { name: keyof typeof icons | 'kip' }) {
-  if (name === 'kip')
-    return <KipGlyph size={props.size} className={props.className} />
+}: Omit<IconProps, 'name'> & { name: keyof typeof icons }) {
   const Glyph = icons[name]
   return (
     <Glyph

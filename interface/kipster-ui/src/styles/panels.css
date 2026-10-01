@@ -1541,6 +1541,18 @@ ul.management-list {
     var(--glyph-edge),
     0 8px 22px color-mix(in oklab, var(--tint) 26%, transparent);
 }
+/* Kip's LED head sits on a black tile; the error state below still tints it red. */
+.state-mark.kip {
+  overflow: hidden;
+  background: #050505;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 8px 22px rgba(0, 0, 0, 0.24);
+}
+.state-mark.kip svg {
+  width: 100%;
+  height: 100%;
+}
 .state-card:not(.error) .state-mark {
   animation: state-breathe 1.8s ease-in-out infinite alternate;
 }

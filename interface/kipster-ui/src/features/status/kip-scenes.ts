@@ -7,6 +7,7 @@ import {
   type DotFrame,
   type Scene,
 } from './pixel-scenes'
+import { kipStanding, kipTorso } from '../../components/kip-sprite'
 
 /*
  * Kip's sign: the night-farm scenes from kipster.app, one per live state.
@@ -15,20 +16,9 @@ import {
 
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p
 
-const body = [
-  '.........RR..',
-  '........RRRR.',
-  '.SS.....WWWW.',
-  '.SWS...WWWKWY',
-  '.SWWS..WWWWR.',
-  '..SWWWWWWWWR.',
-  '..WWWWSSSWW..',
-  '...WWWSSWWW..',
-  '....WWWWWW...',
-]
-const legs = (a: string, b: string) => [...body, a, b]
+const legs = (a: string, b: string) => [...kipTorso, a, b]
 const sprites = {
-  stand: legs('......Y.Y....', '.....YY.YY...'),
+  stand: kipStanding,
   walkA: legs('.....Y...Y...', '....YY...YY..'),
   walkB: legs('......YY.....', '......YYY....'),
   scratch: legs('....Y...Y....', '...Y....YY...'),
@@ -52,7 +42,7 @@ const sprites = {
     '.SWS...WWKW..',
     '.SWWS..WWWWR.',
     '..SWWWWWWWWR.',
-    ...body.slice(6),
+    ...kipTorso.slice(6),
     '......Y.Y....',
     '.....YY.YY...',
   ],

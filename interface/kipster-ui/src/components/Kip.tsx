@@ -1,33 +1,12 @@
-// Kip in LED dots: W body, S wing and tail, R comb and wattle, Y beak and feet.
+import { kipHead, kipStanding } from './kip-sprite'
+
+// Kip in LED dots.
 const ink = {
   W: '#f3f4f6',
   S: 'rgba(243, 244, 246, 0.55)',
   R: '#ff453a',
   Y: '#ff9f0a',
 } as const
-
-const head = [
-  '...RR..',
-  '..RRRR.',
-  '..WWWW.',
-  '.WWWKWY',
-  '.WWWWR.',
-  'WWWWWR.',
-  'SSSWW..',
-]
-const body = [
-  '.........RR..',
-  '........RRRR.',
-  '.SS.....WWWW.',
-  '.SWS...WWWKWY',
-  '.SWWS..WWWWR.',
-  '..SWWWWWWWWR.',
-  '..WWWWSSSWW..',
-  '...WWWSSWWW..',
-  '....WWWWWW...',
-  '......Y.Y....',
-  '.....YY.YY...',
-]
 
 function Dots({
   rows,
@@ -72,7 +51,7 @@ function Dots({
 export function KipHead() {
   return (
     <Dots
-      rows={head}
+      rows={kipHead}
       cell={11.5}
       radius={4.6}
       x0={9.75}
@@ -86,7 +65,7 @@ export function KipHead() {
 export function KipBody() {
   return (
     <Dots
-      rows={body}
+      rows={kipStanding}
       cell={6.4}
       radius={2.6}
       x0={8.4}
