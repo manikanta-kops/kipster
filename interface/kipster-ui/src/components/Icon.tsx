@@ -51,17 +51,22 @@ const icons = {
   hand: HandIcon,
 } as const
 
-// Pixel Kip: R comb and wattle, O beak, W body in the current color. Eyes are holes.
+// Pixel Kip in profile: R comb and wattle, O beak, W head and S neck in the current color. The eye is a hole.
 const kipRows = [
-  '..R.R..',
-  '.RRRRR.',
-  '.WWWWW.',
-  'WW.W.WW',
-  'WWWOWWW',
-  'WWWRWWW',
-  '.WWWWW.',
+  '...RR..',
+  '..RRRR.',
+  '..WWWW.',
+  '.WWW.WO',
+  '.WWWWR.',
+  'WWWWWR.',
+  'SSSWW..',
 ]
-const kipFill = { R: '#ff453a', O: '#ff9f0a', W: 'currentColor' } as const
+const kipFill = {
+  R: '#ff453a',
+  O: '#ff9f0a',
+  W: 'currentColor',
+  S: 'currentColor',
+} as const
 
 function KipGlyph({
   size = 20,
@@ -90,6 +95,7 @@ function KipGlyph({
               width="1"
               height="1"
               fill={kipFill[cell as keyof typeof kipFill]}
+              fillOpacity={cell === 'S' ? 0.55 : undefined}
             />
           ),
         ),

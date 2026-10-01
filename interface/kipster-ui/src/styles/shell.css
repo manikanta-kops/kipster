@@ -56,44 +56,167 @@
 .sidebar-collapsed {
   --side-w: var(--side-w-collapsed);
 }
-.brand {
+.sidebar-top {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  min-height: 32px;
+  padding: 0 2px 8px;
+}
+.sidebar-collapsed .sidebar-top {
+  justify-content: center;
+  padding: 0 0 10px;
+}
+/* The collapse button shares the row with the native window controls. */
+.titlebar-overlay .sidebar .sidebar-top {
+  margin-top: -8px;
+}
+.titlebar-overlay .sidebar-collapsed .sidebar .sidebar-top {
+  margin-top: -14px;
+  padding-top: 42px;
+}
+
+/* Kip's home: a live LED sign of what Kip is doing. */
+.kip-home,
+.kip-home-mini {
+  --kip-tone: #4ade6b;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='neutral'] {
+  --kip-tone: #c7c7cf;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='run'] {
+  --kip-tone: #8fdcff;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='wait'] {
+  --kip-tone: #ffae33;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='soft'] {
+  --kip-tone: #ffcf8a;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='success'] {
+  --kip-tone: #4ade6b;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='danger'] {
+  --kip-tone: #ff7a6e;
+}
+:is(.kip-home, .kip-home-mini)[data-tone='muted'] {
+  --kip-tone: rgba(255, 255, 255, 0.48);
+}
+.kip-home {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
   gap: 9px;
-  min-height: 40px;
-  padding: 0 4px 12px 8px;
+  padding: 6px 6px 9px;
+  border-radius: 20px;
+  text-align: left;
+  transition: background-color 0.15s;
 }
-.brand-mark {
-  display: grid;
-  place-items: center;
-  color: var(--tint);
+.kip-home:hover {
+  background: var(--glow, none), var(--fill);
 }
-.brand-mark svg {
-  width: 24px;
-  height: 24px;
+.kip-home.selected {
+  background: var(--glow, none), var(--tint-soft);
 }
-.wordmark {
+.kip-sign {
+  display: block;
+  padding: 6px;
+  border-radius: 14px;
+  background: #030303;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 8px 22px rgba(0, 0, 0, 0.22);
+}
+.kip-sign .pixel-display {
+  width: 100% !important;
+  height: auto !important;
+}
+.kip-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 4px;
+}
+.kip-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 17px;
   font-weight: 700;
   letter-spacing: -0.03em;
-  white-space: nowrap;
 }
-.collapse-button {
-  margin-left: auto;
+.kip-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: #000;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  color: var(--kip-tone);
+  font: 600 10px/1 var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
-
-.sidebar-collapsed .brand {
-  flex-direction: column;
-  gap: 12px;
-  padding: 0 0 12px;
+.kip-state i,
+.kip-home-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kip-tone);
+  box-shadow: 0 0 8px var(--kip-tone);
 }
-.sidebar-collapsed .collapse-button {
-  margin: 0;
+[data-tone='wait'] > .kip-line .kip-state i,
+.kip-home-mini[data-tone='wait'] .kip-home-dot {
+  animation: kip-blink 1.2s steps(1) infinite;
 }
-/* Room for the native window controls when the title bar overlays content. */
-.titlebar-overlay .sidebar .brand {
-  margin-top: -14px;
-  padding-top: 42px;
+@keyframes kip-blink {
+  50% {
+    opacity: 0.2;
+  }
+}
+.kip-home-mini {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 6px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  transition: background-color 0.15s;
+}
+.kip-home-mini:hover {
+  background: var(--fill);
+}
+.kip-home-mini.selected {
+  background: var(--tint-soft);
+}
+.kip-home-mini .avatar {
+  width: 42px;
+  height: 42px;
+}
+.kip-home-mini:not([data-tone='calm']) .avatar {
+  box-shadow:
+    0 0 0 2px rgba(0, 0, 0, 0.55),
+    0 0 0 3.5px var(--kip-tone);
+}
+.kip-home-dot {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  width: 11px;
+  height: 11px;
+  box-shadow:
+    0 0 0 2.5px rgba(0, 0, 0, 0.6),
+    0 0 8px var(--kip-tone);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tone='wait'] > .kip-line .kip-state i,
+  .kip-home-mini[data-tone='wait'] .kip-home-dot {
+    animation: none;
+  }
 }
 .sidebar-collapsed .sidebar .sidebar-label {
   display: none;

@@ -18,6 +18,7 @@ const inspectorExit = { duration: 0.32, ease: [0.4, 0, 0.8, 0.2] } as const
 export function ThreadPane({
   thread,
   agent,
+  admin = false,
   state,
   expanded,
   onExpand,
@@ -35,6 +36,8 @@ export function ThreadPane({
 }: {
   thread: Thread
   agent: Agent
+  /** The agent is the root admin, shown as Kip. */
+  admin?: boolean
   state: LiveState
   expanded: boolean
   onExpand: () => void
@@ -77,7 +80,7 @@ export function ThreadPane({
             heading="h2"
             maxName={190}
             announce={false}
-            mark={<Avatar name={agent.name} color={agent.color} />}
+            mark={<Avatar name={agent.name} color={agent.color} kip={admin} />}
           />
         </div>
         <div className="header-actions">
