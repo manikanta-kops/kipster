@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { isBuiltin } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
+import ts from '@typescript/typescript6'
 
 // Add an external browser dependency only with an isolated browser-consumer proof.
 const browserDependencies = new Set()

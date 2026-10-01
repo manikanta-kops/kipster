@@ -11,7 +11,8 @@ import { build } from 'esbuild'
 
 const coreRoot = fileURLToPath(new URL('../../', import.meta.url))
 const npmCli = process.env.npm_execpath
-const compiler = createRequire(path.join(coreRoot, 'package.json')).resolve('typescript/bin/tsc')
+const typescriptManifest = createRequire(path.join(coreRoot, 'package.json')).resolve('typescript/package.json')
+const compiler = path.join(path.dirname(typescriptManifest), JSON.parse(readFileSync(typescriptManifest, 'utf8')).bin.tsc)
 const guard = fileURLToPath(new URL('./import-guard.mjs', import.meta.url))
 
 function run(command, args, cwd, timeout = 60_000) {

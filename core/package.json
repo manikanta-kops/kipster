@@ -73,8 +73,9 @@
   },
   "devDependencies": {
     "@types/node": "26.6.3",
+    "@typescript/typescript6": "6.0.2",
     "esbuild": "0.28.2",
-    "typescript": "6.0.3"
+    "typescript": "7.0.2"
   },
   "dependencies": {
     "pg": "8.23.0",
