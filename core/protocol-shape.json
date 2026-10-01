@@ -1,0 +1,1674 @@
+{
+  "protocol": {"current":1,"oldest":1},
+  "requests": {
+    "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
+    "agentCreate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"string","min":1,"max":200},
+        "description": {"type":"optional","of":{"type":"string","min":0,"max":2000}},
+        "settings": {"type":"optional","of":{"ref":"settingsPatch"}},
+        "organizationId": {"type":"optional","of":{"type":"string","min":1}}
+      }
+    },
+    "agentDelete": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "copyFilesToOrganizations": {"type":"optional","of":{"type":"boolean"}}
+      }
+    },
+    "agentLearningUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "enabled": {"type":"optional","of":{"type":"boolean"}},
+        "sleepTime": {"type":"optional","of":{"type":"nullable","of":{"type":"string","format":"clock-time"}}}
+      }
+    },
+    "agentUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"optional","of":{"type":"string","min":1,"max":200}},
+        "description": {"type":"optional","of":{"type":"string","min":0,"max":2000}},
+        "settings": {"type":"optional","of":{"ref":"settingsPatch"}}
+      }
+    },
+    "appearanceAdd": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "membershipId": {"type":"string","min":1}
+      }
+    },
+    "appearanceOrder": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "membershipIds": {"type":"array","items":{"type":"string","min":1}}
+      }
+    },
+    "boundedRead": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "scope": {"ref":"callerScope"},
+        "context": {"ref":"context"},
+        "chatId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "before": {"type":"nullable","of":{"type":"string","min":1}},
+        "limit": {"type":"integer","min":1,"max":100}
+      }
+    },
+    "callerScope": {
+      "type": "object",
+      "exact": true,
+      "fields": {"installationId":{"type":"string","min":1},"callerId":{"type":"string","min":1}}
+    },
+    "context": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"installation"},
+            "installationId": {"type":"string","min":1}
+          }
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"organization"},
+            "organizationId": {"type":"string","min":1}
+          }
+        }
+      ]
+    },
+    "controlCommand": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1},
+        "context": {"ref":"context"},
+        "chatId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "runId": {"type":"string","min":1},
+        "attemptId": {"type":"optional","of":{"type":"nullable","of":{"type":"string","min":1}}},
+        "action": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"stop"},
+            {"type":"literal","value":"resume"},
+            {"type":"literal","value":"retry"},
+            {"type":"literal","value":"cancel-queued"},
+            {"type":"literal","value":"steer"}
+          ]
+        }
+      }
+    },
+    "directChatRequest": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "context": {"ref":"context"},
+        "agentId": {"type":"string","min":1}
+      }
+    },
+    "filePart": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "kind": {"type":"literal","value":"file"},
+        "artifactId": {"type":"string","min":1},
+        "purpose": {
+          "type": "union",
+          "of": [{"type":"literal","value":"attachment"},{"type":"literal","value":"voice_note"}]
+        }
+      }
+    },
+    "groupCreate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"string","min":1,"max":200}
+      }
+    },
+    "groupOrder": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "groupIds": {"type":"array","items":{"type":"string","min":1}}
+      }
+    },
+    "groupRename": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"string","min":1,"max":200}
+      }
+    },
+    "identityRestore": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"expectedSha256":{"type":"string","min":1}}
+    },
+    "identityWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "content": {"type":"string"},
+        "expectedSha256": {"type":"string","min":1}
+      }
+    },
+    "interactionAnswer": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"choice"},
+            "optionId": {"type":"string","min":1},
+            "text": {"type":"optional","of":{"type":"string"}}
+          }
+        },
+        {"ref":"textPart"},
+        {"type":"object","exact":true,"fields":{"kind":{"type":"literal","value":"dismiss"}}},
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"approve"},
+            "comment": {"type":"optional","of":{"type":"string"}}
+          }
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"decline"},
+            "comment": {"type":"optional","of":{"type":"string"}}
+          }
+        }
+      ]
+    },
+    "interactionResponseCommand": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1},
+        "interactionId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "runId": {"type":"string","min":1},
+        "attemptId": {"type":"string","min":1},
+        "proposalId": {"type":"optional","of":{"type":"string","min":1}},
+        "answer": {"ref":"interactionAnswer"}
+      }
+    },
+    "learningUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "enabled": {"type":"optional","of":{"type":"boolean"}},
+        "sleepTime": {"type":"optional","of":{"type":"string","format":"clock-time"}}
+      }
+    },
+    "membershipAdd": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "agentId": {"type":"string","min":1}
+      }
+    },
+    "operationRequest": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"operationId":{"type":"string","min":1,"max":200}}
+    },
+    "organizationCreate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"string","min":1,"max":200},
+        "description": {"type":"optional","of":{"type":"string","min":0,"max":2000}},
+        "settings": {"type":"optional","of":{"ref":"settingsPatch"}}
+      }
+    },
+    "organizationInstructionsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"content":{"type":"string"}}
+    },
+    "organizationUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "name": {"type":"optional","of":{"type":"string","min":1,"max":200}},
+        "description": {"type":"optional","of":{"type":"string","min":0,"max":2000}},
+        "settings": {"type":"optional","of":{"ref":"settingsPatch"}}
+      }
+    },
+    "receiptLookup": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "scope": {"ref":"callerScope"},
+        "submissionId": {"type":"string","min":1}
+      }
+    },
+    "replySubmission": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "submissionId": {"type":"string","min":1},
+        "scope": {"ref":"callerScope"},
+        "target": {
+          "type": "object",
+          "exact": true,
+          "fields": {"context":{"ref":"context"},"chatId":{"type":"string","min":1}}
+        },
+        "mode": {"type":"literal","value":"reply"},
+        "threadId": {"type":"string","min":1},
+        "parts": {
+          "type": "array",
+          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"}]},
+          "min": 1,
+          "max": 32
+        }
+      }
+    },
+    "rootSubmission": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "submissionId": {"type":"string","min":1},
+        "scope": {"ref":"callerScope"},
+        "target": {
+          "type": "object",
+          "exact": true,
+          "fields": {"context":{"ref":"context"},"chatId":{"type":"string","min":1}}
+        },
+        "mode": {"type":"literal","value":"root"},
+        "parts": {
+          "type": "array",
+          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"}]},
+          "min": 1,
+          "max": 32
+        }
+      }
+    },
+    "settingsPatch": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "adapterId": {
+          "type": "optional",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"object","exact":true,"fields":{"set":{"type":"string","min":1}}},
+              {"type":"object","exact":true,"fields":{"clear":{"type":"literal","value":true}}}
+            ]
+          }
+        },
+        "modelId": {
+          "type": "optional",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"object","exact":true,"fields":{"set":{"type":"string","min":1}}},
+              {"type":"object","exact":true,"fields":{"clear":{"type":"literal","value":true}}}
+            ]
+          }
+        },
+        "effort": {
+          "type": "optional",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"object","exact":true,"fields":{"set":{"type":"string","min":1}}},
+              {"type":"object","exact":true,"fields":{"clear":{"type":"literal","value":true}}}
+            ]
+          }
+        },
+        "options": {
+          "type": "optional",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"object","exact":true,"fields":{"set":{"type":"record"}}},
+              {"type":"object","exact":true,"fields":{"clear":{"type":"literal","value":true}}}
+            ]
+          }
+        }
+      }
+    },
+    "settingsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "settings": {"ref":"settingsPatch"}
+      }
+    },
+    "textPart": {
+      "type": "object",
+      "exact": true,
+      "fields": {"kind":{"type":"literal","value":"text"},"text":{"type":"string","min":1}}
+    },
+    "textSubmission": {"type":"union","of":[{"ref":"rootSubmission"},{"ref":"replySubmission"}]}
+  },
+  "responses": {
+    "acceptedReceipt": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "status": {"type":"literal","value":"accepted"},
+        "submissionId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "messageId": {"type":"string","min":1},
+        "runId": {"type":"string","min":1},
+        "alreadyAccepted": {"type":"boolean"}
+      }
+    },
+    "adapterCapabilities": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "text": {"type":"boolean"},
+        "publication": {"type":"boolean"},
+        "cancellation": {"type":"boolean"},
+        "steering": {"type":"boolean"},
+        "nativeResume": {"type":"boolean"},
+        "maintenance": {"type":"boolean"}
+      }
+    },
+    "adaptersChange": {
+      "type": "object",
+      "exact": false,
+      "fields": {"adapters":{"type":"array","items":{"ref":"executionAdapter"}}}
+    },
+    "agentCreateResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "agent": {"ref":"directoryAgent"},
+        "membership": {"type":"nullable","of":{"ref":"directoryMembership"}}
+      }
+    },
+    "agentLearning": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "agentId": {"type":"string","min":1},
+        "enabled": {"type":"boolean"},
+        "sleepTime": {"type":"nullable","of":{"type":"string","format":"clock-time"}},
+        "revision": {"type":"integer","min":0},
+        "effective": {"type":"boolean"}
+      }
+    },
+    "agentLearningResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "agentId": {"type":"string","min":1},
+        "enabled": {"type":"boolean"},
+        "sleepTime": {"type":"nullable","of":{"type":"string","format":"clock-time"}},
+        "revision": {"type":"integer","min":0},
+        "effective": {"type":"boolean"}
+      }
+    },
+    "agentResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "agent": {"ref":"directoryAgent"}
+      }
+    },
+    "appSnapshot": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "scope": {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"application"},
+            "installationId": {"type":"string","min":1},
+            "callerId": {"type":"string","min":1}
+          }
+        },
+        "cursor": {"type":"string","min":1},
+        "threads": {"type":"array","items":{"ref":"appThreadSummary"}},
+        "notifications": {"type":"array","items":{"ref":"notification"}},
+        "next": {
+          "type": "nullable",
+          "of": {
+            "type": "object",
+            "exact": true,
+            "fields": {
+              "afterThreadId": {"type":"nullable","of":{"type":"string","min":1}},
+              "afterNotificationId": {"type":"nullable","of":{"type":"string","min":1}}
+            }
+          }
+        }
+      }
+    },
+    "appThreadSummary": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "threadId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "contextKind": {
+          "type": "union",
+          "of": [{"type":"literal","value":"installation"},{"type":"literal","value":"organization"}]
+        },
+        "contextId": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1},
+        "revision": {"type":"integer","min":0},
+        "state": {"type":"string"},
+        "lastMessageId": {"type":"string","min":1},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "controlReceipt": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "operationId": {"type":"string","min":1},
+            "outcome": {
+              "type": "union",
+              "of": [
+                {"type":"literal","value":"accepted"},
+                {"type":"literal","value":"unsupported"},
+                {"type":"literal","value":"uncertain"},
+                {"type":"literal","value":"failed"},
+                {"type":"literal","value":"rejected"}
+              ]
+            },
+            "reason": {"type":"string"},
+            "runId": {"type":"string","min":1},
+            "threadId": {"type":"string","min":1},
+            "state": {"ref":"workState"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "operationId": {"type":"string","min":1},
+            "status": {"type":"literal","value":"unknown"}
+          }
+        }
+      ]
+    },
+    "directChatResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"chatId":{"type":"string","min":1}}
+    },
+    "directoryAgent": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "name": {"type":"string"},
+        "description": {"type":"string"},
+        "lifecycle": {"ref":"agentLifecycle"},
+        "admin": {"type":"boolean"},
+        "revision": {"type":"integer","min":0},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "deletedAt": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}}
+      }
+    },
+    "directoryGroup": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "organizationId": {"type":"string","min":1},
+        "name": {"type":"string"},
+        "position": {"type":"integer","min":0},
+        "revision": {"type":"integer","min":0},
+        "appearances": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "exact": false,
+            "fields": {"membershipId":{"type":"string","min":1},"agentId":{"type":"string","min":1}}
+          }
+        }
+      }
+    },
+    "directoryMembership": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "organizationId": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1},
+        "revision": {"type":"integer","min":0},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "directoryOrganization": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "name": {"type":"string"},
+        "description": {"type":"string"},
+        "lifecycle": {"ref":"organizationLifecycle"},
+        "revision": {"type":"integer","min":0},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "directorySnapshot": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "cursor": {"type":"string","min":1},
+        "organizations": {"type":"array","items":{"ref":"directoryOrganization"}},
+        "agents": {"type":"array","items":{"ref":"directoryAgent"}},
+        "memberships": {"type":"array","items":{"ref":"directoryMembership"}},
+        "groups": {"type":"array","items":{"ref":"directoryGroup"}}
+      }
+    },
+    "effectiveSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "agentId": {"type":"string","min":1},
+        "organizationId": {"type":"nullable","of":{"type":"string","min":1}},
+        "status": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"ready"},
+            {"type":"literal","value":"unknown-catalog"},
+            {"type":"literal","value":"missing"},
+            {"type":"literal","value":"incompatible"}
+          ]
+        },
+        "reason": {"type":"nullable","of":{"type":"string"}},
+        "settings": {"ref":"executionSettings"},
+        "sources": {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "adapterId": {
+              "type": "optional",
+              "of": {
+                "type": "union",
+                "of": [
+                  {"type":"literal","value":"organization"},
+                  {"type":"literal","value":"agent"},
+                  {"type":"literal","value":"default"}
+                ]
+              }
+            },
+            "modelId": {
+              "type": "optional",
+              "of": {
+                "type": "union",
+                "of": [
+                  {"type":"literal","value":"organization"},
+                  {"type":"literal","value":"agent"},
+                  {"type":"literal","value":"default"}
+                ]
+              }
+            },
+            "effort": {
+              "type": "optional",
+              "of": {
+                "type": "union",
+                "of": [
+                  {"type":"literal","value":"organization"},
+                  {"type":"literal","value":"agent"},
+                  {"type":"literal","value":"default"}
+                ]
+              }
+            },
+            "options": {
+              "type": "optional",
+              "of": {
+                "type": "union",
+                "of": [
+                  {"type":"literal","value":"organization"},
+                  {"type":"literal","value":"agent"},
+                  {"type":"literal","value":"default"}
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "executionAdapter": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "version": {"type":"string"},
+        "available": {"type":"boolean"},
+        "reason": {"type":"nullable","of":{"type":"string"}},
+        "models": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "exact": false,
+            "fields": {"id":{"type":"string","min":1},"efforts":{"type":"array","items":{"type":"string"}}}
+          }
+        },
+        "defaultModel": {
+          "type": "nullable",
+          "of": {
+            "type": "object",
+            "exact": false,
+            "fields": {"id":{"type":"string","min":1},"effort":{"type":"nullable","of":{"type":"string"}}}
+          }
+        },
+        "supportedOptions": {"type":"array","items":{"type":"string"}},
+        "capabilities": {"type":"nullable","of":{"ref":"adapterCapabilities"}}
+      }
+    },
+    "executionAdapters": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "cursor": {"type":"string","min":1},
+        "revision": {"type":"integer","min":0},
+        "adapters": {"type":"array","items":{"ref":"executionAdapter"}}
+      }
+    },
+    "executionSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "adapterId": {"type":"optional","of":{"type":"string"}},
+        "modelId": {"type":"optional","of":{"type":"string"}},
+        "effort": {"type":"optional","of":{"type":"string"}},
+        "options": {"type":"optional","of":{"type":"record"}}
+      }
+    },
+    "groupOrderResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "groups": {"type":"array","items":{"ref":"directoryGroup"}}
+      }
+    },
+    "groupRemovalResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "removed": {"ref":"groupRemoved"}
+      }
+    },
+    "groupRemoved": {
+      "type": "object",
+      "exact": false,
+      "fields": {"id":{"type":"string","min":1},"organizationId":{"type":"string","min":1}}
+    },
+    "groupResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "group": {"ref":"directoryGroup"}
+      }
+    },
+    "historyPage": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "messages": {"type":"array","items":{"ref":"message"}},
+        "next": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "identityBackups": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "agentId": {"type":"string","min":1},
+        "file": {"ref":"identityFileName"},
+        "backups": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "exact": false,
+            "fields": {
+              "id": {"type":"string","min":1},
+              "sha256": {"type":"string","min":1},
+              "size": {"type":"integer","min":0},
+              "createdAt": {"type":"string","format":"utc-timestamp"}
+            }
+          }
+        }
+      }
+    },
+    "identityFile": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "agentId": {"type":"string","min":1},
+        "file": {"ref":"identityFileName"},
+        "content": {"type":"string"},
+        "sha256": {"type":"string","min":1}
+      }
+    },
+    "interactionResponseReceipt": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "operationId": {"type":"string","min":1},
+            "outcome": {
+              "type": "union",
+              "of": [{"type":"literal","value":"accepted"},{"type":"literal","value":"rejected"}]
+            },
+            "interaction": {"ref":"threadInteraction"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "operationId": {"type":"string","min":1},
+            "status": {"type":"literal","value":"unknown"}
+          }
+        }
+      ]
+    },
+    "learningChange": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "target": {
+          "type": "union",
+          "of": [{"type":"literal","value":"installation"},{"type":"literal","value":"agent"}]
+        },
+        "enabled": {"type":"boolean"},
+        "sleepTime": {"type":"nullable","of":{"type":"string","format":"clock-time"}}
+      }
+    },
+    "learningSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "enabled": {"type":"boolean"},
+        "sleepTime": {"type":"string","format":"clock-time"},
+        "revision": {"type":"integer","min":0},
+        "available": {"type":"boolean"},
+        "agents": {"type":"array","items":{"ref":"agentLearning"}}
+      }
+    },
+    "membershipRemovalResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "removed": {"ref":"membershipRemoved"}
+      }
+    },
+    "membershipRemoved": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "organizationId": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1}
+      }
+    },
+    "membershipResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "membership": {"ref":"directoryMembership"}
+      }
+    },
+    "message": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "authorId": {"type":"string","min":1},
+        "parts": {
+          "type": "array",
+          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"}]}
+        },
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "notification": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "runId": {"type":"string","min":1},
+        "kind": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"completed"},
+            {"type":"literal","value":"failed"},
+            {"type":"literal","value":"recovery-needed"},
+            {"type":"literal","value":"interaction"}
+          ]
+        },
+        "interactionId": {"type":"optional","of":{"type":"string","min":1}},
+        "interactionState": {"type":"optional","of":{"ref":"interactionState"}},
+        "read": {"type":"boolean"},
+        "revision": {"type":"integer","min":0},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "operationStatus": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "kind": {"type":"string"},
+        "target": {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"nullable","of":{"type":"string"}},
+            "id": {"type":"nullable","of":{"type":"string","min":1}}
+          }
+        },
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"pending"},
+            {"type":"literal","value":"running"},
+            {"type":"literal","value":"waiting"},
+            {"type":"literal","value":"succeeded"},
+            {"type":"literal","value":"failed"}
+          ]
+        },
+        "step": {"type":"nullable","of":{"type":"string"}},
+        "waitingFor": {"type":"nullable","of":{"type":"string"}},
+        "result": {"type":"unknown"},
+        "error": {"type":"nullable","of":{"type":"string"}},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "organizationInstructions": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "organizationId": {"type":"string","min":1},
+        "content": {"type":"string"}
+      }
+    },
+    "organizationRemoved": {"type":"object","exact":false,"fields":{"id":{"type":"string","min":1}}},
+    "organizationResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "organization": {"ref":"directoryOrganization"}
+      }
+    },
+    "queueEntry": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "messageId": {"type":"string","min":1},
+        "acceptanceOrder": {"type":"integer","min":0},
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"preparing"},
+            {"type":"literal","value":"queued"},
+            {"type":"literal","value":"held"},
+            {"type":"literal","value":"consumed"},
+            {"type":"literal","value":"cancelled"}
+          ]
+        },
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "rejectedReceipt": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "status": {"type":"literal","value":"rejected"},
+        "submissionId": {"type":"string","min":1},
+        "error": {"ref":"stableError"}
+      }
+    },
+    "settingsRecord": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "target": {"ref":"settingsTarget"},
+        "id": {"type":"string","min":1},
+        "revision": {"type":"integer","min":0},
+        "settings": {"ref":"executionSettings"}
+      }
+    },
+    "settingsResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "settings": {"ref":"settingsRecord"}
+      }
+    },
+    "settingsSnapshot": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "cursor": {"type":"string","min":1},
+        "agents": {"type":"array","items":{"ref":"settingsRecord"}},
+        "organizations": {"type":"array","items":{"ref":"settingsRecord"}}
+      }
+    },
+    "snapshot": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "scope": {"ref":"streamScope"},
+        "cursor": {"type":"string","min":1},
+        "messages": {"type":"array","items":{"ref":"message"}},
+        "work": {"type":"array","items":{"ref":"workSummary"}},
+        "queue": {"type":"array","items":{"ref":"queueEntry"}},
+        "next": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "stableError": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "code": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"invalid"},
+            {"type":"literal","value":"not-found"},
+            {"type":"literal","value":"forbidden"},
+            {"type":"literal","value":"conflict"},
+            {"type":"literal","value":"unavailable"},
+            {"type":"literal","value":"recovery-needed"},
+            {"type":"literal","value":"resync-required"},
+            {"type":"literal","value":"gone"},
+            {"type":"literal","value":"organization-deleted"},
+            {"type":"literal","value":"membership-removed"},
+            {"type":"literal","value":"agent-archived"}
+          ]
+        },
+        "message": {"type":"string"},
+        "requestId": {"type":"string","min":1}
+      }
+    },
+    "submissionReceipt": {"type":"union","of":[{"ref":"acceptedReceipt"},{"ref":"rejectedReceipt"}]},
+    "textEvent": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"message-draft"},
+            "data": {"ref":"threadMessage"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"message-final"},
+            "data": {"ref":"threadMessage"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"work-changed"},
+            "data": {"ref":"threadWork"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"interaction-changed"},
+            "data": {"ref":"threadInteraction"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"delegation-changed"},
+            "data": {"ref":"threadDelegation"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"thread-summary"},
+            "data": {"ref":"appThreadSummary"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"notification"},
+            "data": {"ref":"notification"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"notification-removed"},
+            "data": {
+              "type": "object",
+              "exact": true,
+              "fields": {"id":{"type":"string","min":1},"threadId":{"type":"string","min":1}}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"learning-changed"},
+            "data": {"ref":"learningChange"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"organization-changed"},
+            "data": {"ref":"directoryOrganization"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"agent-changed"},
+            "data": {"ref":"directoryAgent"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"membership-changed"},
+            "data": {"ref":"directoryMembership"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"group-changed"},
+            "data": {"ref":"directoryGroup"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"organization-removed"},
+            "data": {"ref":"organizationRemoved"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"membership-removed"},
+            "data": {"ref":"membershipRemoved"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"group-removed"},
+            "data": {"ref":"groupRemoved"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"thread-removed"},
+            "data": {"ref":"threadRemoved"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"settings-changed"},
+            "data": {"ref":"settingsRecord"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"adapters-changed"},
+            "data": {"ref":"adaptersChange"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"resync-required"}
+          }
+        }
+      ]
+    },
+    "threadDelegation": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "parentRunId": {"type":"nullable","of":{"type":"string","min":1}},
+        "childRunId": {"type":"nullable","of":{"type":"string","min":1}},
+        "senderAgentId": {"type":"string","min":1},
+        "recipientAgentId": {"type":"string","min":1},
+        "originThreadId": {"type":"string","min":1},
+        "depth": {"type":"integer","min":0},
+        "ordinal": {"type":"integer","min":0},
+        "request": {"type":"string"},
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"queued"},
+            {"type":"literal","value":"running"},
+            {"type":"literal","value":"waiting"},
+            {"type":"literal","value":"completed"},
+            {"type":"literal","value":"failed"},
+            {"type":"literal","value":"cancelled"},
+            {"type":"literal","value":"recovery-needed"}
+          ]
+        },
+        "failure": {"type":"optional","of":{"type":"string"}},
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "threadInteraction": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "version": {"type":"literal","value":1},
+        "runId": {"type":"string","min":1},
+        "attemptId": {"type":"string","min":1},
+        "kind": {
+          "type": "union",
+          "of": [{"type":"literal","value":"question"},{"type":"literal","value":"approval"}]
+        },
+        "proposalId": {"type":"optional","of":{"type":"string","min":1}},
+        "proposal": {"type":"optional","of":{"type":"string","min":1}},
+        "prompt": {"type":"string"},
+        "options": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "exact": true,
+            "fields": {"id":{"type":"string","min":1},"label":{"type":"string","min":1}}
+          }
+        },
+        "freeText": {"type":"boolean"},
+        "state": {"ref":"interactionState"},
+        "revision": {"type":"integer","min":0},
+        "sourceAgentId": {"type":"optional","of":{"type":"string","min":1}},
+        "response": {
+          "type": "optional",
+          "of": {
+            "type": "object",
+            "exact": true,
+            "fields": {
+              "operationId": {"type":"string","min":1},
+              "actorId": {"type":"string","min":1},
+              "answer": {"ref":"interactionAnswer"},
+              "acceptedAt": {"type":"string","format":"utc-timestamp"}
+            }
+          }
+        }
+      }
+    },
+    "threadMessage": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "preparation": {"type":"optional","of":{"type":"array","items":{"ref":"voicePreparation"}}},
+        "id": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "authorId": {"type":"string","min":1},
+        "parts": {
+          "type": "array",
+          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"}]}
+        },
+        "final": {"type":"boolean"},
+        "revision": {"type":"integer","min":0},
+        "position": {"type":"integer","min":0}
+      }
+    },
+    "threadRemoved": {
+      "type": "object",
+      "exact": false,
+      "fields": {"threadId":{"type":"string","min":1},"chatId":{"type":"string","min":1}}
+    },
+    "threadSnapshot": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "scope": {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"thread"},
+            "installationId": {"type":"string","min":1},
+            "callerId": {"type":"string","min":1},
+            "threadId": {"type":"string","min":1}
+          }
+        },
+        "cursor": {"type":"string","min":1},
+        "messages": {"type":"array","items":{"ref":"threadMessage"}},
+        "work": {"type":"array","items":{"ref":"threadWork"}},
+        "interactions": {"type":"array","items":{"ref":"threadInteraction"}},
+        "delegations": {"type":"array","items":{"ref":"threadDelegation"}},
+        "next": {
+          "type": "nullable",
+          "of": {
+            "type": "object",
+            "exact": true,
+            "fields": {
+              "afterMessagePosition": {"type":"nullable","of":{"type":"integer","min":0}},
+              "afterWorkPosition": {"type":"nullable","of":{"type":"integer","min":0}}
+            }
+          }
+        }
+      }
+    },
+    "threadWork": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "runId": {"type":"string","min":1},
+        "attemptId": {"type":"nullable","of":{"type":"string","min":1}},
+        "state": {"ref":"workState"},
+        "queueHold": {"type":"boolean"},
+        "cancelDelivery": {"ref":"cancelDelivery"},
+        "revision": {"type":"integer","min":0},
+        "queuePosition": {"type":"integer","min":0},
+        "messageId": {"type":"string","min":1},
+        "failure": {"type":"nullable","of":{"type":"string"}}
+      }
+    },
+    "voicePreparation": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "artifactId": {"type":"string","min":1},
+        "partIndex": {"type":"integer","min":0},
+        "revision": {"type":"integer","min":0},
+        "status": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"preparing"},
+            {"type":"literal","value":"succeeded"},
+            {"type":"literal","value":"no-speech"},
+            {"type":"literal","value":"unavailable"}
+          ]
+        },
+        "provider": {"type":"string"},
+        "transcript": {"type":"optional","of":{"type":"string"}},
+        "error": {"type":"optional","of":{"type":"string"}}
+      }
+    },
+    "workSummary": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "runId": {"type":"string","min":1},
+        "attemptId": {"type":"nullable","of":{"type":"string","min":1}},
+        "state": {"ref":"workState"},
+        "queueHold": {"type":"boolean"},
+        "cancelDelivery": {"ref":"cancelDelivery"},
+        "revision": {"type":"integer","min":0}
+      }
+    }
+  },
+  "fragments": {
+    "agentLifecycle": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"active"},
+        {"type":"literal","value":"archived"},
+        {"type":"literal","value":"deleting"},
+        {"type":"literal","value":"deleted"}
+      ]
+    },
+    "cancelDelivery": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"none"},
+        {"type":"literal","value":"requested"},
+        {"type":"literal","value":"acknowledged"},
+        {"type":"literal","value":"uncertain"},
+        {"type":"literal","value":"confirmed-ended"},
+        {"type":"literal","value":"not-needed"}
+      ]
+    },
+    "identityFileName": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"AGENTS.md"},
+        {"type":"literal","value":"soul.md"},
+        {"type":"literal","value":"identity.md"}
+      ]
+    },
+    "interactionState": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"pending"},
+        {"type":"literal","value":"settled"},
+        {"type":"literal","value":"cancelled"},
+        {"type":"literal","value":"superseded"}
+      ]
+    },
+    "organizationLifecycle": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"active"},
+        {"type":"literal","value":"deleting"},
+        {"type":"literal","value":"deleted"}
+      ]
+    },
+    "removedPart": {
+      "type": "object",
+      "exact": true,
+      "fields": {"kind":{"type":"literal","value":"removed"},"artifactId":{"type":"string","min":1}}
+    },
+    "settingsTarget": {
+      "type": "union",
+      "of": [{"type":"literal","value":"agent"},{"type":"literal","value":"organization"}]
+    },
+    "streamScope": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"application"},
+            "installationId": {"type":"string","min":1},
+            "callerId": {"type":"string","min":1}
+          }
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"thread"},
+            "installationId": {"type":"string","min":1},
+            "callerId": {"type":"string","min":1},
+            "threadId": {"type":"string","min":1}
+          }
+        }
+      ]
+    },
+    "workState": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"queued"},
+        {"type":"literal","value":"preparing"},
+        {"type":"literal","value":"running"},
+        {"type":"literal","value":"waiting"},
+        {"type":"literal","value":"cancellation-requested"},
+        {"type":"literal","value":"completed"},
+        {"type":"literal","value":"failed"},
+        {"type":"literal","value":"cancelled"},
+        {"type":"literal","value":"recovery-needed"}
+      ]
+    }
+  }
+}

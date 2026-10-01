@@ -1,4 +1,4 @@
-import { array, boolean, boundedString, integer, literal, nonempty, nullable, object, optional, record, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
+import { array, boolean, boundedString, integer, literal, nonempty, nullable, object, optional, record, string, union, unknown, utcTimestamp, type Infer, type Schema } from './schema.js'
 
 const id = nonempty()
 export const organizationLifecycle = union(literal('active'), literal('deleting'), literal('deleted'))
@@ -20,7 +20,7 @@ export const membershipRemoved = object({ id, organizationId: id, agentId: id },
 export const groupRemoved = object({ id, organizationId: id }, false)
 
 /** A name must not be blank. */
-const name: Schema<string> = { parse(value, path = '$') {
+const name: Schema<string> = { ...boundedString(1, 200), parse(value, path = '$') {
   const parsed = boundedString(1, 200).parse(value, path)
   if (!parsed.trim()) throw new TypeError(`Invalid wire value at ${path}`)
   return parsed
@@ -75,7 +75,7 @@ export type AgentDelete = Infer<typeof agentDelete>
 export const operationStatus = object({
   version: literal(1), operationId, kind: string(), target: object({ kind: nullable(string()), id: nullable(id) }),
   state: union(literal('pending'), literal('running'), literal('waiting'), literal('succeeded'), literal('failed')),
-  step: nullable(string()), waitingFor: nullable(string()), result: { parse: (value: unknown) => value }, error: nullable(string()),
+  step: nullable(string()), waitingFor: nullable(string()), result: unknown(), error: nullable(string()),
   createdAt: utcTimestamp(), updatedAt: utcTimestamp(),
 }, false)
 export type OperationStatusRecord = Infer<typeof operationStatus>

@@ -49,6 +49,13 @@ jobs:
       - run: npm ci
       - run: npm run typecheck -w core
       - run: npm run check:boundaries -w core
+      - name: Protocol changes are additive
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          git show FETCH_HEAD:core/protocol-shape.json > "$RUNNER_TEMP/protocol-shape.json" || rm -f "$RUNNER_TEMP/protocol-shape.json"
+          npm run protocol:check -w core -- --base "$RUNNER_TEMP/protocol-shape.json"
       - run: npm run test:postgres -w core
       - run: npm run test:package -w core
 
