@@ -621,6 +621,15 @@ export const kipScenes: Record<LiveState, Scene> = {
       { map: { X: 'orange' } },
     )
   }),
+  unknown: scene(
+    0,
+    (g) => {
+      const x = restX(g)
+      g.kip(x, 'sit', { map: { K: 'S' } })
+      g.glyph(questionMark, x + 16, 5, 'soft', 0.8)
+    },
+    true,
+  ),
   offline: scene(
     0,
     (g) => {
