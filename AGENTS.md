@@ -26,9 +26,12 @@ instructions take precedence over older decisions.
 - Preserve unrelated work and respect each package's boundaries.
 - Keep released clients working: change protocol responses by addition only,
   and follow the compatibility rules in decision record 5.1.7.
-- Branch from `next` and open pull requests against `next`. Add a changeset for
-  every package you change (`patch` for fixes, `minor` for features and breaking
-  changes); see [releasing](docs/releasing.md). Never merge into `master`; the
-  owner releases.
+- Start each task on a new branch from the latest `origin/next`, in its own git
+  worktree when other work may share this checkout. Install dependencies with
+  `npm ci` at the repository root.
+- Open pull requests against `next`. Add a changeset for every package you
+  change (`patch` for fixes, `minor` for features and breaking changes); see
+  [releasing](docs/releasing.md). The owner merges pull requests unless they ask
+  you to, and only the owner merges into `master`.
 - Keep public documentation concise and useful. Leave task history, conversation
   notes and personal environment details out of public READMEs and API comments.
