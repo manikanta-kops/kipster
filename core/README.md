@@ -116,6 +116,13 @@ Clients skip event kinds they do not know and show a neutral fallback for
 unknown enumeration values, as [decision record 5.1.7](../docs/initial-implementation-plan/05-kipster-protocol.md)
 requires; they must not infer meaning from an unrecognized payload.
 
+Every exported schema has `describe()`, which returns the JSON shape it accepts.
+`protocol-shape.json` records the request and response shapes. After changing the
+protocol, run `npm run protocol:shape -w core` and commit the file. CI compares
+it with the base branch and fails when a request stops accepting what released
+clients send, or a response or event loses, loosens or retypes a field, unless
+`protocolRange.current` was raised.
+
 `GET /v1/directory` returns the owner's directory: organizations, agents, agent
 memberships and organization groups with their ordered appearances, with the
 application cursor to follow changes from. It is read from one database
