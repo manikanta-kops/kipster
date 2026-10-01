@@ -580,11 +580,15 @@ export class CoreSettingsClient {
     if (!response.ok || !response.body)
       throw new TextHttpError('Live updates are unavailable.', 'unavailable')
     return readEvents(response, signal, (type, raw) => {
-      if (type === 'resync-required' && record(raw) && !record(raw.scope))
-        throw new TextHttpError(
-          'Live settings need refreshing.',
-          'resync-required',
-        )
+      // Transport control frames have no resource envelope; others end with the stream.
+      if (record(raw) && !record(raw.scope)) {
+        if (type === 'resync-required')
+          throw new TextHttpError(
+            'Live settings need refreshing.',
+            'resync-required',
+          )
+        return
+      }
       apply(parseSettingsEvent(raw, scope))
     })
   }

@@ -31,6 +31,11 @@ POSIX shell syntax.
 
 ## Connected capabilities
 
+On connect, the client compares the protocol number it was built with against
+the range Core's bootstrap reports. Outside that range it shows **Update the
+app** or **Update the backend** and makes no other requests. It checks again
+after each reconnect. Settings → About shows both versions.
+
 The client reads Core's directory and paged snapshots, then follows application
 and current-thread SSE streams. Resource revisions prevent state regression.
 Reconnects and reloads restore saved state without dispatching work.

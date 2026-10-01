@@ -540,6 +540,19 @@ ul.settings-callout {
   font-weight: 400;
   color: var(--label-3);
 }
+.about-versions dt {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.about-versions dd {
+  margin: 0;
+  min-width: 0;
+  text-align: right;
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
 /* Adapters, learning and save state */
 .nav-glyph.adapters {
   --g: var(--hue-rose);
@@ -1806,6 +1819,33 @@ ul.management-list {
   color: var(--label-2);
   overflow-wrap: anywhere;
   line-height: 1.5;
+}
+.compatibility-versions {
+  display: grid;
+  margin: 0;
+  padding: 4px 14px;
+  border-radius: 14px;
+  background: var(--group-fill);
+  box-shadow: inset 0 0 0 0.5px var(--group-edge);
+  font-size: 13px;
+}
+.compatibility-versions div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 0;
+}
+.compatibility-versions div + div {
+  border-top: 0.5px solid var(--sep);
+}
+.compatibility-versions dt {
+  color: var(--label-2);
+}
+.compatibility-versions dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .identity-files pre {

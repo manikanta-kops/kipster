@@ -19,6 +19,7 @@ export type LiveState =
   | 'done'
   | 'failed'
   | 'recovery'
+  | 'unknown'
   | 'offline'
 
 export type LiveTone =
@@ -96,6 +97,12 @@ export const liveStates: Record<
     priority: 4,
   },
   done: { label: 'Done', description: 'Done', tone: 'success', priority: 5 },
+  unknown: {
+    label: 'Unknown',
+    description: 'Status not recognized by this app',
+    tone: 'muted',
+    priority: 5,
+  },
   ready: { label: 'Ready', description: 'Ready', tone: 'calm', priority: 6 },
   offline: {
     label: 'Offline',
@@ -154,7 +161,7 @@ export function deriveThreadState(
     case 'recovery-needed':
       return 'recovery'
     default:
-      return 'ready'
+      return 'unknown'
   }
 }
 

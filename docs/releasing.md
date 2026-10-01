@@ -79,3 +79,6 @@ Apps and Core release independently. Protocol changes follow decision record
 [5.1.7](initial-implementation-plan/05-kipster-protocol.md): additions only,
 and Core serves the previous protocol number for at least one release after
 raising it in `core/src/protocol/version.ts`.
+
+CI enforces this against the committed `core/protocol-shape.json`; see
+[Core](../core/README.md). Regenerate it with `npm run protocol:shape -w core`.

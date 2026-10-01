@@ -1,4 +1,4 @@
-import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer } from './schema.js'
+import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
 import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange } from './admin.js'
 
 export const WIRE_MAJOR = 1
@@ -17,8 +17,9 @@ export type TextPart = Infer<typeof textPart> | Infer<typeof filePart>
 export const removedPart = object({ kind: literal('removed'), artifactId: id })
 const messagePart = union(textPart, filePart, removedPart)
 export type MessagePart = Infer<typeof messagePart>
-const parts = { parse(value: unknown, path = '$') {
-  const parsed = array(union(textPart,filePart)).parse(value, path)
+const partList = array(union(textPart, filePart))
+const parts: Schema<Infer<typeof partList>> = { describe: () => ({ ...partList.describe(), min: 1, max: 32 }), parse(value: unknown, path = '$') {
+  const parsed = partList.parse(value, path)
   if (parsed.length < 1 || parsed.length > 32 || parsed.filter(item=>item.kind==='file').length > 10) throw new TypeError(`Invalid wire value at ${path}`)
   return parsed
 } }

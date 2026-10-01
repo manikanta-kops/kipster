@@ -90,6 +90,9 @@ async function target(json) {
   ])
     assert.match(bootstrap[key], /^[0-9a-f-]{36}$/)
   assert.equal(typeof bootstrap.capabilities.voiceRecording, 'boolean')
+  assert.equal(typeof bootstrap.coreVersion, 'string')
+  assert.ok(bootstrap.coreVersion)
+  assert.deepEqual(bootstrap.protocol, protocol.protocolRange)
   const directory = await json('/v1/directory', protocol.directorySnapshot)
   const membership = directory.memberships.find(
     (item) => item.organizationId === bootstrap.organizationId,
@@ -112,6 +115,47 @@ async function target(json) {
     chatId: chat.chatId,
   }
 }
+
+test('bootstrap reports a configurable Core version and protocol range', async (t) => {
+  const configured = createFakeCore({
+    autoAdvance: false,
+    coreVersion: '9.1.0',
+    protocol: { current: 4, oldest: 3 },
+  })
+  t.after(() => configured.dispose())
+  const read = async (core) =>
+    (await core.handle(new Request(origin + '/v1/bootstrap'))).json()
+  const initial = await read(configured)
+  assert.equal(initial.coreVersion, '9.1.0')
+  assert.deepEqual(initial.protocol, { current: 4, oldest: 3 })
+
+  const { core, request, json } = harness(t)
+  const release = (body) => request('/__demo/release', 'POST', body)
+  assert.equal(
+    (await release({ protocol: { current: 2, oldest: 3 } })).status,
+    400,
+  )
+  assert.equal(
+    (await release({ protocol: { current: 1, oldest: -1 } })).status,
+    400,
+  )
+  assert.equal(
+    (
+      await release({
+        protocol: { current: 3, oldest: 2 },
+        coreVersion: '0.4.0',
+      })
+    ).status,
+    200,
+  )
+  assert.deepEqual(await read(core), {
+    ...(await json('/v1/bootstrap')),
+    coreVersion: '0.4.0',
+    protocol: { current: 3, oldest: 2 },
+  })
+  await json('/__demo/reset', undefined, 'POST', {})
+  assert.deepEqual((await read(core)).protocol, protocol.protocolRange)
+})
 
 test('bootstrap, directory and seeded snapshots conform to public schemas', async (t) => {
   const { json } = harness(t)

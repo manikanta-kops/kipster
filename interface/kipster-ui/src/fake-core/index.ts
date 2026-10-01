@@ -78,12 +78,20 @@ export function createFakeCore(
     autoAdvance?: boolean
     testControls?: boolean
     tickMs?: number
+    /** Reported in bootstrap; tests vary it to exercise app compatibility. */
+    coreVersion?: string
+    protocol?: { current: number; oldest: number }
   } = {},
 ) {
   const scope = {
     installationId: DEMO_IDS.installation,
     callerId: DEMO_IDS.caller,
   }
+  const initialRelease = () => ({
+    coreVersion: options.coreVersion ?? '0.0.0-demo',
+    protocol: { ...(options.protocol ?? { current: 1, oldest: 1 }) },
+  })
+  let release = initialRelease()
   const chats = new Map<string, Chat>()
   const threads = new Map<string, Thread>()
   const notifications = new Map<string, Notice>()
@@ -966,6 +974,28 @@ export function createFakeCore(
           changeMessage(thread, message)
           return json({ ok: true })
         }
+        if (path === '/__demo/release' && method === 'POST') {
+          const protocol = record(input.protocol)
+          const protocolNumber = (value: unknown) =>
+            Number.isSafeInteger(value) && Number(value) >= 0
+          if (
+            !protocolNumber(protocol.current) ||
+            !protocolNumber(protocol.oldest) ||
+            Number(protocol.oldest) > Number(protocol.current)
+          )
+            throw new Error('Invalid protocol range')
+          release = {
+            coreVersion:
+              input.coreVersion === undefined
+                ? release.coreVersion
+                : text(input.coreVersion),
+            protocol: {
+              current: Number(protocol.current),
+              oldest: Number(protocol.oldest),
+            },
+          }
+          return json({ ...release })
+        }
         if (path === '/__demo/identity' && method === 'POST') {
           for (const key of ['installationId', 'callerId'] as const) {
             if (input[key] !== undefined) {
@@ -1114,7 +1144,7 @@ export function createFakeCore(
       if (offline)
         throw new WireError(503, 'unavailable', 'Demo Core is offline')
       if (method === 'GET' && path === '/v1/bootstrap')
-        return json({ ...administration.bootstrap(), ...scope })
+        return json({ ...administration.bootstrap(), ...scope, ...release })
       if (method === 'GET' && path === '/v1/directory') return json(directory())
       const mediaResponse = await media.handle(request)
       if (mediaResponse) return mediaResponse
@@ -1753,6 +1783,7 @@ export function createFakeCore(
     media.reset()
     seed = 100
     offline = false
+    release = initialRelease()
     administration = createAdministration({
       emit,
       cursor: () => cursor(),
