@@ -8,6 +8,7 @@
 *.pem
 *.key
 *.p12
+*.p8
 *.pfx
 .npmrc
 

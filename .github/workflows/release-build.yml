@@ -27,6 +27,7 @@ jobs:
       matrix:
         package: ${{ fromJSON(inputs.packages) }}
     runs-on: ${{ matrix.package.runner }}
+    environment: release
     env:
       NAME: ${{ matrix.package.name }}
       TAG: ${{ matrix.package.tag }}
