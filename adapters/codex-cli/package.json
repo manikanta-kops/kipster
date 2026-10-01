@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@kipster/core": "*",
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.3",
     "typescript": "6.0.3"
   },
   "dependencies": {
