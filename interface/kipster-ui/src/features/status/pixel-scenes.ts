@@ -546,6 +546,20 @@ export const scenes: Record<LiveState, Scene> = {
     },
   },
 
+  unknown: {
+    still: 0.4,
+    draw(f, _time, age) {
+      const { cols: W, rows: H } = f
+      f.bitmap(
+        questionMark,
+        Math.floor(W / 2) - 1,
+        Math.floor((H - 5) / 2),
+        0.5 + 0.2 * Math.sin((age * 2 * Math.PI) / 2.4),
+        'grey',
+      )
+    },
+  },
+
   offline: {
     still: 0.3,
     draw(f, _time, age) {

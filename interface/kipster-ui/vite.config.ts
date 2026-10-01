@@ -1,6 +1,7 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import { demoServer } from './tests/demo-server.ts'
+import pkg from './package.json' with { type: 'json' }
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
@@ -9,6 +10,7 @@ export default defineConfig(({ mode }) => {
     define: {
       __KIPSTER_DEMO__: JSON.stringify(test || mode === 'demo'),
       __KIPSTER_TEST__: JSON.stringify(test),
+      __KIPSTER_APP_VERSION__: JSON.stringify(pkg.version),
     },
     plugins: [react(), ...(test ? [demoServer()] : [])],
     base: './',

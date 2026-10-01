@@ -1,5 +1,6 @@
 import type { Directory } from './directory.js'
 import { check, record } from './response.ts'
+import { isRefusal, refusalMessage } from './text.ts'
 import {
   CommandError,
   type CommandResult,
@@ -254,10 +255,23 @@ export function createCoreManagement(
           body && typeof body === 'object' && 'requestId' in body
             ? String(body.requestId)
             : undefined
-        if (response.status >= 400 && response.status < 500 && refusals[code])
+        const refused = response.status >= 400 && response.status < 500
+        if (refused && Object.hasOwn(refusals, code))
           throw new CommandError(refusals[code], 'rejected', code, requestId)
+        if (refused && isRefusal(code))
+          throw new CommandError(
+            refusalMessage(code),
+            'rejected',
+            code,
+            requestId,
+          )
+        // An unknown refusal keeps Core's own words; retrying stays safe.
+        const message =
+          refused && record(body) && typeof body.message === 'string'
+            ? `${body.message} `
+            : 'The server could not confirm the outcome. '
         throw new CommandError(
-          'The server could not confirm the outcome. Retry sends the same request; it cannot apply twice.',
+          `${message}Retry sends the same request; it cannot apply twice.`,
           'unknown',
           code || 'unavailable',
           requestId,

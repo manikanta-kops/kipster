@@ -24,6 +24,8 @@ transport. XHR upload progress, cancellation and timeout remain available.
 The handler uses standard Request/Response objects and can also be hosted by a
 server adapter. No Vite middleware is required for embedded use.
 
+Bootstrap reports `coreVersion` (`0.0.0-demo`) and `protocol` (`{ current: 1, oldest: 1 }`).
+Pass `coreVersion` or `protocol` to `createFakeCore` to start with others.
 The handler supplies bootstrap and directory discovery, direct chats, text
 submissions and receipts, application/thread snapshots and SSE, work controls
 and interaction answers, notifications, media, settings, identity files,
@@ -54,6 +56,7 @@ exclude this module. UI components do not access the test routes.
 | POST `/__demo/retention`  | `{ threadId? }`; expire replay through the current head and request resync                                     |
 | POST `/__demo/connection` | `{ offline }`; return unavailable responses and interrupt streams while offline                                |
 | POST `/__demo/operation`  | `{ operationId, waiting }`; hold or release pending lifecycle cleanup                                          |
+| POST `/__demo/release`    | `{ protocol: { current, oldest }, coreVersion? }`; change the version and protocol range bootstrap reports     |
 | POST `/__demo/reset`      | `{}`; reset all sample state and interrupt existing streams                                                    |
 
 Additional test controls accept complete protocol records: `/__demo/message`

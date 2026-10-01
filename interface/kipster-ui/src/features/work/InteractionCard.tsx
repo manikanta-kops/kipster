@@ -21,6 +21,7 @@ export function InteractionCard({
   const heading = useId()
   const result = useRef<HTMLOutputElement>(null)
   const knownKind = item.kind === 'question' || item.kind === 'approval'
+  const ended = ['settled', 'cancelled', 'superseded'].includes(item.state)
   const disabled = item.state !== 'pending' || blocked || pending
   async function respond(answer: Answer) {
     setError('')
@@ -55,9 +56,9 @@ export function InteractionCard({
     >
       <p className="interaction-eyebrow">
         <Icon
-          name={item.state === 'pending' ? 'hand' : 'check'}
+          name={item.state === 'pending' ? 'hand' : ended ? 'check' : 'info'}
           size={15}
-          weight={item.state === 'pending' ? 'regular' : 'bold'}
+          weight={ended ? 'bold' : 'regular'}
         />
         {data.actorsById[item.sourceAgentId]?.name ?? 'Kip'} ·{' '}
         {item.kind === 'approval'
@@ -195,7 +196,9 @@ export function InteractionCard({
                 ? 'Question or approval cancelled'
                 : item.state === 'superseded'
                   ? 'Superseded by a newer request'
-                  : item.state}
+                  : item.state === 'pending'
+                    ? 'This version of Kipster can’t answer this request.'
+                    : `Status: ${item.state}`}
           </output>
           {item.response && (
             <blockquote>

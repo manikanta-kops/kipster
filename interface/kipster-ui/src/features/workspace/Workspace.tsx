@@ -49,6 +49,8 @@ import { emptyWork } from '../../data/work'
 import { conversationStorage, draftKey } from '../../data/conversation-storage'
 import { createCoreManagement } from '../../data/management-core'
 import { createMediaClient } from '../../data/media'
+import { compatibility, type Compatibility } from '../../data/compatibility'
+import { CompatibilityBlock } from './CompatibilityBlock'
 import { WorkspaceContext } from '../../data/workspace-context'
 import { useOutbox } from '../chat/use-outbox'
 import type { WorkspaceData } from '../chat/model'
@@ -135,8 +137,11 @@ const summaryState = (state: string): LiveState =>
       'cancellation-requested': 'stopping',
       failed: 'failed',
       'recovery-needed': 'recovery',
+      completed: 'ready',
+      cancelled: 'ready',
+      '': 'ready',
     }) as Record<string, LiveState>
-  )[state] ?? 'ready'
+  )[state] ?? 'unknown'
 
 export function Workspace({
   endpoint,
@@ -159,6 +164,11 @@ export function Workspace({
   )
   const mediaClient = useMemo(() => createMediaClient(endpoint), [endpoint])
   const [identity, setIdentity] = useState<Bootstrap | null>(null)
+  const [blocked, setBlocked] = useState<{
+    state: Exclude<Compatibility, 'compatible'>
+    bootstrap: Bootstrap
+  } | null>(null)
+  const [checking, setChecking] = useState(false)
   const [directory, setDirectory] = useState<Directory | null>(null)
   // Management resolves moves against the directory as it is when a request is sent.
   const directoryRef = useRef(directory)
@@ -347,41 +357,63 @@ export function Workspace({
     )
   }, [])
 
+  /** Clears everything read from Core, as for a new installation. */
+  const forget = useCallback(() => {
+    setSelected(null)
+    setDirectory(null)
+    setNavigation(defaultNavigation)
+    setChatIds({})
+    setSummaries({})
+    setNotices({})
+    setGoneThreads({})
+    setKept([])
+    setMessages({})
+    setWorks({})
+    setInteractions({})
+    setDelegations({})
+    setHydrated({})
+    setHydrationErrors({})
+    setAppReady(false)
+    setPendingSelection(null)
+  }, [])
+  /** Stops every request and stream until the app and Core share a protocol. */
+  const block = useCallback(
+    (state: Exclude<Compatibility, 'compatible'>, bootstrap: Bootstrap) => {
+      forget()
+      setIdentity(null)
+      setConnection(connecting)
+      setBlocked({ state, bootstrap })
+    },
+    [forget],
+  )
   useEffect(() => {
     const abort = new AbortController()
     void (async () => {
       try {
         const bootstrap = await client.bootstrap(abort.signal)
         if (!abort.signal.aborted) {
-          if (
-            identity &&
-            (identity.installationId !== bootstrap.installationId ||
-              identity.callerId !== bootstrap.callerId)
-          ) {
-            setSelected(null)
-            setDirectory(null)
-            setNavigation(defaultNavigation)
-            setChatIds({})
-            setSummaries({})
-            setNotices({})
-            setGoneThreads({})
-            setKept([])
-            setMessages({})
-            setWorks({})
-            setInteractions({})
-            setDelegations({})
-            setHydrated({})
-            setHydrationErrors({})
-            setAppReady(false)
-            setPendingSelection(null)
+          const state = compatibility(bootstrap.protocol)
+          if (state !== 'compatible') block(state, bootstrap)
+          else {
+            setBlocked(null)
+            if (
+              identity &&
+              (identity.installationId !== bootstrap.installationId ||
+                identity.callerId !== bootstrap.callerId)
+            )
+              forget()
+            setIdentity(bootstrap)
           }
-          setIdentity(bootstrap)
         }
       } catch (error) {
-        if (!abort.signal.aborted)
+        if (!abort.signal.aborted) {
+          setBlocked(null)
           setConnection(
             error instanceof Error ? error.message : 'Backend unavailable.',
           )
+        }
+      } finally {
+        if (!abort.signal.aborted) setChecking(false)
       }
     })()
     return () => abort.abort()
@@ -639,6 +671,14 @@ export function Workspace({
     const abort = new AbortController()
     let cursor: string | null = null
     let failures = 0
+    const outdated = async () => {
+      const current = await client.bootstrap(abort.signal).catch(() => null)
+      if (!current || abort.signal.aborted) return false
+      const state = compatibility(current.protocol)
+      if (state === 'compatible') return false
+      block(state, current)
+      return true
+    }
     void (async () => {
       while (!abort.signal.aborted) {
         try {
@@ -724,6 +764,7 @@ export function Workspace({
         } catch (error) {
           if (abort.signal.aborted) return
           if (error instanceof TextHttpError && error.code === 'incompatible') {
+            if (await outdated()) return
             setConnection(error.message)
             return
           }
@@ -741,11 +782,13 @@ export function Workspace({
             abort.signal,
             Math.min(10000, 500 * 2 ** Math.min(failures++, 5)),
           )
+          // Core may have been updated while the app was running.
+          if (await outdated()) return
         }
       }
     })()
     return () => abort.abort()
-  }, [client, identity, reload, threadGone, applicationUpdates])
+  }, [client, identity, reload, threadGone, applicationUpdates, block])
 
   // Read-only background snapshots hydrate root text; the selected thread owns its own stream.
   const retryHydration = useRef<((id: string) => void) | null>(null)
@@ -1309,6 +1352,20 @@ export function Workspace({
         ),
       )
   }
+  if (blocked)
+    return (
+      <CompatibilityBlock
+        state={blocked.state}
+        coreVersion={blocked.bootstrap.coreVersion}
+        protocol={blocked.bootstrap.protocol}
+        checking={checking}
+        checkAgain={() => {
+          setChecking(true)
+          setReload((n) => n + 1)
+        }}
+        changeConnection={changeConnection}
+      />
+    )
   if (!identity || !view)
     return (
       <main className="workspace-state" aria-busy={connection === connecting}>
@@ -1840,6 +1897,7 @@ export function Workspace({
         {settingsOpener && (
           <Suspense>
             <CoreSettingsPanel
+              versions={identity}
               workspaceControls={
                 <>
                   <Management

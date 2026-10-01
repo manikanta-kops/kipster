@@ -8,6 +8,7 @@ import type {
 } from '@kipster/core/protocol'
 import { check, incompatible, list, record, TextHttpError } from './response.ts'
 import { readEvents } from './sse.ts'
+import { isProtocolRange, type ProtocolRange } from './compatibility.ts'
 export { TextHttpError } from './response.ts'
 import type {
   ConversationClient,
@@ -27,6 +28,8 @@ export type Scope = CallerScope
 export type Bootstrap = Scope & {
   organizationId: string
   rootAgentId: string
+  coreVersion: string
+  protocol: ProtocolRange
   capabilities?: { voiceRecording: boolean }
 }
 export type Summary = {
@@ -166,9 +169,9 @@ const refusals: Record<string, string> = {
     'This kip is no longer a member of the organization, so it can’t take new messages.',
   'agent-archived': 'This kip is archived, so it can’t take new messages.',
 }
-export const isRefusal = (code: string) => code in refusals
+export const isRefusal = (code: string) => Object.hasOwn(refusals, code)
 export const refusalMessage = (code: string) =>
-  refusals[code] ?? 'This request was refused.'
+  isRefusal(code) ? refusals[code] : 'This request was refused.'
 /** A failed response as a coded error; a refusal keeps Core's code with a plain message. */
 export async function httpError(response: Response): Promise<TextHttpError> {
   const error: unknown = await response.json().catch(() => null)
@@ -205,6 +208,10 @@ export function parseSummary(value: unknown): Summary {
   )
   return value as Summary
 }
+/** Threads in a context kind this app does not know have no chat to open or target. */
+const knownContext = (summary: Summary) =>
+  summary.contextKind === 'organization' ||
+  summary.contextKind === 'installation'
 export function parseNotice(value: unknown): Notice {
   check(
     record(value) &&
@@ -342,7 +349,7 @@ export function parseAppPage(value: unknown): AppPage {
   )
   return {
     ...value,
-    threads: list(value.threads, parseSummary),
+    threads: list(value.threads, parseSummary).filter(knownContext),
     notifications: list(value.notifications, parseNotice),
   } as AppPage
 }
@@ -399,9 +406,11 @@ export function parseWireEvent(
     data = parseInteraction(value.data)
   else if (threadId !== null && type === 'delegation-changed')
     data = parseDelegation(value.data)
-  else if (threadId === null && type === 'thread-summary')
-    data = parseSummary(value.data)
-  else if (threadId === null && type === 'notification')
+  else if (threadId === null && type === 'thread-summary') {
+    const summary = parseSummary(value.data)
+    if (!knownContext(summary)) return skipped
+    data = summary
+  } else if (threadId === null && type === 'notification')
     data = parseNotice(value.data)
   else if (threadId === null && type === 'notification-removed') {
     check(record(value.data) && typeof value.data.id === 'string')
@@ -454,6 +463,9 @@ export class TextClient {
           data.organizationId,
           data.rootAgentId,
         ].every((id) => typeof id === 'string') &&
+        typeof data.coreVersion === 'string' &&
+        data.coreVersion !== '' &&
+        isProtocolRange(data.protocol) &&
         (data.capabilities === undefined ||
           (record(data.capabilities) &&
             typeof data.capabilities.voiceRecording === 'boolean')),
@@ -607,7 +619,7 @@ export class TextClient {
       throw new TextHttpError('Live connection unavailable.', 'unavailable')
     observer?.connected()
     return readEvents(response, signal, (type, raw) => {
-      // Transport control frames can be sent without a resource envelope.
+      // Transport control frames have no resource envelope; unknown ones are ignored.
       if (record(raw) && !record(raw.scope)) {
         if (type === 'resync-required')
           throw new TextHttpError(
@@ -616,6 +628,7 @@ export class TextClient {
           )
         if (type === 'gone')
           throw new TextHttpError(refusalMessage('gone'), 'gone')
+        return
       }
       const event = parseWireEvent(raw, scope, threadId)
       observer?.event(raw)
