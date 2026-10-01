@@ -44,7 +44,7 @@ async function setup(t) {
  return ctx
 }
 const post = async (url, path, data) => { const response = await fetch(url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) }); assert.ok(response.ok, `${path}: ${response.status}`); return response.json() }
-for (const mode of ['streaming', 'waiting']) test(`SIGKILL while ${mode} preserves durable work without blind execution`, { skip: noDatabase, timeout: 60000 }, async t => {
+for (const mode of ['streaming', 'waiting', 'asking']) test(`SIGKILL while ${mode} preserves durable work without blind execution`, { skip: noDatabase, timeout: 60000 }, async t => {
  const ctx = await setup(t); let runtime = await ctx.open(); const ids = runtime.bootstrap
  await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [ids.rootAgentId, JSON.stringify({ adapterId: 'deterministic-fixture', modelId: 'fixture-model' })])
  await ctx.close()
@@ -56,7 +56,7 @@ for (const mode of ['streaming', 'waiting']) test(`SIGKILL while ${mode} preserv
  const { context: attempt } = await child.wait('executing')
  await until(async () => (await (await fetch(url + `/v1/threads/${receipt.threadId}/snapshot`)).json()).messages, rows => rows.some(m => m.parts.some(p => p.text === 'Persisted partial output')), 'saved streaming output')
  let card
- if (mode === 'waiting') {
+ if (mode !== 'streaming') {
   card = (await child.wait('question')).card
   await until(async () => (await (await fetch(url + `/v1/threads/${receipt.threadId}/snapshot`)).json()).work, rows => rows.some(r => r.state === 'waiting'), 'durable wait')
  }
@@ -71,6 +71,13 @@ for (const mode of ['streaming', 'waiting']) test(`SIGKILL while ${mode} preserv
  if (mode === 'streaming') {
   assert.equal(snapshot.work[0].state, 'recovery-needed')
   assert.equal(Number((await runtime.db.query('SELECT count(*) AS n FROM kipster.owned_permits')).rows[0].n), 1)
+ } else if (mode === 'asking') {
+  // The provider never confirmed its end, so the question cannot start a continuation.
+  assert.equal(snapshot.work[0].state, 'recovery-needed')
+  assert.equal(snapshot.interactions[0].state, 'superseded')
+  const answer = { version: 1, operationId: randomUUID(), interactionId: card.interactionId, threadId: receipt.threadId, runId: receipt.runId, attemptId: attempt.attemptId, answer: { kind: 'choice', optionId: 'yes' } }
+  assert.equal((await post(ctx.server.url, '/v1/work/interactions/answer', answer)).outcome, 'rejected')
+  assert.equal(adapter.contexts.length, 0)
  } else {
   assert.equal(snapshot.interactions[0].state, 'pending')
   const app = await (await fetch(ctx.server.url + '/v1/app/snapshot')).json()
