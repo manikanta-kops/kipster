@@ -7,8 +7,12 @@ release. Versions stay below 1.0 while Kipster is in beta.
 
 | Branch | Purpose |
 | --- | --- |
-| `next` | Integration branch. Every pull request targets it. |
+| `next` | Default and integration branch. Every pull request targets it. |
 | `master` | Stable releases. Updated only by merging `next`. |
+
+Both branches accept changes only through pull requests with passing checks.
+Pull requests into `next` are squashed; `next` merges into `master` with a
+merge commit. Only the repository owner merges into `master`.
 
 ## Changesets
 
@@ -36,13 +40,15 @@ It builds every package with unreleased changesets, or only the named ones, as
 
 ## Stable releases
 
-Merge `next` into `master` with a merge commit (not squash). The **Release**
-workflow then:
+1. Run `npm run release:prepare` on a clean checkout. It applies the pending
+   changesets on a `release/` branch (versions, `CHANGELOG.md` files, deleted
+   changeset files) and opens a release pull request into `next`.
+2. Review the versions and changelogs, then merge it.
+3. Open a pull request from `next` to `master` and merge it with a merge commit.
 
-1. Applies the changesets: bumps versions, writes each `CHANGELOG.md` and
-   deletes the changeset files, then commits to `master`.
-2. Builds and publishes a GitHub release for each package with a new version.
-3. Merges `master` back into `next`.
+The **Release** workflow then builds and publishes a GitHub release for every
+package version that has no tag yet. It never pushes to a branch, and published
+releases cannot be changed.
 
 ## Release files
 

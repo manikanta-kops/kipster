@@ -24,10 +24,10 @@ jobs:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
+      # Release pull requests and next-to-master merges consume changesets; Dependabot adds none.
       - name: Every changed package has a changeset
-        run: npx changeset status --since="origin/$BASE"
-        env:
-          BASE: ${{ github.base_ref }}
+        if: github.base_ref == 'next' && !startsWith(github.head_ref, 'release/') && github.event.pull_request.user.login != 'dependabot[bot]'
+        run: npx changeset status --since=origin/next
       - name: Script tests
         run: node --test scripts/tests/*.test.mjs
 

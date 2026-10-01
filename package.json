@@ -16,7 +16,8 @@
     "app": "bash scripts/local.sh app",
     "backend": "bash scripts/local.sh backend",
     "test:local": "bash scripts/local.sh test",
-    "test:local:full": "bash scripts/local.sh test-full"
+    "test:local:full": "bash scripts/local.sh test-full",
+    "release:prepare": "node scripts/release.mjs prepare"
   },
   "devDependencies": {
     "@changesets/cli": "3.0.3"

@@ -1,4 +1,5 @@
-// Release steps shared by the GitHub workflows. Run after `changeset version`.
+// Release steps. `prepare` runs locally; the others run in GitHub workflows.
+//   node scripts/release.mjs prepare            open a release pull request into next from the pending changesets
 //   node scripts/release.mjs plan [names]       packages=<json> of unreleased versions, for $GITHUB_OUTPUT
 //   node scripts/release.mjs build <name> <dir> build one package's release files into <dir>
 //   node scripts/release.mjs notes <name>       that version's changelog section
@@ -57,9 +58,31 @@ function build(pkg, out) {
   })
 }
 
+function prepare() {
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+  if (git('status', '--porcelain')) throw new Error('Commit or stash your changes before preparing a release.')
+  run('git', ['fetch', '--quiet', '--tags', 'origin', 'next'])
+  const pending = git('ls-tree', '--name-only', 'origin/next', '.changeset/').split('\n').filter(path => path.endsWith('.md') && !path.endsWith('/README.md'))
+  if (!pending.length) throw new Error('next has no changesets to release.')
+  const branch = `release/${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '')}`
+  run('git', ['switch', '--quiet', '-c', branch, 'origin/next'])
+  const before = new Map(packages().map(pkg => [pkg.name, pkg.version]))
+  run('npx', ['changeset', 'version'])
+  run('npm', ['install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund'])
+  const released = packages().filter(pkg => before.get(pkg.name) !== pkg.version)
+  const title = `Release ${released.map(pkg => `${pkg.name.replace(/^@kipster\//, '')} ${pkg.version}`).join(', ')}`
+  const body = released.map(pkg => `## ${pkg.name} ${pkg.version}\n\n${notes(readFileSync(join(root, pkg.dir, 'CHANGELOG.md'), 'utf8'), pkg.version)}`).join('\n\n')
+  run('git', ['add', '-A'])
+  run('git', ['commit', '--quiet', '-m', title])
+  run('git', ['push', '--quiet', '-u', 'origin', branch])
+  run('gh', ['pr', 'create', '--base', 'next', '--head', branch, '--title', title, '--body', `${body}\n\nAfter merging, open a pull request from \`next\` to \`master\` to publish these versions.`])
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [command, name, out] = process.argv.slice(2)
-  if (command === 'plan') {
+  if (command === 'prepare') {
+    prepare()
+  } else if (command === 'plan') {
     const tags = new Set(execFileSync('git', ['tag', '--list'], { cwd: root, encoding: 'utf8' }).split('\n'))
     console.log(`packages=${JSON.stringify(plan(packages(), tags, (name ?? '').split(',').map(item => item.trim()).filter(Boolean)))}`)
   } else if (command === 'build' && name && out) {
@@ -71,7 +94,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const changelog = join(root, pkg.dir, 'CHANGELOG.md')
     console.log(existsSync(changelog) ? notes(readFileSync(changelog, 'utf8'), pkg.version) : `Version ${pkg.version}.`)
   } else {
-    console.error('Usage: node scripts/release.mjs plan [names] | build <name> <dir> | notes <name>')
+    console.error('Usage: node scripts/release.mjs prepare | plan [names] | build <name> <dir> | notes <name>')
     process.exitCode = 2
   }
 }

@@ -12,11 +12,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  version:
-    name: Version
+  plan:
+    name: Plan
     runs-on: ubuntu-latest
     outputs:
-      sha: ${{ steps.commit.outputs.sha }}
       packages: ${{ steps.plan.outputs.packages }}
     steps:
       - uses: actions/checkout@v7
@@ -26,47 +25,14 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
-      - run: npm ci
-      - id: commit
-        name: Apply changesets
-        run: |
-          set -euo pipefail
-          if find .changeset -name '*.md' ! -name README.md | grep -q .; then
-            npx changeset version
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add -A
-            git commit -m "Release packages"
-            git push origin HEAD:master
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - id: plan
         run: node scripts/release.mjs plan | tee -a "$GITHUB_OUTPUT"
 
   publish:
-    needs: version
-    if: needs.version.outputs.packages != '[]'
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
     uses: ./.github/workflows/release-build.yml
     with:
-      packages: ${{ needs.version.outputs.packages }}
-      ref: ${{ needs.version.outputs.sha }}
+      packages: ${{ needs.plan.outputs.packages }}
+      ref: ${{ github.sha }}
     secrets: inherit
-
-  sync-next:
-    name: Merge the release into next
-    needs: [version, publish]
-    if: always() && needs.version.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: next
-          fetch-depth: 0
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git merge --no-edit "$SHA"
-          git push origin next
-        env:
-          SHA: ${{ needs.version.outputs.sha }}
