@@ -31,6 +31,7 @@ export function KipHome({
   const reduced = Boolean(useReducedMotion())
   const shown = useSettledState(state)
   const info = liveStates[shown]
+  const resting = shown === 'ready'
   const described = useId()
   const status = (
     <span id={described} className="sr-only">
@@ -49,12 +50,12 @@ export function KipHome({
       <button
         {...common}
         className={`kip-home-mini ${selected ? 'selected' : ''}`}
-        data-tip={`${agent.name} · ${info.label}`}
+        data-tip={resting ? agent.name : `${agent.name} · ${info.label}`}
       >
         <span aria-hidden="true" className="avatar kip">
           <KipHead />
         </span>
-        <span className="kip-home-dot" aria-hidden="true" />
+        {resting ? null : <span className="kip-home-dot" aria-hidden="true" />}
         {status}
       </button>
     )
@@ -75,10 +76,12 @@ export function KipHome({
       </span>
       <span className="kip-line sidebar-label">
         <span className="kip-name">{agent.name}</span>
-        <span className="kip-state" aria-hidden="true">
-          <i />
-          {info.label}
-        </span>
+        {resting ? null : (
+          <span className="kip-state" aria-hidden="true">
+            <i />
+            {info.label}
+          </span>
+        )}
       </span>
       {status}
     </button>

@@ -139,6 +139,14 @@ const inks: Record<string, [DotColor, number]> = {
 }
 const pip = { W: 'N', S: 'n' }
 const questionMark = ['XX.', '..X', '.X.', '...', '.X.']
+const noSignal = [
+  '..XXXXX..',
+  '.X.....X.',
+  'X..XXX..X',
+  '..X...X..',
+  '....X....',
+]
+const cross = ['X.X', '.X.', 'X.X']
 
 interface Options {
   v?: number
@@ -266,6 +274,8 @@ function checkPath(x0: number, y0: number, a: number) {
   return points
 }
 
+const restX = (g: Farm) => Math.round((g.x0 + g.x1) / 2 - 7)
+
 type Draw = (g: Farm, time: number, age: number) => void
 const scene = (still: number, draw: Draw, mood = false): Scene => ({
   still,
@@ -278,29 +288,11 @@ const scene = (still: number, draw: Draw, mood = false): Scene => ({
 })
 
 export const kipScenes: Record<LiveState, Scene> = {
-  ready: scene(1.0, (g, _t, a) => {
-    const span = g.x1 - g.x0 - 18,
-      P = 9,
-      ph = (a % P) / P,
-      peck: Sprite = Math.floor(a / 0.28) % 2 ? 'peck' : 'stand'
-    let x = g.x0 + 2,
-      pose: Sprite = peck,
-      flip = true
-    if (ph < 0.28)
-      [x, pose, flip] = [
-        g.x0 + 2 + span * ease(ph / 0.28),
-        walk(a, 0.16),
-        false,
-      ]
-    else if (ph < 0.42) [x, pose, flip] = [g.x0 + 2 + span, peck, false]
-    else if (ph < 0.5) [x, pose, flip] = [g.x0 + 2 + span, 'look', false]
-    else if (ph < 0.78)
-      [x, pose] = [
-        g.x0 + 2 + span * (1 - ease((ph - 0.5) / 0.28)),
-        walk(a, 0.16),
-      ]
-    g.kip(x, pose, { flip })
-  }),
+  ready: scene(
+    0,
+    (g) => g.kip(Math.round((g.x0 + g.x1) / 2 - 7), 'sit', { map: { K: 'S' } }),
+    true,
+  ),
   queued: scene(0.6, (g, _t, a) => {
     const { gy, x0, x1 } = g,
       coopX = x1 - 8,
@@ -630,20 +622,13 @@ export const kipScenes: Record<LiveState, Scene> = {
     )
   }),
   offline: scene(
-    1.2,
-    (g, _t, a) => {
-      const { gy, x0, x1 } = g,
-        kx = Math.round((x0 + x1) / 2 - 7)
-      g.kip(kx, 'sit', { map: { K: 'S' } })
-      for (let k = 0; k < 3; k++) {
-        const p = ((a + k * 0.9) % 2.7) / 2.7
-        g.px(
-          kx + 12 + p * 5 + Math.sin(p * 9) * 0.8,
-          gy - 8 - p * 7,
-          'grey',
-          0.9 * Math.sin(Math.PI * p),
-        )
-      }
+    0,
+    (g) => {
+      const x = restX(g)
+      g.kip(x, 'sit', { map: { K: 'S' } })
+      g.grey = false
+      g.glyph(noSignal, x + 15, 5, 'soft', 0.55)
+      g.glyph(cross, x + 23, 8, 'red', 0.75)
     },
     true,
   ),
