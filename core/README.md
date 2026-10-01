@@ -111,8 +111,10 @@ version. IDs and cursors are opaque. A submission receipt is scoped to the
 installation, caller and submission ID; after authorization, a repeated ID must
 return the original receipt even when the retry supplies different content.
 Clients must use a new ID for new content. Read limits are 1–100.
-Unknown event kinds fail parsing and require a compatible client or snapshot
-resynchronization; clients must not infer meaning from an unrecognized payload.
+The exported `textEvent` schema accepts only the current protocol's event kinds.
+Clients skip event kinds they do not know and show a neutral fallback for
+unknown enumeration values, as [decision record 5.1.7](../docs/initial-implementation-plan/05-kipster-protocol.md)
+requires; they must not infer meaning from an unrecognized payload.
 
 `GET /v1/directory` returns the owner's directory: organizations, agents, agent
 memberships and organization groups with their ordered appearances, with the

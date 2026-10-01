@@ -10,6 +10,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Icon } from '../../components/Icon'
 import { Panel } from './Panel'
 import type { Scope } from '../../data/text'
+import { appProtocol, type ProtocolRange } from '../../data/compatibility'
+import { appVersion } from '../../app/version'
 import {
   CoreSettingsClient,
   settingFields,
@@ -35,11 +37,19 @@ type Tab =
   | 'identity'
   | 'desktop'
   | 'appearance'
+  | 'about'
 const tabs: Record<
   Tab,
   {
     label: string
-    icon: 'organization' | 'spark' | 'settings' | 'identity' | 'brain' | 'sun'
+    icon:
+      | 'organization'
+      | 'spark'
+      | 'settings'
+      | 'identity'
+      | 'brain'
+      | 'sun'
+      | 'info'
     description: string
   }
 > = {
@@ -83,6 +93,11 @@ const tabs: Record<
     icon: 'brain',
     description: 'Whether kips learn from completed conversations',
   },
+  about: {
+    label: 'About',
+    icon: 'info',
+    description: 'Versions to include in bug reports',
+  },
 }
 const fieldLabels: Record<SettingField, string> = {
   adapterId: 'Adapter',
@@ -94,6 +109,7 @@ const errorText = (error: unknown) =>
 
 export function CoreSettingsPanel({
   workspaceControls,
+  versions,
   updates,
   appearance,
   endpoint,
@@ -103,6 +119,8 @@ export function CoreSettingsPanel({
   close,
 }: {
   workspaceControls?: ReactNode
+  /** The connected Core's version and protocol range, from bootstrap. */
+  versions?: { coreVersion: string; protocol: ProtocolRange }
   updates?: ApplicationUpdates
   appearance: Appearance
   endpoint: string
@@ -134,7 +152,11 @@ export function CoreSettingsPanel({
       <div className="settings-layout">
         <nav className="settings-nav" aria-label="Settings category">
           {(Object.keys(tabs) as Tab[])
-            .filter((id) => id !== 'workspace' || workspaceControls)
+            .filter(
+              (id) =>
+                (id !== 'workspace' || workspaceControls) &&
+                (id !== 'about' || versions),
+            )
             .map((id) => (
               <button
                 key={id}
@@ -156,7 +178,8 @@ export function CoreSettingsPanel({
           {settings.connection &&
             tab !== 'workspace' &&
             tab !== 'appearance' &&
-            tab !== 'desktop' && (
+            tab !== 'desktop' &&
+            tab !== 'about' && (
               <output className="settings-callout" data-tone="wait">
                 {settings.connection}
                 {!ready && (
@@ -168,6 +191,8 @@ export function CoreSettingsPanel({
             )}
           {tab === 'workspace' ? (
             workspaceControls
+          ) : tab === 'about' && versions ? (
+            <About {...versions} />
           ) : tab === 'appearance' ? (
             <AppearanceSettings appearance={appearance} />
           ) : tab === 'desktop' ? (
@@ -205,6 +230,36 @@ export function CoreSettingsPanel({
         </div>
       </div>
     </Panel>
+  )
+}
+
+function About({
+  coreVersion,
+  protocol,
+}: {
+  coreVersion: string
+  protocol: ProtocolRange
+}) {
+  return (
+    <dl className="settings-group about-versions" aria-label="Versions">
+      <div className="setting-row">
+        <dt>Kipster app</dt>
+        <dd>{appVersion}</dd>
+      </div>
+      <div className="setting-row">
+        <dt>Backend</dt>
+        <dd>{coreVersion}</dd>
+      </div>
+      <div className="setting-row">
+        <dt>Protocol</dt>
+        <dd>
+          App {appProtocol} · backend{' '}
+          {protocol.oldest === protocol.current
+            ? protocol.current
+            : `${protocol.oldest}–${protocol.current}`}
+        </dd>
+      </div>
+    </dl>
   )
 }
 

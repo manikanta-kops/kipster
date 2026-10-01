@@ -139,11 +139,10 @@ export function LifecyclePanel({
               'Progress is unavailable. The saved request will be checked again.',
             )
           const status = await response.json()
+          // An unknown state is shown as reported and checked again, like any unfinished one.
           if (
             status.operationId !== request.operationId ||
-            !['pending', 'running', 'waiting', 'succeeded', 'failed'].includes(
-              status.state,
-            )
+            typeof status.state !== 'string'
           )
             throw new Error('Unexpected operation status.')
           if (!abort.signal.aborted)
