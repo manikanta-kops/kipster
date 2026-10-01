@@ -30,10 +30,9 @@ React UI ── Kipster Protocol client ── Core ── execution adapter ─
 
 Install Node as described in the UI README, Rust stable, and your platform's [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/). macOS needs Xcode command-line tools; Windows needs the documented C++ tools and WebView2; Linux needs the documented WebKitGTK/system development packages.
 
-From `interface/kipster-ui`:
+After `npm ci` at the repository root, from `interface/kipster-ui`:
 
 ```sh
-npm ci
 npm run desktop:dev
 ```
 
@@ -48,7 +47,7 @@ npm run desktop:build   # Frontend + native build and platform bundles
 npm run test:e2e        # Production frontend and driver-level tests
 ```
 
-Before `desktop:check` on a fresh checkout, run `npm run build` to create frontend assets. Keep `Cargo.lock` and `package-lock.json` committed. `src-tauri/target` and generated schemas are ignored.
+Before `desktop:check` on a fresh checkout, run `npm run build` to create frontend assets. Keep `Cargo.lock` and the root `package-lock.json` committed. `src-tauri/target` and generated schemas are ignored.
 
 ## Calling from React
 

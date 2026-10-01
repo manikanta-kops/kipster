@@ -1,0 +1,53 @@
+name: Release next
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: Packages to build, comma-separated (for example "core,ui"). Leave empty to build every package with unreleased changes.
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan
+    if: github.ref_name == 'next'
+    runs-on: ubuntu-latest
+    outputs:
+      snapshot: ${{ steps.snapshot.outputs.snapshot }}
+      packages: ${{ steps.plan.outputs.packages }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - id: snapshot
+        run: echo "snapshot=$(date -u +%Y%m%d%H%M%S)" >> "$GITHUB_OUTPUT"
+      - run: npx changeset version --snapshot "$SNAPSHOT"
+        env:
+          SNAPSHOT: ${{ steps.snapshot.outputs.snapshot }}
+      - id: plan
+        run: node scripts/release.mjs plan "$ONLY" | tee -a "$GITHUB_OUTPUT"
+        env:
+          ONLY: ${{ inputs.packages }}
+
+  publish:
+    needs: plan
+    if: needs.plan.outputs.packages != '[]'
+    uses: ./.github/workflows/release-build.yml
+    with:
+      packages: ${{ needs.plan.outputs.packages }}
+      ref: ${{ github.sha }}
+      snapshot: ${{ needs.plan.outputs.snapshot }}
+    secrets: inherit

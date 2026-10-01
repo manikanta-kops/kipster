@@ -7,13 +7,13 @@ adapters are separate packages. Core manages its own dependencies and lockfile.
 
 ## Development
 
-Use NVM to select the Node version pinned in `.nvmrc`:
+Install dependencies once from the repository root, with the Node version pinned
+in `.nvmrc`, then work in `core`:
 
 ```sh
-cd core
 nvm install
-nvm use
 npm ci
+cd core
 npm run check
 ```
 

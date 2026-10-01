@@ -24,9 +24,8 @@ function codex(previous) {
 export async function buildBackend(home) {
   const core = join(repository, 'core'), adapter = join(repository, 'adapters/codex-cli')
   console.log('Building Core and the Codex adapter…')
-  await dependencies(core)
+  await dependencies()
   await run('npm', ['run', 'build'], { cwd: core })
-  await dependencies(adapter)
   await run('npm', ['run', 'build'], { cwd: adapter })
   const build = join(home, 'builds', randomUUID()), installation = join(build, 'packages')
   await mkdir(installation, { recursive: true, mode: 0o700 })

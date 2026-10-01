@@ -6,10 +6,10 @@ provides conversations, work controls, inbox, settings and administration.
 
 ## Development
 
-Use Node.js 26.10.0 and npm from this directory:
+Install dependencies once from the repository root with Node.js 26.10.0
+(`npm ci`), then run these from this directory:
 
 ```sh
-npm ci
 npm run dev                       # Embedded fake Core (demo mode)
 npm run dev:core                  # Real client; connect to an existing Core
 npm run check                     # Lint, formatting, TypeScript and production build
@@ -113,11 +113,11 @@ installed Chrome and Playwright WebKit, and PostgreSQL 18 with pgvector on `PATH
 From a fresh checkout, prepare Core before running the command:
 
 ```sh
-(cd ../../core && npm ci && npm run build && npx tsc -p tsconfig.fixture.json)
+(cd ../../core && npm run build && npx tsc -p tsconfig.fixture.json)
 ```
 
 Add the PostgreSQL 18 binary directory to `PATH` and install pgvector for that
-server version. The UI dependencies must already be installed with `npm ci`.
+server version. Dependencies must already be installed with `npm ci` at the repository root.
 
 The command uses Core's `with-test-database.mjs` wrapper to create and remove a
 private disposable cluster. It starts only temporary Core/UI servers, runs both

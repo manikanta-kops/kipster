@@ -38,11 +38,11 @@ export function run(program, args, { cwd = repository, env = process.env, captur
     })
   })
 }
-export async function dependencies(directory) {
-  const digest = createHash('sha256').update(await readFile(join(directory, 'package-lock.json'))).update(await readFile(join(directory, 'package.json'))).update(process.versions.node).digest('hex')
-  const stamp = join(directory, 'node_modules/.kipster-dependencies')
+export async function dependencies() {
+  const digest = createHash('sha256').update(await readFile(join(repository, 'package-lock.json'))).update(await readFile(join(repository, 'package.json'))).update(process.versions.node).digest('hex')
+  const stamp = join(repository, 'node_modules/.kipster-dependencies')
   if (await readFile(stamp, 'utf8').catch(() => '') === digest) return
-  await run('npm', ['ci', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: directory })
+  await run('npm', ['ci', '--prefer-offline', '--no-audit', '--no-fund'], { cwd: repository })
   await writeFile(stamp, digest)
 }
 export async function locked(path, work) {
