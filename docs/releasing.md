@@ -60,8 +60,9 @@ releases cannot be changed.
 
 ## App signing
 
-The app is signed and notarized when these repository secrets exist. Without
-them it builds unsigned.
+The app is signed and notarized when these secrets exist in the `release`
+environment, which only `master` and `next` can use. Without them it builds
+unsigned.
 
 | Secret | Value |
 | --- | --- |
