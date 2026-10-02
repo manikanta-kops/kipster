@@ -47,17 +47,10 @@
   height: 34px;
   transform-origin: 0 0;
 }
-.island-mark > :is(.avatar, .admin-glyph) {
+.island-mark > .avatar {
   width: 34px;
   height: 34px;
   font-size: 14px;
-}
-.island-mark > .admin-glyph {
-  border-radius: 50%;
-}
-.island-mark > .admin-glyph svg {
-  width: 16px;
-  height: 16px;
 }
 .island-name {
   transform-origin: 0 0;

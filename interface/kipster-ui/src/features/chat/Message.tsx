@@ -1,4 +1,5 @@
 import { Icon } from '../../components/Icon'
+import { KipHead } from '../../components/Kip'
 import { ArtifactCard } from '../media/ArtifactCard'
 import type { Message as MessageModel, WorkspaceData } from './model'
 import { formatSize, formatTime } from './model'
@@ -9,11 +10,20 @@ export function Avatar({
   name,
   color = 'iris',
   isSelf = false,
+  kip = false,
 }: {
   name: string
   color?: string
   isSelf?: boolean
+  /** The root admin wears Kip's LED head instead of an initial. */
+  kip?: boolean
 }) {
+  if (kip)
+    return (
+      <span aria-hidden="true" className="avatar kip">
+        <KipHead />
+      </span>
+    )
   return (
     <span aria-hidden="true" className={`avatar ${isSelf ? 'you' : color}`}>
       {isSelf ? 'Y' : name.charAt(0)}
@@ -41,6 +51,7 @@ export function Message({
         name={name}
         color={author?.kind === 'agent' ? author.color : undefined}
         isSelf={isSelf}
+        kip={data.agentRoles.some((role) => role.agentId === message.authorId)}
       />
       <div className="message-body">
         <div className="message-meta">

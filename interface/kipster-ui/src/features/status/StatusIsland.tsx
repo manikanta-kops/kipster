@@ -5,6 +5,7 @@ import type { Transition } from 'motion/react'
 import { useMediaQuery } from '../../app/use-media-query'
 import { PixelDisplay } from './PixelDisplay'
 import { liveStates } from './live-state'
+import { useSettledState } from './use-settled-state'
 import type { LiveState } from './live-state'
 
 const morph: Transition = {
@@ -14,24 +15,7 @@ const morph: Transition = {
   mass: 1,
 }
 const instant: Transition = { duration: 0 }
-const doneSeconds = 4
 const pitch = 2.4
-
-/** Done is transient: it shows for a few seconds after work completes, then settles to Ready. */
-function useSettledState(state: LiveState) {
-  const [settled, setSettled] = useState(state === 'done')
-  const [seen, setSeen] = useState(state)
-  if (seen !== state) {
-    setSeen(state)
-    setSettled(false)
-  }
-  useEffect(() => {
-    if (state !== 'done' || settled) return
-    const timer = setTimeout(() => setSettled(true), doneSeconds * 1000)
-    return () => clearTimeout(timer)
-  }, [state, settled])
-  return state === 'done' && settled ? 'ready' : state
-}
 
 /**
  * The title capsule. Ready is a glass capsule with the mark and name; any

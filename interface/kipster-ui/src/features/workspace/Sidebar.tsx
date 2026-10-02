@@ -11,11 +11,13 @@ import {
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { OrganizationSwitcher } from './OrganizationSwitcher'
+import { KipHome } from './KipHome'
 import { Icon } from '../../components/Icon'
 import { Avatar } from '../chat/Message'
 import type { Agent, AgentGroup, Membership } from '../chat/model'
 import type { WorkspaceSnapshot } from '../../data/directory'
 import { groupHue } from '../../app/appearance'
+import type { LiveState } from '../status/live-state'
 
 interface Props {
   id?: string
@@ -29,6 +31,8 @@ interface Props {
   drawer?: boolean
   segment: string
   waiting: ReadonlySet<string>
+  /** What Kip, the root admin, is doing across its chat. */
+  kipState: LiveState
   /** Agents removed from this organization whose chats stay readable. */
   formerMembers?: Agent[]
   onOrganization: (id: string) => void
@@ -58,6 +62,7 @@ export function Sidebar({
   drawer = false,
   segment,
   waiting,
+  kipState,
   formerMembers = [],
   onOrganization,
   onToggle,
@@ -136,18 +141,12 @@ export function Sidebar({
           onAgent(agent.id, admin ? 'installation' : 'organization')
         }}
       >
-        {admin ? (
-          <span className="admin-glyph" aria-hidden="true">
-            <Icon name="spark" weight="fill" />
-          </span>
-        ) : (
-          <span className="avatar-slot">
-            <Avatar name={agent.name} color={agent.color} />
-            {waiting.has(agent.id) && (
-              <span className="presence wait" aria-hidden="true" />
-            )}
-          </span>
-        )}
+        <span className="avatar-slot">
+          <Avatar name={agent.name} color={agent.color} kip={admin} />
+          {waiting.has(agent.id) && (
+            <span className="presence wait" aria-hidden="true" />
+          )}
+        </span>
         <span className="agent-info sidebar-label">
           <span className="agent-name">
             {agent.name}
@@ -181,11 +180,7 @@ export function Sidebar({
         className={`sidebar ${drawer ? 'drawer' : ''}`}
         aria-label="Workspace"
       >
-        <div className="brand" data-tauri-drag-region>
-          <span className="brand-mark" aria-hidden="true">
-            <Icon name="kip" />
-          </span>
-          <span className="sidebar-label wordmark">Kipster</span>
+        <div className="sidebar-top" data-tauri-drag-region>
           <button
             className="icon-button collapse-button"
             aria-label={
@@ -204,9 +199,24 @@ export function Sidebar({
         </div>
         <nav aria-label="Kips" className="side-list">
           <div className="installation-agents">
-            {data.agentRoles.map((role) =>
-              agentButton(data.actorsById[role.agentId] as Agent, true),
-            )}
+            {data.agentRoles.map((role, index) => {
+              const agent = data.actorsById[role.agentId] as Agent
+              return index === 0 ? (
+                <KipHome
+                  key={agent.id}
+                  agent={agent}
+                  state={kipState}
+                  selected={isSelected(agent.id, true)}
+                  collapsed={collapsed}
+                  onOpen={() => {
+                    setFlyout(null)
+                    onAgent(agent.id, 'installation')
+                  }}
+                />
+              ) : (
+                agentButton(agent, true)
+              )
+            })}
           </div>
           {collapsed ? (
             <div className="stacks">

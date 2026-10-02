@@ -6,8 +6,9 @@ import {
   dotColorKeys,
   dotColors,
   hash,
-  scenes,
+  scenes as islandScenes,
   smooth,
+  type Scene,
 } from './pixel-scenes'
 
 const dissolveSeconds = 0.6
@@ -75,17 +76,20 @@ class Display {
   private readonly cols: number
   private readonly rows: number
   private readonly pitch: number
+  private readonly scenes: Record<LiveState, Scene>
 
   constructor(
     canvas: HTMLCanvasElement,
     cols: number,
     rows: number,
     pitch: number,
+    scenes: Record<LiveState, Scene>,
   ) {
     this.canvas = canvas
     this.cols = cols
     this.rows = rows
     this.pitch = pitch
+    this.scenes = scenes
     this.frame = new DotFrame(cols, rows)
     this.previous = new DotFrame(cols, rows)
     this.lit = new Float32Array(cols * rows)
@@ -114,13 +118,13 @@ class Display {
   }
 
   private sceneAge(since: number, state: LiveState) {
-    return this.reduced ? scenes[state].still : now() - since
+    return this.reduced ? this.scenes[state].still : now() - since
   }
   private draw(target: DotFrame, state: LiveState | null, since: number) {
     target.clear()
     if (!state) return
     const age = this.sceneAge(since, state)
-    scenes[state].draw(target, this.reduced ? age : now(), age)
+    this.scenes[state].draw(target, this.reduced ? age : now(), age)
   }
 
   paint(dt: number) {
@@ -242,28 +246,31 @@ export function PixelDisplay({
   rows = 9,
   pitch = 2.4,
   reduced,
+  scenes = islandScenes,
 }: {
   state: LiveState | null
   cols: number
   rows?: number
   pitch?: number
   reduced: boolean
+  /** The art for each state; the status island's scenes unless given. */
+  scenes?: Record<LiveState, Scene>
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const display = useRef<Display | null>(null)
   useEffect(() => {
-    const created = new Display(canvas.current!, cols, rows, pitch)
+    const created = new Display(canvas.current!, cols, rows, pitch, scenes)
     display.current = created
     displays.add(created)
     return () => {
       displays.delete(created)
       display.current = null
     }
-  }, [cols, rows, pitch])
+  }, [cols, rows, pitch, scenes])
   useEffect(() => {
     display.current?.show(state, reduced)
     wake()
-  }, [state, reduced, cols, rows, pitch])
+  }, [state, reduced, cols, rows, pitch, scenes])
   return (
     <canvas
       ref={canvas}

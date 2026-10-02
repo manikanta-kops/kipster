@@ -3,7 +3,7 @@ import type { WorkRecords } from '../../data/work'
 import { Fragment, type ReactNode, type RefObject } from 'react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { quickFade } from '../../app/motion'
-import { Icon } from '../../components/Icon'
+import { KipBody } from '../../components/Kip'
 import { Message, Avatar } from './Message'
 import {
   formatTime,
@@ -136,6 +136,9 @@ export function RootFeed({
                                       ? data.actorsById[id].color
                                       : undefined
                                   }
+                                  kip={data.agentRoles.some(
+                                    (role) => role.agentId === id,
+                                  )}
                                 />
                               ))}
                           </span>
@@ -165,14 +168,30 @@ export function RootFeed({
         </AnimatePresence>
       ) : (
         <div className="empty-state">
-          <span className="empty-mark">
-            <Icon name="kip" />
-          </span>
-          <h2>A little space to think.</h2>
-          <p>
-            Start a conversation with {agent.name}.<br />
-            Your ideas can grow from here.
-          </p>
+          {data.agentRoles.some((role) => role.agentId === agent.id) ? (
+            <>
+              <span className="empty-mark kip" aria-hidden="true">
+                <KipBody />
+              </span>
+              <h2>Hey, it's {agent.name}.</h2>
+              <p>
+                Ask {agent.name} anything.
+                <br />
+                {agent.name} runs your other kips.
+              </p>
+            </>
+          ) : (
+            <>
+              <span className="empty-mark agent" aria-hidden="true">
+                <Avatar name={agent.name} color={agent.color} />
+              </span>
+              <h2>A little space to think.</h2>
+              <p>
+                Start a conversation with {agent.name}.<br />
+                Your ideas can grow from here.
+              </p>
+            </>
+          )}
         </div>
       )}
     </motion.div>
