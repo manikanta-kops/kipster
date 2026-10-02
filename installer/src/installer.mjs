@@ -29,6 +29,9 @@ function reference(value, fallback) {
   }
   throw new Error('Configured adapters must identify a release package through node_modules/@kipster/<package>/<entry>. Use the packaged embedding/transcription module paths.')
 }
+function withManagedUpdates(config) {
+  return { ...config, updates: { ...config.updates, managed: true } }
+}
 export function managedConfiguration(config, home) {
   const names = new Set(), current = join(home, 'current')
   const result = { ...config, version: 1, home, adapters: (config.adapters ?? []).map(adapter => {
@@ -41,13 +44,14 @@ export function managedConfiguration(config, home) {
     names.add(entry.name); result[kind] = { ...config[kind], module: join(current, entry.entry) }
   }
   if (names.has('@kipster/core') || names.has('@kipster/installer') || names.has('@kipster/ui')) throw new Error('Configure adapter packages, not Core, the installer or the app, as providers.')
-  return { config: result, names: [...names].sort() }
+  return { config: withManagedUpdates(result), names: [...names].sort() }
 }
 export function request(value) {
   if (!value || value.version !== 1 || typeof value.id !== 'string' || !value.id.trim() || value.id.length > 128 || !['install', 'restore'].includes(value.action) || !['manual', 'automatic'].includes(value.reason) || typeof value.requestedAt !== 'string' || !Number.isFinite(Date.parse(value.requestedAt))) throw new Error('Expected updater request version 1 with id, action, target, reason and requestedAt.')
   version(value.target)
   if (value.backupId !== undefined && (typeof value.backupId !== 'string' || !/^[0-9a-f-]{36}$/.test(value.backupId))) throw new Error('Invalid backupId in updater request.')
-  // URLs, paths and other additive input fields are never used for installation.
+  // Core owns settings; URLs, paths and other additive fields are ignored here.
+  // Keep the original request file intact for Core's restore reconciliation.
   return { version: 1, id: value.id, action: value.action, target: value.target, ...(value.backupId ? { backupId: value.backupId } : {}), reason: value.reason, requestedAt: value.requestedAt }
 }
 async function within(path, root) {
@@ -57,7 +61,7 @@ async function within(path, root) {
 }
 export class Installer {
   constructor(home, settings, config, { onStep, platformCheck = prerequisites } = {}) {
-    this.home = home; this.settings = settings; this.config = config; this.onStep = onStep; this.platformCheck = platformCheck
+    this.home = home; this.settings = settings; this.config = withManagedUpdates(config); this.onStep = onStep; this.platformCheck = platformCheck
     this.env = runtimeEnvironment(config)
     if (settings.pgBin) this.env.PATH = settings.pgBin + ':' + this.env.PATH
     const maintenanceURL = settings.maintenanceDatabaseUrl ?? config.databaseUrl
@@ -184,6 +188,7 @@ export class Installer {
     await this.cleanup(journal)
     await rm(join(this.directory, 'first-install-failed.json'), { force: true })
     await this.publish(journal, 'done', null)
+    // Core reads the retained request, including its settings, after a restore.
     await rm(this.journalPath, { force: true }); await syncDirectory(this.directory)
   }
   async cleanup(journal) {
@@ -301,7 +306,7 @@ export class Installer {
       }
       // A snapshot must not undo a database credential rotation or reconnect
       // Core to a different database after restoring this one.
-      journal.targetConfig = restoring ? { ...restoring.config, databaseUrl: this.config.databaseUrl, taskDataUrl: this.config.taskDataUrl } : targetConfig
+      journal.targetConfig = restoring ? managedConfiguration({ ...restoring.config, databaseUrl: this.config.databaseUrl, taskDataUrl: this.config.taskDataUrl }, this.home).config : targetConfig
       await this.persist(journal)
       await this.publish(journal, 'running', 'downloading')
       const restoreNames = restoring?.release.packages.filter(item => item.package !== '@kipster/core').map(item => item.package)
@@ -422,7 +427,7 @@ export async function install(options, hooks) {
     await installer.database.check()
     const target = options.version ?? (await installer.catalog.read(settings.channel + '.json'))['@kipster/core']?.version
     await save(join(home, 'updater.json'), settings)
-    await save(join(home, 'host.json'), config)
+    await save(join(home, 'host.json'), installer.config)
     return installer.perform({ version: 1, id: randomUUID(), action: 'install', target, reason: 'manual', requestedAt: new Date().toISOString() }, { initial: true, selectedChannel: settings.channel })
   })
 }

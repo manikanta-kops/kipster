@@ -79,7 +79,12 @@ backup. Core owns update settings, scheduling and the idle-work policy.
 Files in `<home>/updates` use the shared version-1 `request.json` and `status.json`
 contract. Requests contain `target` as a semver string and an optional backup UUID
 for restore. URLs or paths supplied in requests are ignored; the updater fetches
-catalogs itself. Writes use a private temporary file, fsync and atomic rename.
+catalogs itself. Unknown request fields are ignored, and the original request
+stays in place so Core can reapply its update settings after a restore. The
+installer sets `updates.managed: true` in `host.json`, including when updating an
+existing installation or restoring an older backup. Core requires this flag to
+accept or schedule installations. Writes use a private temporary file, fsync and
+atomic rename.
 `apply` ignores terminal requests it has already handled. launchd watches requests
 and retries every 60 seconds, including after reboot. The updater retains the
 current and previous Core releases, the last three complete database backups,

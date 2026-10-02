@@ -13,8 +13,9 @@ import { Database, databaseEndpoint } from '../src/database.mjs'
 import { database, directory, configuration, catalogs, hooks, noDatabase, cli, repository } from './support.mjs'
 
 test('request validation trusts only version strings and preserves the shared shape', () => {
-  const input = { version: 1, id: 'request/opaque-id', action: 'install', target: '0.2.0-next.1', reason: 'automatic', requestedAt: new Date().toISOString(), url: 'https://untrusted.invalid', root: '/etc' }
+  const input = { version: 1, id: 'request/opaque-id', action: 'install', target: '0.2.0-next.1', reason: 'automatic', requestedAt: new Date().toISOString(), settings: { channel: 'next', mode: 'notify', pinned: null }, future: { field: true }, url: 'https://untrusted.invalid', root: '/etc' }
   assert.deepEqual(Object.keys(request(input)), ['version', 'id', 'action', 'target', 'reason', 'requestedAt'])
+  assert.deepEqual(request({ ...input, settings: 'unknown to the installer' }), request(input))
   assert.throws(() => request({ ...input, target: { version: '0.1.0', url: input.url } }), /semver/)
   assert.throws(() => request({ ...input, backupId: '../../etc' }), /backupId/)
   for (const value of ['../x', '01.0.0', '1.0.0-next.01', '1.0']) assert.throws(() => version(value), /semver/)
@@ -34,6 +35,14 @@ test('provider roots move with current while retaining provider options', () => 
   assert.equal(result.config.adapters[0].root, '/tmp/home/current')
   assert.equal(result.config.adapters[0].config.model, 'chosen')
   assert.equal(result.config.embedding.module, '/tmp/home/current/node_modules/@kipster/embedding-ollama/dist/index.js')
+})
+test('managed host configuration opts into updates and preserves catalog options', () => {
+  for (const updates of [undefined, { channelUrl: 'https://updates.example/v1/' }, { managed: false, channelUrl: 'https://updates.example/v1/' }]) {
+    const source = { adapters: [], ...(updates ? { updates } : {}) }
+    const before = structuredClone(source)
+    assert.deepEqual(managedConfiguration(source, '/tmp/home').config.updates, { ...updates, managed: true })
+    assert.deepEqual(source, before)
+  }
 })
 test('malformed provider paths remain bounded and reject traversal', { timeout: 1000 }, () => {
   for (const entry of ['@kipster/a/a' + '/@kipster/a/a'.repeat(300) + '\n', '@kipster/a/a' + '/@kipster/a/a'.repeat(10000), 'node_modules/@kipster/a/../escape.js', 'node_modules/@kipster/a/dist\\escape.js']) {
@@ -70,6 +79,7 @@ test('process locks exclude overlapping commands and release after a killed owne
 test('success, verification failure, migration/health rollback, restore and retention', { skip: noDatabase, timeout: 180000 }, async t => {
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t)
   const { path, maintenancePath } = await configuration(t, home, databaseUrl, {
+    updates: { managed: false, channelUrl: catalog.base },
     embedding: { module: join(home, 'embedding-ollama/dist/index.js'), options: { model: 'kept' } },
     transcription: { module: join(home, 'transcription-spokenly/dist/index.js'), options: { executable: '/usr/bin/false' } },
   })
@@ -77,6 +87,7 @@ test('success, verification failure, migration/health rollback, restore and rete
   await assert.rejects(install({ ...options, maintenanceConfig: undefined }, hooks), /superuser maintenance login/)
   const first = await install(options, hooks)
   assert.equal(first.coreVersion, '0.1.0'); assert.equal(first.update.state, 'done')
+  assert.deepEqual((await json(join(home, 'host.json'))).updates, { managed: true, channelUrl: catalog.base })
   assert.equal((await stat(join(home, 'host.json'))).mode & 0o777, 0o600)
   assert.equal(await db.query("INSERT INTO fixture.items VALUES(1,'saved before update') RETURNING note"), 'saved before update')
   const installer = await Installer.open(home, hooks)
@@ -91,6 +102,7 @@ test('success, verification failure, migration/health rollback, restore and rete
   await save(join(home, 'fixture.json'), { migrationFailure: '0.2.0' })
   await assert.rejects(installer.update(), /Core setup failed/)
   assert.equal((await installer.status()).update.state, 'rolled-back')
+  assert.equal((await json(join(home, 'host.json'))).updates.managed, true)
   assert.equal(await db.query("SELECT note FROM fixture.items WHERE id=1"), 'saved before update')
   assert.equal(await db.query("SELECT count(*) FROM pg_namespace WHERE nspname='failed_migration'"), '0')
   assert.equal((await installer.status()).coreVersion, '0.1.0')
@@ -205,22 +217,37 @@ test('restore can download a pruned release and honors pinned provider versions'
   const home = await directory(t), { databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0', '0.2.0', '0.3.0'] })
   const { path, maintenancePath } = await configuration(t, home, databaseUrl)
   await install({ home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 1000 }, hooks)
+  const legacyConfig = await json(join(home, 'host.json'))
+  legacyConfig.updates = { channelUrl: catalog.base }
+  await save(join(home, 'host.json'), legacyConfig)
   const installer = await Installer.open(home, hooks)
   catalog.select('0.2.0'); await installer.update()
+  assert.deepEqual((await json(join(home, 'host.json'))).updates, { channelUrl: catalog.base, managed: true })
   const backup = (await installer.backups())[0]
   const metadataPath = join(home, 'backups', backup.id, 'backup.json')
   const rotated = structuredClone(backup)
   const previousURL = new URL(rotated.config.databaseUrl); previousURL.password = 'old-secret'
   rotated.config.databaseUrl = previousURL.href
+  delete rotated.config.updates.managed
   await save(metadataPath, rotated)
   await catalog.pack('codex-cli', '0.2.0', null)
   catalog.select('0.3.0'); await installer.update()
   await assert.rejects(stat(join(home, 'releases/0.1.0')), { code: 'ENOENT' })
-  await installer.update(backup.coreVersion, backup.id)
+  const wanted = { version: 1, id: 'restore-with-core-settings', action: 'restore', target: backup.coreVersion, backupId: backup.id, reason: 'manual', requestedAt: new Date().toISOString(), settings: { channel: 'next', mode: 'notify', pinned: backup.coreVersion }, future: { field: true }, downloadUrl: 'http://not-trusted.invalid' }
+  const requestPath = join(home, 'updates/request.json'), requestBytes = JSON.stringify(wanted, null, 4) + '\n'
+  await writeFile(requestPath, requestBytes, { mode: 0o600 })
+  installer.onStep = async step => { if (step === 'restarting') assert.equal(await readFile(requestPath, 'utf8'), requestBytes) }
+  await installer.apply()
+  assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
   assert.equal((await installer.status()).coreVersion, '0.1.0')
   assert.equal((await json(join(home, 'host.json'))).databaseUrl, databaseUrl)
+  assert.deepEqual((await json(join(home, 'host.json'))).updates, { channelUrl: catalog.base, managed: true })
   assert.equal((await json(join(home, 'current/node_modules/@kipster/codex-cli/package.json'))).version, '0.1.0')
   assert.ok(catalog.requests.includes('/v1/releases.json'))
+  const backups = (await installer.backups()).map(item => item.id)
+  await installer.apply()
+  assert.deepEqual((await installer.backups()).map(item => item.id), backups)
+  assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
 })
 test('failed first installation restores its database and can be retried', { skip: noDatabase, timeout: 120000 }, async t => {
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0'] })

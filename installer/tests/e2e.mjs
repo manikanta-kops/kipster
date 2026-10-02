@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cp, mkdir, readdir } from 'node:fs/promises'
+import { cp, mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { run } from '../src/process.mjs'
 import { save, json } from '../src/files.mjs'
@@ -16,19 +16,30 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   const launcher = join(home, 'bin/kipster')
   const before = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(before.coreVersion, '0.0.0')
+  assert.equal((await json(join(home, 'host.json'))).updates.managed, true)
   await db.query("CREATE TABLE public.installer_e2e_marker(note text); INSERT INTO public.installer_e2e_marker VALUES('authored data')")
+  const legacyConfig = await json(join(home, 'host.json'))
+  legacyConfig.updates = { channelUrl: catalog.base }
+  await save(join(home, 'host.json'), legacyConfig)
   catalog.select('0.0.1')
   await run(process.execPath, [launcher, 'update', '--to', '0.0.1'], { timeout: 120000 })
   const upgraded = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(upgraded.coreVersion, '0.0.1'); assert.equal(upgraded.installationId, before.installationId)
+  assert.deepEqual((await json(join(home, 'host.json'))).updates, { channelUrl: catalog.base, managed: true })
   assert.equal(await db.query('SELECT note FROM public.installer_e2e_marker'), 'authored data')
   await assert.rejects(run(process.execPath, [launcher, 'rollback']), /failed/)
   await run(process.execPath, [launcher, 'rollback', '--yes'], { timeout: 120000 })
   const restored = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(restored.coreVersion, '0.0.0'); assert.equal(restored.installationId, before.installationId)
   assert.equal(await db.query('SELECT note FROM public.installer_e2e_marker'), 'authored data')
+  assert.equal((await json(join(home, 'host.json'))).updates.managed, true)
+  const requestPath = join(home, 'updates/request.json'), requestBytes = await readFile(requestPath, 'utf8')
+  assert.equal(JSON.parse(requestBytes).action, 'restore')
   const status = JSON.parse(await run(process.execPath, [launcher, 'status']))
   assert.equal(status.update.state, 'done')
+  await run(process.execPath, [launcher, 'apply'], { timeout: 120000 })
+  assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
+  assert.deepEqual(JSON.parse(await run(process.execPath, [launcher, 'status'])).backups, status.backups)
   const plists = await readdir(join(home, 'services'))
   for (const file of plists) await run('/usr/bin/plutil', ['-lint', join(home, 'services', file)])
   const output = process.env.KIPSTER_INSTALLER_E2E_OUTPUT
