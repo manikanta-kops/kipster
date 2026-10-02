@@ -98,7 +98,12 @@ async function setup(t) {
     const execution = await ctx.execution(receipt.runId)
     const card = await ctx.dispatcher.askToolInteraction(execution.context.attemptId, callId, { kind: 'question', prompt: 'Blue or red?', options: [{ id: 'blue', label: 'Blue' }, { id: 'red', label: 'Red' }] })
     execution.handle.release({ kind: 'ended', attemptId: execution.context.attemptId, confirmed: true })
-    await ctx.settled(receipt.runId, 'waiting')
+    // Asking already makes the run waiting. The provider's end publishes another summary;
+    // observe its settlement commit before callers capture application event cursors.
+    await until(async () => (await db.query(
+      'SELECT r.state,a.state AS attempt_state FROM kipster.text_runs r JOIN kipster.attempts a ON a.id=r.current_attempt_id WHERE r.id=$1 AND a.id=$2',
+      [receipt.runId, execution.context.attemptId],
+    )).rows[0], value => value?.state === 'waiting' && value.attempt_state === 'settled', `${receipt.runId} waiting with a settled attempt`)
     return { receipt, execution, card }
   }
   ctx.cursor = async () => (await ctx.app()).cursor
