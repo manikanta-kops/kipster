@@ -372,6 +372,18 @@ next revision, so a snapshot after an expired replay shows each notification as
 it currently is. A client replaces a notification when the event's revision is
 not older.
 
+A notification's `preview` is a single line of at most 200 characters, cut with
+`…`: the run's last final reply text for `completed`, the failure for `failed`
+and `recovery-needed`, the prompt for `interaction`. It is omitted when empty.
+`POST /v1/notifications/read` and `POST /v1/notifications/clear` take
+`{ version: 1, notificationIds }` with 1 to 200 distinct IDs and skip IDs that
+are unknown, gone or another person's. Read returns `{ status: "read",
+notificationIds }` (already-read ones included). Clear returns `{ status:
+"cleared", cleared, kept }`: a cleared notification is read, leaves snapshots,
+is never published again and reads as `410 gone`; clients receive
+`notification-removed`. A notification whose interaction is still `pending` is
+kept. Bootstrap advertises `capabilities.notificationActions`.
+
 A chat is gone when it no longer exists, when its agent is being deleted
 (`deleting` or `deleted`), or when its organization is being deleted. Reading or
 controlling a gone chat, its threads, their notifications or their questions

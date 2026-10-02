@@ -6,12 +6,12 @@ import type { AddressInfo } from 'node:net'
 import type { Runtime } from '../../runtime.js'
 import type { TrustedActor } from '../../modules/identity/public.js'
 import { resolveDirectChat, acceptText } from '../../modules/conversations/public.js'
-import { eventSignals, snapshot, readEvents, markNotificationRead, type Stream, type SnapshotPage } from '../../modules/synchronization/public.js'
+import { eventSignals, snapshot, readEvents, markNotificationRead, markNotificationsRead, clearNotifications, type Stream, type SnapshotPage } from '../../modules/synchronization/public.js'
 import { AgentNotArchivedError, OperationConflictError, OrderConflictError, readDirectory } from '../../modules/administration/public.js'
 import { administrationRoute, ServiceUnavailableError } from './admin.js'
 import { UpdateRefusedError } from '../../modules/updates/public.js'
 import { protocolRange } from '../../protocol/version.js'
-import { context as contextSchema, textSubmission, controlCommand, interactionResponseCommand, learningUpdate, agentLearningUpdate, identityWrite, identityRestore, type Context } from '../../protocol/text.js'
+import { context as contextSchema, textSubmission, controlCommand, interactionResponseCommand, learningUpdate, agentLearningUpdate, identityWrite, identityRestore, notificationBatch, type Context } from '../../protocol/text.js'
 import type { TextDispatcher, ControlInput } from '../../workflows/text-dispatch.js'
 import { answerInteraction, interactionReceipt, type InteractionAnswer } from '../../modules/work/public.js'
 import { MAX_UPLOAD_BYTES, type ArtifactTarget, type UploadIntent } from '../../modules/artifacts/public.js'
@@ -152,7 +152,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,notificationActions:true} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){
@@ -241,6 +241,11 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 1 || (input as { version?: unknown }).version !== 1) throw new Error('Invalid read request')
         await markNotificationRead(runtime.db, { kind: 'application', installationId: actor.installationId, callerId: actor.personId }, notificationMatch[1]!)
         json(response, 200, { version: 1, status: 'read', notificationId: notificationMatch[1] }); return
+      }
+      if (request.method === 'POST' && (path === '/v1/notifications/read' || path === '/v1/notifications/clear')) {
+        const { notificationIds } = notificationBatch.parse(await body(request))
+        const caller = { kind: 'application', installationId: actor.installationId, callerId: actor.personId } as const
+        json(response, 200, path.endsWith('/read') ? { version: 1, status: 'read', notificationIds: await markNotificationsRead(runtime.db, caller, notificationIds) } : { version: 1, status: 'cleared', ...await clearNotifications(runtime.db, caller, notificationIds) }); return
       }
       const streamScope = scope(actor, path)
       if (request.method === 'GET' && streamScope && path.endsWith('/snapshot')) {

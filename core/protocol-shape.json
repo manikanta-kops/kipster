@@ -249,6 +249,14 @@
         "agentId": {"type":"string","min":1}
       }
     },
+    "notificationBatch": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"optional","of":{"type":"literal","value":1}},
+        "notificationIds": {"type":"array","items":{"type":"string","min":1}}
+      }
+    },
     "operationRequest": {
       "type": "object",
       "exact": true,
@@ -1029,7 +1037,27 @@
         "interactionState": {"type":"optional","of":{"ref":"interactionState"}},
         "read": {"type":"boolean"},
         "revision": {"type":"integer","min":0},
-        "createdAt": {"type":"string","format":"utc-timestamp"}
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "preview": {"type":"optional","of":{"type":"string"}}
+      }
+    },
+    "notificationsCleared": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "status": {"type":"literal","value":"cleared"},
+        "cleared": {"type":"array","items":{"type":"string","min":1}},
+        "kept": {"type":"array","items":{"type":"string","min":1}}
+      }
+    },
+    "notificationsRead": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "status": {"type":"literal","value":"read"},
+        "notificationIds": {"type":"array","items":{"type":"string","min":1}}
       }
     },
     "operationStatus": {

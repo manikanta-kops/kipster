@@ -78,11 +78,22 @@ export async function publishAppEvent(client: SqlClient, installationId: string,
   await retainEvents(client, 'application', installationId, Number(counter.next_position))
 }
 
-interface NotificationRow { id: string; thread_id: string; run_id: string; kind: string; interaction_id: string | null; interaction_state: string | null; read_at: Date | null; revision: string; created_at: Date }
-const notificationColumns = 'n.id,n.thread_id,n.run_id,n.kind,n.interaction_id,x.state AS interaction_state,n.read_at,n.revision,n.created_at'
-const notificationSource = 'kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id LEFT JOIN kipster.interactions x ON x.id=n.interaction_id'
+const previewLength = 200
+interface NotificationRow { id: string; thread_id: string; run_id: string; kind: string; interaction_id: string | null; interaction_state: string | null; read_at: Date | null; revision: string; created_at: Date; preview: string | null }
+// The preview source: the interaction prompt, the run's last final reply text, or its failure.
+const notificationColumns = `n.id,n.thread_id,n.run_id,n.kind,n.interaction_id,x.state AS interaction_state,n.read_at,n.revision,n.created_at,
+  left(btrim(regexp_replace(CASE n.kind WHEN 'interaction' THEN x.prompt WHEN 'completed' THEN reply.text ELSE r.failure END,'\\s+',' ','g')),${previewLength + 1}) AS preview`
+const notificationSource = `kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id LEFT JOIN kipster.interactions x ON x.id=n.interaction_id LEFT JOIN kipster.text_runs r ON r.id=n.run_id
+  LEFT JOIN LATERAL (SELECT (SELECT string_agg(p->>'text',' ' ORDER BY o) FROM jsonb_array_elements(m.parts) WITH ORDINALITY e(p,o) WHERE p->>'kind'='text') AS text
+    FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id
+    WHERE n.kind='completed' AND a.intent_id=n.run_id AND m.final AND m.parts @> '[{"kind":"text"}]' ORDER BY m.position DESC LIMIT 1) reply ON true`
+function preview(text: string | null): string | undefined {
+  const chars = [...text ?? '']
+  return !chars.length ? undefined : chars.length > previewLength ? `${chars.slice(0, previewLength - 1).join('').trimEnd()}…` : text!
+}
 function notificationRecord(row: NotificationRow): Record<string, unknown> {
-  return { id: row.id, threadId: row.thread_id, runId: row.run_id, kind: row.kind, ...(row.interaction_id ? { interactionId: row.interaction_id, interactionState: row.interaction_state } : {}), read: row.read_at !== null, revision: Number(row.revision), createdAt: row.created_at.toISOString() }
+  const excerpt = preview(row.preview)
+  return { id: row.id, threadId: row.thread_id, runId: row.run_id, kind: row.kind, ...(row.interaction_id ? { interactionId: row.interaction_id, interactionState: row.interaction_state } : {}), read: row.read_at !== null, revision: Number(row.revision), createdAt: row.created_at.toISOString(), ...(excerpt ? { preview: excerpt } : {}) }
 }
 
 /** Locks the application stream counter. Notification writers take it before the notification row. */
@@ -118,10 +129,10 @@ export async function createInteractionNotification(client: SqlClient, installat
  * interaction, after the change.
  */
 export async function interactionNotificationChanged(client: SqlClient, interactionId: string): Promise<void> {
-  const target = (await client.query<{ id: string; installation_id: string; present: boolean }>('SELECT n.id,n.installation_id,kipster.chat_present(t.chat_id) AS present FROM kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id WHERE n.interaction_id=$1', [interactionId])).rows[0]
+  const target = (await client.query<{ id: string; installation_id: string; present: boolean }>('SELECT n.id,n.installation_id,kipster.chat_present(t.chat_id) AS present FROM kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id WHERE n.interaction_id=$1 AND n.cleared_at IS NULL', [interactionId])).rows[0]
   if (!target?.present) return
   await lockApplicationStream(client, target.installation_id)
-  await client.query('UPDATE kipster.notifications SET revision=revision+1 WHERE id=$1', [target.id])
+  if (!(await client.query('UPDATE kipster.notifications SET revision=revision+1 WHERE id=$1 AND cleared_at IS NULL RETURNING id', [target.id])).rows.length) return
   await publishNotification(client, target.installation_id, target.id)
 }
 
@@ -130,13 +141,60 @@ export async function markNotificationRead(db: Postgres, scope: Extract<Stream, 
   await db.transaction(async client => {
     await authorized(client, scope)
     await lockApplicationStream(client, scope.installationId)
-    const row = (await client.query<{ installation_id: string; recipient_id: string; read_at: Date|null; present: boolean }>('SELECT n.installation_id,n.recipient_id,n.read_at,kipster.chat_present(t.chat_id) AS present FROM kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id WHERE n.id=$1 FOR UPDATE OF n', [notificationId])).rows[0]
+    const row = (await client.query<{ installation_id: string; recipient_id: string; read_at: Date|null; cleared_at: Date|null; present: boolean }>('SELECT n.installation_id,n.recipient_id,n.read_at,n.cleared_at,kipster.chat_present(t.chat_id) AS present FROM kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id WHERE n.id=$1 FOR UPDATE OF n', [notificationId])).rows[0]
     if (!row) throw new RefusedError('gone', 'Notification is gone')
     if (row.installation_id !== scope.installationId || row.recipient_id !== scope.callerId) throw new Error('Notification access denied')
-    if (!row.present) throw new RefusedError('gone', 'Notification is gone')
+    if (!row.present || row.cleared_at) throw new RefusedError('gone', 'Notification is gone')
     if (row.read_at) return
     await client.query('UPDATE kipster.notifications SET read_at=now(),revision=revision+1 WHERE id=$1', [notificationId])
     await publishNotification(client, scope.installationId, notificationId)
+  })
+}
+
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+function batchIds(values: readonly string[]): string[] {
+  const ids = [...new Set(values.map(value => value.toLowerCase()))]
+  if (!values.length || values.length > 200 || ids.length !== values.length || !ids.every(id => uuidPattern.test(id))) throw new Error('Invalid notification IDs')
+  return ids
+}
+/** The caller's present notifications among `ids`, locked in a fixed order after the application stream. */
+async function lockOwnNotifications(client: SqlClient, scope: Extract<Stream, {kind:'application'}>, ids: string[]) {
+  await authorized(client, scope)
+  await lockApplicationStream(client, scope.installationId)
+  return (await client.query<{ id: string; thread_id: string; read_at: Date|null; cleared_at: Date|null; interaction_state: string|null }>(`SELECT n.id,n.thread_id,n.read_at,n.cleared_at,x.state AS interaction_state
+    FROM kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id LEFT JOIN kipster.interactions x ON x.id=n.interaction_id
+    WHERE n.id=ANY($1::uuid[]) AND n.installation_id=$2 AND n.recipient_id=$3 AND kipster.chat_present(t.chat_id) ORDER BY n.id FOR UPDATE OF n`, [ids, scope.installationId, scope.callerId])).rows
+}
+
+/** Marks the caller's notifications read and returns those now read, in request order. Unknown, gone, cleared and others' IDs are skipped. */
+export async function markNotificationsRead(db: Postgres, scope: Extract<Stream, {kind:'application'}>, notificationIds: readonly string[]): Promise<string[]> {
+  const ids = batchIds(notificationIds)
+  return db.transaction(async client => {
+    const rows = (await lockOwnNotifications(client, scope, ids)).filter(row => !row.cleared_at)
+    for (const row of rows) if (!row.read_at) {
+      await client.query('UPDATE kipster.notifications SET read_at=now(),revision=revision+1 WHERE id=$1', [row.id])
+      await publishNotification(client, scope.installationId, row.id)
+    }
+    const read = new Set(rows.map(row => row.id))
+    return ids.filter(id => read.has(id))
+  })
+}
+
+/**
+ * Clears the caller's notifications: they leave snapshots and clients receive `notification-removed`.
+ * A notification whose interaction is still pending is kept. Unknown, gone and others' IDs are skipped.
+ */
+export async function clearNotifications(db: Postgres, scope: Extract<Stream, {kind:'application'}>, notificationIds: readonly string[]): Promise<{ cleared: string[]; kept: string[] }> {
+  const ids = batchIds(notificationIds)
+  return db.transaction(async client => {
+    const rows = await lockOwnNotifications(client, scope, ids)
+    const kept = new Set(rows.filter(row => row.interaction_state === 'pending').map(row => row.id))
+    for (const row of rows) if (!row.cleared_at && !kept.has(row.id)) {
+      const saved = (await client.query<{ revision: string }>('UPDATE kipster.notifications SET cleared_at=now(),read_at=COALESCE(read_at,now()),revision=revision+1 WHERE id=$1 RETURNING revision', [row.id])).rows[0]!
+      await publishAppEvent(client, scope.installationId, 'notification-removed', row.id, Number(saved.revision), { id: row.id, threadId: row.thread_id })
+    }
+    const cleared = new Set(rows.filter(row => !kept.has(row.id)).map(row => row.id))
+    return { cleared: ids.filter(id => cleared.has(id)), kept: ids.filter(id => kept.has(id)) }
   })
 }
 
@@ -178,7 +236,7 @@ export async function snapshot(db: Postgres, scope: Stream, page: SnapshotPage =
       // Notifications are paged oldest first; the page anchor is the last notification returned.
       if (page.afterNotificationId && !(await client.query('SELECT 1 FROM kipster.notifications WHERE id=$1', [page.afterNotificationId])).rows.length) throw new Error('resync-required')
       const notifications = await client.query<NotificationRow>(`SELECT ${notificationColumns} FROM ${notificationSource}
-        WHERE n.installation_id=$1 AND n.recipient_id=$2 AND kipster.chat_present(t.chat_id)
+        WHERE n.installation_id=$1 AND n.recipient_id=$2 AND n.cleared_at IS NULL AND kipster.chat_present(t.chat_id)
           AND ($3::uuid IS NULL OR (n.created_at,n.id) > (SELECT created_at,id FROM kipster.notifications WHERE id=$3))
         ORDER BY n.created_at,n.id LIMIT $4`, [scope.installationId, scope.callerId, page.afterNotificationId ?? null, pageLimit + 1])
       const threads = rows.rows.slice(0, pageLimit), notes = notifications.rows.slice(0, pageLimit)
