@@ -435,9 +435,21 @@ starter identity files. A later start never adds them again.
 
 The package supplies `kipster-host setup|serve|start|stop|restart|status|doctor|service-template --config <file>`. Read the [macOS host setup guide](docs/host-macos.md) before configuring dependencies or registering a service. Doctor is passive unless `--probe` is explicitly requested.
 
-## Schema changes
+## Database migrations
 
-Each module owns one baseline migration, except work, whose two files resolve its dependencies on conversations.
-Until the first release, change the baselines directly and reset local databases, because the runner rejects edited migrations.
-After release, migrations are append-only and forward-only, and a shipped file is never edited.
-Any future squash happens only at a major version, with a stated minimum version that can still upgrade.
+Migrations are forward-only. A file merged into `next` is shipped: never edit,
+delete, move or renumber it, including the existing 001–013 files. Every schema
+change or fix adds `NNN_name.sql` in the owning module's migrations directory,
+with a unique three-digit number above the highest on the base branch, and adds
+its path to `loadMigrations()` in `src/runtime.ts` in number order.
+
+Run `npm run check:migrations -- --base origin/next` from `core` before merging.
+CI checks PRs against their base and pushes to `next` against the previous commit;
+`test:postgres` also upgrades a populated database made from that base's SQL.
+If another PR takes your number, update from `next` and renumber your unshipped
+addition before merging. A collision already merged requires owner recovery;
+stop rollout rather than editing shipped files.
+
+Rollback restores the database backup taken before the upgrade and runs the
+matching Core version. Core refuses newer, changed or incomplete migration
+histories; there are no down migrations. Backup and updater tooling is deferred.
