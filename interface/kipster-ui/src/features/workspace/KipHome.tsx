@@ -4,7 +4,7 @@ import { KipHead } from '../../components/Kip'
 import { PixelDisplay } from '../status/PixelDisplay'
 import { useSettledState } from '../status/use-settled-state'
 import { kipScenes } from '../status/kip-scenes'
-import { liveStates, type LiveState } from '../status/live-state'
+import { isRunning, liveStates, type LiveState } from '../status/live-state'
 import type { Agent } from '../chat/model'
 import type { Mark } from '../../data/notifications'
 import { CornerMark, UnreadMark } from '../notifications/Mark'
@@ -20,6 +20,7 @@ const pitch = 5
 export function KipHome({
   agent,
   state,
+  several,
   mark,
   selected,
   collapsed,
@@ -27,6 +28,8 @@ export function KipHome({
 }: {
   agent: Agent
   state: LiveState
+  /** Several of Kip's threads are running, so the state says Working. */
+  several: boolean
   mark?: Mark
   selected: boolean
   collapsed: boolean
@@ -34,7 +37,10 @@ export function KipHome({
 }) {
   const reduced = Boolean(useReducedMotion())
   const shown = useSettledState(state)
-  const info = liveStates[shown]
+  const info =
+    several && isRunning(shown)
+      ? { ...liveStates[shown], label: 'Working', description: 'Working' }
+      : liveStates[shown]
   const resting = shown === 'ready'
   const described = useId()
   const status = (

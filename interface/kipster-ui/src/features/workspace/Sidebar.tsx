@@ -38,6 +38,7 @@ interface Props {
   elsewhere: boolean
   /** What Kip, the root admin, is doing across its chat. */
   kipState: LiveState
+  kipSeveral: boolean
   /** Agents removed from this organization whose chats stay readable. */
   formerMembers?: Agent[]
   onOrganization: (id: string) => void
@@ -69,6 +70,7 @@ export function Sidebar({
   markOf,
   elsewhere,
   kipState,
+  kipSeveral,
   formerMembers = [],
   onOrganization,
   onToggle,
@@ -215,6 +217,7 @@ export function Sidebar({
                   key={agent.id}
                   agent={agent}
                   state={kipState}
+                  several={kipSeveral}
                   mark={markOf(agent.id, true)}
                   selected={isSelected(agent.id, true)}
                   collapsed={collapsed}

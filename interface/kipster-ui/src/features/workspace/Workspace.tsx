@@ -28,7 +28,8 @@ import { Icon } from '../../components/Icon'
 import { Sidebar } from './Sidebar'
 import { Management } from './Management'
 import { defaultNavigation, type Navigation } from './navigation'
-import { StatusIsland } from '../status/StatusIsland'
+import { StatusIsland, type IslandAction } from '../status/StatusIsland'
+import { ActionMenu } from '../status/ActionMenu'
 import { KipHead } from '../../components/Kip'
 import {
   summarize,
@@ -50,7 +51,9 @@ import { Banners } from '../notifications/Banners'
 import { useNotifications } from '../notifications/use-notifications'
 import { ownNotificationChoices } from '../notifications/settings'
 import {
+  actionItems,
   chatMarks,
+  isFailure,
   needsYou,
   type InboxNotification,
 } from '../../data/notifications'
@@ -150,7 +153,7 @@ const summaryState = (state: string): LiveState =>
       queued: 'queued',
       preparing: 'preparing',
       running: 'thinking',
-      waiting: 'question',
+      waiting: 'delegating',
       'cancellation-requested': 'stopping',
       failed: 'failed',
       'recovery-needed': 'recovery',
@@ -338,6 +341,10 @@ export function Workspace({
   const closeThreadButton = useRef<HTMLButtonElement>(null)
   const threadTriggers = useRef(new Map<string, HTMLButtonElement>())
   const [inboxOpener, setInboxOpener] = useState<HTMLElement | null>(null)
+  const [actionMenu, setActionMenu] = useState<{
+    anchor: HTMLButtonElement
+    key: string
+  } | null>(null)
   const [lifecycleOpen, setLifecycleOpen] = useState(false)
   const [settingsOpener, setSettingsOpener] = useState<HTMLElement | null>(null)
   const [settingsInitialTab, setSettingsInitialTab] = useState<
@@ -1609,30 +1616,88 @@ export function Workspace({
             ordered(id).some((m) => !m.final),
           )
         : summaryState(summaries[id]?.state ?? '')
+  const unseenFailures = new Set(
+    inbox.filter((n) => isFailure(n) && !n.read).map((n) => n.target.threadId),
+  )
+  // A failure shows until its notification is read, as the sidebar marks do.
+  const islandState = (id: string): LiveState => {
+    const state = threadState(id)
+    return (state === 'failed' || state === 'recovery') &&
+      !unseenFailures.has(id)
+      ? 'ready'
+      : state
+  }
+  const asking = (pending: InboxNotification[]): LiveState | undefined =>
+    pending.length === 0
+      ? undefined
+      : pending.every((n) => n.kind === 'approval')
+        ? 'approval'
+        : 'question'
+  const inChat = (threadId: string) =>
+    !!summaries[threadId] && summaryKey(summaries[threadId]) === key
   const island = connection
-    ? { state: 'offline' as const, others: 0 }
+    ? { state: 'offline' as const, several: false }
     : summarize(
-        current.map((s) => threadState(s.threadId)),
-        questions.some(
-          (n) =>
-            summaries[n.threadId] && summaryKey(summaries[n.threadId]) === key,
-        )
-          ? 'question'
-          : undefined,
+        current.map((s) => islandState(s.threadId)),
+        asking(inbox.filter((n) => n.pending && inChat(n.target.threadId))),
       )
+  // Until a thread's messages load, its notification's own text names it.
+  const titleOf = (threadId: string, fallback = 'Thread') => {
+    const first = ordered(threadId)[0]
+    return first ? threadTitle(first) : fallback
+  }
+  const actionTitle = (n: InboxNotification) =>
+    titleOf(n.target.threadId, n.body || 'Thread')
+  const actions = actionItems(inbox.filter((n) => inChat(n.target.threadId)))
+  const latestBusy = current
+    .filter(
+      (s) =>
+        !['ready', 'done', 'unknown', 'offline'].includes(
+          islandState(s.threadId),
+        ),
+    )
+    .at(-1)
+  // Several threads waiting on the person open a list; one opens directly.
+  const menuAnchor =
+    actionMenu?.key === key && actions.length > 1 ? actionMenu.anchor : null
+  if (actionMenu && !menuAnchor) setActionMenu(null)
+  const islandAction: IslandAction | undefined = connection
+    ? undefined
+    : actions.length > 1
+      ? {
+          label: `${actions.length} threads need you`,
+          expanded: !!menuAnchor,
+          run: (anchor) =>
+            setActionMenu((open) =>
+              open?.key === key ? null : { anchor, key },
+            ),
+        }
+      : actions.length === 1
+        ? {
+            label: `Open ${actionTitle(actions[0])}`,
+            run: () => openNotification(actions[0]),
+          }
+        : latestBusy
+          ? {
+              label: `Open ${titleOf(latestBusy.threadId)}`,
+              run: () => openThread(latestBusy.threadId),
+            }
+          : undefined
   // Kip's sign follows the root admin's own chat, whichever chat is open.
   const kipId = view.agentRoles[0]?.agentId
   const isKipThread = (s: (typeof summaries)[string] | undefined) =>
     s?.contextKind === 'installation' && s.agentId === kipId
   const kip = connection
-    ? { state: 'offline' as const }
+    ? { state: 'offline' as const, several: false }
     : summarize(
         Object.values(summaries)
           .filter(isKipThread)
-          .map((s) => threadState(s.threadId)),
-        questions.some((n) => isKipThread(summaries[n.threadId]))
-          ? 'question'
-          : undefined,
+          .map((s) => islandState(s.threadId)),
+        asking(
+          inbox.filter(
+            (n) => n.pending && isKipThread(summaries[n.target.threadId]),
+          ),
+        ),
       )
   const formerHere = former
     .filter((f) => f.organizationId === nav.organizationId)
@@ -1798,6 +1863,7 @@ export function Workspace({
             markOf={markOf}
             elsewhere={elsewhere}
             kipState={kip.state}
+            kipSeveral={kip.several}
             formerMembers={formerHere}
             onOrganization={(organizationId) =>
               // The admin chat is installation-wide and stays open across organizations.
@@ -1844,7 +1910,8 @@ export function Workspace({
               </button>
               <StatusIsland
                 state={island.state}
-                others={island.others}
+                several={island.several}
+                action={islandAction}
                 name={agentName}
                 mark={
                   <Avatar
@@ -1854,6 +1921,25 @@ export function Workspace({
                   />
                 }
               />
+              <AnimatePresence>
+                {menuAnchor && (
+                  <ActionMenu
+                    key="actions"
+                    anchor={menuAnchor}
+                    name={agentName}
+                    items={actions}
+                    titleOf={actionTitle}
+                    open={(n) => {
+                      setActionMenu(null)
+                      openNotification(n)
+                    }}
+                    onClose={(restoreFocus) => {
+                      setActionMenu(null)
+                      if (restoreFocus) menuAnchor.focus()
+                    }}
+                  />
+                )}
+              </AnimatePresence>
               {questions.length > 0 && (
                 <button
                   className="waiting-pill mat thin"

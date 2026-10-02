@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { Transition } from 'motion/react'
 import { useMediaQuery } from '../../app/use-media-query'
 import { PixelDisplay } from './PixelDisplay'
-import { liveStates } from './live-state'
+import { isRunning, liveStates } from './live-state'
 import { useSettledState } from './use-settled-state'
 import type { LiveState } from './live-state'
 
@@ -17,6 +17,14 @@ const morph: Transition = {
 const instant: Transition = { duration: 0 }
 const pitch = 2.4
 
+/** What clicking the island does, when there is something to open. */
+export interface IslandAction {
+  label: string
+  /** Set when the click shows a list rather than opening a thread. */
+  expanded?: boolean
+  run: (button: HTMLButtonElement) => void
+}
+
 /**
  * The title capsule. Ready is a glass capsule with the mark and name; any
  * other state morphs it into a black island holding the pixel scene and a
@@ -27,7 +35,8 @@ export function StatusIsland({
   name,
   mark,
   heading: Heading = 'h1',
-  others = 0,
+  several = false,
+  action,
   maxName = 200,
   announce = true,
 }: {
@@ -35,14 +44,19 @@ export function StatusIsland({
   name: string
   mark: ReactNode
   heading?: 'h1' | 'h2'
-  others?: number
+  /** Several threads are running, so the word says Working. */
+  several?: boolean
+  action?: IslandAction
   maxName?: number
   announce?: boolean
 }) {
   const reduceMotion = Boolean(useReducedMotion())
   const compact = useMediaQuery('(max-width: 820px)')
   const shown = useSettledState(state)
-  const info = liveStates[shown]
+  const info =
+    several && isRunning(shown)
+      ? { ...liveStates[shown], label: 'Working', description: 'Working' }
+      : liveStates[shown]
   const active = shown !== 'ready'
   const nameRef = useRef<HTMLHeadingElement>(null)
   const wordRef = useRef<HTMLSpanElement>(null)
@@ -117,7 +131,7 @@ export function StatusIsland({
           <AnimatePresence initial={false}>
             {active && (
               <motion.span
-                key={shown}
+                key={info.label}
                 initial={
                   reduceMotion
                     ? { opacity: 0 }
@@ -154,26 +168,21 @@ export function StatusIsland({
           />
         </motion.span>
       </motion.div>
-      <AnimatePresence initial={false}>
-        {active && others > 0 && (
-          <motion.span
-            className="island-more"
-            aria-hidden="true"
-            initial={{ opacity: 0, scale: 0.3 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.3 }}
-            transition={reduceMotion ? instant : morph}
-          >
-            +{others}
-          </motion.span>
-        )}
-      </AnimatePresence>
+      {action && (
+        <button
+          className="island-action"
+          aria-label={action.label}
+          aria-haspopup={action.expanded === undefined ? undefined : 'dialog'}
+          aria-expanded={action.expanded}
+          onClick={(event) => action.run(event.currentTarget)}
+        />
+      )}
       <span className="island-measure" aria-hidden="true" ref={wordRef}>
         {info.label}
       </span>
       {announce && (
         <p className="sr-only" aria-live="polite">
-          {`${name}, ${info.description}${others > 0 ? `, ${others} more active` : ''}`}
+          {`${name}, ${info.description}`}
         </p>
       )}
     </div>

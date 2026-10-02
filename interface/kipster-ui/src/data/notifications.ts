@@ -29,6 +29,29 @@ export const isFailure = (n: InboxNotification) =>
 export const needsYou = (n: InboxNotification) =>
   n.pending || (isFailure(n) && !n.read)
 
+/**
+ * Threads waiting on the person, one entry each: questions and approvals
+ * first, longest waiting first, then unread failures, newest first.
+ */
+export function actionItems(items: InboxNotification[]) {
+  const ranked = items
+    .filter(needsYou)
+    .sort(
+      (a, b) =>
+        Number(b.pending) - Number(a.pending) ||
+        (a.pending
+          ? a.createdAt.localeCompare(b.createdAt)
+          : b.createdAt.localeCompare(a.createdAt)) ||
+        a.id.localeCompare(b.id),
+    )
+  const seen = new Set<string>()
+  return ranked.filter((n) => {
+    if (seen.has(n.target.threadId)) return false
+    seen.add(n.target.threadId)
+    return true
+  })
+}
+
 export type Tone = 'needs' | 'failed' | 'done'
 export const tone = (n: InboxNotification): Tone =>
   isAsk(n) ? 'needs' : isFailure(n) ? 'failed' : 'done'
