@@ -439,11 +439,13 @@ export class TextClient {
     path: string,
     signal: AbortSignal,
     body?: unknown,
+    redirect: RequestRedirect = 'follow',
   ): Promise<T> {
     const response = await fetch(`${this.endpoint}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
       cache: 'no-store',
+      redirect,
       headers: {
         Accept: 'application/json',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
@@ -453,8 +455,16 @@ export class TextClient {
     if (!response.ok) throw await httpError(response)
     return response.json().catch(() => incompatible()) as Promise<T>
   }
-  async bootstrap(signal: AbortSignal): Promise<Bootstrap> {
-    const data = await this.request<unknown>('/v1/bootstrap', signal)
+  async bootstrap(
+    signal: AbortSignal,
+    redirect: RequestRedirect = 'follow',
+  ): Promise<Bootstrap> {
+    const data = await this.request<unknown>(
+      '/v1/bootstrap',
+      signal,
+      undefined,
+      redirect,
+    )
     check(
       record(data) &&
         [

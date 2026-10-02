@@ -13,6 +13,7 @@ const other = 'https://other.kipster.invalid'
 const saved = 'https://saved.kipster.invalid'
 const demo = 'https://demo.kipster.invalid'
 const key = 'kipster-backend-url'
+const local = 'http://127.0.0.1:43120'
 const browsers = []
 let checks = 0
 async function assets(directory) {
@@ -39,35 +40,40 @@ async function exercise(browser, origin, test) {
       },
       { key, value: test.saved ?? null },
     )
-    await context.route('https://**.kipster.invalid/**', async (route) => {
-      const request = route.request()
-      requests.push(request.url())
-      if (new URL(request.url()).origin === demo) return route.abort()
-      if (new URL(request.url()).pathname.endsWith('/events')) {
-        return route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          body: '',
+    await context.route(
+      /^(https:\/\/[^/]+\.kipster\.invalid|http:\/\/127\.0\.0\.1:43120)\//,
+      async (route) => {
+        const request = route.request()
+        requests.push(request.url())
+        if (new URL(request.url()).origin === local && !test.local)
+          return route.abort('connectionrefused')
+        if (new URL(request.url()).origin === demo) return route.abort()
+        if (new URL(request.url()).pathname.endsWith('/events')) {
+          return route.fulfill({
+            status: 200,
+            contentType: 'text/event-stream',
+            body: '',
+          })
+        }
+        const response = await core.handle(
+          new Request(
+            demo +
+              new URL(request.url()).pathname +
+              new URL(request.url()).search,
+            {
+              method: request.method(),
+              headers: request.headers(),
+              ...(request.postData() ? { body: request.postData() } : {}),
+            },
+          ),
+        )
+        await route.fulfill({
+          status: response.status,
+          headers: Object.fromEntries(response.headers),
+          body: Buffer.from(await response.arrayBuffer()),
         })
-      }
-      const response = await core.handle(
-        new Request(
-          demo +
-            new URL(request.url()).pathname +
-            new URL(request.url()).search,
-          {
-            method: request.method(),
-            headers: request.headers(),
-            ...(request.postData() ? { body: request.postData() } : {}),
-          },
-        ),
-      )
-      await route.fulfill({
-        status: response.status,
-        headers: Object.fromEntries(response.headers),
-        body: Buffer.from(await response.arrayBuffer()),
-      })
-    })
+      },
+    )
     const page = await context.newPage()
     const pageErrors = []
     page.on('pageerror', (error) => pageErrors.push(error.message))
@@ -76,13 +82,19 @@ async function exercise(browser, origin, test) {
       await expect(
         page.getByRole('heading', { name: 'Connect to Kipster' }),
       ).toBeVisible()
-      assert.deepEqual(requests, [])
+      if (test.invalid) assert.deepEqual(requests, [])
+      else {
+        assert.ok(requests.length > 0)
+        assert.ok(requests.every((url) => url === local + '/v1/bootstrap'))
+        await expect(page.getByLabel('Backend address')).toHaveValue(local)
+      }
+      const initialRequests = [...requests]
       if (test.invalid) await expect(page.getByRole('alert')).toBeVisible()
       if (test.connect) {
         await page.getByLabel('Backend address').fill('http://example.com')
         await page.getByRole('button', { name: 'Connect', exact: true }).click()
         await expect(page.getByRole('alert')).toBeVisible()
-        assert.deepEqual(requests, [])
+        assert.deepEqual(requests, initialRequests)
         await page.getByLabel('Backend address').fill(saved)
         await page.getByRole('button', { name: 'Connect', exact: true }).click()
         await expect(page.locator('.app-shell')).toBeVisible()
@@ -141,7 +153,7 @@ async function exercise(browser, origin, test) {
       }
       assert.equal(
         await page.evaluate((key) => localStorage.getItem(key), key),
-        test.saved ?? null,
+        test.saved ?? (test.local ? local : null),
       )
       if (!test.demo) {
         await page
@@ -185,6 +197,7 @@ try {
       name: 'production',
       tests: [
         { setup: true, connect: true },
+        { endpoint: local, local: true },
         { saved, endpoint: saved },
         { saved: 'invalid', setup: true, invalid: true },
         { saved: 'http://[', setup: true, invalid: true },
@@ -204,6 +217,7 @@ try {
       dev: true,
       tests: [
         { setup: true, connect: true },
+        { endpoint: local, local: true },
         { saved, endpoint: saved },
       ],
     },
