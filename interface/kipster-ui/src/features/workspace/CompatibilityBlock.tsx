@@ -1,5 +1,11 @@
 import { appProtocol, type ProtocolRange } from '../../data/compatibility'
 import { appVersion } from '../../app/version'
+import {
+  backendMustUpdateFirst,
+  useSoftwareUpdates,
+  type SoftwareUpdates,
+} from '../../data/software-updates'
+import { useUpdateActions } from '../settings/use-update-actions'
 
 export function CompatibilityBlock({
   state,
@@ -9,6 +15,7 @@ export function CompatibilityBlock({
   checkAgain,
   changeConnection,
   updateBackend,
+  softwareUpdates,
 }: {
   state: 'update-app' | 'update-backend'
   coreVersion: string
@@ -16,10 +23,14 @@ export function CompatibilityBlock({
   checking: boolean
   checkAgain: () => void
   changeConnection?: () => void
-  /** Starts a remote backend update. Absent until Kipster can update its backend. */
+  /** Optional host-provided backend update action. */
   updateBackend?: () => void
+  softwareUpdates: SoftwareUpdates
 }) {
+  const updates = useSoftwareUpdates(softwareUpdates)
+  const actions = useUpdateActions(softwareUpdates)
   const appOlder = state === 'update-app'
+  const backendFirst = backendMustUpdateFirst(updates)
   return (
     <main className="workspace-state connection-setup">
       <section
@@ -59,7 +70,44 @@ export function CompatibilityBlock({
           </div>
         </dl>
         <div className="recovery-actions">
-          {updateBackend && !appOlder && (
+          {appOlder && (
+            <button
+              className="primary-button"
+              disabled={
+                updates.busy ||
+                backendFirst ||
+                !updates.app.available ||
+                [
+                  'unavailable',
+                  'checking',
+                  'downloading',
+                  'installing',
+                ].includes(updates.app.state)
+              }
+              onClick={() => actions.app()}
+            >
+              {updates.app.state === 'ready'
+                ? 'Restart to update'
+                : 'Update app'}
+            </button>
+          )}
+          {(!appOlder || backendFirst) && !updateBackend && (
+            <button
+              className="primary-button"
+              disabled={
+                updates.busy ||
+                !updates.status?.core.available ||
+                updates.status?.core.state === 'installing'
+              }
+              onClick={() =>
+                updates.status?.core.available &&
+                actions.backend(updates.status.core.available)
+              }
+            >
+              Update backend
+            </button>
+          )}
+          {updateBackend && (!appOlder || backendFirst) && (
             <button className="primary-button" onClick={updateBackend}>
               Update backend
             </button>
@@ -75,6 +123,15 @@ export function CompatibilityBlock({
             <button onClick={changeConnection}>Change connection</button>
           )}
         </div>
+        {appOlder && backendFirst && (
+          <p>Update the backend first, then update this app.</p>
+        )}
+        {updates.reconnecting || updates.status?.core.state === 'installing' ? (
+          <output>Updating backend. Waiting for it to restart…</output>
+        ) : null}
+        {updates.app.message && appOlder && <p>{updates.app.message}</p>}
+        {updates.error && <p role="alert">{updates.error}</p>}
+        {actions.dialog}
       </section>
     </main>
   )
