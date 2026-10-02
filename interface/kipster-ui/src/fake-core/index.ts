@@ -15,6 +15,8 @@ import type {
 } from '../data/text.ts'
 import { createAdministration, DEMO_IDS } from './admin.ts'
 import { createFakeMedia } from './media.ts'
+import { createFakeDocuments, type DocumentPart } from './documents.ts'
+import { planFile, planHistory, planImage } from './document-seed.ts'
 import { createFakeUpdates } from './software-updates.ts'
 import { DEMO_ORIGIN } from './transport.ts'
 import {
@@ -34,7 +36,8 @@ export { DEMO_IDS } from './admin.ts'
 export { DEMO_ORIGIN, installFakeCoreTransport } from './transport.ts'
 
 type Chat = { id: string; context: Context; agentId: string }
-type Scenario = 'question' | 'approval' | 'delegation' | 'failure' | 'complete'
+type Scenario =
+  'question' | 'approval' | 'delegation' | 'failure' | 'complete' | 'document'
 type Thread = {
   summary: Summary
   messages: TextMessage[]
@@ -315,6 +318,38 @@ export function createFakeCore(
         throw new Error('Thread target mismatch')
     },
   })
+  const documents = createFakeDocuments({
+    callerId: () => scope.callerId,
+    emit: (type, data, resourceId, revision) =>
+      emit(type, data, resourceId, revision),
+    post(threadId, authorId, parts, run) {
+      const thread = getThread(threadId)
+      const message = addMessage(thread, authorId, parts)
+      changeMessage(thread, message)
+      if (!run) return { messageId: message.id }
+      const work = addRun(thread, message, 'document')
+      changeWork(thread, work)
+      return { messageId: message.id, runId: work.runId }
+    },
+    cancel(threadId, runId) {
+      const thread = threads.get(threadId)
+      const run = thread?.work.find((item) => item.runId === runId)
+      if (!thread || !run || !active.has(run.state)) return
+      for (const draft of thread.messages.filter((m) => !m.final)) {
+        draft.parts = [
+          { kind: 'text', text: 'Stopped. The doc is back with you.' },
+        ]
+        draft.final = true
+        draft.revision++
+        changeMessage(thread, draft)
+      }
+      run.state = 'cancelled'
+      run.cancelDelivery = 'confirmed-ended'
+      run.revision++
+      changeWork(thread, run)
+    },
+    artifact: (id) => media.read(id),
+  })
   function directory() {
     return administration.directory()
   }
@@ -439,6 +474,7 @@ export function createFakeCore(
     )
   }
   function changeWork(thread: Thread, work: TextWork) {
+    if (!active.has(work.state)) documents.runEnded(work.runId)
     emit(
       'work-changed',
       work,
@@ -681,7 +717,8 @@ export function createFakeCore(
         changeMessage(thread, original)
       }
       changeWork(thread, run)
-    } else if (stage === 1) {
+    } else if (scenario === 'document') revise(thread, run, stage)
+    else if (stage === 1) {
       const message = addMessage(
         thread,
         thread.summary.agentId,
@@ -768,6 +805,47 @@ export function createFakeCore(
       notify(thread, run, 'completed')
     }
     thread.stages.set(run.runId, stage + 1)
+  }
+
+  /** A kip revising a submitted doc: it reads, then publishes one revision. */
+  function revise(thread: Thread, run: TextWork, stage: number) {
+    if (stage === 1) {
+      documents.work(run.runId)
+      const draft = addMessage(
+        thread,
+        thread.summary.agentId,
+        [{ kind: 'text', text: 'Reading your answers and comments…' }],
+        false,
+      )
+      changeMessage(thread, draft)
+      return
+    }
+    const published = documents.finish(run.runId)
+    const parts: TextMessage['parts'] = published
+      ? [
+          {
+            kind: 'text',
+            text: `Revised.${published.resolved ? ` I replied to ${published.resolved === 1 ? 'your comment' : `your ${published.resolved} comments`}, recorded your decisions` : ' I recorded your decisions'} and added a follow-up. Over to you.`,
+          },
+          {
+            kind: 'document',
+            documentId: published.documentId,
+            revision: published.revision,
+          } satisfies DocumentPart,
+        ]
+      : [{ kind: 'text', text: 'Done.' }]
+    const draft = thread.messages.findLast((message) => !message.final)
+    if (draft) {
+      draft.parts = parts
+      draft.final = true
+      draft.revision++
+      changeMessage(thread, draft)
+    } else
+      changeMessage(thread, addMessage(thread, thread.summary.agentId, parts))
+    run.state = 'completed'
+    run.revision++
+    changeWork(thread, run)
+    notify(thread, run, 'completed')
   }
 
   function checkedCursor(value: string, threadId?: string) {
@@ -999,6 +1077,7 @@ export function createFakeCore(
               scenarios: Object.fromEntries(thread.scenarios),
             })),
             notifications: [...notifications.values()],
+            documents: documents.inspect(),
             controls: [...controls.values()],
             answers: [...answers.values()],
             offline,
@@ -1194,6 +1273,8 @@ export function createFakeCore(
       if (mediaResponse) return mediaResponse
       const adminResponse = await administration.handle(request)
       if (adminResponse) return adminResponse
+      const documentResponse = await documents.handle(request)
+      if (documentResponse) return documentResponse
       if (method === 'POST' && path === '/v1/direct-chats') {
         const row = await body(request)
         fields(row, ['version', 'context', 'agentId'], ['context', 'agentId'])
@@ -1872,6 +1953,109 @@ export function createFakeCore(
     voiceMessage.revision++
     changeMessage(voiceThread, voiceMessage)
     voiceThread.stages.set(voiceThread.work[0].runId, 0)
+    await seedDocument(primary)
+  }
+  /** A thread where Atlas shared a rich doc, the owner commented, and Atlas revised it. */
+  async function seedDocument(chat: Chat) {
+    const start = Date.now() - 20 * 60_000
+    const thread = newThread(chat, seededId())
+    thread.summary.createdAt = new Date(start).toISOString()
+    const target = {
+      ...scope,
+      context: chat.context,
+      chatId: chat.id,
+      threadId: thread.summary.threadId,
+    }
+    const owner = { kind: 'agent' as const, id: chat.agentId }
+    const generated = { kind: 'generated' as const, authorId: chat.agentId }
+    const image = await media.addArtifact({
+      id: seededId(),
+      name: 'where-it-opens.svg',
+      mimeType: 'image/svg+xml',
+      bytes: new TextEncoder().encode(planImage),
+      target,
+      ownership: owner,
+      provenance: generated,
+    })
+    const file = await media.addArtifact({
+      id: seededId(),
+      name: 'rich-docs-plan.md',
+      mimeType: 'text/markdown',
+      bytes: new TextEncoder().encode(planFile),
+      target,
+      ownership: owner,
+      provenance: generated,
+    })
+    const documentId = seededId()
+    const { revisions, comments } = planHistory(
+      {
+        imageId: image.id,
+        fileId: file.id,
+        agentId: chat.agentId,
+        callerId: scope.callerId,
+      },
+      start,
+    )
+    const doc = (revision: number): DocumentPart => ({
+      kind: 'document',
+      documentId,
+      revision,
+    })
+    const turns: [string, TextMessage['parts']][] = [
+      [
+        scope.callerId,
+        [
+          {
+            kind: 'text',
+            text: 'Think through rich docs and come up with a plan. Make it something I can answer and comment on.',
+          },
+        ],
+      ],
+      [
+        chat.agentId,
+        [
+          {
+            kind: 'text',
+            text: 'Here’s the plan as a rich doc. A few decisions need your call, and you can comment anywhere.',
+          },
+          doc(1),
+        ],
+      ],
+      [
+        scope.callerId,
+        [{ kind: 'text', text: 'One question on root docs.' }, doc(2)],
+      ],
+      [
+        chat.agentId,
+        [
+          {
+            kind: 'text',
+            text: 'Revised. I answered your comment and added the scope table. Over to you.',
+          },
+          doc(3),
+        ],
+      ],
+    ]
+    for (const [index, [author, parts]] of turns.entries()) {
+      const message = addMessage(thread, author, parts, true, seededId())
+      changeMessage(thread, message)
+      if (author !== scope.callerId) continue
+      const run = addRun(thread, message, 'complete', seededId())
+      run.state = 'completed'
+      run.attemptId = seededId()
+      run.revision++
+      thread.stages.set(run.runId, 4 + index)
+      changeWork(thread, run)
+    }
+    documents.seed({
+      id: documentId,
+      context: chat.context,
+      agentId: chat.agentId,
+      chatId: chat.id,
+      threadId: thread.summary.threadId,
+      revisions,
+      comments,
+    })
   }
   async function reset() {
     for (const journal of logs.values())
@@ -1885,6 +2069,7 @@ export function createFakeCore(
     answers.clear()
     logs.clear()
     media.reset()
+    documents.reset()
     seed = 100
     offline = false
     release = initialRelease()

@@ -5,6 +5,7 @@ import type { Message as MessageModel, WorkspaceData } from './model'
 import { formatSize, formatTime } from './model'
 import { Markdown } from './Markdown'
 import { FileBadge } from '../media/FileBadge'
+import { DocCard } from '../documents/DocCard'
 
 export function Avatar({
   name,
@@ -79,6 +80,14 @@ export function Message({
               <p className="removed-part" key={index}>
                 <Icon name="file" size={14} /> File removed
               </p>
+            )
+          if (part.type === 'document')
+            return (
+              <DocCard
+                key={index}
+                documentId={part.documentId}
+                revision={part.revision}
+              />
             )
           if (part.type === 'unknown')
             return (
