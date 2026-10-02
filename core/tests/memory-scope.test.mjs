@@ -134,9 +134,9 @@ async function visible(ctx, where, query, ids) {
 async function visibleToExecution(ctx, where, query, ids) {
   const live = await startConversation(ctx, where, query)
   const context = live.execution.context.memory.join('\n')
-  const searched = (await live.call('memory.search', { query, limit: 20 })).map(hit => hit.record.text)
+  const searched = (await live.call('memory_search', { query, limit: 20 })).map(hit => hit.record.text)
   const got = []
-  for (const id of ids) { const found = await live.call('memory.get', { id }); if (found) got.push(found.text) }
+  for (const id of ids) { const found = await live.call('memory_get', { id }); if (found) got.push(found.text) }
   await live.finish()
   return { context, searched, got }
 }
@@ -158,7 +158,7 @@ test('a memory learned in an organization surfaces only there; saves, explicit r
     { text: homed }, { text: explicit, explicit: true }, { text: agentExplicit, explicit: true, author: 'agent' }])
   await conversation(ctx, ctx.installation, 'The office plants need water on Fridays', [{ text: direct }])
   const saving = await startConversation(ctx, ctx.a, 'Note that office badges are blue')
-  assert.equal((await saving.call('memory.save', { kind: 'fact', text: saved })).record.text, saved)
+  assert.equal((await saving.call('memory_save', { kind: 'fact', text: saved })).record.text, saved)
   await saving.finish()
 
   const rows = { homed: await memory(ctx, homed), explicit: await memory(ctx, explicit), agentExplicit: await memory(ctx, agentExplicit), direct: await memory(ctx, direct), saved: await memory(ctx, saved) }
@@ -204,9 +204,9 @@ test('support and corrections from elsewhere never move a memory home or reveal 
 
   // Tools in B cannot reach the memory homed in A.
   const live = await startConversation(ctx, ctx.b, 'What is the launch date?')
-  assert.equal(await live.call('memory.get', { id: inA }), null)
-  await assert.rejects(live.call('memory.correct', { id: inA, expectedRevision: 1, text: 'The launch date is the tenth of May' }), /Memory not found/)
-  await assert.rejects(live.call('memory.publish', { id: inA, expectedSourceRevision: 1 }), /Source memory not found/)
+  assert.equal(await live.call('memory_get', { id: inA }), null)
+  await assert.rejects(live.call('memory_correct', { id: inA, expectedRevision: 1, text: 'The launch date is the tenth of May' }), /Memory not found/)
+  await assert.rejects(live.call('memory_publish', { id: inA, expectedSourceRevision: 1 }), /Source memory not found/)
   await live.finish()
   await assert.rejects(ctx.runtime.memory.correct(ctx.agentId, inA, 1, 'The launch date is the tenth of May', [{ sourceOrganizationId: ctx.b.organizationId }], ctx.b.organizationId), /Memory not found/)
 
@@ -217,7 +217,7 @@ test('support and corrections from elsewhere never move a memory home or reveal 
   assert.equal(await ctx.runtime.memory.get(ctx.agentId, ctx.b.organizationId, inA), null)
   assert.deepEqual(ids(await ctx.runtime.memory.search(ctx.agentId, ctx.b.organizationId, 'tenth of May')), [inB])
   const publishing = await startConversation(ctx, ctx.a, 'Share the launch date with Alpha')
-  const published = await publishing.call('memory.publish', { id: inA, expectedSourceRevision: 2 })
+  const published = await publishing.call('memory_publish', { id: inA, expectedSourceRevision: 2 })
   assert.equal(published.record.scope, 'organization')
   await publishing.finish()
 })
@@ -230,10 +230,10 @@ test('links and link expansion follow the organization home', { skip: noDatabase
   await conversation(ctx, ctx.a, 'Our office is in Pune', [{ text: homed }])
   const inA = await startConversation(ctx, ctx.a, 'Remember the office moved to Hyderabad')
   const from = (await memory(ctx, homed)).id
-  const to = (await inA.call('memory.save', { kind: 'fact', text: global })).record.id
+  const to = (await inA.call('memory_save', { kind: 'fact', text: global })).record.id
   const owner = { kind: 'agent', ownerId: ctx.agentId }
-  const linked = await inA.call('memory.link', { owner, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'contradicts', weight: 0.9, evidence: [{ memoryId: from, revision: 1 }, { memoryId: to, revision: 1 }] })
-  assert.equal((await inA.call('memory.relationship_list', { owner })).relationships.length, 1)
+  const linked = await inA.call('memory_link', { owner, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'contradicts', weight: 0.9, evidence: [{ memoryId: from, revision: 1 }, { memoryId: to, revision: 1 }] })
+  assert.equal((await inA.call('memory_relationship_list', { owner })).relationships.length, 1)
   await inA.finish()
   const pairA = (await ctx.runtime.memory.context(ctx.agentId, ctx.a.organizationId, 'office')).join('\n')
   assert.ok(pairA.includes(homed) && pairA.includes(global) && pairA.includes('contradicts'))
@@ -241,11 +241,11 @@ test('links and link expansion follow the organization home', { skip: noDatabase
   assert.ok(inB.includes(global) && !inB.includes(homed) && !inB.includes('contradicts') && !inB.includes(from))
 
   const live = await startConversation(ctx, ctx.b, 'Where is the office?')
-  assert.deepEqual((await live.call('memory.relationship_list', { owner })).relationships, [])
-  assert.equal(await live.call('memory.relationship_get', { owner, relationshipId: linked.relationship.id }), null)
-  await assert.rejects(live.call('memory.unlink', { owner, relationshipId: linked.relationship.id, expectedRevision: 1 }), /Relationship not found/)
-  await assert.rejects(live.call('memory.link', { owner, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.5, evidence: [{ memoryId: to, revision: 1 }] }), /outside owner/)
-  const searched = await live.call('memory.search', { query: 'office' })
+  assert.deepEqual((await live.call('memory_relationship_list', { owner })).relationships, [])
+  assert.equal(await live.call('memory_relationship_get', { owner, relationshipId: linked.relationship.id }), null)
+  await assert.rejects(live.call('memory_unlink', { owner, relationshipId: linked.relationship.id, expectedRevision: 1 }), /Relationship not found/)
+  await assert.rejects(live.call('memory_link', { owner, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.5, evidence: [{ memoryId: to, revision: 1 }] }), /outside owner/)
+  const searched = await live.call('memory_search', { query: 'office' })
   assert.deepEqual(searched.map(hit => [hit.record.text, hit.relationship]), [[global, undefined]])
   await live.finish()
 })
@@ -259,7 +259,7 @@ test('deleting an organization deletes the memories learned there and keeps glob
   const saved = 'Budget reviews happen quarterly'
   await conversation(ctx, inGamma, 'Our budget is forty thousand', [{ text: homed }])
   const saving = await startConversation(ctx, inGamma, 'Keep in mind that budget reviews happen quarterly')
-  await saving.call('memory.save', { kind: 'fact', text: saved })
+  await saving.call('memory_save', { kind: 'fact', text: saved })
   await saving.finish()
   const { id } = await memory(ctx, homed)
   assert.ok((await ctx.runtime.memory.context(ctx.agentId, gamma, 'budget')).join('\n').includes(homed))
@@ -311,18 +311,18 @@ test('relationship history hides revisions that cite a memory homed in another o
   const homed = (await memory(ctx, homedText)).id
   const owner = { kind: 'agent', ownerId: ctx.agentId }
   const inA = await startConversation(ctx, ctx.a, 'Remember the release plan')
-  const first = (await inA.call('memory.save', { kind: 'fact', text: 'Releases ship on Tuesdays' })).record.id
-  const second = (await inA.call('memory.save', { kind: 'fact', text: 'Release notes are written by the team lead' })).record.id
-  const linked = (await inA.call('memory.link', { owner, fromId: first, toId: second, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.5, evidence: [{ memoryId: first, revision: 1 }, { memoryId: homed, revision: 1 }] })).relationship
-  await inA.call('memory.relationship_update', { owner, relationshipId: linked.id, expectedRevision: 1, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.6, evidence: [{ memoryId: first, revision: 1 }] })
-  const inAHistory = (await inA.call('memory.relationship_get', { owner, relationshipId: linked.id })).history
+  const first = (await inA.call('memory_save', { kind: 'fact', text: 'Releases ship on Tuesdays' })).record.id
+  const second = (await inA.call('memory_save', { kind: 'fact', text: 'Release notes are written by the team lead' })).record.id
+  const linked = (await inA.call('memory_link', { owner, fromId: first, toId: second, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.5, evidence: [{ memoryId: first, revision: 1 }, { memoryId: homed, revision: 1 }] })).relationship
+  await inA.call('memory_relationship_update', { owner, relationshipId: linked.id, expectedRevision: 1, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.6, evidence: [{ memoryId: first, revision: 1 }] })
+  const inAHistory = (await inA.call('memory_relationship_get', { owner, relationshipId: linked.id })).history
   assert.deepEqual(inAHistory.map(change => change.evidence.map(item => item.memoryId)), [[first, homed], [first]])
   await inA.finish()
 
   const inB = await startConversation(ctx, ctx.b, 'What is the release plan?')
-  const got = await inB.call('memory.relationship_get', { owner, relationshipId: linked.id })
+  const got = await inB.call('memory_relationship_get', { owner, relationshipId: linked.id })
   assert.deepEqual(got.history.map(change => [change.revision, change.evidence.map(item => item.memoryId)]), [[2, [first]]], 'the revision citing the homed memory is left out')
-  const listed = await inB.call('memory.relationship_list', { owner })
+  const listed = await inB.call('memory_relationship_list', { owner })
   assert.deepEqual(listed.relationships.map(item => [item.id, item.history.length]), [[linked.id, 0]])
   for (const response of [got, listed]) assert.ok(!JSON.stringify(response).includes(homed), 'no trace of the memory homed in A')
   await inB.finish()

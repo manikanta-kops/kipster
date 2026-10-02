@@ -1,6 +1,10 @@
-import { useState } from 'react'
+import { useContext, useState, useSyncExternalStore } from 'react'
 import type { Platform } from '../../platform/platform'
-const preferenceKey = (scope: string) => `desktop-notifications:${scope}`
+import {
+  desktopAlertsKey,
+  InterfacePreferencesContext,
+} from '../../data/interface-preferences'
+const noPreferences = () => () => {}
 export function DesktopPreferences({
   platform,
   scopeKey,
@@ -8,11 +12,27 @@ export function DesktopPreferences({
   platform: Platform
   scopeKey: string
 }) {
-  const [enabled, setEnabled] = useState(
-    () => platform.preferences.get(preferenceKey(scopeKey)) === 'enabled',
+  const preferences = useContext(InterfacePreferencesContext)
+  const shared = useSyncExternalStore(
+    preferences?.subscribe ?? noPreferences,
+    () => preferences?.value?.desktopNotifications ?? null,
+    () => null,
   )
+  const [local, setLocal] = useState(
+    () => platform.preferences.get(desktopAlertsKey(scopeKey)) === 'enabled',
+  )
+  const enabled = shared ?? local
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
+  /** Saves the choice here and in Core, which shares it with Kip and other windows. */
+  async function choose(on: boolean) {
+    const value = on ? 'enabled' : 'disabled'
+    platform.preferences.set(desktopAlertsKey(scopeKey), value)
+    if (platform.preferences.get(desktopAlertsKey(scopeKey)) !== value)
+      throw new Error('Preference was not saved')
+    setLocal(on)
+    await preferences?.save({ desktopNotifications: on })
+  }
   async function enable() {
     setBusy(true)
     try {
@@ -21,10 +41,7 @@ export function DesktopPreferences({
         body: 'Desktop notification test. Your inbox is unchanged.',
       })
       if (result.status === 'requested') {
-        platform.preferences.set(preferenceKey(scopeKey), 'enabled')
-        if (platform.preferences.get(preferenceKey(scopeKey)) !== 'enabled')
-          throw new Error('Preference was not saved')
-        setEnabled(true)
+        await choose(true)
         setStatus(
           'Desktop notification requested. The OS may suppress it; delivery is not confirmed.',
         )
@@ -34,6 +51,19 @@ export function DesktopPreferences({
         )
     } catch {
       setStatus('Notification preferences could not be saved. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function disable() {
+    setBusy(true)
+    try {
+      await choose(false)
+      setStatus('Background desktop alerts disabled.')
+    } catch {
+      setStatus(
+        'Preference could not be saved. Background alerts may still be enabled. Retry Disable desktop alerts.',
+      )
     } finally {
       setBusy(false)
     }
@@ -56,25 +86,7 @@ export function DesktopPreferences({
               <button
                 className="secondary-button"
                 disabled={busy}
-                onClick={() => {
-                  try {
-                    platform.preferences.set(
-                      preferenceKey(scopeKey),
-                      'disabled',
-                    )
-                    if (
-                      platform.preferences.get(preferenceKey(scopeKey)) !==
-                      'disabled'
-                    )
-                      throw new Error('Preference was not saved')
-                    setEnabled(false)
-                    setStatus('Background desktop alerts disabled.')
-                  } catch {
-                    setStatus(
-                      'Preference could not be saved. Background alerts may still be enabled. Retry Disable desktop alerts.',
-                    )
-                  }
-                }}
+                onClick={() => void disable()}
               >
                 Disable desktop alerts
               </button>

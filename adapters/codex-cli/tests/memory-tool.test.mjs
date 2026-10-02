@@ -35,11 +35,11 @@ else if(x.id===102){send({method:'turn/completed',params:{threadId:'thread-1',tu
  const adapter=createAdapter({dataDirectory:join(directory,'codex-data'),now:()=>new Date().toISOString(),async invokeTool(request){calls.push(request);return {status:'completed',record:{id:'memory-1'}}}})
  try{
   assert.equal((await adapter.readiness()).ready,true)
-  const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',memoryEnabled:true,memory:['Amsterdam office opens at ten'],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'old',text:'',parts:[{kind:'file',artifactId:'historical',purpose:'attachment',name:'history.txt',mimeType:'text/plain',size:10,availability:'unavailable'}]},{messageId:'message',text:'Remember office hours'}],triggerMessageId:'message'})
+  const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',tools:['memory_save','memory_search','memory_correct','memory_publish','memory_link','memory_relationship_get','memory_relationship_list','memory_relationship_update','memory_unlink'].map(name=>({name,description:name,inputSchema:{type:'object'}})),memory:['Amsterdam office opens at ten'],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'old',text:'',parts:[{kind:'file',artifactId:'historical',purpose:'attachment',name:'history.txt',mimeType:'text/plain',size:10,availability:'unavailable'}]},{messageId:'message',text:'Remember office hours'}],triggerMessageId:'message'})
   const events=[];for await(const event of handle.events)events.push(event)
   assert.equal(calls.length,2)
-  assert.deepEqual(calls[0],{attemptId:'attempt',callId:'save-1',name:'memory.save',arguments:{kind:'fact',text:'Amsterdam office opens at ten'}})
-  assert.deepEqual(calls[1],{attemptId:'attempt',callId:'link-1',name:'memory.link',arguments:{owner:{kind:'agent',ownerId:'agent'},fromId:'memory-1',toId:'memory-2',fromRevision:1,toRevision:1,kind:'supports',weight:0.7,evidence:[{memoryId:'memory-1',revision:1}]}})
+  assert.deepEqual(calls[0],{attemptId:'attempt',callId:'save-1',name:'memory_save',arguments:{kind:'fact',text:'Amsterdam office opens at ten'}})
+  assert.deepEqual(calls[1],{attemptId:'attempt',callId:'link-1',name:'memory_link',arguments:{owner:{kind:'agent',ownerId:'agent'},fromId:'memory-1',toId:'memory-2',fromRevision:1,toRevision:1,kind:'supports',weight:0.7,evidence:[{memoryId:'memory-1',revision:1}]}})
   assert.equal(events.at(-1).kind,'ended')
  }finally{await adapter.close();process.env.PATH=previous;await rm(directory,{recursive:true,force:true})}
 })

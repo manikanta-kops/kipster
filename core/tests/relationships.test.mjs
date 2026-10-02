@@ -43,12 +43,12 @@ test('relationships preserve evidence and history under correction, republish, C
     const second=await runtime.memory.save(ids.rootAgentId,'observation','Visitors arrive early',[{authorId:ids.rootAgentId}])
     const owner={kind:'agent',ownerId:ids.rootAgentId}
     const linkArgs={owner,fromId:first.id,toId:second.id,fromRevision:1,toRevision:1,kind:'supports',weight:0.7,evidence:[{memoryId:first.id,revision:1}]}
-    const [linked,replayed]=await Promise.all([invoke('link-1','memory.link',linkArgs),invoke('link-1','memory.link',linkArgs)])
+    const [linked,replayed]=await Promise.all([invoke('link-1','memory_link',linkArgs),invoke('link-1','memory_link',linkArgs)])
     assert.deepEqual(linked,replayed)
     await assert.rejects(runtime.relationships.invoke(attemptId,randomUUID(),'link-1','memory.link',linkArgs),/attempt identity mismatch/)
     const edgeId=linked.relationship.id
     assert.equal(linked.relationship.stale,false)
-    const coherence=await invoke('coherence-link','memory.link',{...linkArgs,kind:'related_to',weight:0.6})
+    const coherence=await invoke('coherence-link','memory_link',{...linkArgs,kind:'related_to',weight:0.6})
     const coherenceId=coherence.relationship.id
     const baseTransaction=runtime.db.transaction.bind(runtime.db)
     let injectedView=false
@@ -56,36 +56,36 @@ test('relationships preserve evidence and history under correction, republish, C
       const result=await client.query(sql,values)
       if(!injectedView&&sql.startsWith('SELECT * FROM kipster.memory_relationships WHERE id=$1 AND installation_id=$2')&&values?.[0]===coherenceId){
         injectedView=true
-        await invoke('coherence-update','memory.relationship_update',{owner,relationshipId:coherenceId,expectedRevision:1,fromRevision:1,toRevision:1,kind:'related_to',weight:0.8,evidence:[{memoryId:first.id,revision:1}]})
+        await invoke('coherence-update','memory_relationship_update',{owner,relationshipId:coherenceId,expectedRevision:1,fromRevision:1,toRevision:1,kind:'related_to',weight:0.8,evidence:[{memoryId:first.id,revision:1}]})
       }
       return result
     }}))
     let observed
-    try{observed=await invoke('coherence-get','memory.relationship_get',{owner,relationshipId:coherenceId})}finally{runtime.db.transaction=baseTransaction}
+    try{observed=await invoke('coherence-get','memory_relationship_get',{owner,relationshipId:coherenceId})}finally{runtime.db.transaction=baseTransaction}
     assert.equal(observed.revision,1)
     assert.equal(observed.weight,0.6)
     assert.ok(observed.history.every(change=>change.revision<=observed.revision))
-    assert.equal((await invoke('coherence-current','memory.relationship_get',{owner,relationshipId:coherenceId})).revision,2)
-    const firstHistoryPage=await invoke('history-page-1','memory.relationship_get',{owner,relationshipId:coherenceId,historyLimit:1})
+    assert.equal((await invoke('coherence-current','memory_relationship_get',{owner,relationshipId:coherenceId})).revision,2)
+    const firstHistoryPage=await invoke('history-page-1','memory_relationship_get',{owner,relationshipId:coherenceId,historyLimit:1})
     assert.equal(firstHistoryPage.nextHistoryAfter,1)
     let injectedList=false
     runtime.db.transaction=work=>baseTransaction(async client=>work({query:async(sql,values)=>{
       const result=await client.query(sql,values)
       if(!injectedList&&sql.startsWith('SELECT revision FROM kipster.memory_relationship_owner_versions')){
         injectedList=true
-        await invoke('coherence-update-list','memory.relationship_update',{owner,relationshipId:coherenceId,expectedRevision:2,fromRevision:1,toRevision:1,kind:'related_to',weight:0.9,evidence:[{memoryId:first.id,revision:1}]})
+        await invoke('coherence-update-list','memory_relationship_update',{owner,relationshipId:coherenceId,expectedRevision:2,fromRevision:1,toRevision:1,kind:'related_to',weight:0.9,evidence:[{memoryId:first.id,revision:1}]})
       }
       return result
     }}))
     let coherentList
-    try{coherentList=await invoke('coherence-list','memory.relationship_list',{owner})}finally{runtime.db.transaction=baseTransaction}
+    try{coherentList=await invoke('coherence-list','memory_relationship_list',{owner})}finally{runtime.db.transaction=baseTransaction}
     assert.equal(coherentList.relationships.find(row=>row.id===coherenceId).revision,2)
     assert.equal(coherentList.relationships.find(row=>row.id===coherenceId).weight,0.8)
-    assert.equal((await invoke('coherence-list-current','memory.relationship_list',{owner})).relationships.find(row=>row.id===coherenceId).revision,3)
-    await assert.rejects(invoke('history-stale','memory.relationship_get',{owner,relationshipId:coherenceId,historyAfter:1,historyRevision:firstHistoryPage.revision,historyLimit:1}),/history changed; restart pagination/)
-    for(let revision=3;revision<67;revision++)await invoke(`retained-history-${revision}`,'memory.relationship_update',{owner,relationshipId:coherenceId,expectedRevision:revision,fromRevision:1,toRevision:1,kind:'related_to',weight:0.9,evidence:[{memoryId:first.id,revision:1}]})
+    assert.equal((await invoke('coherence-list-current','memory_relationship_list',{owner})).relationships.find(row=>row.id===coherenceId).revision,3)
+    await assert.rejects(invoke('history-stale','memory_relationship_get',{owner,relationshipId:coherenceId,historyAfter:1,historyRevision:firstHistoryPage.revision,historyLimit:1}),/history changed; restart pagination/)
+    for(let revision=3;revision<67;revision++)await invoke(`retained-history-${revision}`,'memory_relationship_update',{owner,relationshipId:coherenceId,expectedRevision:revision,fromRevision:1,toRevision:1,kind:'related_to',weight:0.9,evidence:[{memoryId:first.id,revision:1}]})
     assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS count,min(revision) AS first,max(revision) AS last FROM kipster.memory_relationship_changes WHERE relationship_id=$1',[coherenceId])).rows,[{count:64,first:4,last:67}])
-    const retainedPage=await invoke('retained-page','memory.relationship_get',{owner,relationshipId:coherenceId,historyAfter:65,historyRevision:67})
+    const retainedPage=await invoke('retained-page','memory_relationship_get',{owner,relationshipId:coherenceId,historyAfter:65,historyRevision:67})
     assert.deepEqual(retainedPage.history.map(change=>change.revision),[66,67])
     let injectedStop=false
     runtime.db.transaction=work=>baseTransaction(async client=>work({query:async(sql,values)=>{
@@ -96,46 +96,46 @@ test('relationships preserve evidence and history under correction, republish, C
       }
       return result
     }}))
-    try{await assert.rejects(invoke('read-stop-race','memory.relationship_get',{owner,relationshipId:coherenceId}),/no longer owns tools/)}finally{runtime.db.transaction=baseTransaction}
+    try{await assert.rejects(invoke('read-stop-race','memory_relationship_get',{owner,relationshipId:coherenceId}),/no longer owns tools/)}finally{runtime.db.transaction=baseTransaction}
     await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=false WHERE current_attempt_id=$1',[attemptId])
-    await assert.rejects(invoke('link-1','memory.unlink',{owner,relationshipId:edgeId,expectedRevision:1}),/identity conflict/)
-    await assert.rejects(invoke('link-invalid','memory.link',{...linkArgs,kind:'derived_from',evidence:[{memoryId:second.id,revision:2}]}),/revision conflict/)
+    await assert.rejects(invoke('link-1','memory_unlink',{owner,relationshipId:edgeId,expectedRevision:1}),/identity conflict/)
+    await assert.rejects(invoke('link-invalid','memory_link',{...linkArgs,kind:'derived_from',evidence:[{memoryId:second.id,revision:2}]}),/revision conflict/)
     const otherAgent=randomUUID()
     await runtime.db.query(`INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,'Other',true)`,[otherAgent,ids.installationId])
     const alien=await runtime.memory.save(otherAgent,'fact','Private other',[{authorId:otherAgent}])
-    await assert.rejects(invoke('link-cross','memory.link',{...linkArgs,kind:'derived_from',evidence:[{memoryId:first.id,revision:1},{memoryId:alien.id,revision:1}]}),/outside owner/)
+    await assert.rejects(invoke('link-cross','memory_link',{...linkArgs,kind:'derived_from',evidence:[{memoryId:first.id,revision:1},{memoryId:alien.id,revision:1}]}),/outside owner/)
     await runtime.memory.correct(ids.rootAgentId,first.id,1,'Amsterdam desk opens at ten',[{authorId:ids.rootAgentId}])
-    assert.equal((await invoke('get-stale','memory.relationship_get',{owner,relationshipId:edgeId})).stale,true)
-    await assert.rejects(invoke('update-stale','memory.relationship_update',{owner,relationshipId:edgeId,expectedRevision:1,fromRevision:1,toRevision:1,kind:'supports',weight:0.8,evidence:[{memoryId:first.id,revision:1}]}),/revision conflict/)
-    const updated=await invoke('update-1','memory.relationship_update',{owner,relationshipId:edgeId,expectedRevision:1,fromRevision:2,toRevision:1,kind:'supports',weight:0.8,evidence:[{memoryId:first.id,revision:2},{memoryId:second.id,revision:1}]})
+    assert.equal((await invoke('get-stale','memory_relationship_get',{owner,relationshipId:edgeId})).stale,true)
+    await assert.rejects(invoke('update-stale','memory_relationship_update',{owner,relationshipId:edgeId,expectedRevision:1,fromRevision:1,toRevision:1,kind:'supports',weight:0.8,evidence:[{memoryId:first.id,revision:1}]}),/revision conflict/)
+    const updated=await invoke('update-1','memory_relationship_update',{owner,relationshipId:edgeId,expectedRevision:1,fromRevision:2,toRevision:1,kind:'supports',weight:0.8,evidence:[{memoryId:first.id,revision:2},{memoryId:second.id,revision:1}]})
     assert.equal(updated.relationship.revision,2)
     assert.equal(updated.relationship.stale,false)
     assert.deepEqual(updated.relationship.history.map(change=>change.evidence.map(item=>item.revision)),[[1],[2,1]])
     const publishedFirst=await runtime.memory.publish(ids.rootAgentId,ids.organizationId,first.id,2)
     const publishedSecond=await runtime.memory.publish(ids.rootAgentId,ids.organizationId,second.id,1)
-    assert.equal((await invoke('org-list','memory.relationship_list',{owner:{kind:'organization',ownerId:ids.organizationId}})).relationships.length,0)
+    assert.equal((await invoke('org-list','memory_relationship_list',{owner:{kind:'organization',ownerId:ids.organizationId}})).relationships.length,0)
     const orgOwner={kind:'organization',ownerId:ids.organizationId}
-    const orgLinked=await invoke('org-link','memory.link',{owner:orgOwner,fromId:publishedFirst.id,toId:publishedSecond.id,fromRevision:1,toRevision:1,kind:'related_to',weight:0.4,evidence:[{memoryId:publishedFirst.id,revision:1}]})
+    const orgLinked=await invoke('org-link','memory_link',{owner:orgOwner,fromId:publishedFirst.id,toId:publishedSecond.id,fromRevision:1,toRevision:1,kind:'related_to',weight:0.4,evidence:[{memoryId:publishedFirst.id,revision:1}]})
     await runtime.memory.correct(ids.rootAgentId,first.id,2,'Amsterdam desk opens at eleven',[{authorId:ids.rootAgentId}])
-    assert.equal((await invoke('org-before-republish','memory.relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).stale,false)
+    assert.equal((await invoke('org-before-republish','memory_relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).stale,false)
     await runtime.memory.publish(ids.rootAgentId,ids.organizationId,first.id,3,1)
-    assert.equal((await invoke('org-after-republish','memory.relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).stale,true)
-    const closed=await invoke('unlink-1','memory.unlink',{owner,relationshipId:edgeId,expectedRevision:2})
+    assert.equal((await invoke('org-after-republish','memory_relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).stale,true)
+    const closed=await invoke('unlink-1','memory_unlink',{owner,relationshipId:edgeId,expectedRevision:2})
     assert.equal(closed.relationship.active,false)
     assert.equal(closed.relationship.history.length,3)
-    const replacement=await invoke('relink-1','memory.link',{...linkArgs,fromRevision:3,evidence:[{memoryId:first.id,revision:3}]})
+    const replacement=await invoke('relink-1','memory_link',{...linkArgs,fromRevision:3,evidence:[{memoryId:first.id,revision:3}]})
     assert.notEqual(replacement.relationship.id,edgeId)
-    const page=await invoke('list-page','memory.relationship_list',{owner,limit:1})
+    const page=await invoke('list-page','memory_relationship_list',{owner,limit:1})
     assert.ok(page.nextCursor)
     const revisions=await Promise.allSettled([
-      invoke('cas-left','memory.relationship_update',{owner,relationshipId:replacement.relationship.id,expectedRevision:1,fromRevision:3,toRevision:1,kind:'supports',weight:0.3,evidence:[{memoryId:first.id,revision:3}]}),
-      invoke('cas-right','memory.relationship_update',{owner,relationshipId:replacement.relationship.id,expectedRevision:1,fromRevision:3,toRevision:1,kind:'supports',weight:0.9,evidence:[{memoryId:first.id,revision:3}]})
+      invoke('cas-left','memory_relationship_update',{owner,relationshipId:replacement.relationship.id,expectedRevision:1,fromRevision:3,toRevision:1,kind:'supports',weight:0.3,evidence:[{memoryId:first.id,revision:3}]}),
+      invoke('cas-right','memory_relationship_update',{owner,relationshipId:replacement.relationship.id,expectedRevision:1,fromRevision:3,toRevision:1,kind:'supports',weight:0.9,evidence:[{memoryId:first.id,revision:3}]})
     ])
     assert.equal(revisions.filter(result=>result.status==='fulfilled').length,1)
     assert.equal(revisions.filter(result=>result.status==='rejected').length,1)
-    await assert.rejects(invoke('list-stale','memory.relationship_list',{owner,cursor:page.nextCursor,limit:1}),/changed; restart pagination/)
+    await assert.rejects(invoke('list-stale','memory_relationship_list',{owner,cursor:page.nextCursor,limit:1}),/changed; restart pagination/)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.memory_tool_receipts WHERE attempt_id=$1 AND call_id=$2',[attemptId,'link-invalid'])).rows[0].n,0)
-    await assert.rejects(invoke('late-old','memory.unlink',{owner,relationshipId:edgeId,expectedRevision:2}),/revision conflict/)
+    await assert.rejects(invoke('late-old','memory_unlink',{owner,relationshipId:edgeId,expectedRevision:2}),/revision conflict/)
     let releasePersonal,personalLocked
     const personalBarrier=new Promise(resolve=>personalLocked=resolve)
     const personalHold=new Promise(resolve=>releasePersonal=resolve)
@@ -144,7 +144,7 @@ test('relationships preserve evidence and history under correction, republish, C
       personalLocked();await personalHold
     })
     await personalBarrier
-    const correctionRace=invoke('correction-race','memory.link',{...linkArgs,kind:'derived_from',fromRevision:3,evidence:[{memoryId:first.id,revision:3}]}).then(()=>null,error=>error)
+    const correctionRace=invoke('correction-race','memory_link',{...linkArgs,kind:'derived_from',fromRevision:3,evidence:[{memoryId:first.id,revision:3}]}).then(()=>null,error=>error)
     await runtime.memory.correct(ids.rootAgentId,first.id,3,'Amsterdam desk opens at noon',[{authorId:ids.rootAgentId}])
     releasePersonal();await personalBlocker
     assert.match((await correctionRace).message,/revision conflict/)
@@ -156,22 +156,22 @@ test('relationships preserve evidence and history under correction, republish, C
       orgLocked();await orgHold
     })
     await orgBarrier
-    const publicationRace=invoke('publication-race','memory.link',{owner:orgOwner,fromId:publishedFirst.id,toId:publishedSecond.id,fromRevision:2,toRevision:1,kind:'supports',weight:0.6,evidence:[{memoryId:publishedFirst.id,revision:2}]}).then(()=>null,error=>error)
+    const publicationRace=invoke('publication-race','memory_link',{owner:orgOwner,fromId:publishedFirst.id,toId:publishedSecond.id,fromRevision:2,toRevision:1,kind:'supports',weight:0.6,evidence:[{memoryId:publishedFirst.id,revision:2}]}).then(()=>null,error=>error)
     await runtime.memory.publish(ids.rootAgentId,ids.organizationId,first.id,4,2)
     releaseOrg();await orgBlocker
     assert.match((await publicationRace).message,/revision conflict/)
     await runtime.db.query('UPDATE kipster.agents SET provisioned=false WHERE id=$1',[otherAgent])
-    await assert.rejects(invoke('owner-fence','memory.relationship_list',{owner:{kind:'agent',ownerId:otherAgent}}),/owner unavailable/)
+    await assert.rejects(invoke('owner-fence','memory_relationship_list',{owner:{kind:'agent',ownerId:otherAgent}}),/owner unavailable/)
     await runtime.db.query('UPDATE kipster.agents SET provisioned=true WHERE id=$1',[otherAgent])
     await runtime.db.query('UPDATE kipster.agents SET provisioned=false WHERE id=$1',[ids.rootAgentId])
-    await assert.rejects(invoke('actor-fence','memory.relationship_get',{owner,relationshipId:edgeId}),/actor unavailable/)
+    await assert.rejects(invoke('actor-fence','memory_relationship_get',{owner,relationshipId:edgeId}),/actor unavailable/)
     await runtime.db.query('UPDATE kipster.agents SET provisioned=true WHERE id=$1',[ids.rootAgentId])
     await runtime.db.query('DELETE FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2',[ids.organizationId,ids.rootAgentId])
-    assert.equal((await invoke('accepted-membership','memory.relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).id,orgLinked.relationship.id)
+    assert.equal((await invoke('accepted-membership','memory_relationship_get',{owner:orgOwner,relationshipId:orgLinked.relationship.id})).id,orgLinked.relationship.id)
     await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=true WHERE current_attempt_id=$1',[attemptId])
-    await assert.rejects(invoke('stopped-read','memory.relationship_get',{owner,relationshipId:edgeId}),/no longer owns tools/)
-    await assert.rejects(invoke('stopped-write','memory.unlink',{owner,relationshipId:replacement.relationship.id,expectedRevision:2}),/no longer owns tools/)
-    assert.deepEqual(await invoke('link-1','memory.link',linkArgs),linked,'completed call replay survives Stop')
+    await assert.rejects(invoke('stopped-read','memory_relationship_get',{owner,relationshipId:edgeId}),/no longer owns tools/)
+    await assert.rejects(invoke('stopped-write','memory_unlink',{owner,relationshipId:replacement.relationship.id,expectedRevision:2}),/no longer owns tools/)
+    assert.deepEqual(await invoke('link-1','memory_link',linkArgs),linked,'completed call replay survives Stop')
     await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=false WHERE current_attempt_id=$1',[attemptId])
     await runtime.home.provisionAgent(otherAgent)
     await runtime.db.query('INSERT INTO kipster.agent_memberships(organization_id,agent_id) VALUES ($1,$2)',[ids.organizationId,ids.rootAgentId])
@@ -183,11 +183,11 @@ test('relationships preserve evidence and history under correction, republish, C
     for(let i=0;i<100&&contexts.length<2;i++)await new Promise(resolve=>setTimeout(resolve,20))
     assert.equal(contexts[1].agentId,otherAgent)
     const childAttempt=contexts[1].attemptId
-    const childLinked=await host.invokeTool({attemptId:childAttempt,callId:'child-link',name:'memory.link',arguments:{owner:{kind:'agent',ownerId:otherAgent},fromId:alien.id,toId:otherMemory.id,fromRevision:1,toRevision:1,kind:'supports',weight:0.6,evidence:[{memoryId:alien.id,revision:1}]}})
+    const childLinked=await host.invokeTool({attemptId:childAttempt,callId:'child-link',name:'memory_link',arguments:{owner:{kind:'agent',ownerId:otherAgent},fromId:alien.id,toId:otherMemory.id,fromRevision:1,toRevision:1,kind:'supports',weight:0.6,evidence:[{memoryId:alien.id,revision:1}]}})
     assert.equal((await runtime.db.query('SELECT actor_id FROM kipster.memory_relationship_changes WHERE relationship_id=$1',[childLinked.relationship.id])).rows[0].actor_id,otherAgent)
     assert.equal((await runtime.db.query('SELECT child_run_id FROM kipster.delegations WHERE id=$1',[delegated.id])).rows[0].child_run_id,delegated.childRunId)
-    assert.deepEqual(await invoke('link-1','memory.link',linkArgs),linked,'receipt replay survives ended attempt')
-    await assert.rejects(invoke('late-new','memory.relationship_list',{owner}),/no longer owns tools/)
+    assert.deepEqual(await invoke('link-1','memory_link',linkArgs),linked,'receipt replay survives ended attempt')
+    await assert.rejects(invoke('late-new','memory_relationship_list',{owner}),/no longer owns tools/)
     handles.forEach(handle=>handle.abort())
     await dispatcher.close();dispatcher=null
     await server.close();server=null

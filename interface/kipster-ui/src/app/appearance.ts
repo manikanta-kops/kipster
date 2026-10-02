@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { Platform } from '../platform/platform'
+import type { InterfacePreferences } from '../data/interface-preferences'
 
 /**
  * Palettes are defined once in `styles/themes.css`. Adding a palette is one CSS
@@ -90,8 +91,15 @@ function subscribeToScheme(onChange: () => void) {
 }
 const systemPrefersDark = () => window.matchMedia?.(darkQuery).matches ?? false
 
-/** Palette and light/dark mode, persisted in platform preferences. */
-export function useAppearance(platform: Platform): Appearance {
+/**
+ * Palette and light/dark mode. With `preferences`, they follow the choices
+ * Core keeps for the installation, which Kip can change too. Platform
+ * preferences keep the last choice for the first paint.
+ */
+export function useAppearance(
+  platform: Platform,
+  preferences: InterfacePreferences | null = null,
+): Appearance {
   const [palette, setPaletteState] = useState<PaletteId>(() => {
     const saved = platform.preferences.get('palette')
     return isPalette(saved) ? saved : defaultPalette
@@ -104,6 +112,24 @@ export function useAppearance(platform: Platform): Appearance {
     subscribeToScheme,
     systemPrefersDark,
     () => false,
+  )
+  // A choice saved in Core, here, by Kip or in another window, applies at once.
+  useEffect(
+    () =>
+      preferences?.subscribe(() => {
+        const shared = preferences.value
+        const sharedPalette = shared?.palette ?? null
+        const sharedMode = shared?.theme ?? null
+        if (isPalette(sharedPalette)) {
+          setPaletteState(sharedPalette)
+          platform.preferences.set('palette', sharedPalette)
+        }
+        if (isMode(sharedMode)) {
+          setModeState(sharedMode)
+          platform.preferences.set('theme', sharedMode)
+        }
+      }),
+    [platform, preferences],
   )
   const darkOnly = isDarkOnly(palette)
   const theme: Theme =
@@ -124,15 +150,17 @@ export function useAppearance(platform: Platform): Appearance {
     (next: PaletteId) => {
       setPaletteState(next)
       platform.preferences.set('palette', next)
+      void preferences?.save({ palette: next }).catch(() => undefined)
     },
-    [platform],
+    [platform, preferences],
   )
   const setMode = useCallback(
     (next: ThemeMode) => {
       setModeState(next)
       platform.preferences.set('theme', next)
+      void preferences?.save({ theme: next }).catch(() => undefined)
     },
-    [platform],
+    [platform, preferences],
   )
   return { palette, mode, theme, setPalette, setMode }
 }

@@ -6,9 +6,9 @@ import { join } from 'node:path'
 import { createAdapter } from '../dist/index.js'
 
 for (const tool of [
-  { label: 'task data', wire: 'data_space', name: 'data.space', callId: 'data-1', forbidden: 'sql', enabled: 'structuredEnabled', result: { tables: [] } },
-  { label: 'vector collections', wire: 'vectors_space', name: 'vectors.space', callId: 'vector-1', forbidden: 'embeddingProvider', enabled: 'vectorsEnabled', result: { collections: [] } },
-]) test(`adapter advertises bounded ${tool.label} and forwards bound attempt identity`, async t => {
+  { label: 'task data', wire: 'data_space', callId: 'data-1', forbidden: 'sql', result: { tables: [] } },
+  { label: 'vector collections', wire: 'vectors_space', callId: 'vector-1', forbidden: 'embeddingProvider', result: { collections: [] } },
+]) test(`adapter offers the Core ${tool.label} tool and forwards bound attempt identity`, async t => {
   const directory=await mkdtemp(join(tmpdir(),'kipster-codex-data-'))
   const executable=join(directory,'codex')
   await writeFile(executable,`#!/usr/bin/env node
@@ -38,9 +38,9 @@ else if(x.method==='thread/start'){
   const adapter=createAdapter({dataDirectory:join(directory,'codex-data'),now:()=>new Date().toISOString(),async invokeTool(request){calls.push(request);return tool.result}})
   try {
     assert.equal((await adapter.readiness()).ready,true)
-    const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent-a',workingDirectory:directory,instructions:'Current',[tool.enabled]:true,settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'List tables'}],triggerMessageId:'message'})
+    const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent-a',workingDirectory:directory,instructions:'Current',tools:[{name:tool.wire,description:tool.label,inputSchema:{type:'object',properties:{operation:{type:'string'},target:{type:'object'}},required:['operation','target']}}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'List tables'}],triggerMessageId:'message'})
     const events=[];for await(const event of handle.events)events.push(event)
-    assert.deepEqual(calls,[{attemptId:'attempt',callId:tool.callId,name:tool.name,arguments:{operation:'discover',target:{kind:'agent',ownerId:'agent-a'}}}])
+    assert.deepEqual(calls,[{attemptId:'attempt',callId:tool.callId,name:tool.wire,arguments:{operation:'discover',target:{kind:'agent',ownerId:'agent-a'}}}])
     assert.equal(events.at(-1).kind,'ended')
   } finally {await adapter.close();process.env.PATH=previous;await rm(directory,{recursive:true,force:true})}
 })

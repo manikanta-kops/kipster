@@ -1,4 +1,4 @@
-import { applyAdminApproval } from '../../workflows/admin-approvals.js'
+import { applyAdminApproval, approvedInstall, recordInstall } from '../../workflows/admin-approvals.js'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
@@ -15,7 +15,8 @@ import { context as contextSchema, textSubmission, controlCommand, interactionRe
 import type { TextDispatcher, ControlInput } from '../../workflows/text-dispatch.js'
 import { answerInteraction, interactionReceipt, type InteractionAnswer } from '../../modules/work/public.js'
 import { MAX_UPLOAD_BYTES, type ArtifactTarget, type UploadIntent } from '../../modules/artifacts/public.js'
-import { listIdentityBackups, readIdentityBackup, readIdentityFile, restoreIdentityBackup, writeIdentityFile } from '../../modules/settings/public.js'
+import { listIdentityBackups, readIdentityBackup, readIdentityFile, readInterfacePreferences, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences } from '../../modules/settings/public.js'
+import { interfacePreferencesWrite } from '../../protocol/admin.js'
 import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from '../../platform/home/public.js'
 import { RefusedError } from '../../platform/errors/public.js'
 
@@ -152,7 +153,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){
@@ -196,11 +197,19 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         const row=interactionResponseCommand.parse(await body(request))
         const target={ operationId: row.operationId, interactionId: row.interactionId, threadId: row.threadId, runId: row.runId, attemptId: row.attemptId }
         const result=path.endsWith('/receipt')?await interactionReceipt(runtime.db,actor,target):await answerInteraction(runtime.db, runtime.jobs, actor, { ...target, ...(row.proposalId ? { proposalId: row.proposalId } : {}), answer: row.answer as InteractionAnswer }, (client, card) => applyAdminApproval(client, runtime.jobs, actor, card))
+        // An approved Core install starts once the answer is saved; its operation ID makes a repeated start return the first result.
+        const install = 'outcome' in result && result.outcome === 'accepted' ? await approvedInstall(runtime.db, actor, row.interactionId) : null
+        if (install) {
+          try { await recordInstall(runtime.db, row.interactionId, await runtime.updates.install(actor, { version: 1, operationId: install.operationId, ...install.install })) }
+          catch (error) { await recordInstall(runtime.db, row.interactionId, { error: error instanceof Error ? error.message : String(error) }) }
+        }
         json(response, 200, { version: 1, operationId: row.operationId, ...result }); return
       }
       if (request.method === 'GET' && path === '/v1/directory') { json(response, 200, await readDirectory(runtime.db, actor)); return }
       const administration = await administrationRoute(runtime, actor, request.method ?? '', path, url.searchParams, limit => body(request, limit), options.dispatcher)
       if (administration) { json(response, 200, administration); return }
+      if (path === '/v1/settings/interface' && request.method === 'GET') { json(response, 200, await readInterfacePreferences(runtime.db, actor)); return }
+      if (path === '/v1/settings/interface' && request.method === 'PUT') { json(response, 200, await writeInterfacePreferences(runtime.db, actor, interfacePreferencesWrite.parse(await body(request)))); return }
       if (path === '/v1/settings/learning' && request.method === 'GET') { json(response, 200, { version: 1, ...await runtime.learning.get(actor) }); return }
       if (path === '/v1/settings/learning' && request.method === 'PUT') {
         const { version: _, ...update } = learningUpdate.parse(await body(request))

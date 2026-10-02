@@ -55,7 +55,7 @@ test('learned facts never edit a deliberate save: a contradiction is linked and 
   const contrary = 'Invoices are due within 45 days'
   const repeated = 'Invoices are due 30 days after issue'
   await s.home.chat('Please save our payment terms: invoices are due within 30 days.', {
-    tools: call => call('memory.save', { kind: 'fact', text: saved, subject: 'payment terms' }),
+    tools: call => call('memory_save', { kind: 'fact', text: saved, subject: 'payment terms' }),
   })
   const save = await s.memory(saved)
   assert.deepEqual([save.origin, save.importance, save.strength], ['deliberate', 1, 0.5])
@@ -86,7 +86,7 @@ test('a slip corrected in conversation stays corrected when the old wording come
   await s.home.chat('Our new CFO is Maria Lopez.', { learn: [{ text: slip, subject: 'CFO' }] })
   const learned = await s.memory(slip)
   await s.home.chat('Sorry, a typo: the CFO is Maria Lopes, with an s.', {
-    tools: call => call('memory.correct', { id: learned.id, expectedRevision: 1, text: corrected }),
+    tools: call => call('memory_correct', { id: learned.id, expectedRevision: 1, text: corrected }),
   })
   const fixed = await s.memory(corrected)
   assert.deepEqual([fixed.id, fixed.revision], [learned.id, 2])

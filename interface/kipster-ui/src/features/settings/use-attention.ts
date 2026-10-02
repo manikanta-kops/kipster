@@ -2,6 +2,10 @@ import Dexie, { type Table } from 'dexie'
 import { useEffect, useRef, useState } from 'react'
 import type { Platform } from '../../platform/platform'
 import type { InboxNotification } from '../../data/settings'
+import {
+  desktopAlertsEnabled,
+  type InterfacePreferences,
+} from '../../data/interface-preferences'
 const db = new Dexie('kipster-notification-attention') as Dexie & {
   claims: Table<{ id: string; at: number }, string>
 }
@@ -19,9 +23,9 @@ async function claimAttention(
     return true
   })
 }
-const preferenceKey = (scope: string) => `desktop-notifications:${scope}`
 export function useAttention(
   platform: Platform,
+  preferences: InterfacePreferences | null,
   scopeKey: string,
   notifications: InboxNotification[],
   attention: string[],
@@ -66,7 +70,7 @@ export function useAttention(
                 : null
             return platform.notifications.supported &&
               platform.notifications.sendExisting &&
-              platform.preferences.get(preferenceKey(scopeKey)) === 'enabled'
+              desktopAlertsEnabled(platform, preferences, scopeKey)
               ? { latest, foreground }
               : null
           }
@@ -100,7 +104,7 @@ export function useAttention(
         }
       })()
     }
-  }, [platform, scopeKey, attention, notifications, threadId])
+  }, [platform, preferences, scopeKey, attention, notifications, threadId])
   return {
     notice:
       notice &&

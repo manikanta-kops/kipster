@@ -10,12 +10,18 @@ import {
   lazy,
   Suspense,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
 } from 'react'
+import { PlatformContext } from '../../platform/context'
+import {
+  desktopAlertsKey,
+  InterfacePreferencesContext,
+} from '../../data/interface-preferences'
 import { useMediaQuery } from '../../app/use-media-query'
 import { agentHues, hueVar, isDarkOnly } from '../../app/appearance'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -159,6 +165,8 @@ export function Workspace({
   changeConnection?: () => void
 }) {
   const [applicationUpdates] = useState(() => new ApplicationUpdates())
+  const platform = useContext(PlatformContext)
+  const interfacePreferences = useContext(InterfacePreferencesContext)
   const softwareUpdates = useMemo(
     () => new SoftwareUpdates(endpoint),
     [endpoint],
@@ -776,6 +784,34 @@ export function Workspace({
               connected: () => {
                 applicationUpdates.publish({ kind: 'connection', message: '' })
                 softwareUpdates.connectionRestored()
+                // Read the shared interface choices again; this window's own fill those Core never saved.
+                if (
+                  interfacePreferences &&
+                  identity.capabilities?.interfacePreferences
+                ) {
+                  const own = (key: string) =>
+                    platform?.preferences.get(key) ?? null
+                  const alerts = own(
+                    desktopAlertsKey(
+                      JSON.stringify([
+                        client.endpoint,
+                        identity.installationId,
+                        identity.callerId,
+                      ]),
+                    ),
+                  )
+                  void interfacePreferences
+                    .load(
+                      {
+                        palette: own('palette'),
+                        theme: own('theme'),
+                        desktopNotifications:
+                          alerts === null ? null : alerts === 'enabled',
+                      },
+                      abort.signal,
+                    )
+                    .catch(() => undefined)
+                }
               },
               event: (value) => {
                 const {
@@ -797,6 +833,21 @@ export function Workspace({
                   eventScope.callerId === identity.callerId
                 if (sameInstallation && type === 'updates-changed')
                   softwareUpdates.acceptStatus(data)
+                if (sameInstallation && type === 'interface-changed') {
+                  try {
+                    interfacePreferences?.accept(data)
+                  } catch {
+                    /* An unreadable change waits for the next read. */
+                  }
+                }
+                if (sameInstallation && type === 'identity-changed')
+                  void queries.invalidateQueries({
+                    queryKey: ['identity-file'],
+                  })
+                if (sameInstallation && type === 'instructions-changed')
+                  void queries.invalidateQueries({
+                    queryKey: ['core-instructions'],
+                  })
                 if (
                   __KIPSTER_DEMO__ &&
                   sameInstallation &&
@@ -858,6 +909,9 @@ export function Workspace({
     applicationUpdates,
     softwareUpdates,
     block,
+    platform,
+    interfacePreferences,
+    queries,
   ])
 
   // Read-only background snapshots hydrate root text; the selected thread owns its own stream.

@@ -4,8 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
-import type { TrustedActor } from '../identity/public.js'
-import { claimOperation } from '../administration/public.js'
+import { authorizeAdministration, type AdminAuthority, type AdminCaller } from '../identity/public.js'
+import { claimOperation, operationKey } from '../administration/public.js'
 import { publishAppEvent } from '../synchronization/public.js'
 import { channelEntry, updateInstall, updateSettingsWrite, updateUnpin, updaterRequest, updaterStatusFile, type UpdateChannel, type UpdateMode, type UpdateInstall, type UpdateSettingsWrite, type UpdateStatus, type UpdateUnpin, type UpdaterRequest, type UpdaterStatusFile } from '../../protocol/updates.js'
 import { compareVersions } from './semver.js'
@@ -63,8 +63,10 @@ export class UpdatesService {
     this.serial = result.then(() => undefined, () => undefined)
     return result
   }
-  private async authorize(actor: TrustedActor): Promise<void> {
-    if (actor.installationId !== this.installationId || !(await this.db.query('SELECT 1 FROM kipster.bootstrap WHERE installation_id=$1 AND owner_id=$2', [this.installationId, actor.personId])).rows.length) throw new Error('Owner access denied')
+  /** The owner, or the admin agent from a live attempt. */
+  private async authorize(actor: AdminCaller): Promise<AdminAuthority> {
+    if (actor.installationId !== this.installationId) throw new Error('Owner access denied')
+    return authorizeAdministration(this.db, actor)
   }
   private async lock(client: SqlClient): Promise<Locked> {
     await client.query('INSERT INTO kipster.execution_permits(installation_id) VALUES ($1) ON CONFLICT DO NOTHING', [this.installationId])
@@ -126,7 +128,7 @@ export class UpdatesService {
     clearTimeout(this.startup); clearInterval(this.timer); this.watcher?.close(); this.fetchAbort?.abort()
     await this.serial
   }
-  async get(actor: TrustedActor): Promise<UpdateStatus> {
+  async get(actor: AdminCaller): Promise<UpdateStatus> {
     await this.authorize(actor)
     return this.current()
   }
@@ -135,22 +137,23 @@ export class UpdatesService {
     if (!row) throw new Error('Update settings not found')
     return this.view(row)
   }
-  async settings(actor: TrustedActor): Promise<Settings> {
+  async settings(actor: AdminCaller): Promise<Settings> {
     const status = await this.get(actor)
     return { version: 1, channel: status.channel as UpdateChannel, mode: status.mode as UpdateMode }
   }
-  private operation(client: SqlClient, actor: TrustedActor, operationId: string, kind: string, request: object) {
-    return claimOperation(client, { installationId: this.installationId, actorKind: 'person', actorId: actor.personId, operationId }, kind,
-      { kind: 'installation', id: this.installationId }, {}, { ...request })
+  /** Authorizes again in the writing transaction, so a Stop of the admin agent's run either commits first or waits. */
+  private async operation(client: SqlClient, actor: AdminCaller, authority: AdminAuthority, operationId: string, kind: string, request: object) {
+    await authorizeAdministration(client, actor, true)
+    return claimOperation(client, operationKey(actor, authority, operationId), kind, { kind: 'installation', id: this.installationId }, {}, { ...request })
   }
   private async complete(client: SqlClient, operationId: string, result: object): Promise<void> {
     await client.query("UPDATE kipster.admin_operations SET state='succeeded',result=$2::jsonb,revision=revision+1,updated_at=now() WHERE id=$1", [operationId, JSON.stringify(result)])
   }
-  async setSettings(actor: TrustedActor, value: UpdateSettingsWrite): Promise<Settings> {
+  async setSettings(actor: AdminCaller, value: UpdateSettingsWrite): Promise<Settings> {
     const input = updateSettingsWrite.parse(value)
-    await this.authorize(actor)
+    const authority = await this.authorize(actor)
     return this.queue(async () => this.db.transaction(async client => {
-      const { operation, claimed } = await this.operation(client, actor, input.operationId, 'updates.settings', input)
+      const { operation, claimed } = await this.operation(client, actor, authority, input.operationId, 'updates.settings', input)
       if (!claimed) return operation.result as Settings
       const { row, requestId } = await this.lock(client)
       const changedChannel = row.channel !== input.channel
@@ -165,7 +168,7 @@ export class UpdatesService {
     }))
   }
 
-  async check(actor?: TrustedActor): Promise<UpdateStatus> {
+  async check(actor?: AdminCaller): Promise<UpdateStatus> {
     if (actor) await this.authorize(actor)
     return this.queue(async () => { await this.refreshInternal(); await this.checkInternal(); await this.scheduleInternal(); await this.deliverInternal(); return this.current() })
   }
@@ -263,15 +266,24 @@ export class UpdatesService {
         settings: { channel: row.channel, mode: row.mode, pinned: row.pinned } })
     })
   }
-  async install(actor: TrustedActor, value: UpdateInstall): Promise<UpdateStatus> {
+  /** Refuses a request that `install` refuses whatever the update state, so nobody is asked to approve an install that cannot start. */
+  checkInstall(value: Pick<UpdateInstall, 'target' | 'backupId' | 'confirmDataLoss'>): void {
+    const order = compareVersions(value.target, this.coreVersion)
+    if (!this.managed) throw new UpdateRefusedError('update-unmanaged', 'Software installation requires a managed updater on this host')
+    if (order === 0) throw new UpdateRefusedError('update-already-installed', 'The target Core version is already installed')
+    if (order < 0 && !value.backupId) throw new UpdateRefusedError('update-backup-required', 'Restoring an older Core requires a backup taken on that version')
+    if (order < 0 && value.confirmDataLoss !== true) throw new UpdateRefusedError('update-confirmation-required', 'Restoring this backup loses data written since it was taken; confirmDataLoss must be true')
+    if (order > 0 && (value.backupId !== undefined || value.confirmDataLoss === true)) throw new TypeError('Invalid backup or data-loss confirmation for an upgrade')
+  }
+  async install(actor: AdminCaller, value: UpdateInstall): Promise<UpdateStatus> {
     const input = updateInstall.parse(value)
     compareVersions(input.target, this.coreVersion)
-    await this.authorize(actor)
+    const authority = await this.authorize(actor)
     if (!this.managed) throw new UpdateRefusedError('update-unmanaged', 'Software installation requires a managed updater on this host')
     return this.queue(async () => {
       await this.refreshInternal()
       await this.db.transaction(async client => {
-        const { operation, claimed } = await this.operation(client, actor, input.operationId, 'updates.install', input)
+        const { operation, claimed } = await this.operation(client, actor, authority, input.operationId, 'updates.install', input)
         if (!claimed) return
         const { row, requestId } = await this.lock(client)
         if (requestId) throw new UpdateRefusedError('update-in-progress', 'An update request is already in progress')
@@ -293,12 +305,12 @@ export class UpdatesService {
       return this.current()
     })
   }
-  async unpin(actor: TrustedActor, value: UpdateUnpin): Promise<UpdateStatus> {
+  async unpin(actor: AdminCaller, value: UpdateUnpin): Promise<UpdateStatus> {
     const input = updateUnpin.parse(value)
-    await this.authorize(actor)
+    const authority = await this.authorize(actor)
     return this.queue(async () => {
       await this.db.transaction(async client => {
-        const { operation, claimed } = await this.operation(client, actor, input.operationId, 'updates.unpin', input)
+        const { operation, claimed } = await this.operation(client, actor, authority, input.operationId, 'updates.unpin', input)
         if (!claimed) return
         const { row, requestId } = await this.lock(client)
         row.pinned = null

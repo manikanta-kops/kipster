@@ -152,7 +152,7 @@ test('tool publication survives runner IPC disconnect without an unhandled send 
   try {
     await mkdir(join(installation, 'dist'), { recursive: true })
     await writeFile(join(installation, 'package.json'), JSON.stringify({ type: 'module' }))
-    await writeFile(join(installation, 'dist/index.mjs'), `export function createAdapter(host){return {id:'fixture',version:'1',contractMajor:1,async readiness(){return {ready:true,catalog:{models:[{id:'test'}],capabilities:{text:true,publication:true,cancellation:true,steering:false,nativeResume:false}}}},async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publish-1',name:'conversation.publish',arguments:{text:'saved'}}).catch(()=>{});return {events:(async function*(){await new Promise(()=>{})})(),async cancel(){return {acknowledged:false,confirmedEnded:false}},async reconcile(){return 'unknown'}}},async close(){}}}`)
+    await writeFile(join(installation, 'dist/index.mjs'), `export function createAdapter(host){return {id:'fixture',version:'1',contractMajor:1,async readiness(){return {ready:true,catalog:{models:[{id:'test'}],capabilities:{text:true,publication:true,cancellation:true,steering:false,nativeResume:false}}}},async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publish-1',name:'conversation_publish',arguments:{text:'saved'}}).catch(()=>{});return {events:(async function*(){await new Promise(()=>{})})(),async cancel(){return {acknowledged:false,confirmedEnded:false}},async reconcile(){return 'unknown'}}},async close(){}}}`)
     await registry.register('fixture', installation, 'dist/index.mjs')
     selected = registry.selected('fixture', 'tool-flight')
     const handle = await selected.adapter.execute(context('tool-flight'))

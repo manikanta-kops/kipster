@@ -411,7 +411,7 @@ test('organization deletion tombstones context and fences in-flight output', { s
 async function delegateChild(ctx, text, recipientId, request, opts = {}) {
   const saved = await submitText(ctx, text, opts)
   const parent = await textExec(ctx, saved.runId)
-  await parent.handle.callTool('delegate-1', 'agents.delegate', { recipientId, request })
+  await parent.handle.callTool('delegate-1', 'agents_delegate', { recipientId, request })
   const attemptId = parent.context.attemptId
   parent.handle.release({ kind: 'waiting', attemptId, for: 'child', interactionId: 'delegation' })
   parent.handle.release({ kind: 'text', attemptId, messageId: 'answer', text: 'Delegated', final: true })
@@ -1103,7 +1103,7 @@ test('mixed wakeups, close fencing, profile serialization and tool denial', { sk
   const deniedManifest = await manifestOf(ctx, denied.runId)
   void deniedManifest
   const calls = await nextMaintExec(ctx)
-  await assert.rejects(calls.handle.callTool('tool-1', 'memory.save', { kind: 'fact', text: 'smuggled', provenance: [] }), /Maintenance tools denied/)
+  await assert.rejects(calls.handle.callTool('tool-1', 'memory_save', { kind: 'fact', text: 'smuggled', provenance: [] }), /Maintenance tools denied/)
   assert.equal(await count(ctx.db, `SELECT count(*)::int AS n FROM kipster.memory_records WHERE scope='agent' AND text='smuggled'`), 0)
   calls.handle.release(providerEvent(calls.context.attemptId))
   calls.handle.release({ kind: 'text', attemptId: calls.context.attemptId, messageId: 'output', text: JSON.stringify({ candidates: [] }), final: true })

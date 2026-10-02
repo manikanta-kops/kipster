@@ -4,6 +4,7 @@ import { PlatformContext } from '../../platform/context'
 import type { Platform } from '../../platform/platform'
 import type { InboxNotification } from '../../data/settings'
 import { useAttention } from './use-attention'
+import { InterfacePreferencesContext } from '../../data/interface-preferences'
 type Props = {
   scope: string
   notifications: InboxNotification[]
@@ -28,8 +29,10 @@ function ScopedAttention({
   open,
   host,
 }: Props & { platform: Platform }) {
+  const preferences = useContext(InterfacePreferencesContext)
   const attention = useAttention(
     platform,
+    preferences,
     scope,
     notifications,
     attentionIds,
