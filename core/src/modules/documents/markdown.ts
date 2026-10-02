@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { randomInt } from 'node:crypto'
 import type { DocumentBlock } from '../../protocol/documents.js'
 
 /** A stored block: one Core understands, or a newer type kept unchanged. */
@@ -9,7 +9,7 @@ const alphabet = '0123456789abcdefghijklmnopqrstuvwxyz'
 export function shortId(used: Set<string>): string {
   for (;;) {
     let id = ''
-    for (const byte of randomBytes(8)) id += alphabet[byte % alphabet.length]
+    for (let index = 0; index < 8; index++) id += alphabet[randomInt(alphabet.length)]
     if (!used.has(id)) { used.add(id); return id }
   }
 }
