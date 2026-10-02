@@ -55,8 +55,11 @@ export const queueEntry = object({ id, threadId: id, messageId: id, acceptanceOr
 export const snapshot = object({ version: literal(1), scope: streamScope, cursor: id, messages: array(message), work: array(workSummary), queue: array(queueEntry), next: nullable(id) }, false)
 export const appThreadSummary = object({ threadId: id, chatId: id, contextKind: union(literal('installation'), literal('organization')), contextId: id, agentId: id, revision: integer(), state: string(), lastMessageId: id, createdAt: utcTimestamp() }, false)
 export const interactionState = union(literal('pending'), literal('settled'), literal('cancelled'), literal('superseded'))
-/** An interaction notification carries its interaction's current state; each change takes the next revision. */
-export const notification = object({ id, threadId: id, runId: id, kind: union(literal('completed'), literal('failed'), literal('recovery-needed'),literal('interaction')), interactionId: optional(id), interactionState: optional(interactionState), read: boolean(), revision: integer(), createdAt: utcTimestamp() }, false)
+/**
+ * An interaction notification carries its interaction's current state; each change takes the next revision.
+ * `preview` is a short single-line excerpt: the reply, the failure reason or the interaction prompt.
+ */
+export const notification = object({ id, threadId: id, runId: id, kind: union(literal('completed'), literal('failed'), literal('recovery-needed'),literal('interaction')), interactionId: optional(id), interactionState: optional(interactionState), read: boolean(), revision: integer(), createdAt: utcTimestamp(), preview: optional(string()) }, false)
 export const appSnapshot = object({ version: literal(1), scope: object({ kind: literal('application'), installationId: id, callerId: id }), cursor: id, threads: array(appThreadSummary), notifications: array(notification), next: nullable(object({ afterThreadId: nullable(id), afterNotificationId: nullable(id) })) }, false)
 export const voicePreparation = object({id,artifactId:id,partIndex:integer(),revision:integer(),status:union(literal('preparing'),literal('succeeded'),literal('no-speech'),literal('unavailable')),provider:string(),transcript:optional(string()),error:optional(string())},false)
 export const threadMessage = object({ preparation: optional(array(voicePreparation)), id, threadId: id, authorId: id, parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
