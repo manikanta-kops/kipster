@@ -9,6 +9,7 @@ import { channelFor, version } from '../src/catalog.mjs'
 import { locked, json, save } from '../src/files.mjs'
 import { templates } from '../src/services.mjs'
 import { run } from '../src/process.mjs'
+import { Database, databaseEndpoint } from '../src/database.mjs'
 import { database, directory, configuration, catalogs, hooks, noDatabase, cli, repository } from './support.mjs'
 
 test('request validation trusts only version strings and preserves the shared shape', () => {
@@ -38,6 +39,20 @@ test('malformed provider paths remain bounded and reject traversal', { timeout: 
   for (const entry of ['@kipster/a/a' + '/@kipster/a/a'.repeat(300) + '\n', '@kipster/a/a' + '/@kipster/a/a'.repeat(10000), 'node_modules/@kipster/a/../escape.js', 'node_modules/@kipster/a/dist\\escape.js']) {
     assert.throws(() => managedConfiguration({ adapters: [{ id: 'a', root: '/tmp', entry }] }, '/tmp/home'), /Configured adapters/)
   }
+})
+test('IPv6 PostgreSQL URLs control the backup and restore endpoint', { skip: noDatabase || !process.env.KIPSTER_TEST_IPV6_DATABASE_URL, timeout: 30000 }, async t => {
+  const home = await directory(t), { database: db, databaseUrl } = await database(t)
+  const url = new URL(process.env.KIPSTER_TEST_IPV6_DATABASE_URL); url.pathname = new URL(databaseUrl).pathname
+  assert.equal(databaseEndpoint(url.href), databaseEndpoint(`postgresql://other@localhost${url.pathname}?host=::1&port=${url.port}`))
+  const ipv6 = new Database({ databaseUrl: url.href }, undefined, { ...process.env, PGHOSTADDR: '127.0.0.1', PGSERVICE: 'unrelated-service', PGSERVICEFILE: join(home, 'missing-service.conf') })
+  await ipv6.check()
+  await ipv6.query('CREATE TABLE ipv6_probe (value integer); INSERT INTO ipv6_probe VALUES (1)')
+  const backup = join(home, 'snapshot'); await mkdir(backup, { mode: 0o700 })
+  await ipv6.backup(backup, { coreVersion: '0.1.0', createdAt: new Date().toISOString() })
+  await ipv6.query('UPDATE ipv6_probe SET value=2')
+  await ipv6.restore(backup, home)
+  assert.equal(await ipv6.query('SELECT value FROM ipv6_probe'), '1')
+  assert.equal(await db.query('SELECT value FROM ipv6_probe'), '1')
 })
 test('process locks exclude overlapping commands and release after a killed owner', async t => {
   const home = await directory(t)

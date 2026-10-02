@@ -4,10 +4,13 @@ import { randomUUID } from 'node:crypto'
 import { atomic, digest, json, save, syncDirectory } from './files.mjs'
 import { run } from './process.mjs'
 
+const hostname = url => url.hostname.startsWith('[') ? url.hostname.slice(1, -1) : url.hostname
 export function databaseEnvironment(databaseUrl, environment = process.env) {
   const url = new URL(databaseUrl)
   if (!['postgresql:', 'postgres:'].includes(url.protocol)) throw new Error('Configure a PostgreSQL databaseUrl in a private --config file or KIPSTER_DATABASE_URL.')
-  const env = { ...environment, PGHOST: url.hostname, PGPORT: url.port || '5432', PGDATABASE: decodeURIComponent(url.pathname.slice(1)), PGUSER: decodeURIComponent(url.username), PGPASSWORD: decodeURIComponent(url.password), PGCONNECT_TIMEOUT: '5' }
+  const env = { ...environment, PGHOST: hostname(url), PGPORT: url.port || '5432', PGDATABASE: decodeURIComponent(url.pathname.slice(1)), PGUSER: decodeURIComponent(url.username), PGPASSWORD: decodeURIComponent(url.password), PGCONNECT_TIMEOUT: '5' }
+  // Keep the configured URL authoritative over inherited libpq routing settings.
+  for (const key of ['PGHOSTADDR', 'PGSERVICE', 'PGSERVICEFILE']) delete env[key]
   const options = { host: 'PGHOST', port: 'PGPORT', dbname: 'PGDATABASE', user: 'PGUSER', password: 'PGPASSWORD', sslmode: 'PGSSLMODE', sslcert: 'PGSSLCERT', sslkey: 'PGSSLKEY', sslrootcert: 'PGSSLROOTCERT', sslcrl: 'PGSSLCRL', options: 'PGOPTIONS', application_name: 'PGAPPNAME' }
   for (const [key, value] of url.searchParams) {
     if (!options[key]) throw new Error(`Unsupported databaseUrl parameter: ${key}. Use standard libpq connection parameters.`)
@@ -18,7 +21,7 @@ export function databaseEnvironment(databaseUrl, environment = process.env) {
 }
 export function databaseEndpoint(databaseUrl) {
   const url = new URL(databaseUrl)
-  return JSON.stringify([url.searchParams.get('host') ?? url.hostname, (url.searchParams.get('port') ?? url.port) || '5432', url.searchParams.get('dbname') ?? decodeURIComponent(url.pathname.slice(1))])
+  return JSON.stringify([url.searchParams.get('host') ?? hostname(url), (url.searchParams.get('port') ?? url.port) || '5432', url.searchParams.get('dbname') ?? decodeURIComponent(url.pathname.slice(1))])
 }
 export class Database {
   constructor(config, bin, environment) {
