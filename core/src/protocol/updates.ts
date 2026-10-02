@@ -37,7 +37,7 @@ export const updateStatus = object({
   version: literal(1), channel: fallback('stable', 'next'), mode: fallback('automatic', 'notify'), checkedAt: nullable(utcTimestamp()),
   window: object({ start: literal('02:00'), end: literal('05:00') }, false),
   core: object({
-    version: nonempty(), pinned: nullable(nonempty()), available: nullable(channelEntry),
+    version: nonempty(), managed: boolean(), pinned: nullable(nonempty()), available: nullable(channelEntry),
     state: fallback('idle', 'checking', 'scheduled', 'installing', 'failed'), step: nullable(string()), error: nullable(string()),
     lastResult: nullable(object({ from: nonempty(), to: nonempty(), outcome: fallback('installed', 'rolled-back', 'failed'), at: utcTimestamp() }, false)),
     backups: array(updateBackup),
@@ -49,6 +49,7 @@ export type UpdateStatus = Infer<typeof updateStatus>
 export const updaterRequest = object({
   version: literal(1), id: nonempty(), action: union(literal('install'), literal('restore')), target: nonempty(), backupId: optional(nonempty()),
   reason: union(literal('manual'), literal('automatic')), requestedAt: utcTimestamp(),
+  settings: optional(object({ channel: updateChannel, mode: updateMode, pinned: nullable(nonempty()) })),
 })
 export type UpdaterRequest = Infer<typeof updaterRequest>
 /** An unrecognized updater state is refused so Core cannot accidentally resume execution. */

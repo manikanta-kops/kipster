@@ -12,7 +12,7 @@ export interface HostConfig {
   transcription?: { module: string; options: Record<string, unknown> }
   environment?: Record<string, string>
   executionLimit?: number
-  updates?: { channelUrl?: string }
+  updates?: { channelUrl?: string; managed?: boolean }
 }
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === 'string' && !!value.trim()
@@ -32,7 +32,8 @@ export function validateHostConfig(value: unknown): HostConfig {
   if (value.environment !== undefined && (!object(value.environment) || !Object.entries(value.environment).every(([key, item]) => envName(key) && typeof item === 'string'))) throw new Error('Environment must contain explicit string values.')
   if (value.executionLimit !== undefined && (!Number.isSafeInteger(value.executionLimit) || Number(value.executionLimit) < 1 || Number(value.executionLimit) > 1000)) throw new Error('Execution limit must be between 1 and 1000.')
   if (value.updates !== undefined) {
-    if (!object(value.updates) || Object.keys(value.updates).some(key => key !== 'channelUrl')) throw new Error('Invalid updates configuration: use optional channelUrl.')
+    if (!object(value.updates) || Object.keys(value.updates).some(key => !['channelUrl', 'managed'].includes(key))) throw new Error('Invalid updates configuration: use optional channelUrl and managed.')
+    if (value.updates.managed !== undefined && typeof value.updates.managed !== 'boolean') throw new Error('Invalid updates.managed: use a boolean; the default is false.')
     if (value.updates.channelUrl !== undefined) {
       if (!text(value.updates.channelUrl)) throw new Error('Invalid updates.channelUrl.')
       const url = new URL(value.updates.channelUrl)

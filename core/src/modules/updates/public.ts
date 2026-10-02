@@ -14,9 +14,10 @@ import { MAX_UPDATE_FILE_BYTES, readUpdateFile, writeUpdateFile } from './files.
 export { compareVersions } from './semver.js'
 export const DEFAULT_CHANNEL_URL = 'https://updates.kipster.app/v1/'
 export const UPDATE_CHECK_INTERVAL_MS = 12 * 60 * 60 * 1000
+export const UPDATE_PICKUP_TIMEOUT_MS = 10 * 60 * 1000
 const INVALID_UPDATER_STATUS = 'Updater status is invalid or unreadable; inspect updates/status.json'
 
-export type UpdateRefusalCode = 'update-in-progress' | 'update-already-installed' | 'update-backup-required' | 'update-backup-mismatch' | 'update-confirmation-required'
+export type UpdateRefusalCode = 'update-unmanaged' | 'update-in-progress' | 'update-already-installed' | 'update-backup-required' | 'update-backup-mismatch' | 'update-confirmation-required'
 export class UpdateRefusedError extends Error {
   constructor(readonly code: UpdateRefusalCode, message: string) { super(message); this.name = 'UpdateRefusedError' }
 }
@@ -39,6 +40,7 @@ export class UpdatesService {
   readonly directory: string
   private readonly baseUrl: string
   private readonly clock: () => Date
+  private readonly managed: boolean
   private serial: Promise<void> = Promise.resolve()
   private stopped = false
   private watcher: FSWatcher | undefined
@@ -47,11 +49,12 @@ export class UpdatesService {
   private fetchAbort: AbortController | undefined
 
   constructor(private readonly db: Postgres, readonly installationId: string, home: string, readonly coreVersion: string,
-    private readonly options: { channelUrl?: string; clock?: () => Date; onError?: (error: Error) => void } = {}) {
+    private readonly options: { channelUrl?: string; managed?: boolean; clock?: () => Date; onError?: (error: Error) => void } = {}) {
     compareVersions(coreVersion, coreVersion)
     this.directory = join(home, 'updates')
     this.baseUrl = channelBaseUrl(options.channelUrl ?? DEFAULT_CHANNEL_URL)
     this.clock = options.clock ?? (() => new Date())
+    this.managed = options.managed ?? false
   }
 
   private report(error: unknown): void { try { this.options.onError?.(error instanceof Error ? error : new Error(String(error))) } catch { /* Observer failures do not stop recovery. */ } }
@@ -74,11 +77,11 @@ export class UpdatesService {
     const core = row.status.core
     const available = core?.available && compareVersions(core.available.version, this.coreVersion) > 0 ? core.available : null
     return { version: 1, channel: row.channel, mode: row.mode, checkedAt: row.status.checkedAt ?? null, window: { start: '02:00', end: '05:00' },
-      core: { version: this.coreVersion, pinned: row.pinned, available, state: core?.state ?? 'idle', step: core?.step ?? null,
+      core: { version: this.coreVersion, managed: this.managed, pinned: row.pinned, available, state: core?.state ?? 'idle', step: core?.step ?? null,
         error: core?.error ?? null, lastResult: core?.lastResult ?? null, backups: core?.backups ?? [] } }
   }
   private waitingState(status: UpdateStatus): 'idle' | 'scheduled' {
-    return status.mode === 'automatic' && status.core.pinned === null && status.core.available !== null && !status.core.error
+    return this.managed && status.mode === 'automatic' && status.core.pinned === null && status.core.available !== null && !status.core.error
       && status.core.lastResult?.to !== status.core.available.version ? 'scheduled' : 'idle'
   }
   private async save(client: SqlClient, row: Row, status: UpdateStatus, publish = true): Promise<void> {
@@ -198,10 +201,12 @@ export class UpdatesService {
   }
   private async checkInternal(): Promise<void> {
     let channel: UpdateChannel = 'stable'
+    let priorError: string | null = null
     await this.db.transaction(async client => {
       const { row, requestId } = await this.lock(client)
       channel = row.channel
       const status = this.view(row)
+      priorError = status.core.error
       if (!requestId) { status.core.state = 'checking'; if (status.core.error !== INVALID_UPDATER_STATUS) status.core.error = null }
       await this.save(client, row, status)
     })
@@ -219,7 +224,7 @@ export class UpdatesService {
         status.core.error = error ?? (invalidUpdater ? INVALID_UPDATER_STATUS : null)
         const priorFailure = status.core.lastResult && status.core.lastResult.outcome !== 'installed' && status.core.lastResult.to === available?.version
         if (!error && invalidUpdater) status.core.state = 'failed'
-        else if (!error && priorFailure) { status.core.state = 'failed'; status.core.error = row.updater_status?.error ?? 'The previous update did not complete' }
+        else if (!error && priorFailure) { status.core.state = 'failed'; status.core.error = priorError ?? row.updater_status?.error ?? 'The previous update did not complete' }
         else status.core.state = error ? 'idle' : this.waitingState(status)
       }
       await this.save(client, row, status)
@@ -244,7 +249,7 @@ export class UpdatesService {
     return status
   }
   private async scheduleInternal(): Promise<void> {
-    if (this.stopped) return
+    if (this.stopped || !this.managed) return
     await this.db.transaction(async client => {
       const { row, requestId } = await this.lock(client)
       const status = this.view(row), hour = this.clock().getHours()
@@ -254,13 +259,15 @@ export class UpdatesService {
       const busy = await client.query(`SELECT 1 WHERE EXISTS (SELECT 1 FROM kipster.owned_permits WHERE installation_id=$1)
         OR EXISTS (SELECT 1 FROM kipster.work_intents WHERE installation_id=$1 AND state IN ('preparing','issued','uncertain'))`, [this.installationId])
       if (busy.rows.length) return
-      await this.acceptRequest(client, row, { version: 1, id: randomUUID(), action: 'install', target: status.core.available!.version, reason: 'automatic', requestedAt: this.clock().toISOString() })
+      await this.acceptRequest(client, row, { version: 1, id: randomUUID(), action: 'install', target: status.core.available!.version, reason: 'automatic', requestedAt: this.clock().toISOString(),
+        settings: { channel: row.channel, mode: row.mode, pinned: row.pinned } })
     })
   }
   async install(actor: TrustedActor, value: UpdateInstall): Promise<UpdateStatus> {
     const input = updateInstall.parse(value)
     compareVersions(input.target, this.coreVersion)
     await this.authorize(actor)
+    if (!this.managed) throw new UpdateRefusedError('update-unmanaged', 'Software installation requires a managed updater on this host')
     return this.queue(async () => {
       await this.refreshInternal()
       await this.db.transaction(async client => {
@@ -276,9 +283,10 @@ export class UpdatesService {
           if (!backup || backup.coreVersion !== input.target) throw new UpdateRefusedError('update-backup-mismatch', 'The backup must exist and match the target Core version')
           if (input.confirmDataLoss !== true) throw new UpdateRefusedError('update-confirmation-required', 'Restoring this backup loses data written since it was taken; confirmDataLoss must be true')
         } else if (input.backupId !== undefined || input.confirmDataLoss === true) throw new TypeError('Invalid backup or data-loss confirmation for an upgrade')
-        row.pinned = input.pin === false ? null : input.target
+        row.pinned = order < 0 || input.pin !== false ? input.target : null
         const status = await this.acceptRequest(client, row, { version: 1, id: operation.id, action: order < 0 ? 'restore' : 'install', target: input.target,
-          ...(order < 0 ? { backupId: input.backupId! } : {}), reason: 'manual', requestedAt: this.clock().toISOString() })
+          ...(order < 0 ? { backupId: input.backupId! } : {}), reason: 'manual', requestedAt: this.clock().toISOString(),
+          settings: { channel: row.channel, mode: row.mode, pinned: row.pinned } })
         await this.complete(client, operation.id, status)
       })
       await this.deliverInternal()
@@ -305,7 +313,7 @@ export class UpdatesService {
   }
 
   private async deliverInternal(): Promise<void> {
-    if (this.stopped) return
+    if (this.stopped || !this.managed) return
     let deliveryId: string | null = null
     try {
       await this.db.transaction(async client => {
@@ -317,7 +325,7 @@ export class UpdatesService {
         deliveryId = requestId
         // Serialize delivery with result ingestion, including a second Core process recovering the outbox.
         await writeUpdateFile(this.directory, 'request.json', pending.request)
-        await client.query('UPDATE kipster.update_requests SET delivered=true WHERE id=$1', [requestId])
+        await client.query('UPDATE kipster.update_requests SET delivered=true,delivered_at=$2 WHERE id=$1', [requestId, this.clock().toISOString()])
         const status = this.view(row)
         if (status.core.error === 'The accepted update request could not be written; Core will retry the handoff') {
           status.core.error = null
@@ -337,6 +345,26 @@ export class UpdatesService {
   }
   async refresh(): Promise<void> { return this.queue(() => this.refreshInternal()) }
   private async refreshInternal(startup = false): Promise<void> {
+    await this.readStatusInternal(startup)
+    await this.expirePickupInternal()
+  }
+  private async expirePickupInternal(): Promise<void> {
+    await this.db.transaction(async client => {
+      const { row, requestId } = await this.lock(client)
+      if (!requestId || row.updater_status?.requestId === requestId) return
+      const pending = (await client.query<{ request: UpdaterRequest; delivered_at: Date | null }>(`SELECT request,delivered_at FROM kipster.update_requests
+        WHERE installation_id=$1 AND id::text=$2 AND delivered AND NOT terminal FOR UPDATE`, [this.installationId, requestId])).rows[0]
+      const now = this.clock()
+      if (!pending?.delivered_at || now.getTime() - pending.delivered_at.getTime() < UPDATE_PICKUP_TIMEOUT_MS) return
+      const status = this.view(row)
+      status.core.state = 'failed'; status.core.step = null; status.core.error = 'The updater did not start'
+      status.core.lastResult = { from: this.coreVersion, to: pending.request.target, outcome: 'failed', at: now.toISOString() }
+      await client.query('UPDATE kipster.execution_permits SET update_request_id=NULL WHERE installation_id=$1', [this.installationId])
+      await client.query('UPDATE kipster.update_requests SET terminal=true WHERE id=$1', [requestId])
+      await this.save(client, row, status)
+    })
+  }
+  private async readStatusInternal(startup: boolean): Promise<void> {
     let file: UpdaterStatusFile
     let restoredRequest: UpdaterRequest | undefined
     try {
@@ -346,7 +374,7 @@ export class UpdatesService {
       compareVersions(file.from, file.to)
       for (const backup of file.backups) compareVersions(backup.coreVersion, backup.coreVersion)
       if (new Set(file.backups.map(backup => backup.id)).size !== file.backups.length) throw new TypeError('Duplicate update backup IDs')
-      if (startup && file.to === this.coreVersion) {
+      if (file.to === this.coreVersion && (startup || file.state !== 'running')) {
         // A restore can replace the database with an old, still-gated snapshot. The request file
         // survives that restore and identifies the current operation before dispatch can start.
         const request = await readUpdateFile(join(this.directory, 'request.json'))
@@ -371,9 +399,14 @@ export class UpdatesService {
       const previous = row.updater_status
       const recoveringRestore = restoredRequest !== undefined && previous?.requestId !== file.requestId
       if (requestId && requestId !== file.requestId && !recoveringRestore) return // An old result cannot settle a newer request.
+      if (!requestId && !recoveringRestore && row.status.core?.lastResult && Date.parse(file.updatedAt) < Date.parse(row.status.core.lastResult.at)) return
       if (!recoveringRestore && previous && (((previous.requestId === file.requestId || !requestId) && Date.parse(file.updatedAt) < Date.parse(previous.updatedAt))
         || (previous.requestId === file.requestId && previous.state !== 'running' && file.state === 'running'))) return
+      const restoredSettings = file.state !== 'running' && (recoveringRestore || previous?.state === 'running') ? restoredRequest?.settings : undefined
+      const changedChannel = restoredSettings !== undefined && row.channel !== restoredSettings.channel
+      if (restoredSettings) { row.channel = restoredSettings.channel; row.mode = restoredSettings.mode; row.pinned = restoredSettings.pinned }
       const status = this.view(row)
+      if (changedChannel) { status.checkedAt = null; status.core.available = null }
       status.core.backups = file.backups; status.core.error = file.error
       if (file.state === 'running') {
         status.core.state = 'installing'; status.core.step = file.step

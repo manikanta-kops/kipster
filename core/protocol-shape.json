@@ -438,7 +438,19 @@
           "type": "union",
           "of": [{"type":"literal","value":"manual"},{"type":"literal","value":"automatic"}]
         },
-        "requestedAt": {"type":"string","format":"utc-timestamp"}
+        "requestedAt": {"type":"string","format":"utc-timestamp"},
+        "settings": {
+          "type": "optional",
+          "of": {
+            "type": "object",
+            "exact": true,
+            "fields": {
+              "channel": {"ref":"updateChannel"},
+              "mode": {"ref":"updateMode"},
+              "pinned": {"type":"nullable","of":{"type":"string","min":1}}
+            }
+          }
+        }
       }
     }
   },
@@ -1166,6 +1178,7 @@
             {"type":"literal","value":"organization-deleted"},
             {"type":"literal","value":"membership-removed"},
             {"type":"literal","value":"agent-archived"},
+            {"type":"literal","value":"update-unmanaged"},
             {"type":"literal","value":"update-in-progress"},
             {"type":"literal","value":"update-already-installed"},
             {"type":"literal","value":"update-backup-required"},
@@ -1698,6 +1711,7 @@
           "exact": false,
           "fields": {
             "version": {"type":"string","min":1},
+            "managed": {"type":"boolean"},
             "pinned": {"type":"nullable","of":{"type":"string","min":1}},
             "available": {"type":"nullable","of":{"ref":"channelEntry"}},
             "state": {

@@ -35,7 +35,7 @@ export const directChatResult = object({ version: literal(1), chatId: id }, fals
 
 export const acceptedReceipt = object({ version: literal(1), status: literal('accepted'), submissionId: id, chatId: id, threadId: id, messageId: id, runId: id, alreadyAccepted: boolean() }, false)
 export type AcceptedReceipt = Infer<typeof acceptedReceipt>
-export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived'), literal('update-in-progress'), literal('update-already-installed'), literal('update-backup-required'), literal('update-backup-mismatch'), literal('update-confirmation-required')), message: string(), requestId: id }, false)
+export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived'), literal('update-unmanaged'), literal('update-in-progress'), literal('update-already-installed'), literal('update-backup-required'), literal('update-backup-mismatch'), literal('update-confirmation-required')), message: string(), requestId: id }, false)
 export type StableError = Infer<typeof stableError>
 export const rejectedReceipt = object({ version: literal(1), status: literal('rejected'), submissionId: id, error: stableError }, false)
 export const submissionReceipt = union(acceptedReceipt, rejectedReceipt)

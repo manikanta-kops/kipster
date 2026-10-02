@@ -32,12 +32,13 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/settings/migrations/012_settings.sql',
     './modules/administration/migrations/013_administration.sql',
     './modules/updates/migrations/014_updates.sql',
+    './modules/updates/migrations/015_update_pickup.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }
 
 export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; memory?: MemoryService; relationships?: RelationshipService; vectors?: VectorService; transcription?: TranscriptionProvider; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
-export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; updates?: { channelUrl?: string; coreVersion?: string }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
+export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
   if (config.embedding) validateEmbeddingProvider(config.embedding)
   if (config.transcription && config.transcription.contractMajor !== 1) throw new Error('Invalid transcription provider contract')
   // Background failures (idle connection loss, job queue errors) are retried internally; observer failures are ignored.

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { Postgres } from '../dist/platform/postgres/public.js'
-import { compareVersions, UpdatesService, UPDATE_CHECK_INTERVAL_MS } from '../dist/modules/updates/public.js'
+import { compareVersions, UpdatesService, UPDATE_CHECK_INTERVAL_MS, UPDATE_PICKUP_TIMEOUT_MS } from '../dist/modules/updates/public.js'
 import { writeUpdateFile } from '../dist/modules/updates/files.js'
 import { MaintenanceService } from '../dist/modules/memory/public.js'
 import { resolveDirectChat, acceptText } from '../dist/modules/conversations/public.js'
@@ -39,7 +39,7 @@ async function until(read, predicate, label) {
   }
   throw new Error(`Timed out: ${label}`)
 }
-async function setup(t, version = '1.2.0') {
+async function setup(t, version = '1.2.0', updates = { managed: true }) {
   const admin = new Postgres(adminUrl), name = `kipster_updates_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${name}"`)
   const url = new URL(adminUrl); url.pathname = `/${name}`
@@ -54,7 +54,7 @@ async function setup(t, version = '1.2.0') {
   })
   await new Promise(resolve => source.listen(0, '127.0.0.1', resolve))
   const base = `http://127.0.0.1:${source.address().port}/v1/`
-  const config = { connectionString: url.href, home, clock: () => time.now, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Kip' }, updates: { channelUrl: base, coreVersion: version } }
+  const config = { connectionString: url.href, home, clock: () => time.now, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Kip' }, updates: { channelUrl: base, coreVersion: version, ...updates } }
   const ctx = { admin, home, time, channel, source, config, runtime: null, server: null, actor: null, closers: [] }
   t.after(async () => {
     for (const close of ctx.closers.reverse()) await close().catch(() => undefined)
@@ -96,20 +96,77 @@ test('update response schemas retain metadata and provide neutral unknown-value 
   assert.deepEqual(updateSettings.parse({ version: 1, channel: 'future', mode: 'later', extra: 123 }), { version: 1, channel: 'unknown', mode: 'unknown' })
   const available = entry('1.3.0', { futureMetadata: { enabled: true } })
   const result = updateStatus.parse({ version: 1, channel: 'stable', mode: 'automatic', checkedAt: null, window: { start: '02:00', end: '05:00', future: true },
-    core: { version: '1.2.0', pinned: null, available, state: 'future-state', step: 'future-step', error: null, backups: [],
+    core: { version: '1.2.0', managed: true, pinned: null, available, state: 'future-state', step: 'future-step', error: null, backups: [],
       lastResult: { from: '1.1.0', to: '1.2.0', outcome: 'future-outcome', at: '2026-10-02T09:00:00Z' } } })
   assert.equal(result.core.state, 'unknown'); assert.equal(result.core.lastResult.outcome, 'unknown')
   assert.deepEqual(result.core.available, available)
 })
 
-test('host update catalog configuration is optional and uses explicit HTTP(S) URLs', () => {
+test('host update configuration validates explicit management and HTTP(S) catalog URLs', () => {
   const config = { version: 1, home: '/tmp/kipster', databaseUrl: 'postgresql://localhost/kipster', listen: { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: [] }, adapters: [] }
   assert.equal(validateHostConfig(config), config)
+  for (const managed of [true, false]) assert.equal(validateHostConfig({ ...config, updates: { managed } }).updates.managed, managed)
+  for (const managed of ['true', 1, null, {}, []]) assert.throws(() => validateHostConfig({ ...config, updates: { managed } }))
   assert.equal(validateHostConfig({ ...config, updates: { channelUrl: 'http://localhost:8080/catalog' } }).updates.channelUrl, 'http://localhost:8080/catalog')
   for (const channelUrl of ['file:///tmp', 'relative/path', 'https://example.com/?channel=next', 'https://user:password@example.com/', 'https://example.com/#fragment', 123]) {
     assert.throws(() => validateHostConfig({ ...config, updates: { channelUrl } }))
   }
   assert.throws(() => validateHostConfig({ ...config, updates: { channel: 'next' } }))
+})
+
+test('request settings are additive and legacy handoff files remain readable', () => {
+  const legacy = { version: 1, id: randomUUID(), action: 'restore', target: '1.1.0', backupId: backup.id, reason: 'manual', requestedAt: '2026-10-02T09:00:00Z' }
+  assert.deepEqual(updaterRequest.parse(legacy), legacy)
+  const request = { ...legacy, settings: { channel: 'next', mode: 'notify', pinned: '1.1.0' } }
+  assert.deepEqual(updaterRequest.parse(request), request)
+  assert.throws(() => updaterRequest.parse({ ...request, settings: { ...request.settings, mode: 'manual' } }))
+})
+
+test('unmanaged hosts report available releases without scheduling or accepting installs', { skip: noDatabase }, async t => {
+  for (const managed of [undefined, false]) await t.test(`managed=${managed}`, async t => {
+    const ctx = await setup(t, '1.2.0', managed === undefined ? {} : { managed })
+    ctx.time.now = new Date(2026, 9, 4, 3)
+    const response = await ctx.call('POST', '/v1/updates/check', { version: 1 })
+    assert.equal(response.status, 200)
+    const status = updateStatus.parse(response.data)
+    assert.equal(status.core.managed, false); assert.equal(status.core.available.version, '1.3.0'); assert.equal(status.core.state, 'idle')
+    assert.equal((await ctx.call('GET', '/v1/updates')).data.core.managed, false)
+    for (const target of ['1.3.0', '1.1.0']) {
+      const refused = await ctx.call('POST', '/v1/updates/install', install(target))
+      assert.equal(refused.status, 409); assert.equal(stableError.parse(refused.data).code, 'update-unmanaged')
+    }
+    ctx.time.now = new Date(2026, 9, 5, 3)
+    await ctx.runtime.updates.tick()
+    assert.equal(ctx.channel.requests.length, 2, 'periodic checks continue on unmanaged hosts')
+    assert.equal(await ctx.gate(), null)
+    assert.equal((await ctx.status()).core.pinned, null)
+    assert.equal((await ctx.runtime.db.query('SELECT count(*)::int AS n FROM kipster.update_requests')).rows[0].n, 0)
+    await assert.rejects(readFile(join(ctx.home, 'updates', 'request.json')), { code: 'ENOENT' })
+    await ctx.restart()
+    assert.equal((await ctx.status()).core.managed, false); assert.equal(await ctx.gate(), null)
+  })
+})
+
+test('unmanaged hosts continue dispatching kip work during the automatic install window', { skip: noDatabase }, async t => {
+  const ctx = await setup(t, '1.2.0', {})
+  const { runtime, actor } = ctx
+  const agentId = runtime.bootstrap.rootAgentId, context = { kind: 'installation', installationId: actor.installationId }
+  await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [agentId, JSON.stringify({ adapterId: 'deterministic-fixture', modelId: 'fixture-model' })])
+  const { chatId } = await resolveDirectChat(runtime.db, actor, context, agentId)
+  let dispatcher
+  const executions = []
+  const inner = fixtureAdapter({ now: () => new Date().toISOString(), invokeTool: request => textPublicationHost(dispatcher).invokeTool(request) })
+  dispatcher = new TextDispatcher(runtime, { ...inner, async execute(value) { const handle = await inner.execute(value); executions.push({ context: value, handle }); return handle } })
+  ctx.closers.push(() => dispatcher.close())
+  await dispatcher.start()
+  ctx.time.now = new Date(2026, 9, 4, 3)
+  await runtime.updates.check(actor)
+  const saved = await acceptText(runtime.db, runtime.jobs, runtime.artifacts, actor, { version: 1, submissionId: randomUUID(), scope: { installationId: actor.installationId, callerId: actor.personId }, target: { context, chatId }, mode: 'root', parts: [{ kind: 'text', text: 'Continue working without an updater' }] })
+  const active = await until(() => executions.find(item => item.context.runId === saved.runId), Boolean, 'unmanaged kip work starts')
+  assert.equal(await ctx.gate(), null)
+  active.handle.release({ kind: 'text', attemptId: active.context.attemptId, messageId: randomUUID(), text: 'Finished.', final: true })
+  active.handle.release({ kind: 'ended', attemptId: active.context.attemptId, confirmed: true })
+  await until(async () => (await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [saved.runId])).rows[0].state, state => state === 'completed', 'unmanaged kip work completes')
 })
 
 test('owner settings round-trip, validate, deduplicate and survive restart', { skip: noDatabase }, async t => {
@@ -202,7 +259,7 @@ test('scheduler uses the local window, idle capacity, notify mode and pins', { s
     assert.equal((await ctx.gate()) !== null, expected)
     if (expected) {
       const request = await ctx.request()
-      assert.deepEqual(request, { version: 1, id: await ctx.gate(), action: 'install', target: '1.3.0', reason: 'automatic', requestedAt: ctx.time.now.toISOString() })
+      assert.deepEqual(request, { version: 1, id: await ctx.gate(), action: 'install', target: '1.3.0', reason: 'automatic', requestedAt: ctx.time.now.toISOString(), settings: { channel: 'stable', mode: 'automatic', pinned: null } })
       assert.equal((await ctx.status()).core.pinned, null)
       await ctx.runtime.updates.tick()
       assert.equal((await ctx.runtime.db.query('SELECT count(*)::int AS n FROM kipster.update_requests')).rows[0].n, 1)
@@ -227,9 +284,9 @@ test('manual requests are immediate, pin by default, validate restores and dedup
   const value = install('1.3.0')
   await ctx.runtime.db.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'issued')", [randomUUID(), ctx.actor.installationId])
   const saved = await ctx.call('POST', '/v1/updates/install', value)
-  assert.equal(saved.status, 200); assert.equal(saved.data.core.state, 'scheduled'); assert.equal(saved.data.core.pinned, '1.3.0')
+  assert.equal(saved.status, 200); assert.equal(saved.data.core.managed, true); assert.equal(saved.data.core.state, 'scheduled'); assert.equal(saved.data.core.pinned, '1.3.0')
   const request = await ctx.request()
-  assert.deepEqual(request, { version: 1, id: await ctx.gate(), action: 'install', target: '1.3.0', reason: 'manual', requestedAt: ctx.time.now.toISOString() })
+  assert.deepEqual(request, { version: 1, id: await ctx.gate(), action: 'install', target: '1.3.0', reason: 'manual', requestedAt: ctx.time.now.toISOString(), settings: { channel: 'stable', mode: 'automatic', pinned: '1.3.0' } })
   assert.equal((await stat(join(ctx.home, 'updates', 'request.json'))).mode & 0o777, 0o600)
   assert.deepEqual(await readdir(join(ctx.home, 'updates')), ['request.json', 'status.json'])
   assert.equal((await ctx.call('POST', '/v1/updates/install', install('1.4.0'))).data.code, 'update-in-progress')
@@ -246,8 +303,8 @@ test('manual requests are immediate, pin by default, validate restores and dedup
   assert.equal((await ctx.call('POST', '/v1/updates/install', value)).status, 200, 'retry remains valid after target becomes the running version')
   const restore = install('1.1.0', { backupId: backup.id, confirmDataLoss: true, pin: false })
   const restoring = await ctx.call('POST', '/v1/updates/install', restore)
-  assert.equal(restoring.status, 200); assert.equal(restoring.data.core.pinned, null)
-  assert.deepEqual(await ctx.request(), { version: 1, id: await ctx.gate(), action: 'restore', target: '1.1.0', backupId: backup.id, reason: 'manual', requestedAt: ctx.time.now.toISOString() })
+  assert.equal(restoring.status, 200); assert.equal(restoring.data.core.pinned, '1.1.0')
+  assert.deepEqual(await ctx.request(), { version: 1, id: await ctx.gate(), action: 'restore', target: '1.1.0', backupId: backup.id, reason: 'manual', requestedAt: ctx.time.now.toISOString(), settings: { channel: 'stable', mode: 'automatic', pinned: '1.1.0' } })
 })
 
 test('all updater states and steps map into status, survive restarts and reject stale or malformed files', { skip: noDatabase }, async t => {
@@ -327,6 +384,78 @@ test('an accepted outbox request recovers a failed file handoff on restart', { s
   assert.equal((await ctx.runtime.db.query('SELECT delivered FROM kipster.update_requests WHERE id=$1', [id])).rows[0].delivered, true)
 })
 
+test('unpicked requests time out after ten clock-driven minutes, survive restart and publish failure', { skip: noDatabase }, async t => {
+  for (const statusFile of ['absent', 'stale', 'malformed']) await t.test(statusFile, async t => {
+    const ctx = await setup(t)
+    ctx.time.now = new Date(2026, 9, 4, 3)
+    await ctx.runtime.updates.check(ctx.actor)
+    const request = await ctx.request(), deliveredAt = ctx.time.now.getTime()
+    assert.deepEqual(request.settings, { channel: 'stable', mode: 'automatic', pinned: null })
+    if (statusFile === 'stale') await ctx.write(fileStatus(ctx, 'done', { requestId: 'older-request' }))
+    if (statusFile === 'malformed') await writeFile(join(ctx.home, 'updates', 'status.json'), 'broken JSON')
+    const scope = { kind: 'application', installationId: ctx.actor.installationId, callerId: ctx.actor.personId }
+    const cursor = (await snapshot(ctx.runtime.db, scope)).cursor
+    ctx.time.now = new Date(deliveredAt + UPDATE_PICKUP_TIMEOUT_MS - 1)
+    await ctx.runtime.updates.tick()
+    assert.equal(await ctx.gate(), request.id, 'the gate remains until the pickup deadline')
+    await ctx.restart()
+    assert.equal(await ctx.gate(), request.id, 'restart does not reset the pickup deadline')
+    assert.deepEqual(await ctx.request(), request)
+    ctx.time.now = new Date(deliveredAt + UPDATE_PICKUP_TIMEOUT_MS)
+    await ctx.runtime.updates.tick()
+    const failed = await ctx.status()
+    assert.equal(await ctx.gate(), null); assert.equal(failed.core.state, 'failed'); assert.equal(failed.core.step, null)
+    assert.equal(failed.core.error, 'The updater did not start')
+    assert.deepEqual(failed.core.lastResult, { from: '1.2.0', to: '1.3.0', outcome: 'failed', at: ctx.time.now.toISOString() })
+    assert.equal((await ctx.runtime.db.query('SELECT terminal FROM kipster.update_requests WHERE id=$1', [request.id])).rows[0].terminal, true)
+    const events = (await readEvents(ctx.runtime.db, scope, cursor)).events.filter(event => event.type === 'updates-changed')
+    assert.deepEqual(textEvent.parse(events.at(-1)).data, failed)
+    if (statusFile === 'malformed') await rm(join(ctx.home, 'updates', 'status.json'))
+    await ctx.runtime.updates.check(ctx.actor)
+    await ctx.runtime.updates.tick()
+    assert.equal(await ctx.gate(), null, 'a failed automatic target is not rescheduled')
+    assert.equal((await ctx.status()).core.error, 'The updater did not start')
+    await ctx.restart()
+    assert.equal(await ctx.gate(), null); assert.equal((await ctx.status()).core.lastResult.outcome, 'failed')
+  })
+})
+
+test('matching updater pickup prevents the timeout for every recognized status', { skip: noDatabase }, async t => {
+  for (const state of ['running', 'done', 'failed', 'rolled-back']) await t.test(state, async t => {
+    const ctx = await setup(t)
+    await ctx.runtime.updates.install(ctx.actor, install('1.3.0'))
+    const request = await ctx.request()
+    ctx.time.now = new Date(ctx.time.now.getTime() + UPDATE_PICKUP_TIMEOUT_MS - 1)
+    await ctx.write(fileStatus(ctx, state, { requestId: request.id }))
+    const pickedUp = await ctx.status()
+    ctx.time.now = new Date(ctx.time.now.getTime() + UPDATE_PICKUP_TIMEOUT_MS)
+    await ctx.restart()
+    await ctx.runtime.updates.refresh()
+    assert.deepEqual(await ctx.status(), pickedUp)
+    assert.equal(await ctx.gate(), state === 'running' ? request.id : null)
+  })
+})
+
+test('the pickup deadline starts at successful delivery after a delayed handoff', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
+  await mkdir(join(ctx.home, 'updates', 'request.json'), { recursive: true })
+  await ctx.runtime.updates.install(ctx.actor, install('1.3.0'))
+  const id = await ctx.gate(), requestedAt = ctx.time.now.toISOString()
+  ctx.time.now = new Date(ctx.time.now.getTime() + 3 * UPDATE_PICKUP_TIMEOUT_MS)
+  await ctx.restart()
+  assert.equal(await ctx.gate(), id, 'an undelivered request has no pickup deadline')
+  await rm(join(ctx.home, 'updates', 'request.json'), { recursive: true })
+  await ctx.runtime.updates.tick()
+  const deliveredAt = ctx.time.now.getTime()
+  assert.equal((await ctx.request()).requestedAt, requestedAt)
+  assert.equal((await ctx.runtime.db.query('SELECT delivered_at FROM kipster.update_requests WHERE id=$1', [id])).rows[0].delivered_at.toISOString(), ctx.time.now.toISOString())
+  ctx.time.now = new Date(deliveredAt + UPDATE_PICKUP_TIMEOUT_MS - 1)
+  await ctx.runtime.updates.tick(); assert.equal(await ctx.gate(), id)
+  ctx.time.now = new Date(deliveredAt + UPDATE_PICKUP_TIMEOUT_MS)
+  await ctx.runtime.updates.tick(); assert.equal(await ctx.gate(), null)
+  assert.equal((await ctx.status()).core.error, 'The updater did not start')
+})
+
 test('the automatic idle check shares the execution lock, and concurrent schedulers accept one request', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   await ctx.runtime.updates.check(ctx.actor)
@@ -344,7 +473,7 @@ test('the automatic idle check shares the execution lock, and concurrent schedul
   release(); await Promise.all([running, scheduled])
   assert.equal(await ctx.gate(), null)
   await ctx.runtime.db.query('DELETE FROM kipster.work_intents')
-  const other = new UpdatesService(ctx.runtime.db, ctx.actor.installationId, ctx.home, '1.2.0', { channelUrl: ctx.config.updates.channelUrl, clock: () => ctx.time.now })
+  const other = new UpdatesService(ctx.runtime.db, ctx.actor.installationId, ctx.home, '1.2.0', { channelUrl: ctx.config.updates.channelUrl, managed: true, clock: () => ctx.time.now })
   ctx.closers.push(() => other.close())
   await other.initialize()
   await Promise.all([ctx.runtime.updates.tick(), other.tick()])
@@ -389,7 +518,7 @@ test('automatic updates wait for running work, and the persisted gate blocks tex
   resumed.handle.release({ kind: 'ended', attemptId: resumed.context.attemptId, confirmed: true })
 })
 
-test('a manual update arriving during preparation defers issuance and preserves the work wakeup', { skip: noDatabase }, async t => {
+for (const completion of ['updater result', 'pickup timeout']) test(`a manual update during preparation preserves work until ${completion}`, { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   const { runtime, actor } = ctx
   const agentId = runtime.bootstrap.rootAgentId, context = { kind: 'installation', installationId: actor.installationId }
@@ -412,8 +541,14 @@ test('a manual update arriving during preparation defers issuance and preserves 
   release()
   await until(async () => (await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [saved.runId])).rows[0].state, state => state === 'queued', 'preparation returned to queue')
   assert.equal(executions.length, 0)
-  await ctx.write(fileStatus(ctx, 'done', { requestId: request.id }))
-  const resumed = await until(() => executions[0], Boolean, 'unissued work resumes after updater result')
+  if (completion === 'updater result') await ctx.write(fileStatus(ctx, 'done', { requestId: request.id }))
+  else {
+    ctx.time.now = new Date(ctx.time.now.getTime() + UPDATE_PICKUP_TIMEOUT_MS)
+    await runtime.updates.tick()
+    assert.equal((await ctx.status()).core.error, 'The updater did not start')
+    assert.equal(await ctx.gate(), null)
+  }
+  const resumed = await until(() => executions[0], Boolean, `unissued work resumes after ${completion}`)
   resumed.handle.release({ kind: 'text', attemptId: resumed.context.attemptId, messageId: randomUUID(), text: 'Preserved.', final: true })
   resumed.handle.release({ kind: 'ended', attemptId: resumed.context.attemptId, confirmed: true })
 })
@@ -438,25 +573,60 @@ test('startup adopts a matching restore after an old database snapshot reinstate
   const ctx = await setup(t, '1.1.0')
   await ctx.runtime.updates.install(ctx.actor, install('1.2.0'))
   const original = await ctx.request()
-  const oldRow = (await ctx.runtime.db.query('SELECT status,updater_status FROM kipster.update_settings')).rows[0]
+  const oldRow = (await ctx.runtime.db.query('SELECT channel,mode,pinned,status,updater_status FROM kipster.update_settings')).rows[0]
   await ctx.write(fileStatus(ctx, 'done', { requestId: original.id, from: '1.1.0', to: '1.2.0' }))
   await ctx.restart('1.2.0')
+  await ctx.runtime.updates.setSettings(ctx.actor, setting('next', 'notify'))
   await ctx.runtime.updates.install(ctx.actor, install('1.1.0', { backupId: backup.id, confirmDataLoss: true }))
   const restore = await ctx.request()
   await writeUpdateFile(join(ctx.home, 'updates'), 'status.json', fileStatus(ctx, 'running', { requestId: restore.id, from: '1.2.0', to: '1.1.0', step: 'checking' }))
-  // Model a restored database which lost the new request and resurrected the old gate. The
-  // updater separately retains the current policy/pin; Core reconciles the shared files.
+  // The restored snapshot loses the new request and policy and resurrects the old gate.
   await ctx.runtime.db.query('DELETE FROM kipster.update_requests WHERE id=$1', [restore.id])
   await ctx.runtime.db.query('UPDATE kipster.execution_permits SET update_request_id=$2 WHERE installation_id=$1', [ctx.actor.installationId, original.id])
-  await ctx.runtime.db.query('UPDATE kipster.update_settings SET status=$2::jsonb,updater_status=$3::jsonb WHERE installation_id=$1', [ctx.actor.installationId, JSON.stringify(oldRow.status), JSON.stringify(oldRow.updater_status)])
+  await ctx.runtime.db.query('UPDATE kipster.update_settings SET channel=$2,mode=$3,pinned=$4,status=$5::jsonb,updater_status=$6::jsonb WHERE installation_id=$1', [ctx.actor.installationId, oldRow.channel, oldRow.mode, oldRow.pinned, JSON.stringify(oldRow.status), JSON.stringify(oldRow.updater_status)])
   await ctx.restart('1.1.0')
   assert.equal(await ctx.gate(), restore.id)
   assert.equal((await ctx.status()).core.state, 'installing')
-  assert.equal((await ctx.status()).core.pinned, '1.1.0')
+  assert.equal((await ctx.status()).core.pinned, oldRow.pinned)
   await ctx.write(fileStatus(ctx, 'done', { requestId: restore.id, from: '1.2.0', to: '1.1.0' }))
   assert.equal(await ctx.gate(), null)
   assert.equal((await ctx.status()).core.lastResult.outcome, 'installed')
   assert.equal((await ctx.status()).core.lastResult.to, '1.1.0')
+  assert.equal((await ctx.status()).core.pinned, '1.1.0')
+  assert.deepEqual(await ctx.runtime.updates.settings(ctx.actor), { version: 1, channel: 'next', mode: 'notify' })
+})
+
+test('startup reapplies channel, mode and restore pin from the request after database replacement', { skip: noDatabase }, async t => {
+  for (const mode of ['notify', 'automatic']) await t.test(mode, async t => {
+    const ctx = await setup(t, '1.1.0')
+    await ctx.runtime.updates.install(ctx.actor, install('1.2.0'))
+    const original = await ctx.request()
+    const snapshotRow = (await ctx.runtime.db.query('SELECT channel,mode,pinned,status,updater_status FROM kipster.update_settings')).rows[0]
+    await ctx.write(fileStatus(ctx, 'done', { requestId: original.id, from: '1.1.0', to: '1.2.0' }))
+    await ctx.restart('1.2.0')
+    await ctx.runtime.updates.setSettings(ctx.actor, setting('next', mode))
+    await ctx.runtime.updates.install(ctx.actor, install('1.1.0', { backupId: backup.id, confirmDataLoss: true, pin: false }))
+    const restore = await ctx.request()
+    assert.deepEqual(restore.settings, { channel: 'next', mode, pinned: '1.1.0' })
+    await writeUpdateFile(join(ctx.home, 'updates'), 'status.json', fileStatus(ctx, 'done', { requestId: restore.id, from: '1.2.0', to: '1.1.0' }))
+    await ctx.runtime.db.query('DELETE FROM kipster.update_requests WHERE id=$1', [restore.id])
+    await ctx.runtime.db.query('UPDATE kipster.execution_permits SET update_request_id=$2 WHERE installation_id=$1', [ctx.actor.installationId, original.id])
+    await ctx.runtime.db.query('UPDATE kipster.update_settings SET channel=$2,mode=$3,pinned=$4,status=$5::jsonb,updater_status=$6::jsonb WHERE installation_id=$1', [ctx.actor.installationId, snapshotRow.channel, snapshotRow.mode, snapshotRow.pinned, JSON.stringify(snapshotRow.status), JSON.stringify(snapshotRow.updater_status)])
+    await ctx.restart('1.1.0')
+    const status = await ctx.status()
+    assert.equal(await ctx.gate(), null); assert.equal(status.core.state, 'idle')
+    assert.equal(status.channel, 'next'); assert.equal(status.mode, mode); assert.equal(status.core.pinned, '1.1.0')
+    assert.equal(status.core.lastResult.to, '1.1.0'); assert.equal(status.core.lastResult.outcome, 'installed')
+    ctx.time.now = new Date(2026, 9, 4, 3)
+    await ctx.runtime.updates.tick()
+    assert.equal((await ctx.status()).core.available.version, '1.4.0-next.10')
+    assert.equal(await ctx.gate(), null, 'automatic mode cannot immediately undo the restore')
+    await ctx.runtime.updates.setSettings(ctx.actor, setting('stable', 'notify'))
+    await ctx.runtime.updates.unpin(ctx.actor, unpin())
+    await ctx.restart()
+    const edited = await ctx.status()
+    assert.equal(edited.channel, 'stable'); assert.equal(edited.mode, 'notify'); assert.equal(edited.core.pinned, null, 'a settled restore cannot overwrite later owner edits')
+  })
 })
 
 test('a stale restore file at startup cannot replace a newer accepted request', { skip: noDatabase }, async t => {
@@ -466,6 +636,7 @@ test('a stale restore file at startup cannot replace a newer accepted request', 
   const restore = await ctx.request()
   await ctx.write(fileStatus(ctx, 'done', { requestId: restore.id, from: '1.2.0', to: '1.1.0' }))
   await ctx.restart('1.1.0')
+  await ctx.runtime.updates.setSettings(ctx.actor, setting('next', 'notify'))
   // Block delivery so request.json still carries the previous restore when Core restarts.
   await rm(join(ctx.home, 'updates', 'request.json'))
   await mkdir(join(ctx.home, 'updates', 'request.json'))
@@ -477,4 +648,5 @@ test('a stale restore file at startup cannot replace a newer accepted request', 
   assert.equal(await ctx.gate(), pending)
   assert.equal((await ctx.request()).id, pending)
   assert.equal((await ctx.status()).core.pinned, '1.4.0')
+  assert.deepEqual(await ctx.runtime.updates.settings(ctx.actor), { version: 1, channel: 'next', mode: 'notify' })
 })
