@@ -47,7 +47,8 @@ async function runtime(config: HostConfig, providers: boolean, signal?: AbortSig
       ...(config.executionLimit ? { executionLimit: config.executionLimit } : {}),
       ...(providers && config.embedding ? { embedding: (await loadEmbeddingProvider(config))! } : {}),
       ...(provider ? { transcription: provider } : {}),
-      onError: () => { console.error('A database connection failed; inspect database readiness.') },
+      ...(config.updates ? { updates: config.updates } : {}),
+      onError: () => { console.error('A Core background operation failed; inspect service readiness and update status.') },
     })
   } catch (error) { await provider?.close(); throw error }
 }
@@ -93,6 +94,8 @@ export async function serve(config: HostConfig): Promise<void> {
     await dispatcher.start()
     if (abort.signal.aborted) return
     server = await startTextServer(core, { installationId: core.bootstrap.installationId, personId: core.bootstrap.ownerId }, { ...config.listen, dispatcher })
+    if (abort.signal.aborted) return
+    await core.updates.start()
     if (abort.signal.aborted) return
     Object.assign(status, { state: 'running', installationId: core.bootstrap.installationId, url: server.url, adapters: registry.adapters().map(({id,available}) => ({id,available})) })
     console.log(JSON.stringify({ state: status.state, installationId: status.installationId, url: status.url }))

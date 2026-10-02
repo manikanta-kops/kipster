@@ -9,6 +9,7 @@ import { resolveDirectChat, acceptText } from '../../modules/conversations/publi
 import { eventSignals, snapshot, readEvents, markNotificationRead, type Stream, type SnapshotPage } from '../../modules/synchronization/public.js'
 import { AgentNotArchivedError, OperationConflictError, OrderConflictError, readDirectory } from '../../modules/administration/public.js'
 import { administrationRoute, ServiceUnavailableError } from './admin.js'
+import { UpdateRefusedError } from '../../modules/updates/public.js'
 import { protocolRange } from '../../protocol/version.js'
 import { context as contextSchema, textSubmission, controlCommand, interactionResponseCommand, learningUpdate, agentLearningUpdate, identityWrite, identityRestore, type Context } from '../../protocol/text.js'
 import type { TextDispatcher, ControlInput } from '../../workflows/text-dispatch.js'
@@ -31,6 +32,7 @@ function errorCode(error: unknown): { status: number; code: string; message: str
   if (message === 'resync-required') return { status: 409, code: 'resync-required', message }
   if (error instanceof RefusedError) return { status: error.code === 'membership-removed' ? 403 : error.code === 'agent-archived' ? 409 : 410, code: error.code, message }
   if (error instanceof ServiceUnavailableError) return { status: 503, code: 'unavailable', message }
+  if (error instanceof UpdateRefusedError) return { status: 409, code: error.code, message }
   if (error instanceof IdentityConflictError || error instanceof OperationConflictError || error instanceof OrderConflictError || error instanceof AgentNotArchivedError) return { status: 409, code: 'conflict', message }
   if (/denied|mismatch|unauthorized/i.test(message)) return { status: 403, code: 'forbidden', message }
   if (/not found/i.test(message)) return { status: 404, code: 'not-found', message }
@@ -150,7 +152,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){

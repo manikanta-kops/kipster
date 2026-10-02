@@ -5,6 +5,7 @@ import { adaptersRefresh, agentCreate, agentDelete, agentUpdate, appearanceAdd, 
 import { effectiveSettings, readAdapters, readSettings, requireSettingsOwner } from '../../modules/settings/public.js'
 import type { TextDispatcher } from '../../workflows/text-dispatch.js'
 import { MAX_ORGANIZATION_INSTRUCTIONS_BYTES } from '../../platform/home/public.js'
+import { updateCheck, updateInstall, updateSettingsWrite, updateUnpin } from '../../protocol/updates.js'
 
 /** The server lacks a service the route needs; mapped to 503 `unavailable`. */
 export class ServiceUnavailableError extends Error {}
@@ -22,6 +23,12 @@ const changes = (input: { name?: string | undefined; description?: string | unde
  */
 export async function administrationRoute(runtime: Runtime, actor: TrustedActor, method: string, path: string, query: URLSearchParams, read: (limit?: number) => Promise<unknown>, dispatcher?: TextDispatcher): Promise<object | undefined> {
   const { db, home } = runtime
+  if (path === '/v1/settings/updates' && method === 'GET') return runtime.updates.settings(actor)
+  if (path === '/v1/settings/updates' && method === 'PUT') return runtime.updates.setSettings(actor, updateSettingsWrite.parse(await read()))
+  if (path === '/v1/updates' && method === 'GET') return runtime.updates.get(actor)
+  if (path === '/v1/updates/check' && method === 'POST') { updateCheck.parse(await read()); return runtime.updates.check(actor) }
+  if (path === '/v1/updates/install' && method === 'POST') return runtime.updates.install(actor, updateInstall.parse(await read()))
+  if (path === '/v1/updates/unpin' && method === 'POST') return runtime.updates.unpin(actor, updateUnpin.parse(await read()))
   if (path === '/v1/settings' && method === 'GET') return readSettings(db, actor)
   const operation = /^\/v1\/operations\/([^/]{1,600})$/.exec(path)
   if (operation && method === 'GET') {

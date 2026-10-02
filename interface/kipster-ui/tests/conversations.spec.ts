@@ -327,7 +327,9 @@ test('complete root snapshots preserve all older roots and deterministic order b
   })
   expect(resolved.ok()).toBeTruthy()
   const { chatId } = await resolved.json()
+  const roots = new Map<string, string>()
   for (let n = 0; n < 101; n++) {
+    const text = `History root ${String(n).padStart(3, '0')}`
     const response = await page.request.post(
       `${endpoint}/v1/text/submissions`,
       {
@@ -340,14 +342,34 @@ test('complete root snapshots preserve all older roots and deterministic order b
           parts: [
             {
               kind: 'text',
-              text: `History root ${String(n).padStart(3, '0')}`,
+              text,
             },
           ],
         },
       },
     )
     expect(response.ok()).toBeTruthy()
+    roots.set((await response.json()).threadId, text)
   }
+  // Timestamps can tie. Higher IDs are older, and reversed pages exercise
+  // chronological order and ID tie-breaks independently of response order.
+  const ids = [...roots.keys()].sort()
+  const older = ids.slice(50)
+  const newer = ids.slice(0, 50)
+  const olderIds = new Set(older)
+  const expected = [...older, ...newer].map((id) => roots.get(id))
+  await page.route('**/v1/app/snapshot**', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    for (const summary of body.threads) {
+      if (roots.has(summary.threadId))
+        summary.createdAt = olderIds.has(summary.threadId)
+          ? '2026-09-23T00:00:00.000Z'
+          : '2026-09-23T00:00:01.000Z'
+    }
+    body.threads.reverse()
+    await route.fulfill({ response, json: body })
+  })
   await startDemo(page, { session })
   await page.reload()
   await expect(page.getByText('History root 100', { exact: true })).toHaveCount(
@@ -366,7 +388,7 @@ test('complete root snapshots preserve all older roots and deterministic order b
     await page.locator('.feed-message .message-text').allTextContents()
   ).filter((t) => t.startsWith('History root'))
   expect(history).toHaveLength(101)
-  expect(history).toEqual([...history].sort())
+  expect(history).toEqual(expected)
   expect(new Set(history).size).toBe(history.length)
 })
 

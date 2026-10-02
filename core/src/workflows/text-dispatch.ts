@@ -118,8 +118,8 @@ async function workRevision(client: SqlClient, runId: string): Promise<number> {
 }
 async function lockCapacity(client: SqlClient, installationId: string): Promise<number> {
   await client.query('INSERT INTO kipster.execution_permits(installation_id) VALUES ($1) ON CONFLICT DO NOTHING', [installationId])
-  const row = (await client.query<{ ceiling: number }>('SELECT ceiling FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [installationId])).rows[0]!
-  return row.ceiling
+  const row = (await client.query<{ ceiling: number; update_request_id: string | null }>('SELECT ceiling,update_request_id FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [installationId])).rows[0]!
+  return row.update_request_id === null ? row.ceiling : 0
 }
 async function isHead(client: SqlClient, row: RunRow): Promise<boolean> {
   // A revived earlier queue position must never overtake work already admitted
@@ -628,9 +628,9 @@ export class TextDispatcher {
     if (!this.coordinating) return this.passWakeup(runId)
     const context = await runContext(this.runtime.db, runId)
     if (!context) return
-    let paused = false
+    let paused = false, updatePaused = false
     const attempt = await this.runtime.db.transaction(async client => {
-      await lockCapacity(client, context.actor.installationId)
+      if (await lockCapacity(client, context.actor.installationId) === 0) { paused = true; updatePaused = true; return null }
       if (!await this.mayCoordinate(client)) { paused = !this.stopped; return null }
       const row = await runRow(client, runId)
       if (!row || row.state !== 'queued') return null
@@ -646,7 +646,7 @@ export class TextDispatcher {
       this.live.add(claim.id)
       return claim
     })
-    if (!attempt) { if (paused) await this.passWakeup(runId); return }
+    if (!attempt) { if (paused) await this.passWakeup(runId, updatePaused ? 5 : 0); return }
     try { await this.prepareClaimed(runId, context, attempt) } finally { this.live.delete(attempt.id) }
   }
 
@@ -681,8 +681,8 @@ export class TextDispatcher {
   }
 
   /** A paused process leaves the wakeup for whichever coordinator holds the lock. */
-  private async passWakeup(runId: string): Promise<void> {
-    await this.runtime.jobs.send(this.runtime.db, runId).catch(() => undefined)
+  private async passWakeup(runId: string, delaySeconds = 0): Promise<void> {
+    await this.runtime.jobs.send(this.runtime.db, runId, delaySeconds).catch(() => undefined)
   }
 
   private async prepareClaimed(runId: string, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, attempt: Attempt): Promise<void> {
@@ -731,7 +731,7 @@ export class TextDispatcher {
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
       return
     }
-    let paused = false
+    let paused = false, updatePaused = false
     const admitted = await this.runtime.db.transaction(async client => {
       const ceiling = await lockCapacity(client, context.actor.installationId)
       const row = await runRow(client, runId)
@@ -743,6 +743,7 @@ export class TextDispatcher {
         ? await new MaintenanceService(this.runtime.db, row.installation_id).maintenanceDue(client)
         : false
       paused = !await this.mayCoordinate(client)
+      updatePaused = ceiling === 0
       if (paused || ceiling - Number(held.count) < (maintenanceDue ? 2 : 1)) {
         await client.query('UPDATE kipster.attempts SET state=$2 WHERE id=$1 AND state=$3', [attempt.id, 'settled', 'preparing'])
         await client.query('UPDATE kipster.work_intents SET state=$2 WHERE id=$1 AND state=$3', [runId, 'queued', 'preparing'])
@@ -761,7 +762,7 @@ export class TextDispatcher {
     })
     if (!admitted) {
       route.release(attempt.id)
-      if (paused && !this.stopped) await this.passWakeup(runId)
+      if ((paused || updatePaused) && !this.stopped) await this.passWakeup(runId, updatePaused ? 5 : 0)
       return
     }
     await this.driveIssued(runId, attempt, context, route, execution)

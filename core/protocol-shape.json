@@ -393,7 +393,66 @@
       "exact": true,
       "fields": {"kind":{"type":"literal","value":"text"},"text":{"type":"string","min":1}}
     },
-    "textSubmission": {"type":"union","of":[{"ref":"rootSubmission"},{"ref":"replySubmission"}]}
+    "textSubmission": {"type":"union","of":[{"ref":"rootSubmission"},{"ref":"replySubmission"}]},
+    "updateCheck": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
+    "updateInstall": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "target": {"type":"string","min":1,"max":200},
+        "pin": {"type":"optional","of":{"type":"boolean"}},
+        "backupId": {"type":"optional","of":{"type":"string","min":1}},
+        "confirmDataLoss": {"type":"optional","of":{"type":"boolean"}}
+      }
+    },
+    "updateSettingsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "channel": {"ref":"updateChannel"},
+        "mode": {"ref":"updateMode"}
+      }
+    },
+    "updateUnpin": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"operationId":{"type":"string","min":1,"max":200}}
+    },
+    "updaterRequest": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "id": {"type":"string","min":1},
+        "action": {
+          "type": "union",
+          "of": [{"type":"literal","value":"install"},{"type":"literal","value":"restore"}]
+        },
+        "target": {"type":"string","min":1},
+        "backupId": {"type":"optional","of":{"type":"string","min":1}},
+        "reason": {
+          "type": "union",
+          "of": [{"type":"literal","value":"manual"},{"type":"literal","value":"automatic"}]
+        },
+        "requestedAt": {"type":"string","format":"utc-timestamp"},
+        "settings": {
+          "type": "optional",
+          "of": {
+            "type": "object",
+            "exact": true,
+            "fields": {
+              "channel": {"ref":"updateChannel"},
+              "mode": {"ref":"updateMode"},
+              "pinned": {"type":"nullable","of":{"type":"string","min":1}}
+            }
+          }
+        }
+      }
+    }
   },
   "responses": {
     "acceptedReceipt": {
@@ -517,6 +576,39 @@
         "state": {"type":"string"},
         "lastMessageId": {"type":"string","min":1},
         "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "channelEntry": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "package": {"type":"string","min":1},
+        "version": {"type":"string","min":1},
+        "prerelease": {"type":"boolean"},
+        "notes": {"type":"string"},
+        "publishedAt": {"type":"string","format":"utc-timestamp"},
+        "files": {"type":"array","items":{"ref":"channelFileAsset"}},
+        "protocolRange": {
+          "type": "optional",
+          "of": {
+            "type": "object",
+            "exact": false,
+            "fields": {
+              "current": {"type":"integer","min":1,"max":1000000},
+              "oldest": {"type":"integer","min":1,"max":1000000}
+            }
+          }
+        }
+      }
+    },
+    "channelFileAsset": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "name": {"type":"string","min":1},
+        "url": {"type":"string","min":1},
+        "size": {"type":"integer","min":0},
+        "sha256": {"type":"string","min":1}
       }
     },
     "controlReceipt": {
@@ -1085,7 +1177,13 @@
             {"type":"literal","value":"gone"},
             {"type":"literal","value":"organization-deleted"},
             {"type":"literal","value":"membership-removed"},
-            {"type":"literal","value":"agent-archived"}
+            {"type":"literal","value":"agent-archived"},
+            {"type":"literal","value":"update-unmanaged"},
+            {"type":"literal","value":"update-in-progress"},
+            {"type":"literal","value":"update-already-installed"},
+            {"type":"literal","value":"update-backup-required"},
+            {"type":"literal","value":"update-backup-mismatch"},
+            {"type":"literal","value":"update-confirmation-required"}
           ]
         },
         "message": {"type":"string"},
@@ -1233,6 +1331,21 @@
             "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"learning-changed"},
             "data": {"ref":"learningChange"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"updates-changed"},
+            "data": {"ref":"updateStatus"}
           }
         },
         {
@@ -1542,6 +1655,142 @@
         "failure": {"type":"nullable","of":{"type":"string"}}
       }
     },
+    "updateBackup": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "coreVersion": {"type":"string","min":1},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "updateSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "channel": {
+          "type": "union",
+          "of": [{"type":"literal","value":"stable"},{"type":"literal","value":"next"},{"type":"string"}]
+        },
+        "mode": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"automatic"},
+            {"type":"literal","value":"notify"},
+            {"type":"string"}
+          ]
+        }
+      }
+    },
+    "updateStatus": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "channel": {
+          "type": "union",
+          "of": [{"type":"literal","value":"stable"},{"type":"literal","value":"next"},{"type":"string"}]
+        },
+        "mode": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"automatic"},
+            {"type":"literal","value":"notify"},
+            {"type":"string"}
+          ]
+        },
+        "checkedAt": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}},
+        "window": {
+          "type": "object",
+          "exact": false,
+          "fields": {"start":{"type":"literal","value":"02:00"},"end":{"type":"literal","value":"05:00"}}
+        },
+        "core": {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"string","min":1},
+            "managed": {"type":"boolean"},
+            "pinned": {"type":"nullable","of":{"type":"string","min":1}},
+            "available": {"type":"nullable","of":{"ref":"channelEntry"}},
+            "state": {
+              "type": "union",
+              "of": [
+                {"type":"literal","value":"idle"},
+                {"type":"literal","value":"checking"},
+                {"type":"literal","value":"scheduled"},
+                {"type":"literal","value":"installing"},
+                {"type":"literal","value":"failed"},
+                {"type":"string"}
+              ]
+            },
+            "step": {"type":"nullable","of":{"type":"string"}},
+            "error": {"type":"nullable","of":{"type":"string"}},
+            "lastResult": {
+              "type": "nullable",
+              "of": {
+                "type": "object",
+                "exact": false,
+                "fields": {
+                  "from": {"type":"string","min":1},
+                  "to": {"type":"string","min":1},
+                  "outcome": {
+                    "type": "union",
+                    "of": [
+                      {"type":"literal","value":"installed"},
+                      {"type":"literal","value":"rolled-back"},
+                      {"type":"literal","value":"failed"},
+                      {"type":"string"}
+                    ]
+                  },
+                  "at": {"type":"string","format":"utc-timestamp"}
+                }
+              }
+            },
+            "backups": {"type":"array","items":{"ref":"updateBackup"}}
+          }
+        }
+      }
+    },
+    "updaterStatusFile": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "requestId": {"type":"string","min":1},
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"running"},
+            {"type":"literal","value":"done"},
+            {"type":"literal","value":"failed"},
+            {"type":"literal","value":"rolled-back"}
+          ]
+        },
+        "step": {
+          "type": "nullable",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"literal","value":"downloading"},
+              {"type":"literal","value":"verifying"},
+              {"type":"literal","value":"backing-up"},
+              {"type":"literal","value":"installing"},
+              {"type":"literal","value":"migrating"},
+              {"type":"literal","value":"restarting"},
+              {"type":"literal","value":"checking"},
+              {"type":"literal","value":"restoring"}
+            ]
+          }
+        },
+        "from": {"type":"string","min":1},
+        "to": {"type":"string","min":1},
+        "error": {"type":"nullable","of":{"type":"string"}},
+        "updatedAt": {"type":"string","format":"utc-timestamp"},
+        "backups": {"type":"array","items":{"ref":"updateBackup"}}
+      }
+    },
     "voicePreparation": {
       "type": "object",
       "exact": false,
@@ -1655,6 +1904,11 @@
           }
         }
       ]
+    },
+    "updateChannel": {"type":"union","of":[{"type":"literal","value":"stable"},{"type":"literal","value":"next"}]},
+    "updateMode": {
+      "type": "union",
+      "of": [{"type":"literal","value":"automatic"},{"type":"literal","value":"notify"}]
     },
     "workState": {
       "type": "union",
