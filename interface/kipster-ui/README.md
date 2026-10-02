@@ -58,13 +58,16 @@ Reconnects and reloads restore saved state without dispatching work.
 - **Settings:** saved and effective execution settings, adapter readiness,
   organization instructions, learning switches and sleep times. Effective values
   show their source; saves change only edited fields.
-- **Software updates:** a sidebar pill opens Settings → Updates. Stable/Beta and
-  Automatic/Notify preferences are shared through Core. Signed desktop apps
-  check at launch and every 12 hours, download in the background, and install on
-  restart or automatic quit. Managed backend updates run first; unmanaged backends
-  show instructions to update on their host. App pins belong to this device;
-  restoring an older backend requires its backup and a data-loss
-  confirmation. Demo, development and unsigned builds never check for app updates.
+- **Software updates:** a sidebar pill opens Settings → Updates. It shows the
+  versions, **Check for updates**, one **Update** button and an **Update
+  automatically** switch shared through Core. Update installs a managed backend
+  first, after confirming that running kip work stops, then offers **Restart to
+  update** for the app. Signed desktop apps check at launch and every 12 hours,
+  download in the background, and install on restart or automatic quit.
+  Unmanaged backends show instructions to update on their host. Builds whose
+  version contains `-next.` add a Testing section: channel, app and backend
+  version pins, backup restores and update status. Demo, development and
+  unsigned builds never check for app updates.
 
 Drafts, attachment bytes and pending submissions persist in IndexedDB, scoped by
 connection, installation, caller and conversation. Concurrent draft edits offer

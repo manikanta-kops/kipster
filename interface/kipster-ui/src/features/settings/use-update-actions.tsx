@@ -32,21 +32,26 @@ export function useUpdateActions(updates: SoftwareUpdates) {
     const core = value.status?.core
     if (!core?.managed) return
     const older = compareVersions(entry.version, core.version) < 0
-    const messages: string[] = []
-    if (older) {
-      if (!backupId) return
+    if (older && !backupId) return
+    const messages = [
+      'Updating restarts the backend. Any kip work in progress stops.',
+    ]
+    if (older)
       messages.push(
         `Going back to backend ${entry.version} restores its backup. Data written since that backup will be lost, including conversations and kip work.`,
       )
-    }
-    if (entry.protocolRange && entry.protocolRange.oldest > appProtocol)
+    const newerProtocol =
+      !!entry.protocolRange && entry.protocolRange.oldest > appProtocol
+    if (newerProtocol)
       messages.push(
         `Backend ${entry.version} requires a newer app protocol. This app speaks protocol ${appProtocol} and will need an update after the backend restarts.`,
       )
     confirmOrRun({
       title: older
         ? 'Restore an older backend?'
-        : 'This app will need an update',
+        : newerProtocol
+          ? 'This app will need an update'
+          : 'Update the backend?',
       messages,
       action: older ? 'Restore backup and install' : 'Update backend',
       accept: () =>
@@ -87,11 +92,11 @@ export function useUpdateActions(updates: SoftwareUpdates) {
   const settings = (next: UpdateSettings) => {
     confirmOrRun({
       title: 'Are you sure?',
-      action: 'Switch to Beta',
+      action: 'Switch to Next',
       messages:
         next.channel === 'next' && value.settings.channel !== 'next'
           ? [
-              'Beta releases arrive sooner and may be less reliable. This changes the update channel for the whole installation.',
+              'Next releases arrive sooner and may be less reliable. This changes the update channel for the whole installation.',
             ]
           : [],
       accept: () => updates.saveSettings(next),
