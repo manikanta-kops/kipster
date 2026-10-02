@@ -1,8 +1,20 @@
-import { test, expect, demo, startDemo } from './demo.ts'
+import { test, expect, demo, startDemo as startDemoPage } from './demo.ts'
 import type { Page, TestInfo } from '@playwright/test'
 import { protocolRange } from '@kipster/core/protocol'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+
+async function startDemo(page: Page) {
+  // Emit fixture changes after the initial snapshot and live subscription.
+  const events = page.waitForRequest(
+    (request) =>
+      request.method() === 'GET' &&
+      new URL(request.url()).pathname.endsWith('/v1/app/events'),
+  )
+  const [session] = await Promise.all([startDemoPage(page), events])
+  await expect(page.locator('.app-shell')).toBeVisible()
+  return session
+}
 
 const updates = (page: Page) =>
   page.getByRole('dialog', { name: 'Settings', exact: true })
@@ -441,8 +453,8 @@ test('unknown backend update states remain neutral and unsupported backends rema
   page,
 }) => {
   await startDemo(page)
-  await demo(page, '/updates', { core: { state: 'future-state' } })
   await openUpdates(page)
+  await demo(page, '/updates', { core: { state: 'future-state' } })
   await expect(updates(page)).toContainText(
     'Backend update status not recognized',
   )
@@ -456,4 +468,184 @@ test('unknown backend update states remain neutral and unsupported backends rema
     'does not support software updates yet',
   )
   await expect(page.getByLabel('Update channel')).toBeDisabled()
+})
+
+test('unmanaged backends offer manual instructions while app updates stay available', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openUpdates(page)
+  await demo(page, '/updates', { state: 'unmanaged' })
+  await expect(page.locator('.software-update-pill')).toHaveCount(0)
+  await expect(updates(page).getByLabel('Backend update')).toContainText(
+    'This backend is updated manually',
+  )
+  await expect(
+    updates(page).getByRole('button', { name: 'Update backend', exact: true }),
+  ).toHaveCount(0)
+  await page.getByText('Advanced', { exact: true }).click()
+  await expect(page.getByLabel('Backend version', { exact: true })).toHaveCount(
+    0,
+  )
+  await expect(
+    page.getByRole('button', { name: 'Install and pin backend' }),
+  ).toHaveCount(0)
+  await expect(page.getByLabel('App version', { exact: true })).toBeVisible()
+  for (const state of ['scheduled', 'installing', 'failed']) {
+    await demo(page, '/updates', { core: { state } })
+    await expect(page.locator('.software-update-pill')).toHaveCount(0)
+    await expect(updates(page).getByLabel('Backend update')).toContainText(
+      'This backend is updated manually',
+    )
+    await expect(updates(page)).not.toContainText('Waiting for it to restart')
+  }
+  await page.getByRole('button', { name: 'Check now' }).click()
+  await expect(updates(page)).not.toContainText('Scheduled for 02:00–05:00')
+  await expect
+    .poll(async () => (await demo(page, '/updates')).status.core)
+    .toMatchObject({
+      managed: false,
+      state: 'idle',
+    })
+  await demo(page, '/updates', { app: { state: 'ready' } })
+  await expect(page.locator('.software-update-pill')).toHaveAccessibleName(
+    'Restart to update',
+  )
+  await expect(
+    updates(page).getByRole('button', { name: 'Restart to update' }),
+  ).toBeEnabled()
+  await updates(page).getByRole('button', { name: 'Restart to update' }).click()
+  expect((await demo(page, '/updates')).installs).toEqual([])
+})
+
+test('an unmanaged backend compatibility screen explains how to update on its host', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await demo(page, '/updates', { state: 'unmanaged' })
+  await demo(page, '/updates', { core: { state: 'installing' } })
+  await demo(page, '/release', {
+    coreVersion: '0.7.0',
+    protocol: { oldest: 0, current: 0 },
+  })
+  await page.reload()
+  await expect(
+    page.getByRole('heading', { name: 'Update the backend' }),
+  ).toBeVisible()
+  await expect(
+    page.getByText(/This backend is updated manually/),
+  ).toContainText('install a compatible Core release and restart the service')
+  await expect(
+    page.getByRole('button', { name: 'Update backend', exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByRole('status')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Check again' })).toBeEnabled()
+  await demo(page, '/release', {
+    coreVersion: '0.8.0',
+    protocol: protocolRange,
+  })
+  await page.getByRole('button', { name: 'Check again' }).click()
+  await expect(page.locator('.app-shell')).toBeVisible()
+  expect((await demo(page, '/updates')).installs).toEqual([])
+})
+
+test('update-unmanaged refusals clear the optimistic restart state and explain manual updates', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openUpdates(page)
+  await demo(page, '/updates', { state: 'available', app: { state: 'ready' } })
+  await page.route('**/__test-core/*/v1/updates/install', async (route) => {
+    await demo(page, '/updates', { state: 'unmanaged' })
+    await route.fulfill({
+      status: 409,
+      json: {
+        version: 1,
+        code: 'update-unmanaged',
+        message:
+          'Software installation requires a managed updater on this host',
+        requestId: 'unmanaged-test',
+      },
+    })
+  })
+  await updates(page)
+    .getByRole('button', { name: 'Update backend', exact: true })
+    .click()
+  await expect(updates(page).getByRole('alert')).toContainText(
+    'This backend is updated manually',
+  )
+  await expect(updates(page).getByRole('alert')).toContainText(
+    'Software installation requires a managed updater on this host',
+  )
+  await expect(
+    updates(page).getByRole('button', { name: 'Update backend', exact: true }),
+  ).toHaveCount(0)
+  await expect(updates(page)).not.toContainText('Waiting for it to restart')
+  await expect(page.locator('.software-update-pill')).toHaveAccessibleName(
+    'Restart to update',
+  )
+})
+
+test('an updater that never starts shows its failure alongside an app failure', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openUpdates(page)
+  await demo(page, '/updates', { state: 'available' })
+  await updates(page)
+    .getByRole('button', { name: 'Update backend', exact: true })
+    .click()
+  await expect
+    .poll(async () => (await demo(page, '/updates')).installs.length)
+    .toBe(1)
+  expect((await demo(page, '/updates')).installs[0]).toMatchObject({
+    pin: false,
+  })
+  await demo(page, '/updates', {
+    state: 'not-started',
+    app: { state: 'failed', error: 'The app signature is invalid.' },
+  })
+  await expect(
+    updates(page)
+      .getByRole('alert')
+      .filter({ hasText: 'The updater did not start' }),
+  ).toBeVisible()
+  await expect(
+    updates(page)
+      .getByRole('alert')
+      .filter({ hasText: 'The app signature is invalid.' }),
+  ).toBeVisible()
+  await expect(updates(page)).not.toContainText('Waiting for it to restart')
+  await expect(page.locator('.software-update-pill')).toHaveAccessibleName(
+    'Update failed',
+  )
+  await expect(
+    updates(page).getByRole('button', { name: 'Update backend', exact: true }),
+  ).toBeEnabled()
+})
+
+test('backend compatibility recovery displays an updater startup failure', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await demo(page, '/updates', { state: 'available' })
+  await demo(page, '/release', {
+    coreVersion: '0.7.0',
+    protocol: { oldest: 0, current: 0 },
+  })
+  await page.reload()
+  await expect(
+    page.getByRole('heading', { name: 'Update the backend' }),
+  ).toBeVisible()
+  await page
+    .getByRole('button', { name: 'Update backend', exact: true })
+    .click()
+  await expect
+    .poll(async () => (await demo(page, '/updates')).installs.length)
+    .toBe(1)
+  await demo(page, '/updates', { state: 'not-started' })
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'The updater did not start' }),
+  ).toBeVisible()
+  await expect(page.getByRole('status')).toHaveCount(0)
 })

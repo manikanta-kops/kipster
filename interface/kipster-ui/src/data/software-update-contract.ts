@@ -1,57 +1,44 @@
-import { check, record } from './response.ts'
-import { isProtocolRange, type ProtocolRange } from './compatibility.ts'
+import {
+  channelEntry,
+  updateSettings,
+  updateStatus,
+  type ChannelEntry as CoreChannelEntry,
+  type UpdateChannel,
+  type UpdateMode,
+  type UpdateStatus,
+} from '@kipster/core/protocol'
+import { check, incompatible, record } from './response.ts'
+import { isProtocolRange } from './compatibility.ts'
 
-// Shared with Core's update API. Keep these wire shapes unchanged until Core exports them.
-export type UpdateChannel = 'stable' | 'next'
-export type UpdateMode = 'automatic' | 'notify'
-export type UpdateSettings = {
-  version: 1
-  channel: UpdateChannel
-  mode: UpdateMode
-}
-export type ChannelEntry = {
-  package: string
-  version: string
-  prerelease: boolean
-  notes: string
-  publishedAt: string
-  files: { name: string; url: string; size: number; sha256: string }[]
-  protocolRange?: ProtocolRange
+export type {
+  UpdateChannel,
+  UpdateMode,
+  UpdateInstall as InstallUpdate,
+  UpdateStatus,
+} from '@kipster/core/protocol'
+export type UpdateSettings = ReturnType<typeof updateSettings.parse>
+/** App catalog metadata is additive to Core's shared channel entry. */
+export type ChannelEntry = CoreChannelEntry & {
   protocol?: number
   updater?: { platform: string; url: string; signature: string } | null
-}
-export type UpdateStatus = UpdateSettings & {
-  checkedAt: string | null
-  window: { start: '02:00'; end: '05:00' }
-  core: {
-    version: string
-    pinned: string | null
-    available: ChannelEntry | null
-    state: 'idle' | 'checking' | 'scheduled' | 'installing' | 'failed'
-    step: string | null
-    error: string | null
-    lastResult: {
-      from: string
-      to: string
-      outcome: 'installed' | 'rolled-back' | 'failed'
-      at: string
-    } | null
-    backups: { id: string; coreVersion: string; createdAt: string }[]
-  }
-}
-export type InstallUpdate = {
-  version: 1
-  operationId: string
-  target: string
-  pin?: boolean
-  backupId?: string
-  confirmDataLoss?: boolean
 }
 export type ReleaseCatalog = {
   schemaVersion: 1
   packages: Record<string, ChannelEntry[]>
 }
 export const updateRoot = 'https://updates.kipster.app/v1/'
+
+function parseResponse<T>(
+  schema: { parse(value: unknown): T },
+  value: unknown,
+): T {
+  try {
+    return schema.parse(value)
+  } catch (error) {
+    if (error instanceof TypeError) incompatible()
+    throw error
+  }
+}
 
 function semver(value: string) {
   const match =
@@ -105,97 +92,40 @@ export function acceptsAppUpdate(
 }
 
 export function parseChannelEntry(value: unknown): ChannelEntry {
+  const parsed = parseResponse(channelEntry, value)
+  semver(parsed.version)
   check(
-    record(value) &&
-      typeof value.package === 'string' &&
-      typeof value.version === 'string' &&
-      typeof value.prerelease === 'boolean' &&
-      typeof value.notes === 'string' &&
-      typeof value.publishedAt === 'string' &&
-      Array.isArray(value.files),
-  )
-  semver(value.version)
-  for (const file of value.files)
-    check(
-      record(file) &&
-        typeof file.name === 'string' &&
-        typeof file.url === 'string' &&
-        typeof file.size === 'number' &&
-        typeof file.sha256 === 'string',
-    )
-  check(
-    value.protocolRange === undefined || isProtocolRange(value.protocolRange),
+    parsed.protocolRange === undefined || isProtocolRange(parsed.protocolRange),
   )
   check(
-    value.protocol === undefined ||
-      (Number.isSafeInteger(value.protocol) && (value.protocol as number) >= 0),
+    parsed.protocol === undefined ||
+      (Number.isSafeInteger(parsed.protocol) &&
+        (parsed.protocol as number) >= 0),
   )
   check(
-    value.updater === undefined ||
-      value.updater === null ||
-      (record(value.updater) &&
-        typeof value.updater.platform === 'string' &&
-        typeof value.updater.url === 'string' &&
-        typeof value.updater.signature === 'string'),
+    parsed.updater === undefined ||
+      parsed.updater === null ||
+      (record(parsed.updater) &&
+        typeof parsed.updater.platform === 'string' &&
+        typeof parsed.updater.url === 'string' &&
+        typeof parsed.updater.signature === 'string'),
   )
-  return value as ChannelEntry
+  return parsed as ChannelEntry
 }
 
-const nullableText = (value: unknown) =>
-  value === null || typeof value === 'string'
 export function parseUpdateSettings(value: unknown): UpdateSettings {
-  check(
-    record(value) &&
-      value.version === 1 &&
-      typeof value.channel === 'string' &&
-      typeof value.mode === 'string',
-  )
-  return value as UpdateSettings
+  return parseResponse(updateSettings, value)
 }
-export function knownUpdateSettings(value: UpdateSettings): boolean {
+export function knownUpdateSettings(
+  value: UpdateSettings,
+): value is UpdateSettings & { channel: UpdateChannel; mode: UpdateMode } {
   return (
     ['stable', 'next'].includes(value.channel) &&
     ['automatic', 'notify'].includes(value.mode)
   )
 }
 export function parseUpdateStatus(value: unknown): UpdateStatus {
-  parseUpdateSettings(value)
-  check(
-    record(value) &&
-      nullableText(value.checkedAt) &&
-      record(value.window) &&
-      typeof value.window.start === 'string' &&
-      typeof value.window.end === 'string' &&
-      record(value.core),
-  )
-  const core = value.core
-  check(
-    typeof core.version === 'string' &&
-      nullableText(core.pinned) &&
-      typeof core.state === 'string' &&
-      nullableText(core.step) &&
-      nullableText(core.error) &&
-      Array.isArray(core.backups),
-  )
-  if (core.available !== null) parseChannelEntry(core.available)
-  if (core.lastResult !== null) {
-    const result = core.lastResult
-    check(
-      record(result) &&
-        typeof result.from === 'string' &&
-        typeof result.to === 'string' &&
-        typeof result.outcome === 'string' &&
-        typeof result.at === 'string',
-    )
-  }
-  for (const backup of core.backups)
-    check(
-      record(backup) &&
-        typeof backup.id === 'string' &&
-        typeof backup.coreVersion === 'string' &&
-        typeof backup.createdAt === 'string',
-    )
-  return value as UpdateStatus
+  return parseResponse(updateStatus, value)
 }
 
 export function parseReleaseCatalog(value: unknown): ReleaseCatalog {

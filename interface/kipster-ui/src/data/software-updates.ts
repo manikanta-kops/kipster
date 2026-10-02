@@ -1,4 +1,10 @@
 import { useSyncExternalStore } from 'react'
+import {
+  updateCheck,
+  updateInstall,
+  updateSettingsWrite,
+  updateUnpin,
+} from '@kipster/core/protocol'
 import { appVersion } from '../app/version.ts'
 import {
   nativeSoftwareUpdater,
@@ -56,8 +62,14 @@ export type SoftwareUpdateSnapshot = {
 }
 const pinKey = 'kipster-app-update-pin'
 const hours12 = 12 * 60 * 60 * 1000
+export const manualBackendUpdateInstructions =
+  'This backend is updated manually. On its host, install a compatible Core release and restart the service, then check again.'
 const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error)
+  error instanceof TextHttpError && error.code === 'update-unmanaged'
+    ? `${manualBackendUpdateInstructions} ${error.message}`
+    : error instanceof Error
+      ? error.message
+      : String(error)
 
 export class SoftwareUpdatesClient {
   readonly endpoint: string
@@ -103,32 +115,48 @@ export class SoftwareUpdatesClient {
   }
   async save(settings: UpdateSettings) {
     return parseUpdateSettings(
-      await this.request('/v1/settings/updates', 'PUT', {
-        ...settings,
-        operationId: crypto.randomUUID(),
-      }),
+      await this.request(
+        '/v1/settings/updates',
+        'PUT',
+        updateSettingsWrite.parse({
+          ...settings,
+          operationId: crypto.randomUUID(),
+        }),
+      ),
     )
   }
   async check() {
     return parseUpdateStatus(
-      await this.request('/v1/updates/check', 'POST', { version: 1 }),
+      await this.request(
+        '/v1/updates/check',
+        'POST',
+        updateCheck.parse({ version: 1 }),
+      ),
     )
   }
   async install(input: Omit<InstallUpdate, 'version' | 'operationId'>) {
     return parseUpdateStatus(
-      await this.request('/v1/updates/install', 'POST', {
-        version: 1,
-        operationId: crypto.randomUUID(),
-        ...input,
-      }),
+      await this.request(
+        '/v1/updates/install',
+        'POST',
+        updateInstall.parse({
+          version: 1,
+          operationId: crypto.randomUUID(),
+          ...input,
+        }),
+      ),
     )
   }
   async unpin() {
     return parseUpdateStatus(
-      await this.request('/v1/updates/unpin', 'POST', {
-        version: 1,
-        operationId: crypto.randomUUID(),
-      }),
+      await this.request(
+        '/v1/updates/unpin',
+        'POST',
+        updateUnpin.parse({
+          version: 1,
+          operationId: crypto.randomUUID(),
+        }),
+      ),
     )
   }
 }
@@ -234,13 +262,15 @@ export class SoftwareUpdates {
         status,
         backendUnsupported: false,
         reconnecting:
-          status.core.state === 'installing' && this.value.reconnecting,
+          status.core.managed &&
+          status.core.state === 'installing' &&
+          this.value.reconnecting,
       })
       if (previous.channel !== status.channel)
         void this.recheckApp().catch((error) => this.appFailure(error))
       this.armInBackground()
       if (
-        status.core.state === 'installing' ||
+        (status.core.managed && status.core.state === 'installing') ||
         status.core.state === 'checking'
       )
         this.poll()
@@ -278,7 +308,10 @@ export class SoftwareUpdates {
       if (signal?.aborted) return
       if (error instanceof TextHttpError && error.code === 'not-found')
         this.patch({ backendUnsupported: true })
-      else if (this.value.status?.core.state === 'installing')
+      else if (
+        this.value.status?.core.managed &&
+        this.value.status.core.state === 'installing'
+      )
         this.patch({ reconnecting: true })
       else this.patch({ error: errorText(error) })
     }
@@ -315,7 +348,10 @@ export class SoftwareUpdates {
     }
   }
   connectionLost() {
-    if (this.value.status?.core.state === 'installing')
+    if (
+      this.value.status?.core.managed &&
+      this.value.status.core.state === 'installing'
+    )
       this.patch({ reconnecting: true })
   }
   connectionRestored() {
@@ -366,6 +402,11 @@ export class SoftwareUpdates {
   }
   async installBackend(input: Omit<InstallUpdate, 'version' | 'operationId'>) {
     const previous = this.value.status
+    if (previous?.core.managed === false)
+      throw new TextHttpError(
+        'Software installation requires a managed updater on this host',
+        'update-unmanaged',
+      )
     if (previous)
       this.patch({
         status: {
@@ -384,7 +425,8 @@ export class SoftwareUpdates {
     } catch (error) {
       // A restart may close the accepted install's response. Query authoritative state.
       if (error instanceof TextHttpError && error.code !== 'unavailable') {
-        this.patch({ status: previous })
+        this.patch({ status: previous, reconnecting: false })
+        if (error.code === 'update-unmanaged') await this.refresh()
         await this.arm()
         throw error
       }
@@ -613,6 +655,7 @@ export class SoftwareUpdates {
 
 export function backendMustUpdateFirst(value: SoftwareUpdateSnapshot): boolean {
   const core = value.status?.core
+  if (core?.managed === false) return false
   if (value.reconnecting || core?.state === 'installing') return true
   if (!core?.available) return false
   try {
@@ -625,8 +668,8 @@ export function softwareUpdatePill(value: SoftwareUpdateSnapshot): {
   label: string
   state: 'thinking' | 'failed' | 'recovery' | 'done' | 'queued'
 } | null {
-  const core = value.status?.core
-  if (value.reconnecting || core?.state === 'installing')
+  const core = value.status?.core.managed ? value.status.core : undefined
+  if (core && (value.reconnecting || core.state === 'installing'))
     return { label: 'Updating backend', state: 'thinking' }
   if (
     core?.state === 'failed' ||

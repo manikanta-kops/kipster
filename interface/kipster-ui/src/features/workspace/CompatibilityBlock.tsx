@@ -2,6 +2,7 @@ import { appProtocol, type ProtocolRange } from '../../data/compatibility'
 import { appVersion } from '../../app/version'
 import {
   backendMustUpdateFirst,
+  manualBackendUpdateInstructions,
   useSoftwareUpdates,
   type SoftwareUpdates,
 } from '../../data/software-updates'
@@ -31,6 +32,16 @@ export function CompatibilityBlock({
   const actions = useUpdateActions(softwareUpdates)
   const appOlder = state === 'update-app'
   const backendFirst = backendMustUpdateFirst(updates)
+  const unmanaged = updates.status?.core.managed === false
+  const errors = [
+    ...new Set(
+      [
+        updates.error,
+        updates.status?.core.error,
+        appOlder && updates.app.error,
+      ].filter(Boolean),
+    ),
+  ]
   return (
     <main className="workspace-state connection-setup">
       <section
@@ -69,6 +80,7 @@ export function CompatibilityBlock({
             </dd>
           </div>
         </dl>
+        {!appOlder && unmanaged && <p>{manualBackendUpdateInstructions}</p>}
         <div className="recovery-actions">
           {appOlder && (
             <button
@@ -91,7 +103,7 @@ export function CompatibilityBlock({
                 : 'Update app'}
             </button>
           )}
-          {(!appOlder || backendFirst) && !updateBackend && (
+          {(!appOlder || backendFirst) && !unmanaged && !updateBackend && (
             <button
               className="primary-button"
               disabled={
@@ -107,13 +119,15 @@ export function CompatibilityBlock({
               Update backend
             </button>
           )}
-          {updateBackend && (!appOlder || backendFirst) && (
+          {updateBackend && !unmanaged && (!appOlder || backendFirst) && (
             <button className="primary-button" onClick={updateBackend}>
               Update backend
             </button>
           )}
           <button
-            className={updateBackend && !appOlder ? '' : 'primary-button'}
+            className={
+              updateBackend && !appOlder && !unmanaged ? '' : 'primary-button'
+            }
             disabled={checking}
             onClick={checkAgain}
           >
@@ -126,11 +140,17 @@ export function CompatibilityBlock({
         {appOlder && backendFirst && (
           <p>Update the backend first, then update this app.</p>
         )}
-        {updates.reconnecting || updates.status?.core.state === 'installing' ? (
+        {!unmanaged &&
+        (updates.reconnecting ||
+          updates.status?.core.state === 'installing') ? (
           <output>Updating backend. Waiting for it to restart…</output>
         ) : null}
         {updates.app.message && appOlder && <p>{updates.app.message}</p>}
-        {updates.error && <p role="alert">{updates.error}</p>}
+        {errors.map((error) => (
+          <p key={String(error)} role="alert">
+            {error}
+          </p>
+        ))}
         {actions.dialog}
       </section>
     </main>

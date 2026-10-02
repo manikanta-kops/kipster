@@ -61,8 +61,9 @@ Reconnects and reloads restore saved state without dispatching work.
 - **Software updates:** a sidebar pill opens Settings → Updates. Stable/Beta and
   Automatic/Notify preferences are shared through Core. Signed desktop apps
   check at launch and every 12 hours, download in the background, and install on
-  restart or automatic quit. Backend updates run first. App pins belong to this
-  device; restoring an older backend requires its backup and a data-loss
+  restart or automatic quit. Managed backend updates run first; unmanaged backends
+  show instructions to update on their host. App pins belong to this device;
+  restoring an older backend requires its backup and a data-loss
   confirmation. Demo, development and unsigned builds never check for app updates.
 
 Drafts, attachment bytes and pending submissions persist in IndexedDB, scoped by

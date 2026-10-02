@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { appProtocol, compatibility } from '../../data/compatibility'
 import {
   backendMustUpdateFirst,
+  manualBackendUpdateInstructions,
   useSoftwareUpdates,
   type SoftwareUpdates,
 } from '../../data/software-updates'
@@ -28,6 +29,9 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
   const actions = useUpdateActions(updates)
   const { settings, app, status, busy } = value
   const core = status?.core
+  const errors = [
+    ...new Set([value.error, core?.error, app.error].filter(Boolean)),
+  ]
   const [advanced, setAdvanced] = useState(false)
   const [appTarget, setAppTarget] = useState('')
   const [coreTarget, setCoreTarget] = useState('')
@@ -52,17 +56,23 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
   const backendFirst = backendMustUpdateFirst(value)
   const appBusy = ['checking', 'downloading', 'installing'].includes(app.state)
   const coreBusy =
-    value.reconnecting ||
-    core?.state === 'installing' ||
-    core?.state === 'checking'
+    core?.managed &&
+    (value.reconnecting ||
+      core?.state === 'installing' ||
+      core?.state === 'checking')
   const knownPolicy = knownUpdateSettings(settings)
   return (
     <div className="software-updates">
-      {(value.error || app.error || core?.error) && (
-        <p className="settings-callout" data-tone="danger" role="alert">
-          {value.error || app.error || core?.error}
+      {errors.map((error) => (
+        <p
+          key={error}
+          className="settings-callout"
+          data-tone="danger"
+          role="alert"
+        >
+          {error}
         </p>
-      )}
+      ))}
       {value.backendUnsupported && (
         <p className="settings-description">
           This backend does not support software updates yet.
@@ -101,7 +111,9 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
             Install updates
             <small>
               {settings.mode === 'automatic'
-                ? 'Backend: 02:00–05:00, when no kip is working. App: on quit and launch.'
+                ? core?.managed === false
+                  ? 'App: on quit and launch. Backend: updated manually on its host.'
+                  : 'Backend: 02:00–05:00, when no kip is working. App: on quit and launch.'
                 : 'Show available updates; install when you choose.'}
             </small>
           </span>
@@ -202,20 +214,24 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
               {core?.available ? ` → ${core.available.version}` : ''}
             </small>
           </span>
-          <button
-            disabled={
-              busy ||
-              coreBusy ||
-              !core ||
-              !newer(core.available, core.version) ||
-              !['idle', 'scheduled', 'failed'].includes(core.state)
-            }
-            onClick={() => core?.available && actions.backend(core.available)}
-          >
-            {coreBusy ? 'Updating…' : 'Update backend'}
-          </button>
+          {core?.managed !== false && (
+            <button
+              disabled={
+                busy ||
+                coreBusy ||
+                !core ||
+                !newer(core.available, core.version) ||
+                !['idle', 'scheduled', 'failed'].includes(core.state)
+              }
+              onClick={() => core?.available && actions.backend(core.available)}
+            >
+              {coreBusy ? 'Updating…' : 'Update backend'}
+            </button>
+          )}
         </div>
-        {value.reconnecting ? (
+        {core?.managed === false ? (
+          <p className="update-detail">{manualBackendUpdateInstructions}</p>
+        ) : value.reconnecting ? (
           <output className="update-detail">
             Updating backend. Waiting for it to restart…
           </output>
@@ -234,7 +250,7 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
             </output>
           )
         )}
-        {core?.pinned && (
+        {core?.managed && core.pinned && (
           <div className="update-pin">
             <span>
               Pinned to {core.pinned}. Automatic backend installs are paused.
@@ -288,8 +304,9 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
       >
         <summary>Advanced</summary>
         <p className="settings-description">
-          Installing a specific version pins it. Older backend versions need a
-          matching backup and restore its data.
+          {core?.managed === false
+            ? 'Installing a specific app version pins it on this device.'
+            : 'Installing a specific version pins it. Older backend versions need a matching backup and restore its data.'}
         </p>
         <div className="settings-group">
           <label className="setting-row">
@@ -340,61 +357,65 @@ export function UpdatesPanel({ updates }: { updates: SoftwareUpdates }) {
               Install and pin app
             </button>
           </div>
-          <label className="setting-row">
-            <span className="setting-label">Backend version</span>
-            <select
-              aria-label="Backend version"
-              value={coreTarget}
-              disabled={busy || coreBusy || !core}
-              onChange={(event) => {
-                setCoreTarget(event.target.value)
-                setChosenBackup('')
-              }}
-            >
-              <option value="">Choose a version</option>
-              {coreReleases.map((entry) => (
-                <option key={entry.version} value={entry.version}>
-                  {entry.version}
-                </option>
-              ))}
-            </select>
-          </label>
-          {olderCore && (
-            <label className="setting-row">
-              <span className="setting-label">Restore backup</span>
-              <select
-                aria-label="Restore backup"
-                value={backupId ?? ''}
-                onChange={(event) => setChosenBackup(event.target.value)}
-              >
-                {backups.map((backup) => (
-                  <option key={backup.id} value={backup.id}>
-                    {time(backup.createdAt)}
-                  </option>
-                ))}
-              </select>
-            </label>
+          {core?.managed && (
+            <>
+              <label className="setting-row">
+                <span className="setting-label">Backend version</span>
+                <select
+                  aria-label="Backend version"
+                  value={coreTarget}
+                  disabled={busy || coreBusy || !core}
+                  onChange={(event) => {
+                    setCoreTarget(event.target.value)
+                    setChosenBackup('')
+                  }}
+                >
+                  <option value="">Choose a version</option>
+                  {coreReleases.map((entry) => (
+                    <option key={entry.version} value={entry.version}>
+                      {entry.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {olderCore && (
+                <label className="setting-row">
+                  <span className="setting-label">Restore backup</span>
+                  <select
+                    aria-label="Restore backup"
+                    value={backupId ?? ''}
+                    onChange={(event) => setChosenBackup(event.target.value)}
+                  >
+                    {backups.map((backup) => (
+                      <option key={backup.id} value={backup.id}>
+                        {time(backup.createdAt)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {coreEntry && <ReleaseNotes entry={coreEntry} />}
+              {coreEntry?.protocolRange &&
+                coreEntry.protocolRange.oldest > appProtocol && (
+                  <p className="update-detail settings-callout">
+                    This backend version requires a newer app protocol. This app
+                    will need an update after the backend restarts.
+                  </p>
+                )}
+              <div className="update-detail row-actions">
+                <button
+                  disabled={
+                    busy || coreBusy || !coreEntry || (olderCore && !backupId)
+                  }
+                  onClick={() =>
+                    coreEntry && actions.backend(coreEntry, true, backupId)
+                  }
+                >
+                  Install and pin backend
+                </button>
+              </div>
+            </>
           )}
-          {coreEntry && <ReleaseNotes entry={coreEntry} />}
-          {coreEntry?.protocolRange &&
-            coreEntry.protocolRange.oldest > appProtocol && (
-              <p className="update-detail settings-callout">
-                This backend version requires a newer app protocol. This app
-                will need an update after the backend restarts.
-              </p>
-            )}
-          <div className="update-detail row-actions">
-            <button
-              disabled={
-                busy || coreBusy || !coreEntry || (olderCore && !backupId)
-              }
-              onClick={() =>
-                coreEntry && actions.backend(coreEntry, true, backupId)
-              }
-            >
-              Install and pin backend
-            </button>
-          </div>
         </div>
         {advanced && !value.releases && !busy && (
           <button onClick={() => actions.run(() => updates.loadReleases())}>

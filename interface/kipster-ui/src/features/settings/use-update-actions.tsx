@@ -30,7 +30,7 @@ export function useUpdateActions(updates: SoftwareUpdates) {
     request.messages.length ? setConfirmation(request) : run(request.accept)
   const backend = (entry: ChannelEntry, pin = false, backupId?: string) => {
     const core = value.status?.core
-    if (!core) return
+    if (!core?.managed) return
     const older = compareVersions(entry.version, core.version) < 0
     const messages: string[] = []
     if (older) {
@@ -52,7 +52,7 @@ export function useUpdateActions(updates: SoftwareUpdates) {
       accept: () =>
         updates.installBackend({
           target: entry.version,
-          ...(pin ? { pin: true } : {}),
+          pin: pin || older,
           ...(older ? { backupId, confirmDataLoss: true } : {}),
         }),
     })

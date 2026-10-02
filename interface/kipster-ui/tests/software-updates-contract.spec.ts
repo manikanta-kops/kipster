@@ -5,7 +5,10 @@ import {
   compareVersions,
   parseReleaseCatalog,
   parseUpdateStatus,
+  parseUpdateSettings,
+  knownUpdateSettings,
 } from '../src/data/software-update-contract.ts'
+import { updateStatus, updateSettings } from '@kipster/core/protocol'
 import { createFakeCore, DEMO_ORIGIN } from '../src/fake-core/index.ts'
 
 test('app endpoints follow the installation channel or the device pin', () => {
@@ -165,7 +168,48 @@ test('fake Core implements the shared settings, checks, install receipts and bac
         future: true,
         core: { ...inspection.status.core, state: 'future-state' },
       }).core.state,
-    ).toBe('future-state')
+    ).toBe('unknown')
+  } finally {
+    core.dispose()
+  }
+})
+
+test('update responses use Core schemas and preserve additive app catalog metadata', async () => {
+  const core = createFakeCore({ testControls: true, autoAdvance: false })
+  try {
+    const inspection = await (
+      await core.handle(new Request(DEMO_ORIGIN + '/__demo/updates'))
+    ).json()
+    const future = {
+      ...inspection.status,
+      channel: 'future-channel',
+      mode: 'future-mode',
+      core: { ...inspection.status.core, state: 'future-state', future: true },
+    }
+    expect(parseUpdateStatus(future)).toEqual(updateStatus.parse(future))
+    expect(parseUpdateSettings(future)).toEqual(updateSettings.parse(future))
+    expect(knownUpdateSettings(parseUpdateSettings(future))).toBe(false)
+    for (const managed of [undefined, 'false'])
+      expect(() =>
+        parseUpdateStatus({
+          ...inspection.status,
+          core: { ...inspection.status.core, managed },
+        }),
+      ).toThrow('Backend response is incompatible')
+    const release = {
+      ...inspection.releases.packages['@kipster/ui'][0],
+      future: { value: 1 },
+    }
+    expect(
+      parseReleaseCatalog({
+        schemaVersion: 1,
+        packages: { '@kipster/ui': [release] },
+      }).packages['@kipster/ui'][0],
+    ).toMatchObject({
+      protocol: release.protocol,
+      updater: release.updater,
+      future: release.future,
+    })
   } finally {
     core.dispose()
   }

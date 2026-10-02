@@ -1487,3 +1487,117 @@ test('test notification replay uses valid protocol records without regressing ca
     snapshot.cursor,
   )
 })
+
+test('software update routes and events use Core schemas, including updater startup failures', async (t) => {
+  const { json, request } = harness(t)
+  const before = await json('/v1/app/snapshot', protocol.appSnapshot)
+  assert.deepEqual(
+    await json('/v1/settings/updates', protocol.updateSettings),
+    { version: 1, channel: 'stable', mode: 'automatic' },
+  )
+  assert.equal(
+    (await json('/v1/updates', protocol.updateStatus)).core.managed,
+    true,
+  )
+  const checked = await json(
+    '/v1/updates/check',
+    protocol.updateStatus,
+    'POST',
+    protocol.updateCheck.parse({ version: 1 }),
+  )
+  assert.equal(checked.core.state, 'scheduled')
+  await json(
+    '/v1/settings/updates',
+    protocol.updateSettings,
+    'PUT',
+    protocol.updateSettingsWrite.parse(
+      op({ channel: 'stable', mode: 'notify' }),
+    ),
+  )
+  const input = protocol.updateInstall.parse(
+    op({ target: '0.8.0', pin: false }),
+  )
+  const installing = await json(
+    '/v1/updates/install',
+    protocol.updateStatus,
+    'POST',
+    input,
+  )
+  assert.equal(installing.core.state, 'installing')
+  assert.equal(installing.core.pinned, null)
+  await json('/__demo/updates', undefined, 'POST', { state: 'not-started' })
+  const failed = await json('/v1/updates', protocol.updateStatus)
+  assert.equal(failed.core.state, 'failed')
+  assert.equal(failed.core.error, 'The updater did not start')
+  const after = await json('/v1/app/snapshot', protocol.appSnapshot)
+  const events = await replay(
+    await request(`/v1/app/events?after=${encodeURIComponent(before.cursor)}`),
+    after.cursor,
+  )
+  assert.ok(events.length >= 4)
+  assert.ok(events.every((event) => event.type === 'updates-changed'))
+  assert.equal(events.at(-1).data.core.error, 'The updater did not start')
+  for (const [path, method, body] of [
+    ['/v1/updates/check', 'POST', { version: 1, future: true }],
+    ['/v1/settings/updates', 'PUT', op({ channel: 'stable' })],
+    ['/v1/settings/updates', 'PUT', op({ channel: 'future', mode: 'notify' })],
+    ['/v1/updates/install', 'POST', op({ target: '0.8.0', pin: 'false' })],
+    ['/v1/updates/unpin', 'POST', op({ future: true })],
+  ]) {
+    const response = await request(path, method, body)
+    assert.equal(response.status, 400)
+    assert.equal(
+      protocol.stableError.parse(await response.json()).code,
+      'invalid',
+    )
+  }
+})
+
+test('unmanaged Core exposes releases without scheduling installs and refuses with update-unmanaged', async (t) => {
+  const { json, request } = harness(t)
+  await json('/__demo/updates', undefined, 'POST', { state: 'unmanaged' })
+  const status = await json(
+    '/v1/updates/check',
+    protocol.updateStatus,
+    'POST',
+    { version: 1 },
+  )
+  assert.equal(status.core.managed, false)
+  assert.equal(status.core.state, 'idle')
+  assert.equal(status.core.available.version, '0.8.0')
+  const refused = await request(
+    '/v1/updates/install',
+    'POST',
+    op({ target: '0.8.0', pin: false }),
+  )
+  assert.equal(refused.status, 409)
+  const error = protocol.stableError.parse(await refused.json())
+  assert.equal(error.code, 'update-unmanaged')
+  assert.equal(
+    error.message,
+    'Software installation requires a managed updater on this host',
+  )
+  assert.deepEqual((await json('/__demo/updates')).installs, [])
+  await json(
+    '/v1/settings/updates',
+    protocol.updateSettings,
+    'PUT',
+    op({ channel: 'next', mode: 'automatic' }),
+  )
+  assert.equal(
+    (
+      await json('/v1/updates/check', protocol.updateStatus, 'POST', {
+        version: 1,
+      })
+    ).core.state,
+    'idle',
+  )
+  await json('/__demo/updates', undefined, 'POST', {
+    managed: true,
+    state: 'available',
+  })
+  assert.equal(
+    (await json('/v1/updates', protocol.updateStatus)).core.managed,
+    true,
+  )
+})

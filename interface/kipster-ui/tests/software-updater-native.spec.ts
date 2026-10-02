@@ -40,6 +40,7 @@ function setup(
     channel?: 'stable' | 'next'
     available?: boolean
     backendAvailable?: boolean
+    managed?: boolean
     protocol?: number
     failedDownload?: boolean
     failedInstall?: boolean
@@ -71,6 +72,7 @@ function setup(
     window: { start: '02:00', end: '05:00' },
     core: {
       version: '1.0.0',
+      managed: options.managed ?? true,
       pinned: null,
       available: options.backendAvailable
         ? {
@@ -354,6 +356,27 @@ test('a failed recheck disarms a previously downloaded automatic update', async 
     expect(ctx.controller.snapshot().app.state).toBe('failed')
     expect(ctx.calls.at(-1)).toBe('arm:false:false')
     expect(ctx.calls.some((call) => call.startsWith('install:'))).toBe(false)
+  } finally {
+    ctx.restore()
+  }
+})
+
+test('an unmanaged backend does not block compatible app updates or accept backend installs', async () => {
+  const ctx = setup({ managed: false, backendAvailable: true })
+  try {
+    await ctx.controller.refresh()
+    await ctx.controller.checkApp()
+    expect(ctx.controller.snapshot().app.state).toBe('ready')
+    expect(ctx.calls).toContain('arm:true:true')
+    await expect(
+      ctx.controller.installBackend({ target: '1.1.0' }),
+    ).rejects.toMatchObject({ code: 'update-unmanaged' })
+    expect(ctx.calls.some((call) => call.includes('/v1/updates/install'))).toBe(
+      false,
+    )
+    await ctx.controller.installApp(true)
+    expect(ctx.calls).toContain('install:1.1.0')
+    expect(ctx.calls).toContain('finish:true')
   } finally {
     ctx.restore()
   }

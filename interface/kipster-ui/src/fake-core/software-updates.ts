@@ -1,4 +1,11 @@
 import {
+  updateCheck,
+  updateInstall,
+  updateSettings,
+  updateSettingsWrite,
+  updateUnpin,
+} from '@kipster/core/protocol'
+import {
   compareVersions,
   parseChannelEntry,
   parseUpdateStatus,
@@ -6,10 +13,14 @@ import {
   type UpdateStatus,
 } from '../data/software-update-contract.ts'
 import { appProtocol, type ProtocolRange } from '../data/compatibility.ts'
-import { body, fields, json, record, text, WireError } from './wire.ts'
+import { body, json, record, text, WireError } from './wire.ts'
 
 const now = () => new Date().toISOString()
 const clone = <T>(value: T): T => structuredClone(value)
+type Mutable<T> = { -readonly [K in keyof T]: T[K] }
+type FakeUpdateStatus = Mutable<Omit<UpdateStatus, 'core'>> & {
+  core: Mutable<UpdateStatus['core']>
+}
 export function createFakeUpdates(options: {
   emit: (
     type: string,
@@ -66,7 +77,7 @@ export function createFakeUpdates(options: {
     },
   }
   let revision = 0
-  let status: UpdateStatus
+  let status: FakeUpdateStatus
   let app: {
     version: string
     pinned: string | null
@@ -89,6 +100,7 @@ export function createFakeUpdates(options: {
       window: { start: '02:00', end: '05:00' },
       core: {
         version: options.release().coreVersion,
+        managed: true,
         pinned: null,
         available: null,
         state: 'idle',
@@ -117,6 +129,15 @@ export function createFakeUpdates(options: {
     releases.packages[pkg].find(
       (release) => status.channel === 'next' || !release.prerelease,
     )!
+  const waitingState = () =>
+    status.core.managed &&
+    status.mode === 'automatic' &&
+    !status.core.pinned &&
+    status.core.available &&
+    !status.core.error &&
+    status.core.lastResult?.to !== status.core.available.version
+      ? ('scheduled' as const)
+      : ('idle' as const)
   const changed = () =>
     options.emit('updates-changed', status, 'software-updates', ++revision)
   const appChanged = () =>
@@ -214,6 +235,7 @@ export function createFakeUpdates(options: {
       status.channel = input.channel
     if (input.mode === 'automatic' || input.mode === 'notify')
       status.mode = input.mode
+    if (typeof input.managed === 'boolean') status.core.managed = input.managed
     if (input.state !== undefined) {
       const state = text(input.state)
       status.core.version = options.release().coreVersion
@@ -228,6 +250,8 @@ export function createFakeUpdates(options: {
           'failed',
           'rolled-back',
           'pinned',
+          'unmanaged',
+          'not-started',
         ].includes(state)
       ) {
         status.core.available = latest('@kipster/core')
@@ -241,7 +265,13 @@ export function createFakeUpdates(options: {
         status.core.state = 'idle'
         status.core.available = null
       } else if (state === 'available') status.core.state = 'idle'
-      else if (state === 'scheduled' || state === 'checking')
+      else if (state === 'unmanaged') {
+        status.core.managed = false
+        status.core.state = 'idle'
+      } else if (state === 'not-started') {
+        settle('failed')
+        status.core.error = 'The updater did not start'
+      } else if (state === 'scheduled' || state === 'checking')
         status.core.state = state
       else if (state === 'installing' || state === 'disconnect') {
         status.core.state = 'installing'
@@ -312,12 +342,18 @@ export function createFakeUpdates(options: {
     )
       return undefined
     if (request.method === 'GET' && path === '/v1/settings/updates')
-      return json({ version: 1, channel: status.channel, mode: status.mode })
+      return json(
+        updateSettings.parse({
+          version: 1,
+          channel: status.channel,
+          mode: status.mode,
+        }),
+      )
     if (request.method === 'GET' && path === '/v1/updates')
       return json(snapshot())
     const input = await body(request)
     if (request.method === 'POST' && path === '/v1/updates/check') {
-      fields(input, ['version'])
+      updateCheck.parse(input)
       status.checkedAt = now()
       status.core.version = options.release().coreVersion
       const release = latest('@kipster/core')
@@ -327,6 +363,7 @@ export function createFakeUpdates(options: {
           : null
       status.core.state =
         status.core.available &&
+        status.core.managed &&
         !status.core.pinned &&
         status.mode === 'automatic'
           ? 'scheduled'
@@ -334,6 +371,19 @@ export function createFakeUpdates(options: {
       changed()
       return json(snapshot())
     }
+    if (request.method === 'PUT' && path === '/v1/settings/updates')
+      updateSettingsWrite.parse(input)
+    else if (request.method === 'POST' && path === '/v1/updates/install') {
+      updateInstall.parse(input)
+      if (!status.core.managed)
+        throw new WireError(
+          409,
+          'update-unmanaged',
+          'Software installation requires a managed updater on this host',
+        )
+    } else if (request.method === 'POST' && path === '/v1/updates/unpin')
+      updateUnpin.parse(input)
+    else throw new WireError(404, 'not-found', 'Route not found')
     const operationId = text(input.operationId)
     const signature = JSON.stringify({ path, method: request.method, input })
     const previous = operations.get(operationId)
@@ -344,87 +394,93 @@ export function createFakeUpdates(options: {
           'conflict',
           'Operation ID was already used with different update fields',
         )
-      return json(clone(previous.response))
+      return json(
+        path === '/v1/settings/updates' ? clone(previous.response) : snapshot(),
+      )
     }
     let response: unknown
     if (request.method === 'PUT' && path === '/v1/settings/updates') {
-      fields(
-        input,
-        ['version', 'operationId', 'channel', 'mode'],
-        ['channel', 'mode'],
-      )
-      if (
-        !['stable', 'next'].includes(String(input.channel)) ||
-        !['automatic', 'notify'].includes(String(input.mode))
-      )
-        throw new Error('Invalid update settings')
+      const changedChannel = status.channel !== input.channel
       status.channel = input.channel as UpdateStatus['channel']
       status.mode = input.mode as UpdateStatus['mode']
-      if (status.core.available) {
-        const entry = latest('@kipster/core')
-        status.core.available =
-          compareVersions(entry.version, status.core.version) > 0 ? entry : null
+      if (changedChannel) {
+        status.checkedAt = null
+        status.core.available = null
+        if (status.core.state !== 'installing') status.core.error = null
       }
+      if (status.core.state !== 'installing') status.core.state = waitingState()
       changed()
       response = { version: 1, channel: status.channel, mode: status.mode }
     } else if (request.method === 'POST' && path === '/v1/updates/unpin') {
-      fields(input, ['version', 'operationId'])
       status.core.pinned = null
+      if (!['installing', 'failed'].includes(status.core.state))
+        status.core.state = waitingState()
       changed()
       response = snapshot()
     } else if (request.method === 'POST' && path === '/v1/updates/install') {
-      fields(
-        input,
-        [
-          'version',
-          'operationId',
-          'target',
-          'pin',
-          'backupId',
-          'confirmDataLoss',
-        ],
-        ['target'],
-      )
       const release = releases.packages['@kipster/core'].find(
         (entry) => entry.version === input.target,
       )
       if (!release) throw new Error('Invalid backend release')
-      if (input.pin !== undefined && typeof input.pin !== 'boolean')
-        throw new Error('Invalid pin')
-      if (
-        input.confirmDataLoss !== undefined &&
-        typeof input.confirmDataLoss !== 'boolean'
-      )
-        throw new Error('Invalid confirmation')
+      if (status.core.state === 'installing')
+        throw new WireError(
+          409,
+          'update-in-progress',
+          'An update request is already in progress',
+        )
       from = options.release().coreVersion
-      if (
-        compareVersions(release.version, from) < 0 &&
-        (!input.confirmDataLoss ||
+      const order = compareVersions(release.version, from)
+      if (order === 0)
+        throw new WireError(
+          409,
+          'update-already-installed',
+          'The target Core version is already installed',
+        )
+      if (order < 0) {
+        if (!input.backupId)
+          throw new WireError(
+            409,
+            'update-backup-required',
+            'Restoring an older Core requires a backup taken on that version',
+          )
+        if (
           !status.core.backups.some(
             (backup) =>
               backup.id === input.backupId &&
               backup.coreVersion === release.version,
-          ))
-      )
-        throw new WireError(
-          409,
-          'confirmation-required',
-          'An older backend needs a matching backup and explicit data-loss confirmation',
+          )
         )
-      if (status.core.state === 'installing')
-        throw new WireError(409, 'conflict', 'An update is already installing')
+          throw new WireError(
+            409,
+            'update-backup-mismatch',
+            'The backup must exist and match the target Core version',
+          )
+        if (input.confirmDataLoss !== true)
+          throw new WireError(
+            409,
+            'update-confirmation-required',
+            'Restoring this backup loses data written since it was taken; confirmDataLoss must be true',
+          )
+      } else if (input.backupId !== undefined || input.confirmDataLoss === true)
+        throw new TypeError(
+          'Invalid backup or data-loss confirmation for an upgrade',
+        )
       target = release.version
       status.core.state = 'installing'
       status.core.step = 'Verifying release'
       status.core.available = release
       status.core.error = null
       status.core.lastResult = null
-      if (input.pin) status.core.pinned = release.version
+      status.core.pinned =
+        order < 0 || input.pin !== false ? release.version : null
       installs.push(clone(input))
       changed()
       response = snapshot()
     } else throw new WireError(404, 'not-found', 'Route not found')
-    operations.set(operationId, { input: signature, response: clone(response) })
+    operations.set(operationId, {
+      input: signature,
+      response: clone(response),
+    })
     return json(response)
   }
   return { control, inspect, snapshot, handle, reset }

@@ -82,7 +82,10 @@ removes owned publications and updates surviving message references.
 
 Software update scenarios use `{ state }`: `idle`, `available`, `checking`,
 `scheduled`, `installing`, `disconnect`, `installed`, `rolled-back`, `failed`,
-`pinned` or `backups`. Supply `step` for install progress and `disconnectMs` for
+`not-started`, `unmanaged`, `pinned` or `backups`. `not-started` reports
+"The updater did not start"; `unmanaged` exposes releases with manual backend
+updates and refuses installation with `update-unmanaged`. Supply `{ managed: true }`
+to return to a managed host. Supply `step` for install progress and `disconnectMs` for
 the restart outage. `core` and `backups` override status fields; `app` sets the
 simulated app’s state, version, availability or error. App pinning through the UI
 stays device-local. The fake serves the shared `/v1/settings/updates` and
