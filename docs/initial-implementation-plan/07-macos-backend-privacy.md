@@ -142,8 +142,12 @@ Move the stable JavaScript updater entry to `<home>/bin/kipster.mjs`. The execut
 `<home>/bin/kipster` becomes a small shell entry that invokes the bundled native
 launcher in its `cli` role with correctly quoted arguments. It no longer embeds
 an nvm Node path in its shebang, so removing an old Node does not strand the CLI
-needed to select its replacement. Privacy consent itself uses Launch Services,
-not this Terminal-invoked wrapper.
+needed to select its replacement. The native `cli` role must recognize
+`runtime --node <absolute-path>` and use that explicit candidate to run the
+JavaScript runtime-switch command even when the stored Node no longer exists;
+normal CLI commands use the stored runtime. Validate the candidate before
+committing the manifest. Privacy consent itself uses Launch Services, not this
+Terminal-invoked wrapper.
 
 Existing installations need a one-time interactive `kipster repair-services`
 migration. The current updater writes service files only at first install and
