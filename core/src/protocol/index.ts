@@ -5,3 +5,4 @@ export type JsonObject = { readonly [key: string]: JsonValue }
 export * from './version.js'
 export * from './text.js'
 export * from './admin.js'
+export * from './updates.js'

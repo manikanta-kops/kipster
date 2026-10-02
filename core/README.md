@@ -427,6 +427,71 @@ Read functions open and close their own database connections. Pass `installation
 The package tests install a tarball outside the repository and verify exports,
 declarations, import side effects, browser bundling and adapter host injection.
 
+## Updates
+
+Updates are installation-wide. The owner reads or saves `{ version: 1,
+channel: "stable" | "next", mode: "automatic" | "notify" }` through
+`GET`/`PUT /v1/settings/updates`; a save also requires `operationId`. Defaults
+are `stable` and `automatic`. Bootstrap advertises `capabilities.updates`.
+
+The host checks `https://updates.kipster.app/v1/<channel>.json` five seconds
+after startup, every 12 hours, after a channel change, and on
+`POST /v1/updates/check` (`{ version: 1 }`). Semver, including prereleases,
+determines whether Core is newer. Switching to stable waits for stable to pass
+the running version and never initiates a downgrade. An optional
+`updates: { channelUrl: "https://example.com/v1/" }` in host.json changes the
+catalog base for self-hosting. Failed checks report an error without rapid retries.
+
+`updates.managed` in host.json defaults to `false`. Every host still checks and
+reports available releases, but installation requires an updater and explicit
+`managed: true`. Unmanaged hosts never schedule or write update requests, and
+manual installs return `update-unmanaged`.
+
+Automatic installation runs only from 02:00 up to 05:00 in the host's local
+time, while unpinned and with no active or uncertain agent execution or
+preparation. Core atomically checks shared execution capacity and pauses new
+conversation and memory-maintenance admissions before handing off a request.
+Queued work stays saved and resumes after a terminal updater result or a pickup
+timeout. Manual installation hands off immediately and can interrupt work when
+Core restarts.
+
+`GET /v1/updates` returns settings, the last check, the window and Core's
+running version, `core.managed`, pin, available channel entry, state, step, error,
+last result and updater-reported backups. Every status change publishes `updates-changed`
+on the application stream. Response readers tolerate additive metadata and
+map unknown policy, state and outcome values to `unknown`.
+
+`POST /v1/updates/install` takes `{ version: 1, operationId, target, pin?,
+backupId?, confirmDataLoss? }`. A newer target installs; an older target
+requires a listed backup whose `coreVersion` exactly matches and
+`confirmDataLoss: true`. Restoring loses data written since that backup.
+Refusals use `update-unmanaged`, `update-backup-required`, `update-backup-mismatch`,
+`update-confirmation-required`, `update-already-installed` or
+`update-in-progress`. A manual target pins by default; `pin: false` leaves
+an upgrade unpinned. A restore always pins its target.
+`POST /v1/updates/unpin` takes `{ version: 1, operationId }`.
+Mutation IDs are scoped to the owner and deduplicated across restarts; changing
+the payload under an existing ID returns `conflict`.
+
+Core atomically writes `<home>/updates/request.json` from a durable database
+outbox. The separate updater verifies releases, manages backups, installs or
+restores, and restarts Core. It atomically writes `status.json`; Core reads it
+before dispatch starts, watches replacements and also polls once a minute.
+Requests and execution pauses survive Core restarts. If no matching updater
+status arrives within ten minutes of writing the request, Core releases the
+pause, reports `failed` with "The updater did not start", records a failed result
+and publishes `updates-changed`. A stale result cannot settle a newer request,
+and a failed target is not automatically retried.
+At startup, a matching restore request for the running version supersedes a
+request restored from an old database snapshot. Each request carries
+`settings: { channel, mode, pinned }`. Core reapplies these settings when it
+reconciles the matching restore's terminal status, preserving policy and the
+restore target's pin even when the database snapshot predates them.
+`runtime.updates` provides the same service to embedded hosts; `openRuntime`
+loads file status without network activity, and the host calls
+`runtime.updates.start()` to start background checks. Tests can inject
+`openRuntime`'s clock and call `runtime.updates.tick()` explicitly.
+
 ## Host commands
 
 A host's first start creates the Playground starter from `src/starter/playground`:
