@@ -1,6 +1,6 @@
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
 import type { Jobs } from '../../platform/jobs/public.js'
-import type { TrustedActor } from '../identity/public.js'
+import { authorizeAdministration, type AdminCaller } from '../identity/public.js'
 import { publishAppEvent } from '../synchronization/public.js'
 import { MAINTENANCE_SWEEP_JOB_ID, learningCondition } from './maintenance.js'
 import { clockTime } from '../../protocol/schema.js'
@@ -12,12 +12,12 @@ export interface AgentLearningUpdate { enabled?: boolean | undefined; sleepTime?
 
 /** Installation and per-agent learning switches and sleep times. An agent learns only while both switches are on
  * and the runtime has an embedding profile (`available`). It sleeps at its own sleep time, or at the installation
- * default ("HH:MM", host local time) when it has none. Changes are owner-only, publish a `learning-changed`
+ * default ("HH:MM", host local time) when it has none. Changes are made by the owner or the admin agent, publish a `learning-changed`
  * application event and wake the maintenance sweep that applies them. */
 export class LearningService {
   constructor(private readonly db: Postgres, private readonly jobs: Jobs, private readonly installationId: string, readonly available: boolean) {}
 
-  async get(actor: TrustedActor): Promise<LearningSettings> {
+  async get(actor: AdminCaller): Promise<LearningSettings> {
     return this.db.transaction(async client => {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
       await this.requireOwner(client, actor)
@@ -25,7 +25,7 @@ export class LearningService {
     })
   }
 
-  async setInstallation(actor: TrustedActor, update: LearningUpdate): Promise<LearningSettings> {
+  async setInstallation(actor: AdminCaller, update: LearningUpdate): Promise<LearningSettings> {
     const { enabled, sleepTime: time } = learningUpdate(update, false)
     return this.db.transaction(async client => {
       await this.lockCapacity(client)
@@ -42,7 +42,7 @@ export class LearningService {
     })
   }
 
-  async setAgent(actor: TrustedActor, agentId: string, update: AgentLearningUpdate): Promise<AgentLearning> {
+  async setAgent(actor: AdminCaller, agentId: string, update: AgentLearningUpdate): Promise<AgentLearning> {
     const { enabled, sleepTime: time } = learningUpdate(update, true)
     return this.db.transaction(async client => {
       await this.lockCapacity(client)
@@ -67,9 +67,10 @@ export class LearningService {
     await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [this.installationId])
   }
 
-  private async requireOwner(client: SqlClient, actor: TrustedActor): Promise<void> {
-    const owner = await client.query('SELECT 1 FROM kipster.bootstrap WHERE installation_id=$1 AND owner_id=$2', [this.installationId, actor.personId])
-    if (actor.installationId !== this.installationId || !owner.rows.length) throw new Error('Owner access denied')
+  /** The owner, or the admin agent from a live attempt. */
+  private async requireOwner(client: SqlClient, actor: AdminCaller): Promise<void> {
+    if (actor.installationId !== this.installationId) throw new Error('Owner access denied')
+    await authorizeAdministration(client, actor)
   }
 
   private async changed(client: SqlClient, target: 'installation' | 'agent', resourceId: string, revision: number, enabled: boolean, sleepTime: string | null): Promise<void> {

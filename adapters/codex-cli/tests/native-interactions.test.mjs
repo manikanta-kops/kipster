@@ -71,7 +71,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const first = await adapter.execute(base)
   const events = []; for await (const event of first.events) events.push(event)
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].name, 'interactions.request_approval')
+  assert.equal(calls[0].name, 'interactions_request_approval')
   assert.equal(events.find(x => x.kind === 'waiting').interactionId, 'card')
   assert.equal(events.at(-1).kind, 'ended')
   assert.equal(events.at(-1).confirmed, true)

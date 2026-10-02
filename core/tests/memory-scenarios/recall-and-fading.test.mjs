@@ -16,13 +16,13 @@ test('a preference stated on Monday reaches Thursday\'s conversation and recall 
   let found, got
   const thursday = await s.home.chat('Please write up the notes from today\'s meeting.', {
     tools: async call => {
-      found = await call('memory.search', { query: 'meeting notes' })
-      got = await call('memory.get', { id: found[0].record.id })
+      found = await call('memory_search', { query: 'meeting notes' })
+      got = await call('memory_get', { id: found[0].record.id })
     },
   })
   assert.deepEqual(thursday.memory.map(item => item.text), [preference], 'automatic context')
-  assert.equal(found[0].record.text, preference, 'memory.search')
-  assert.equal(got.text, preference, 'memory.get')
+  assert.equal(found[0].record.text, preference, 'memory_search')
+  assert.equal(got.text, preference, 'memory_get')
   // Recall resets age but is not new evidence.
   assert.deepEqual(await s.memory(preference).then(m => [m.evidence, m.strength]), [1, 0.25])
 })
@@ -50,7 +50,7 @@ test('a detail mentioned once fades over busy months, is forgotten, and forms an
   const key = 'The spare office key is in the blue drawer'
   await s.home.chat('By the way, the third-floor printer is broken. Standup is at 9:30 as usual. And please save where the spare key is: the blue drawer.', {
     learn: [{ text: printer, subject: 'office' }, { text: standup, subject: 'schedule' }],
-    tools: call => call('memory.save', { kind: 'fact', text: key }),
+    tools: call => call('memory_save', { kind: 'fact', text: key }),
   })
   await s.home.chat('Standup is at 9:30 tomorrow too.', { learn: [{ text: standup, subject: 'schedule' }] })
   const old = await s.memory(printer)
@@ -98,7 +98,7 @@ test('conversations about other things let an old detail fade, while talking abo
   await s.work(20)
   const aged = await s.memory(printer)
   const supplies = await s.home.chat('We need printer paper, pens, folders, staplers and envelopes for the new desks.', {
-    tools: call => call('memory.search', { query: 'printer paper, pens, folders and envelopes' }),
+    tools: call => call('memory_search', { query: 'printer paper, pens, folders and envelopes' }),
   })
   assert.deepEqual(supplies.memory, [])
   assert.deepEqual(supplies.used.map(hit => hit.record.text), [printer], 'a search still finds the loose match')

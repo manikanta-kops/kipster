@@ -125,17 +125,17 @@ async function setup(t, { forget = false, learning = false } = {}) {
 async function populate(ctx) {
   const own = await ctx.running(ctx.scout, 'Write the report')
   ctx.provider(own, 'codex-scout-own')
-  const written = await own.call('artifacts.write', { name: 'report.txt', content: 'Quarterly numbers' })
-  const shown = (await own.call('artifacts.publish', { outputId: written.outputId })).artifact
-  await own.call('conversation.publish', { text: 'Here is the report', artifactIds: [shown.id] })
-  const publication = (await own.call('artifacts.copy_to_organization', { artifactId: shown.id })).artifact
-  const draft = await own.call('artifacts.write', { name: 'draft.txt', content: 'Draft only' })
-  const unshown = (await own.call('artifacts.publish', { outputId: draft.outputId })).artifact
-  const memory = await own.call('memory.save', { kind: 'fact', text: 'Scout prefers short reports' })
+  const written = await own.call('artifacts_write', { name: 'report.txt', content: 'Quarterly numbers' })
+  const shown = (await own.call('artifacts_publish', { outputId: written.outputId })).artifact
+  await own.call('conversation_publish', { text: 'Here is the report', artifactIds: [shown.id] })
+  const publication = (await own.call('artifacts_copy_to_organization', { artifactId: shown.id })).artifact
+  const draft = await own.call('artifacts_write', { name: 'draft.txt', content: 'Draft only' })
+  const unshown = (await own.call('artifacts_publish', { outputId: draft.outputId })).artifact
+  const memory = await own.call('memory_save', { kind: 'fact', text: 'Scout prefers short reports' })
   const target = { kind: 'agent', ownerId: ctx.scout }
-  const collection = await own.call('vectors.space', { target, operation: 'create', name: 'notes' })
-  await own.call('vectors.space', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
-  await own.call('data.space', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
+  const collection = await own.call('vectors_space', { target, operation: 'create', name: 'notes' })
+  await own.call('vectors_space', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
+  await own.call('data_space', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
   ctx.finish(own)
   await ctx.settled(own.runId, 'completed')
 
@@ -144,15 +144,15 @@ async function populate(ctx) {
 
   // Root delegates to Scout; Scout shows a file in its reply thread and passes it on to Helper.
   const parent = await ctx.running(ctx.root, 'Ask Scout for the numbers')
-  const delegated = await parent.call('agents.delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const delegated = await parent.call('agents_delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
   parent.release({ kind: 'ended', confirmed: true })
   await ctx.settled(parent.runId, 'waiting')
   const child = ctx.bind({ runId: delegated.childRunId }, await ctx.execution(delegated.childRunId))
   ctx.provider(child, 'codex-scout-child')
-  const checked = await child.call('artifacts.write', { name: 'checked.txt', content: 'Checked numbers' })
-  const childFile = (await child.call('artifacts.publish', { outputId: checked.outputId })).artifact
-  await child.call('conversation.publish', { text: 'Checked', artifactIds: [childFile.id] })
-  const further = await child.call('agents.delegate', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
+  const checked = await child.call('artifacts_write', { name: 'checked.txt', content: 'Checked numbers' })
+  const childFile = (await child.call('artifacts_publish', { outputId: checked.outputId })).artifact
+  await child.call('conversation_publish', { text: 'Checked', artifactIds: [childFile.id] })
+  const further = await child.call('agents_delegate', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
   let mark = ctx.executions.length
   child.release({ kind: 'ended', confirmed: true })
   ctx.finish(ctx.bind({}, await ctx.execution(further.childRunId)), 'Looks right')
@@ -292,8 +292,8 @@ test('copying files keeps each file shown in an organization\'s chats in that or
   for (const agentId of [ctx.scout, ctx.helper]) await ctx.ok('POST', `/v1/organizations/${second}/memberships`, { version: 1, operationId: randomUUID(), agentId })
   const secondContext = { kind: 'organization', organizationId: second }
   const there = await ctx.running(ctx.scout, 'Summarize', secondContext)
-  const summary = (await there.call('artifacts.publish', { outputId: (await there.call('artifacts.write', { name: 'summary.txt', content: 'Summary' })).outputId })).artifact
-  await there.call('conversation.publish', { text: 'Summary attached', artifactIds: [summary.id] })
+  const summary = (await there.call('artifacts_publish', { outputId: (await there.call('artifacts_write', { name: 'summary.txt', content: 'Summary' })).outputId })).artifact
+  await there.call('conversation_publish', { text: 'Summary attached', artifactIds: [summary.id] })
   ctx.finish(there)
   await ctx.settled(there.runId, 'completed')
 
@@ -469,8 +469,8 @@ test('organization deletion fences work, removes owned resources and preserves g
   const running = await ctx.running(ctx.helper, 'Work before deletion')
   const deletionCursor = await ctx.cursor()
   const shared = { kind: 'organization', ownerId: ctx.organizationId }
-  const sharedCollection = await running.call('vectors.space', { target: shared, operation: 'create', name: 'shared_notes' })
-  await running.call('data.space', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
+  const sharedCollection = await running.call('vectors_space', { target: shared, operation: 'create', name: 'shared_notes' })
+  await running.call('data_space', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
   const publishedMemory = await ctx.runtime.memory.publish(ctx.scout, ctx.organizationId, data.memory.record.id, 1)
   const stranger = await ctx.serve({ installationId: ctx.installationId, personId: randomUUID() })
   assert.equal((await stranger('DELETE', `/v1/organizations/${ctx.organizationId}`, { version: 1, operationId: randomUUID() })).status, 403)

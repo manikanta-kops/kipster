@@ -158,12 +158,12 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   // Waiting on a question.
   const asking = await accept('Ask me which market')
   const askingExecution = await ctx.execution(asking.runId)
-  const question = await askingExecution.handle.callTool('ask', 'interactions.ask', { prompt: 'Which market?', options: [{ id: 'eu', label: 'Europe' }], freeText: false })
+  const question = await askingExecution.handle.callTool('ask', 'interactions_ask', { prompt: 'Which market?', options: [{ id: 'eu', label: 'Europe' }], freeText: false })
   askingExecution.handle.release({ kind: 'ended', attemptId: askingExecution.context.attemptId, confirmed: true })
   // Waiting on a child delegated to another member.
   const parent = await accept('Ask Helper to check the numbers')
   const parentExecution = await ctx.execution(parent.runId)
-  const delegation = await parentExecution.handle.callTool('delegate', 'agents.delegate', { recipientId: helper.agent.id, request: 'Check the numbers' })
+  const delegation = await parentExecution.handle.callTool('delegate', 'agents_delegate', { recipientId: helper.agent.id, request: 'Check the numbers' })
   parentExecution.handle.release({ kind: 'ended', attemptId: parentExecution.context.attemptId, confirmed: true })
   const childExecution = await ctx.execution(delegation.childRunId)
   // Failed work held with a reply behind it, for Resume, and failed work for Retry.
@@ -300,7 +300,7 @@ test('a delegation and the removal of its recipient serialize: exactly one outco
   const { chatId } = (await ctx.chat(org.id, scout.agent.id)).data
   const parent = (await ctx.say(org.id, chatId, 'Ask Helper')).data
   const parentExecution = await ctx.execution(parent.runId)
-  const delegate = (callId, request) => parentExecution.handle.callTool(callId, 'agents.delegate', { recipientId: helper.agent.id, request })
+  const delegate = (callId, request) => parentExecution.handle.callTool(callId, 'agents_delegate', { recipientId: helper.agent.id, request })
 
   // The delegation holds the recipient's membership first: the removal waits, the child still runs.
   const run = hold(ctx, locks, c => c.query('SELECT 1 FROM kipster.text_runs WHERE id=$1 FOR UPDATE', [parent.runId]))

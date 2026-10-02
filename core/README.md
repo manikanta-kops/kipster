@@ -65,7 +65,7 @@ older cursors require a snapshot. Canonical messages and work are not pruned.
 | --- | --- |
 | `@kipster/core/protocol` | JSON value types and runtime text submission, receipt, read, snapshot, directory and event parsers. |
 | `@kipster/core/client` | JSON types and `defineClientOptions` for HTTP(S) URL configuration. |
-| `@kipster/core/adapter` | Injected text execution context, opt-in maintenance context for extraction, consolidation and identity promotion tasks, readiness catalog, events, controls, reconciliation and durable recovery references. |
+| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions of the execution, opt-in maintenance context for extraction, consolidation and identity promotion tasks, readiness catalog, events, controls, reconciliation and durable recovery references. |
 | `@kipster/core/transcription` | Replaceable provider contract for derived audio text; no provider is selected by importing it. |
 | `@kipster/core/runtime` | Node-only `openRuntime`, `AdapterRegistry`, `TextDispatcher`, `textPublicationHost` and `startTextServer`. All startup is explicit. |
 | `@kipster/core/maintenance` | Node-only inspect/list/status reads plus idempotent `requestAction` intents for default-disabled maintenance. Importing it starts nothing; only the running coordinator executes intents. |
@@ -96,7 +96,7 @@ Managed files use `/conversations/media`: capabilities, bounded binary upload wi
 
 Agents can discover authorized peers and delegate bounded work through Core-bound tools. Each delegation creates a private child run with a durable parent relationship; the child uses its own agent identity for memory and files. Human questions from a child appear on the originating thread and answers return to that child. Parent continuation receives saved child results in request order after the parent provider turn ends. Stop propagates to active descendants; uncertain provider termination retains capacity until reconciliation.
 
-Each agent home holds `AGENTS.md`, `soul.md` and `identity.md`; every execution reads them fresh. Core changes them only by compare-and-swap: the caller supplies the SHA-256 it read, and a file that changed since then fails with `409 conflict` instead of being overwritten. A write syncs a temporary file, checks the live file again and renames it into place, so a crash leaves the previous or the new file, never a partial one; it may leave a hidden temporary file, which is never read. The replaced version is kept under `backups/<file>/` in the agent home, and only the latest five backups of each file remain. The owner may change any of the three files with `GET` and `PUT /v1/agents/{agentId}/identity/{file}` (`{ "version": 1, "content": string, "expectedSha256": string }`), list and read backups with `GET .../backups` and `GET .../backups/{backupId}`, and restore one with `POST .../backups/{backupId}/restore` (`{ "version": 1, "expectedSha256": string }`). A restore is itself a write and keeps a backup. Kipster itself may change only the text between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md`, and appends that section when it is absent; all other text is changed only by the owner. Identity files must be regular UTF-8 files of at most 64 KiB. An edit saved outside Core in the instant between the final check and the rename can still be lost.
+Each agent home holds `AGENTS.md`, `soul.md` and `identity.md`; every execution reads them fresh. Core changes them only by compare-and-swap: the caller supplies the SHA-256 it read, and a file that changed since then fails with `409 conflict` instead of being overwritten. A write syncs a temporary file, checks the live file again and renames it into place, so a crash leaves the previous or the new file, never a partial one; it may leave a hidden temporary file, which is never read. The replaced version is kept under `backups/<file>/` in the agent home, and only the latest five backups of each file remain. The owner may change any of the three files with `GET` and `PUT /v1/agents/{agentId}/identity/{file}` (`{ "version": 1, "content": string, "expectedSha256": string }`), list and read backups with `GET .../backups` and `GET .../backups/{backupId}`, and restore one with `POST .../backups/{backupId}/restore` (`{ "version": 1, "expectedSha256": string }`). A restore is itself a write and keeps a backup. Each save or restore publishes an `identity-changed` application event (`{ agentId, file, sha256 }`); an instructions save publishes `instructions-changed` (`{ organizationId }`). The admin agent has the same access to every agent's files. Kipster itself may change only the text between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md`, and appends that section when it is absent; all other text is changed only by the owner. Identity files must be regular UTF-8 files of at most 64 KiB. An edit saved outside Core in the instant between the final check and the rename can still be lost.
 
 Task-data tools require PostgreSQL 18 and a separate restricted login supplied as `taskDataConnectionString` to `openRuntime`. Provision that login with `LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`, no role memberships and no grants on Core tables. Revoke database `TEMPORARY` from `PUBLIC` and schema `public` `CREATE` from `PUBLIC` before enabling it. Core verifies effective grants and database identity, then grants only its fixed attempt guard, receipt insert/read, and task namespace creation. It refuses an overprivileged login. Without this option, conversations continue and task-data tools are unavailable.
 
@@ -181,6 +181,7 @@ Administration is owner-only:
 | `GET /v1/execution-adapters` | The dispatcher's adapters, with the application cursor. |
 | `POST /v1/execution-adapters/refresh` | Probe every adapter's readiness again (`{ "version": 1 }`) and return the list. |
 | `GET /v1/operations/{operationId}` | An operation recorded under the owner's operation ID: `state`, current `step`, `waitingFor`, `result` and `error`. |
+| `GET`/`PUT /v1/settings/interface` | The installation's interface choices: `palette`, `theme` (`light`, `dark` or `system`) and `desktopNotifications`; null leaves the interface default. A `PUT` (`{ "version": 1, "palette"?, "theme"?, "desktopNotifications"? }`) changes the given ones and publishes `interface-changed` when one differs. Bootstrap advertises `capabilities.interfacePreferences`. |
 
 Each write except an instructions save or an adapter refresh carries an
 `operationId`. A repeated ID returns the result recorded the first time, with
@@ -294,36 +295,36 @@ Clients receive `agent-changed` (`deleting`, then `deleted`),
 `membership-removed`, and one `thread-removed` (`{ threadId, chatId }`) for each
 removed thread of a chat.
 
-The admin agent administers the installation from its installation chat through
-`admin.*` Core tools that call the same services as these routes, so they produce
-the same records and events. Core sets `administrationEnabled` in the execution
-context only for the admin agent's own work in the installation context, and
-checks again on every call; organization chats and delegated work get no
-administration tools. Reads are `admin.directory.get`, `admin.organizations.get`,
-`admin.agents.get`, `admin.organizations.instructions_get`,
-`admin.settings.list`, `admin.settings.effective`, `admin.adapters.list` and
-`admin.operations.get`. Writes are `admin.organizations.create`, `.update` and
-`.instructions_set`; `admin.agents.create` (with `organizationId` it also adds
-the agent) and `.update`; `admin.memberships.add` and `.remove`;
-`admin.groups.create`, `.rename`, `.delete` and `.reorder`;
-`admin.appearances.add`, `.remove` and `.reorder`; `admin.agents.restore`
-(`{ agentId }`); `admin.settings.set`
-(`{ target, id, adapterId?, modelId?, effort?, options? }`) and `.clear`
-(`{ target, id, fields }`); and `admin.adapters.refresh`. Arguments are the
-route bodies without `version`, plus the target IDs the route
-takes in its path, within the same size limits. A call must come from the
-current attempt of a running run that is not stopping; while the run waits on a
-question or approval, calls are refused. A write that commits before a Stop
-stands; after it, calls are refused. Each write, an instructions save included,
-is recorded under the admin agent with its explicit `operationId`. Reusing that
-ID with the same validated request returns its recorded result across attempts;
-changed fields or targets conflict. A different ID is a separate request even
-when its fields match. `admin.operations.get` reads the receipt by ID. New
-attempts receive bounded factual receipts for earlier operations in the same
-run, including operations whose tool reply was lost. This reconciles stable
-operation identities, not similar intentions expressed under new IDs. Approval
-requests retain their exact-card identity; adapter refresh has no saved mutation
-receipt.
+The admin agent administers the installation from its installation chat with two
+tools. `admin_operations` lists the administration catalog by area, or describes
+one operation: its kind and its arguments as JSON Schema. `admin_call` runs one
+operation (`{ operation, arguments?, operationId? }`). Operations call the same
+services as these routes, so they produce the same records and events, and take
+the route bodies without `version`, plus the target IDs the route takes in its
+path, within the same size limits. The catalog covers the directory,
+organizations, agents, identity files, memberships, groups and appearances,
+execution settings, adapters, learning, interface choices, updates and
+operation receipts; `core/tests/admin-parity.test.mjs` fails when a route has
+neither an operation nor a stated reason to be left out. Core offers the tools
+only for the admin agent's own work in the installation context, names the
+`kipster-admin` skill file in its instructions, and checks again on every call;
+organization chats and delegated work get no administration tools. A call must
+come from the current attempt of a running run that is not stopping; while the
+run waits on a question or approval, calls are refused. A write that commits
+before a Stop stands; after it, calls are refused.
+
+Writes with a receipt, an instructions save included, need an explicit
+`operationId` and are recorded under the admin agent. Reusing that ID with the
+same validated request returns its recorded result across attempts; changed
+fields or targets conflict. A different ID is a separate request even when its
+fields match. `operations.get` reads the receipt by ID. New attempts receive
+bounded factual receipts for earlier operations in the same run, including
+operations whose tool reply was lost. Identity file saves are guarded by their
+`expectedSha256` instead; learning and interface choices are saved by value.
+Archiving or deleting an agent, deleting an organization and installing or
+restoring a Core version ask the owner with a Core approval card bound to the
+exact target. An approved install starts after the answer is saved, under the
+card's operation ID, so a repeated answer installs once.
 
 Agents and organizations take new work only while they are live: provisioned
 and `active` (`kipster.live_agent`, `kipster.live_organization`). Every writer of
@@ -388,7 +389,7 @@ ownership, uncertainty, cancellation and queue advancement. The deterministic
 adapter under `tests/fixtures` is test-only.
 `defineClientOptions` normalizes a backend URL without making network requests.
 
-Memory maintenance learns from completed conversations only while learning is on. The installation switch is off by default and each agent's switch is on by default; an agent learns only while both are on. Turning the installation switch on requires an embedding profile. `runtime.learning` reads and changes the switches and sleep times for the installation owner, as do `GET /v1/settings/learning`, `PUT /v1/settings/learning` with `{ "version": 1, "enabled"?: boolean, "sleepTime"?: "HH:MM" }` and `PUT /v1/agents/{agentId}/learning` with `{ "version": 1, "enabled"?: boolean, "sleepTime"?: "HH:MM" | null }`; each body needs at least one of the two fields. Each change publishes one `learning-changed` application event carrying the new revision, switch and sleep time. A conversation that completes while its agent is not learning is never captured. Switching learning off skips queued sources with reason `learning_disabled`, including a claimed source that has not reached its provider; running extraction finishes but commits nothing. A switch change waits for an extraction commit already in progress. Turning learning back on does not revive skipped sources; a skipped conversation is learned only if its content later changes while learning is on. Use an adapter that declares maintenance support and compatible durable recovery. Extraction runs share ordinary execution capacity and retain permits when provider termination is uncertain. Text reserves a permit for due maintenance only while an available adapter declares maintenance support; this check does not consider which adapter each source's agent uses. Repair scans use PostgreSQL 17 or later transaction timeouts.
+Memory maintenance learns from completed conversations only while learning is on. The installation switch is off by default and each agent's switch is on by default; an agent learns only while both are on. Turning the installation switch on requires an embedding profile. `runtime.learning` reads and changes the switches and sleep times for the installation owner or the admin agent, as do `GET /v1/settings/learning`, `PUT /v1/settings/learning` with `{ "version": 1, "enabled"?: boolean, "sleepTime"?: "HH:MM" }` and `PUT /v1/agents/{agentId}/learning` with `{ "version": 1, "enabled"?: boolean, "sleepTime"?: "HH:MM" | null }`; each body needs at least one of the two fields. Each change publishes one `learning-changed` application event carrying the new revision, switch and sleep time. A conversation that completes while its agent is not learning is never captured. Switching learning off skips queued sources with reason `learning_disabled`, including a claimed source that has not reached its provider; running extraction finishes but commits nothing. A switch change waits for an extraction commit already in progress. Turning learning back on does not revive skipped sources; a skipped conversation is learned only if its content later changes while learning is on. Use an adapter that declares maintenance support and compatible durable recovery. Extraction runs share ordinary execution capacity and retain permits when provider termination is uncertain. Text reserves a permit for due maintenance only while an available adapter declares maintenance support; this check does not consider which adapter each source's agent uses. Repair scans use PostgreSQL 17 or later transaction timeouts.
 
 Each memory has a strength, `importance × (1 − 0.5^evidence) × 0.5^(age / (30 × evidence))`, that ranks retrieval and decides forgetting. Deliberate saves and explicit requests have importance 1. Any other learned memory takes the importance its extraction reports (0.2 to 1, default 0.5) when it forms. Evidence counts the distinct conversations that support a memory; the agent's own words count once. New support adds evidence and resets age. Recall into an execution, as automatic context or through `memory.search` or `memory.get`, resets age without adding evidence. Only relevant memories count as recalled: automatic context includes a memory only when its relevance reaches 0.3 (`MEMORY_RECALL.minRelevance`), and `memory.search` refreshes only results at that relevance, although it still returns weaker ones. Lexical matching ignores very common English words, so a memory that shares only such words with a conversation is not recalled and keeps fading. Age counts the agent's active days: days on which it starts work while learning, so an idle agent, or one that is not learning, forgets nothing. Retrieval scores relevance × (0.6 + 0.4 × strength). Organization memories do not age.
 

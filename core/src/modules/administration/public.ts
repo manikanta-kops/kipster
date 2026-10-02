@@ -139,7 +139,7 @@ const creations = ['organization.create', 'agent.create'] as const
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const names = { organization: 'Organization', agent: 'Agent', membership: 'Membership', group: 'Group' } as const
 const tables = { organization: 'organizations', agent: 'agents' } as const
-const operationKey = (actor: AdminCaller, authority: AdminAuthority, operationId: string): OperationKey => ({ installationId: actor.installationId, actorKind: authority.actorKind, actorId: authority.actorId, operationId, ...(isAgentCaller(actor) ? { attemptId: actor.attemptId } : {}) })
+export const operationKey = (actor: AdminCaller, authority: AdminAuthority, operationId: string): OperationKey => ({ installationId: actor.installationId, actorKind: authority.actorKind, actorId: authority.actorId, operationId, ...(isAgentCaller(actor) ? { attemptId: actor.attemptId } : {}) })
 
 /** Requires a live agent or organization of the installation, optionally locking its row first. */
 async function requireLive(client: SqlClient, kind: 'organization' | 'agent', installationId: string, id: string, lock: '' | 'FOR SHARE' | 'FOR NO KEY UPDATE' | 'FOR UPDATE'): Promise<void> {
@@ -514,6 +514,7 @@ export async function writeOrganizationInstructions(db: Postgres, home: Home, ac
       await requireLive(client, 'organization', actor.installationId, organizationId, 'FOR SHARE')
       await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`kipster.organization-instructions:${organizationId}`])
       await staged.commit()
+      await publishAppEvent(client, actor.installationId, 'instructions-changed', organizationId, 0, { organizationId })
       return { instructions: { organizationId, bytes: Buffer.byteLength(content) } }
     }
     if (operationId !== null) return await operate(db, actor, operationId, 'organization.instructions', { kind: 'organization', id: organizationId }, { content }, save)

@@ -27,6 +27,15 @@ instructions take precedence over older decisions.
 - Database migrations merged into `next` are shipped and immutable; every schema change or fix adds a new number above the base branch's highest and updates the ordered list in `core/src/runtime.ts`.
 - Keep released clients working: change protocol responses by addition only,
   and follow the compatibility rules in decision record 5.1.7.
+- Kip can do everything a person can do in the interface. Keep every setting
+  in Core, not in browser storage, and add each new setting or action to the
+  administration catalog in `core/src/workflows/admin-tools.ts`. Update the
+  `kipster-admin` skill (`core/src/skills/kipster-admin/SKILL.md`) when its
+  guidance changes. `core/tests/admin-parity.test.mjs` and the interface's
+  `tests/client-storage.mjs` fail until you do.
+- Core defines the Kipster tools every execution gets
+  (`core/src/workflows/agent-tools.ts`); adapters pass them through and define
+  none of their own.
 - Start each task on a new branch from the latest `origin/next`, in its own git
   worktree when other work may share this checkout. Install dependencies with
   `npm ci` at the repository root.

@@ -6,6 +6,8 @@ import { archiveAgent, deleteAgent, deleteOrganization, AgentNotArchivedError } 
 import { askInteraction, type InteractionRecord } from '../modules/work/public.js'
 
 type Action = 'agent.archive' | 'agent.delete' | 'organization.delete'
+/** A Core version to install, or with a backup, to restore. */
+export interface InstallRequest { target: string; pin?: boolean | undefined; backupId?: string | undefined; confirmDataLoss?: boolean | undefined }
 /** The provider supplies IDs and the copy option only; Core authors and durably binds the card. */
 export async function requestAdminApproval(db: Postgres, caller: AgentCaller, callId: string, action: Action, targetId: string, copyFilesToOrganizations = false): Promise<unknown> {
   if (!/^[0-9a-f-]{36}$/i.test(targetId)) throw new Error('Invalid target ID')
@@ -34,11 +36,43 @@ export async function requestAdminApproval(db: Postgres, caller: AgentCaller, ca
   return { status: card.state, interactionId: card.id, operationId }
 }
 
+/**
+ * Asks the owner to approve installing or restoring a Core version. `currentVersion` is the running Core. Installing
+ * restarts Kipster, so it waits for the owner like a deletion; the install itself starts after the answer commits.
+ */
+export async function requestInstallApproval(db: Postgres, caller: AgentCaller, callId: string, install: InstallRequest, currentVersion: string): Promise<unknown> {
+  const operationId = `${caller.attemptId}:${callId}`
+  const restore = install.backupId !== undefined
+  const card = await askInteraction(db, caller.attemptId, callId, {
+    kind: 'approval', prompt: `${restore ? 'Restore' : 'Install'} Kipster Core ${install.target}?`,
+    proposalId: randomUUID(),
+    proposal: `Kipster Core: ${currentVersion} → ${install.target}\n${restore ? `Restore backup ${install.backupId}. Data written since that backup is lost.` : install.pin === false ? 'Keep following the update channel afterwards.' : 'Stay on this version until unpinned.'}\nKipster restarts; running work pauses and continues afterwards.`,
+  }, async (client, interactionId) => {
+    await authorizeAdministration(client, caller, true)
+    await client.query(`INSERT INTO kipster.admin_approvals(interaction_id,installation_id,action,target_id,target_name,options,operation_id)
+      VALUES ($1,$2,'update.install',$2,$3,$4::jsonb,$5)`, [interactionId, caller.installationId, `Kipster Core ${install.target}`, JSON.stringify(install), operationId])
+  })
+  return { status: card.state, interactionId: card.id, operationId }
+}
+
+/** The approved install of an answered card that has not started yet, with the operation ID that makes starting it idempotent. */
+export async function approvedInstall(db: Postgres, actor: TrustedActor, interactionId: string): Promise<{ operationId: string; install: InstallRequest } | null> {
+  const row = (await db.query<{ options: InstallRequest; operation_id: string }>(`SELECT a.options, a.operation_id FROM kipster.admin_approvals a JOIN kipster.interactions i ON i.id=a.interaction_id
+    WHERE a.interaction_id=$1 AND a.installation_id=$2 AND a.action='update.install' AND a.result IS NULL AND i.state='settled' AND i.answer->>'kind'='approve'`, [interactionId, actor.installationId])).rows[0]
+  return row ? { operationId: row.operation_id, install: row.options } : null
+}
+
+/** Records how the approved install request ended: the update status, or why Core refused it. */
+export async function recordInstall(db: Postgres, interactionId: string, result: unknown): Promise<void> {
+  await db.query('UPDATE kipster.admin_approvals SET result=$2::jsonb WHERE interaction_id=$1 AND result IS NULL', [interactionId, JSON.stringify(result)])
+}
+
 /** The human answer and the bound lifecycle transition commit together, including the cleanup job. */
 export async function applyAdminApproval(client: SqlClient, jobs: Jobs, actor: TrustedActor, card: InteractionRecord): Promise<void> {
   const binding = (await client.query<{ action: Action; target_id: string; options: { copyFilesToOrganizations: boolean }; operation_id: string; result: unknown }>(
     'SELECT * FROM kipster.admin_approvals WHERE interaction_id=$1 AND installation_id=$2 FOR UPDATE', [card.id, actor.installationId])).rows[0]
-  if (!binding || binding.result) return
+  // An install starts after the answer commits; see `approvedInstall`.
+  if (!binding || binding.result || (binding.action as string) === 'update.install') return
   const transaction = { transaction: async <T>(work: (client: SqlClient) => Promise<T>): Promise<T> => work(client) }
   const result = binding.action === 'agent.archive' ? await archiveAgent(transaction, jobs, actor, binding.target_id, binding.operation_id)
     : binding.action === 'agent.delete' ? await deleteAgent(transaction, jobs, actor, binding.target_id, binding.operation_id, binding.options)

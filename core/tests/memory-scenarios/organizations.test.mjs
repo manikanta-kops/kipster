@@ -17,7 +17,7 @@ test('client pricing learned in one organization never surfaces in another or ou
   await southwind.chat('Southwind has not sent Acme a quote yet.', { learn: [{ text: 'Southwind has not quoted Acme yet', subject: 'Acme' }] })
 
   const elsewhere = await southwind.chat('Has Southwind quoted Acme per hour yet?', {
-    tools: async call => ({ found: await call('memory.search', { query: 'Acme per hour' }), got: await call('memory.get', { id: memory.id }) }),
+    tools: async call => ({ found: await call('memory_search', { query: 'Acme per hour' }), got: await call('memory_get', { id: memory.id }) }),
   })
   assert.deepEqual(elsewhere.memory.map(item => item.text), ['Southwind has not quoted Acme yet'])
   assert.deepEqual(elsewhere.used.found.map(hit => hit.record.text), ['Southwind has not quoted Acme yet'])
@@ -57,7 +57,7 @@ test('a deliberate save and an explicit request made in one organization apply e
   const fiscal = 'Our fiscal year starts in April'
   const summaries = 'The owner prefers short summaries'
   const promise = 'I will keep summaries short'
-  await s.northwind.chat('Please save this: our fiscal year starts in April.', { tools: call => call('memory.save', { kind: 'fact', text: fiscal }) })
+  await s.northwind.chat('Please save this: our fiscal year starts in April.', { tools: call => call('memory_save', { kind: 'fact', text: fiscal }) })
   // Said in passing, the preference stays in the organization; asked to remember it, the agent keeps it everywhere.
   await s.northwind.chat('I prefer short summaries.', { learn: [{ text: summaries, subject: 'summaries' }] })
   assert.equal((await s.memory(summaries)).home, s.northwind.organizationId)
@@ -81,8 +81,8 @@ test('learning never writes an organization\'s shared memory', { skip: noDatabas
   const books = 'Northwind closes its books on the 5th'
   await s.northwind.chat('Please share with the team that we close the books on the 5th.', {
     tools: async call => {
-      const saved = await call('memory.save', { kind: 'fact', text: books })
-      return call('memory.publish', { id: saved.record.id, expectedSourceRevision: 1 })
+      const saved = await call('memory_save', { kind: 'fact', text: books })
+      return call('memory_publish', { id: saved.record.id, expectedSourceRevision: 1 })
     },
   })
   const shared = async () => s.rows(`SELECT id, text, revision::int AS revision, published_from IS NOT NULL AS linked, evidence, refreshed_day

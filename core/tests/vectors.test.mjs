@@ -59,9 +59,9 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope,target:{context,chatId:chat},mode:'root',parts:[{kind:'text',text:'Build a vector collection'}]})
     await dispatcher.start()
     await until(()=>adapter.contexts.length,n=>n===1)
-    assert.equal(adapter.contexts[0].vectorsEnabled,true)
+    assert.equal(adapter.contexts[0].tools.some(tool=>tool.name==='vectors_space'),true)
     const attempt=adapter.contexts[0].attemptId,host=textPublicationHost(dispatcher),target={kind:'agent',ownerId:ids.rootAgentId}
-    const call=(callId,input)=>host.invokeTool({attemptId:attempt,callId,name:'vectors.space',arguments:{target,...input}})
+    const call=(callId,input)=>host.invokeTool({attemptId:attempt,callId,name:'vectors_space',arguments:{target,...input}})
     await runtime.db.query('UPDATE kipster.agents SET provisioned=false WHERE id=$1',[otherAgent])
     await assert.rejects(call('unavailable-owner',{operation:'create',target:{kind:'agent',ownerId:otherAgent},name:'denied_owner'}),/owner unavailable/)
     await runtime.db.query('UPDATE kipster.agents SET provisioned=true WHERE id=$1',[otherAgent])
@@ -231,7 +231,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     adapter.handles[1].emit({kind:'ended',attemptId:parentAttempt,confirmed:true})
     const childContext=await until(()=>adapter.contexts.find(item=>item.agentId===otherAgent),Boolean)
     const childAttempt=childContext.attemptId
-    const delegated=await host.invokeTool({attemptId:childAttempt,callId:'delegated-vector',name:'vectors.space',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'delegated'}})
+    const delegated=await host.invokeTool({attemptId:childAttempt,callId:'delegated-vector',name:'vectors_space',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'delegated'}})
     assert.equal(delegated.actorId,otherAgent)
     assert.equal(delegated.owner.ownerId,ids.rootAgentId)
     adapter.handles[adapter.contexts.indexOf(childContext)].emit({kind:'ended',attemptId:childAttempt,confirmed:true})

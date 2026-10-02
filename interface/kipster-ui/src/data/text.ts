@@ -30,7 +30,7 @@ export type Bootstrap = Scope & {
   rootAgentId: string
   coreVersion: string
   protocol: ProtocolRange
-  capabilities?: { voiceRecording: boolean }
+  capabilities?: { voiceRecording: boolean; interfacePreferences?: boolean }
 }
 export type Summary = {
   -readonly [

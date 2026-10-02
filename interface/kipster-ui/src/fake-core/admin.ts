@@ -230,6 +230,12 @@ export function createAdministration(options: Options = {}) {
     revision: 1,
     available: true,
   }
+  const interfaceChoices = {
+    revision: 0,
+    palette: null as string | null,
+    theme: null as string | null,
+    desktopNotifications: null as boolean | null,
+  }
   const agentLearning = agents.map((a) => ({
     agentId: a.id,
     enabled: true,
@@ -349,7 +355,7 @@ export function createAdministration(options: Options = {}) {
     callerId: DEMO_IDS.caller,
     organizationId: DEMO_IDS.organization,
     rootAgentId: DEMO_IDS.rootAgent,
-    capabilities: { voiceRecording: true },
+    capabilities: { voiceRecording: true, interfacePreferences: true },
   })
   const adapters = () => ({
     version: 1,
@@ -403,6 +409,59 @@ export function createAdministration(options: Options = {}) {
       })
     if (path === '/v1/execution-adapters' && method === 'GET')
       return json(adapters())
+    if (path === '/v1/settings/interface' && method === 'GET')
+      return json({ version: 1, ...interfaceChoices })
+    if (path === '/v1/settings/interface' && method === 'PUT') {
+      const body = object(await request.json())
+      if (body.version !== 1) invalid()
+      keys(body, ['version', 'palette', 'theme', 'desktopNotifications'])
+      const palettes = ['glacier', 'alpenglow', 'pine', 'graphite', 'obsidian']
+      if (
+        body.palette !== undefined &&
+        !palettes.includes(body.palette as string)
+      )
+        invalid()
+      if (
+        body.theme !== undefined &&
+        !['light', 'dark', 'system'].includes(body.theme as string)
+      )
+        invalid()
+      if (
+        body.desktopNotifications !== undefined &&
+        typeof body.desktopNotifications !== 'boolean'
+      )
+        invalid()
+      if (
+        body.palette === undefined &&
+        body.theme === undefined &&
+        body.desktopNotifications === undefined
+      )
+        invalid('Invalid interface preferences: no change given')
+      const next = {
+        palette:
+          (body.palette as string | undefined) ?? interfaceChoices.palette,
+        theme: (body.theme as string | undefined) ?? interfaceChoices.theme,
+        desktopNotifications:
+          (body.desktopNotifications as boolean | undefined) ??
+          interfaceChoices.desktopNotifications,
+      }
+      if (
+        next.palette !== interfaceChoices.palette ||
+        next.theme !== interfaceChoices.theme ||
+        next.desktopNotifications !== interfaceChoices.desktopNotifications
+      ) {
+        Object.assign(interfaceChoices, next, {
+          revision: interfaceChoices.revision + 1,
+        })
+        emit(
+          'interface-changed',
+          { ...interfaceChoices },
+          DEMO_IDS.installation,
+          interfaceChoices.revision,
+        )
+      }
+      return json({ version: 1, ...interfaceChoices })
+    }
     const resource = '[0-9a-f-]{36}'
     const routes: [string, string][] = [
       ['GET', '/v1/operations/[^/]{1,600}'],

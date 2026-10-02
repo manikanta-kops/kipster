@@ -10,7 +10,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 
 const fixture = `export function createAdapter(host){return {id:'disconnect-fixture',version:'1',contractMajor:1,
   async readiness(){return {ready:true,catalog:{models:[{id:'test'}],supportedOptions:[],capabilities:{text:true,publication:true,cancellation:true,steering:false,nativeResume:false}}}},
-  async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publication-1',name:'conversation.publish',arguments:{text:'PERSISTED_BEFORE_DISCONNECT'}}).catch(()=>{});
+  async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publication-1',name:'conversation_publish',arguments:{text:'PERSISTED_BEFORE_DISCONNECT'}}).catch(()=>{});
     return {events:(async function*(){await new Promise(()=>{})})(),async cancel(){return {acknowledged:false,confirmedEnded:false}},async reconcile(){return 'unknown'}}},
   async close(){}}}`
 async function waitFor(read, predicate) {

@@ -180,6 +180,29 @@ export function parseAgentLearning(value: unknown): AgentLearning {
   return value as AgentLearning
 }
 
+/** Installation-wide interface choices; null is the interface default. */
+export type InterfaceChoices = {
+  revision: number
+  palette: string | null
+  theme: string | null
+  desktopNotifications: boolean | null
+}
+export function parseInterfaceChoices(value: unknown): InterfaceChoices {
+  check(
+    record(value) &&
+      typeof value.revision === 'number' &&
+      (value.palette === null || typeof value.palette === 'string') &&
+      (value.theme === null || typeof value.theme === 'string') &&
+      (value.desktopNotifications === null ||
+        typeof value.desktopNotifications === 'boolean'),
+  )
+  return {
+    revision: value.revision,
+    palette: value.palette,
+    theme: value.theme,
+    desktopNotifications: value.desktopNotifications,
+  }
+}
 export function parseLearning(value: unknown): Learning {
   check(
     record(value) &&
@@ -560,6 +583,22 @@ export class CoreSettingsClient {
   }
   async directory(signal: AbortSignal) {
     return parseDirectory(await this.request('GET', '/v1/directory', signal))
+  }
+  async interfacePreferences(signal: AbortSignal) {
+    return parseInterfaceChoices(
+      await this.request('GET', '/v1/settings/interface', signal),
+    )
+  }
+  async saveInterfacePreferences(
+    changes: Partial<Omit<InterfaceChoices, 'revision'>>,
+    signal: AbortSignal,
+  ) {
+    return parseInterfaceChoices(
+      await this.request('PUT', '/v1/settings/interface', signal, {
+        version: 1,
+        ...changes,
+      }),
+    )
   }
   /** Follows the application stream after `cursor` until it fails or `signal` aborts. */
   async events(
