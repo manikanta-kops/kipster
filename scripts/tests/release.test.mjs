@@ -15,8 +15,15 @@ const list = [
 
 test('release plan covers every workspace package, and only the app builds on macOS', () => {
   const found = packages()
-  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/transcription-spokenly', '@kipster/ui'])
+  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
   assert.deepEqual(found.filter(pkg => pkg.runner === 'macos-latest').map(pkg => pkg.name), ['@kipster/ui'])
+})
+
+test('installer releases use their independent tag and need no protocol metadata', t => {
+  assert.equal(packages().find(pkg => pkg.name === '@kipster/installer').tag, 'installer-v0.0.0')
+  const out = directory(t)
+  writeFileSync(join(out, 'kipster-installer-0.1.0.tgz'), 'installer')
+  assert.deepEqual(writeReleaseMetadata({ name: '@kipster/installer', version: '0.1.0', app: false }, out).package, '@kipster/installer')
 })
 
 test('release plan skips released tags and unversioned packages, and honours a package filter', () => {

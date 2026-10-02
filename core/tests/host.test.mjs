@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process'
 import { mkdtemp, readFile, writeFile, rm, stat, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
-import { validateHostConfig, ownControl, control, setup, doctor, launchdTemplate } from '../dist/host.js'
+import { validateHostConfig, ownControl, control, setup, serve, doctor, launchdTemplate, recoverStoppedControl } from '../dist/host.js'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 const cli = new URL('../dist/host.js', import.meta.url).pathname
@@ -48,6 +48,25 @@ test('configuration and launchd template remain explicit and portable',()=>{
  assert.throws(()=>validateHostConfig({...value,adapters:[{id:'x',root:'/tmp',entry:'../escape'}]}),/adapter/)
  const plist=launchdTemplate('/tmp/config&file.json','/tmp/kipster','/usr/local/bin/node','/tmp/host.js')
  assert.match(plist,/config&amp;file/);assert.match(plist,/SuccessfulExit/);assert.match(plist,/<string>serve<\/string>/);assert.doesNotMatch(plist,/sudo|UserName|DATABASE_URL/)
+})
+test('updater holds fence foreground startup and permit recovery only for a dead unchanged owner', async t => {
+  const home = await mkdtemp('/tmp/lhu-'); t.after(() => rm(home, { recursive: true, force: true }))
+  await mkdir(join(home, 'updates'), { mode: 0o700 })
+  await writeFile(join(home, 'updates/hold'), 'update', { mode: 0o600 })
+  await serve(config(home))
+  await assert.rejects(stat(join(home, '.host-control')), { code: 'ENOENT' })
+  const status = { state: 'running', pid: process.pid, instance: randomUUID() }
+  const owner = await ownControl(home, status, () => {})
+  await assert.rejects(recoverStoppedControl(home, status.instance), /still alive/)
+  await owner.close()
+  const child = spawn(process.execPath, ['-e', 'process.exit(0)'])
+  const pid = child.pid
+  await new Promise(resolve => child.once('exit', resolve))
+  await mkdir(join(home, '.host-control'), { mode: 0o700 })
+  await writeFile(join(home, '.host-control/owner.json'), JSON.stringify({ token: 'dead', instance: 'dead-instance', pid }), { mode: 0o600 })
+  await assert.rejects(recoverStoppedControl(home, 'different-instance'), /ownership changed/)
+  await recoverStoppedControl(home, 'dead-instance')
+  assert.equal(await control(home, 'status'), null)
 })
 test('repeatable setup, foreground lifecycle, idempotent commands and occupied-port isolation', {skip:noDatabase,timeout:120000},async t=>{
  const admin=new Postgres(adminUrl),database='kipster_host_'+randomUUID().replaceAll('-','')

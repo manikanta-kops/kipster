@@ -88,6 +88,10 @@ export function writeReleaseMetadata(pkg, out, range) {
 }
 
 async function metadata(pkg, out) {
+  if (pkg.name !== '@kipster/core' && !pkg.app) {
+    writeReleaseMetadata(pkg, out)
+    return join(out, 'release.json')
+  }
   const { protocolRange } = await import(pathToFileURL(join(root, 'core/dist/protocol/version.js')))
   writeReleaseMetadata(pkg, out, protocolRange)
   return join(out, 'release.json')
@@ -96,7 +100,7 @@ async function metadata(pkg, out) {
 async function build(pkg, out) {
   mkdirSync(out, { recursive: true })
   if (readdirSync(out).length) throw new Error('Use an empty output directory for release files.')
-  if (pkg.name !== '@kipster/core') run('npm', ['run', 'build', '-w', 'core'])
+  if (pkg.name !== '@kipster/core' && pkg.name !== '@kipster/installer') run('npm', ['run', 'build', '-w', 'core'])
   if (!pkg.app) {
     run('npm', ['pack', '-w', pkg.dir, '--pack-destination', out])
     const tarball = join(out, `${pkg.name.slice(1).replace('/', '-')}-${pkg.version}.tgz`)

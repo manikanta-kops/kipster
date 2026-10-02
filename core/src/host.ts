@@ -15,7 +15,7 @@ import { readHostConfig, type HostConfig } from './host-config.js'
 import { playground, playgroundNames } from './starter/playground.js'
 import { control, ownControl, type HostStatus } from './host-control.js'
 export { readHostConfig, validateHostConfig } from './host-config.js'
-export { control, ownControl } from './host-control.js'
+export { control, ownControl, recoverStoppedControl } from './host-control.js'
 
 function environment(config: HostConfig): void {
   for (const [key, value] of Object.entries(config.environment ?? {})) process.env[key] = value
@@ -54,6 +54,7 @@ async function runtime(config: HostConfig, providers: boolean, signal?: AbortSig
 }
 /** Foreground composition only. Supervision belongs to the host service manager. */
 export async function serve(config: HostConfig): Promise<void> {
+  try { await access(join(config.home, 'updates', 'hold')); return } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   environment(config)
   const status: HostStatus = { state: 'starting', pid: process.pid, instance: randomUUID() }
   let requestStop!: () => void
@@ -184,6 +185,7 @@ async function waitStopped(config: HostConfig, instance: string): Promise<void> 
   throw new Error('Host did not stop within 20 seconds. Inspect its logs; no PID was signalled.')
 }
 async function start(config: HostConfig, configPath: string): Promise<unknown> {
+  try { await access(join(config.home, 'updates', 'hold')); throw new Error('Host startup is held for an update; inspect updater status before restarting.') } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
   const existing = await control(config.home, 'status')
   if (existing) return existing
   await mkdir(join(config.home, 'logs'), {recursive:true,mode:0o700})

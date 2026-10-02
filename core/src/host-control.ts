@@ -69,3 +69,20 @@ export async function control(home: string, action: 'status' | 'stop'): Promise<
     req.end()
   })
 }
+
+/** Recover only a dead, unchanged owner while the installer has fenced startup. */
+export async function recoverStoppedControl(home: string, instance: string): Promise<void> {
+  const hold = await lstat(join(home, 'updates', 'hold'))
+  if (!hold.isFile() || hold.isSymbolicLink() || hold.uid !== process.getuid?.()) throw new Error('Host recovery requires an owned updater hold file.')
+  const directory = controlDirectory(home)
+  await privateDirectory(directory)
+  const path = join(directory, 'owner.json'), info = await lstat(path)
+  if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o077) || info.size > 1024) throw new Error('Host ownership record is unsafe; recovery refused.')
+  const owner = JSON.parse(await readFile(path, 'utf8')) as { instance?: string; pid?: number; token?: string }
+  if (typeof instance !== 'string' || !instance || owner.instance !== instance || !Number.isSafeInteger(owner.pid) || owner.pid! <= 0 || typeof owner.token !== 'string') throw new Error('Host ownership changed or is invalid; recovery refused.')
+  try { process.kill(owner.pid!, 0); throw new Error('Host owner is still alive; recovery refused.') }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error }
+  const current = JSON.parse(await readFile(path, 'utf8')) as typeof owner
+  if (current.instance !== instance || current.token !== owner.token || (await lstat(path)).ino !== info.ino) throw new Error('Host ownership changed; replacement was preserved.')
+  await rm(directory, { recursive: true })
+}

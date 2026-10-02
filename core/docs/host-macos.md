@@ -1,5 +1,11 @@
 # Set up a Kipster host on macOS
 
+For released packages, use the [macOS installer](../../installer/README.md).
+It assembles Core and configured adapters, keeps database backups, and registers
+Core and its updater as system LaunchDaemons running as the backend owner.
+The lower-level host commands and login-service template below remain available
+for manually managed installations; do not register both supervisors.
+
 Give this guide to a local setup assistant. Ask it to inspect every command and
 report the configured installation before changing the machine. Installing
 software, signing in, registering a service and exposing a private URL are

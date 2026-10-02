@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "core",
+    "installer",
     "adapters/*",
     "interface/kipster-ui"
   ],
