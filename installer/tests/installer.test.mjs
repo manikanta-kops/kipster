@@ -34,6 +34,11 @@ test('provider roots move with current while retaining provider options', () => 
   assert.equal(result.config.adapters[0].config.model, 'chosen')
   assert.equal(result.config.embedding.module, '/tmp/home/current/node_modules/@kipster/embedding-ollama/dist/index.js')
 })
+test('malformed provider paths remain bounded and reject traversal', { timeout: 1000 }, () => {
+  for (const entry of ['@kipster/a/a' + '/@kipster/a/a'.repeat(300) + '\n', '@kipster/a/a' + '/@kipster/a/a'.repeat(10000), 'node_modules/@kipster/a/../escape.js', 'node_modules/@kipster/a/dist\\escape.js']) {
+    assert.throws(() => managedConfiguration({ adapters: [{ id: 'a', root: '/tmp', entry }] }, '/tmp/home'), /Configured adapters/)
+  }
+})
 test('process locks exclude overlapping commands and release after a killed owner', async t => {
   const home = await directory(t)
   await locked(home, async () => {

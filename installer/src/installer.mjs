@@ -21,10 +21,12 @@ export async function readPrivateConfig(path) {
   return json(path)
 }
 function reference(value, fallback) {
-  const match = typeof value === 'string' && /(?:^|\/)(?:node_modules\/)?@kipster\/([a-z][a-z0-9-]*)\/(.+)$/.exec(value)
-  if (match && !match[2].split(/[\\/]/).includes('..')) return { name: `@kipster/${match[1]}`, entry: `node_modules/@kipster/${match[1]}/${match[2]}` }
-  const direct = fallback && typeof value === 'string' && new RegExp(`(?:^|/)(${fallback})/(.+)$`).exec(value)
-  if (direct && !direct[2].split(/[\\/]/).includes('..')) return { name: `@kipster/${direct[1]}`, entry: `node_modules/@kipster/${direct[1]}/${direct[2]}` }
+  if (typeof value === 'string' && value.length <= 4096 && !/[\x00-\x1f\\]/.test(value)) {
+    const parts = value.split('/'), scope = parts.indexOf('@kipster')
+    const packageIndex = scope >= 0 ? scope + 1 : fallback ? parts.lastIndexOf(fallback) : -1
+    const name = parts[packageIndex], entry = parts.slice(packageIndex + 1)
+    if (packageIndex >= 0 && typeof name === 'string' && name.length <= 64 && /^[a-z][a-z0-9-]*$/.test(name) && entry.length && entry.every(part => part && part !== '.' && part !== '..')) return { name: `@kipster/${name}`, entry: `node_modules/@kipster/${name}/${entry.join('/')}` }
+  }
   throw new Error('Configured adapters must identify a release package through node_modules/@kipster/<package>/<entry>. Use the packaged embedding/transcription module paths.')
 }
 export function managedConfiguration(config, home) {
