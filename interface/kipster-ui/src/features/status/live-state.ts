@@ -112,8 +112,6 @@ export const liveStates: Record<
   },
 }
 
-export const isActive = (state: LiveState) => liveStates[state].priority <= 4
-
 export function deriveThreadState(
   work: WorkRecords,
   threadId: string,
@@ -165,8 +163,10 @@ export function deriveThreadState(
   }
 }
 
+export const isRunning = (state: LiveState) => liveStates[state].tone === 'run'
+
 /**
- * The most important state, plus how many other threads are still active.
+ * The most important state, and whether several threads are running at once.
  * `attention` is a question or approval known from notifications before its
  * thread's work records have loaded.
  */
@@ -175,7 +175,12 @@ export function summarize(states: LiveState[], attention?: LiveState) {
     (a, b) => liveStates[a].priority - liveStates[b].priority,
   )
   const top = sorted[0] ?? 'ready'
-  if (attention && liveStates[attention].priority < liveStates[top].priority)
-    return { state: attention, others: sorted.filter(isActive).length }
-  return { state: top, others: sorted.slice(1).filter(isActive).length }
+  const state =
+    attention && liveStates[attention].priority < liveStates[top].priority
+      ? attention
+      : top
+  return {
+    state,
+    several: isRunning(state) && states.filter(isRunning).length > 1,
+  }
 }
