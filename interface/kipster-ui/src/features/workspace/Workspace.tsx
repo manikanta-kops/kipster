@@ -2,6 +2,11 @@ import { HistoryWindow } from '../chat/HistoryWindow'
 import { Attention } from '../settings/Attention'
 import { ApplicationUpdates } from '../../data/application-updates'
 import {
+  SoftwareUpdates,
+  useSoftwareUpdates,
+} from '../../data/software-updates'
+import { SoftwareUpdatePill } from '../status/SoftwareUpdatePill'
+import {
   lazy,
   Suspense,
   useCallback,
@@ -154,6 +159,12 @@ export function Workspace({
   changeConnection?: () => void
 }) {
   const [applicationUpdates] = useState(() => new ApplicationUpdates())
+  const softwareUpdates = useMemo(
+    () => new SoftwareUpdates(endpoint),
+    [endpoint],
+  )
+  const softwareState = useSoftwareUpdates(softwareUpdates)
+  useEffect(() => softwareUpdates.start(), [softwareUpdates])
   const client = useMemo(() => new TextClient(endpoint), [endpoint])
   const [queries] = useState(() => new QueryClient())
   useEffect(
@@ -310,6 +321,9 @@ export function Workspace({
   const [inboxOpener, setInboxOpener] = useState<HTMLElement | null>(null)
   const [lifecycleOpen, setLifecycleOpen] = useState(false)
   const [settingsOpener, setSettingsOpener] = useState<HTMLElement | null>(null)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<
+    'workspace' | 'updates'
+  >('workspace')
   // A chat whose agent is being deleted, or whose organization is, is gone with its threads.
   const summaries = useMemo(
     () =>
@@ -393,6 +407,7 @@ export function Workspace({
       try {
         const bootstrap = await client.bootstrap(abort.signal)
         if (!abort.signal.aborted) {
+          softwareUpdates.setBootstrap(bootstrap)
           const state = compatibility(bootstrap.protocol)
           if (state !== 'compatible') block(state, bootstrap)
           else {
@@ -421,7 +436,18 @@ export function Workspace({
     // The comparison uses the identity captured when this connection attempt begins.
     // A new endpoint remounts the whole view; a reload may discover a replacement installation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, reload])
+  }, [client, reload, softwareUpdates])
+
+  useEffect(() => {
+    const core = softwareState.status?.core
+    if (
+      blocked &&
+      core &&
+      core.state === 'idle' &&
+      core.version !== blocked.bootstrap.coreVersion
+    )
+      setReload((n) => n + 1)
+  }, [blocked, softwareState.status?.core])
 
   const scope = identity
     ? JSON.stringify([
@@ -675,6 +701,7 @@ export function Workspace({
     const outdated = async () => {
       const current = await client.bootstrap(abort.signal).catch(() => null)
       if (!current || abort.signal.aborted) return false
+      softwareUpdates.setBootstrap(current)
       const state = compatibility(current.protocol)
       if (state === 'compatible') return false
       block(state, current)
@@ -746,10 +773,36 @@ export function Workspace({
               failures = 0
             },
             {
-              connected: () =>
-                applicationUpdates.publish({ kind: 'connection', message: '' }),
+              connected: () => {
+                applicationUpdates.publish({ kind: 'connection', message: '' })
+                softwareUpdates.connectionRestored()
+              },
               event: (value) => {
-                const type = (value as { type: string }).type
+                const {
+                  type,
+                  data,
+                  scope: eventScope,
+                } = value as {
+                  type: string
+                  data: unknown
+                  scope: {
+                    kind: string
+                    installationId: string
+                    callerId: string
+                  }
+                }
+                const sameInstallation =
+                  eventScope.kind === 'application' &&
+                  eventScope.installationId === identity.installationId &&
+                  eventScope.callerId === identity.callerId
+                if (sameInstallation && type === 'updates-changed')
+                  softwareUpdates.acceptStatus(data)
+                if (
+                  __KIPSTER_DEMO__ &&
+                  sameInstallation &&
+                  type === 'demo-app-updates-changed'
+                )
+                  softwareUpdates.acceptDemoApp(data)
                 if (
                   [
                     'settings-changed',
@@ -774,11 +827,19 @@ export function Workspace({
             error.code === 'resync-required'
           )
             cursor = null
+          softwareUpdates.connectionLost()
+          const updating = softwareUpdates.snapshot().reconnecting
           applicationUpdates.publish({
             kind: 'connection',
-            message: 'Live settings interrupted. Reconnecting…',
+            message: updating
+              ? 'Updating backend. Reconnecting…'
+              : 'Live settings interrupted. Reconnecting…',
           })
-          setConnection('Live connection interrupted. Reconnecting…')
+          setConnection(
+            updating
+              ? 'Updating backend. Reconnecting…'
+              : 'Live connection interrupted. Reconnecting…',
+          )
           await delay(
             abort.signal,
             Math.min(10000, 500 * 2 ** Math.min(failures++, 5)),
@@ -789,7 +850,15 @@ export function Workspace({
       }
     })()
     return () => abort.abort()
-  }, [client, identity, reload, threadGone, applicationUpdates, block])
+  }, [
+    client,
+    identity,
+    reload,
+    threadGone,
+    applicationUpdates,
+    softwareUpdates,
+    block,
+  ])
 
   // Read-only background snapshots hydrate root text; the selected thread owns its own stream.
   const retryHydration = useRef<((id: string) => void) | null>(null)
@@ -1360,6 +1429,7 @@ export function Workspace({
         coreVersion={blocked.bootstrap.coreVersion}
         protocol={blocked.bootstrap.protocol}
         checking={checking}
+        softwareUpdates={softwareUpdates}
         checkAgain={() => {
           setChecking(true)
           setReload((n) => n + 1)
@@ -1571,6 +1641,13 @@ export function Workspace({
             id="workspace-sidebar"
             utilities={
               <div className="sidebar-utilities">
+                <SoftwareUpdatePill
+                  updates={softwareUpdates}
+                  open={(trigger) => {
+                    setSettingsInitialTab('updates')
+                    setSettingsOpener(trigger)
+                  }}
+                />
                 <button
                   className="management-trigger"
                   aria-label={`Notifications, ${unread.length} unread`}
@@ -1587,7 +1664,10 @@ export function Workspace({
                   className="management-trigger"
                   aria-label="Settings"
                   data-tip="Settings"
-                  onClick={(event) => setSettingsOpener(event.currentTarget)}
+                  onClick={(event) => {
+                    setSettingsInitialTab('workspace')
+                    setSettingsOpener(event.currentTarget)
+                  }}
                 >
                   <Icon name="settings" />
                   <span className="sidebar-label">Settings</span>
@@ -1914,6 +1994,8 @@ export function Workspace({
         {settingsOpener && (
           <Suspense>
             <CoreSettingsPanel
+              softwareUpdates={softwareUpdates}
+              initialTab={settingsInitialTab}
               versions={identity}
               workspaceControls={
                 <>

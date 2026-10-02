@@ -33,7 +33,8 @@ POSIX shell syntax.
 
 On connect, the client compares the protocol number it was built with against
 the range Core's bootstrap reports. Outside that range it shows **Update the
-app** or **Update the backend** and makes no other requests. It checks again
+app** or **Update the backend**, with update and connection recovery actions. Conversation
+requests remain blocked until compatible. It checks again
 after each reconnect. Settings → About shows both versions.
 
 The client reads Core's directory and paged snapshots, then follows application
@@ -57,6 +58,13 @@ Reconnects and reloads restore saved state without dispatching work.
 - **Settings:** saved and effective execution settings, adapter readiness,
   organization instructions, learning switches and sleep times. Effective values
   show their source; saves change only edited fields.
+- **Software updates:** a sidebar pill opens Settings → Updates. Stable/Beta and
+  Automatic/Notify preferences are shared through Core. Signed desktop apps
+  check at launch and every 12 hours, download in the background, and install on
+  restart or automatic quit. Managed backend updates run first; unmanaged backends
+  show instructions to update on their host. App pins belong to this device;
+  restoring an older backend requires its backup and a data-loss
+  confirmation. Demo, development and unsigned builds never check for app updates.
 
 Drafts, attachment bytes and pending submissions persist in IndexedDB, scoped by
 connection, installation, caller and conversation. Concurrent draft edits offer
@@ -96,6 +104,7 @@ support. Native connectivity, permissions and distribution need release validati
 npm run test:entry                # Built/dev entry and connection regression checks
 npm run test:fake-core            # Core protocol conformance
 npm run test:e2e                  # Browser tests in Chromium
+npm run test:native-updater       # Isolated signed self-update on Apple silicon macOS
 npx playwright install webkit
 npx playwright test -c playwright.webkit.config.ts
 npm run test:screenshots          # Visual review captures

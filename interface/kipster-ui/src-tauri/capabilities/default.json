@@ -1,11 +1,18 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-notifications",
-  "description": "Allow the local main window to check/request notification permission and send a notification.",
+  "description": "Allow the local main window to send notifications and manage signed app updates.",
   "windows": ["main"],
   "permissions": [
     "notification:allow-is-permission-granted",
     "notification:allow-request-permission",
-    "notification:allow-notify"
+    "notification:allow-notify",
+    "updater:allow-check",
+    "updater:allow-download",
+    "updater:allow-install",
+    "core:resources:allow-close",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "process:allow-restart"
   ]
 }

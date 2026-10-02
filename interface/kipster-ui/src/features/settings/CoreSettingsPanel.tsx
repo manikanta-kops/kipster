@@ -26,6 +26,8 @@ import {
 import { useCoreSettings } from '../../data/use-core-settings'
 import { useSettingsDraft } from '../../data/use-settings-draft'
 import { useSettingsSave } from '../../data/use-settings-save'
+import type { SoftwareUpdates } from '../../data/software-updates'
+import { UpdatesPanel } from './UpdatesPanel'
 
 type Settings = ReturnType<typeof useCoreSettings>
 type Tab =
@@ -38,6 +40,7 @@ type Tab =
   | 'desktop'
   | 'appearance'
   | 'about'
+  | 'updates'
 const tabs: Record<
   Tab,
   {
@@ -98,6 +101,11 @@ const tabs: Record<
     icon: 'info',
     description: 'Versions to include in bug reports',
   },
+  updates: {
+    label: 'Updates',
+    icon: 'settings',
+    description: 'Software updates for this app and the backend',
+  },
 }
 const fieldLabels: Record<SettingField, string> = {
   adapterId: 'Adapter',
@@ -111,6 +119,8 @@ export function CoreSettingsPanel({
   workspaceControls,
   versions,
   updates,
+  softwareUpdates,
+  initialTab,
   appearance,
   endpoint,
   scope,
@@ -122,6 +132,8 @@ export function CoreSettingsPanel({
   /** The connected Core's version and protocol range, from bootstrap. */
   versions?: { coreVersion: string; protocol: ProtocolRange }
   updates?: ApplicationUpdates
+  softwareUpdates?: SoftwareUpdates
+  initialTab?: 'workspace' | 'updates'
   appearance: Appearance
   endpoint: string
   scope: Scope
@@ -139,7 +151,7 @@ export function CoreSettingsPanel({
     scope.callerId,
   ])
   const [tab, setTab] = useState<Tab>(
-    workspaceControls ? 'workspace' : 'organization',
+    initialTab ?? (workspaceControls ? 'workspace' : 'organization'),
   )
   const ready = settings.saved && settings.learning && settings.directory
   return (
@@ -155,6 +167,7 @@ export function CoreSettingsPanel({
             .filter(
               (id) =>
                 (id !== 'workspace' || workspaceControls) &&
+                (id !== 'updates' || softwareUpdates) &&
                 (id !== 'about' || versions),
             )
             .map((id) => (
@@ -191,6 +204,8 @@ export function CoreSettingsPanel({
             )}
           {tab === 'workspace' ? (
             workspaceControls
+          ) : tab === 'updates' && softwareUpdates ? (
+            <UpdatesPanel updates={softwareUpdates} />
           ) : tab === 'about' && versions ? (
             <About {...versions} />
           ) : tab === 'appearance' ? (

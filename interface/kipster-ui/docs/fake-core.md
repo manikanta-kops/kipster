@@ -57,6 +57,8 @@ exclude this module. UI components do not access the test routes.
 | POST `/__demo/connection` | `{ offline }`; return unavailable responses and interrupt streams while offline                                |
 | POST `/__demo/operation`  | `{ operationId, waiting }`; hold or release pending lifecycle cleanup                                          |
 | POST `/__demo/release`    | `{ protocol: { current, oldest }, coreVersion? }`; change the version and protocol range bootstrap reports     |
+| GET `/__demo/updates`     | Inspect software update status, simulated app state, release catalog and accepted installs                     |
+| POST `/__demo/updates`    | Set a software update scenario; see below                                                                      |
 | POST `/__demo/reset`      | `{}`; reset all sample state and interrupt existing streams                                                    |
 
 Additional test controls accept complete protocol records: `/__demo/message`
@@ -77,6 +79,18 @@ are immutable copies of the original result. Stopping work holds ordinary
 follow-ups; Resume releases them without restarting cancelled work. Identity
 writes use content hashes and retained backups. Lifecycle deletion copies or
 removes owned publications and updates surviving message references.
+
+Software update scenarios use `{ state }`: `idle`, `available`, `checking`,
+`scheduled`, `installing`, `disconnect`, `installed`, `rolled-back`, `failed`,
+`not-started`, `unmanaged`, `pinned` or `backups`. `not-started` reports
+"The updater did not start"; `unmanaged` exposes releases with manual backend
+updates and refuses installation with `update-unmanaged`. Supply `{ managed: true }`
+to return to a managed host. Supply `step` for install progress and `disconnectMs` for
+the restart outage. `core` and `backups` override status fields; `app` sets the
+simulated app’s state, version, availability or error. App pinning through the UI
+stays device-local. The fake serves the shared `/v1/settings/updates` and
+`/v1/updates` routes, and emits `updates-changed`; app simulation uses a separate
+demo-only event. Neither simulation contacts the public update service.
 
 Use Node.js 26.10.0, with the sibling Core package built, to run:
 

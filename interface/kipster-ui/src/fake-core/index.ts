@@ -15,6 +15,7 @@ import type {
 } from '../data/text.ts'
 import { createAdministration, DEMO_IDS } from './admin.ts'
 import { createFakeMedia } from './media.ts'
+import { createFakeUpdates } from './software-updates.ts'
 import { DEMO_ORIGIN } from './transport.ts'
 import {
   body,
@@ -284,6 +285,23 @@ export function createFakeCore(
     emit,
     cursor: () => cursor(),
     onLifecycle: lifecycle,
+  })
+  let restartTimer: ReturnType<typeof setTimeout> | undefined
+  const softwareUpdates = createFakeUpdates({
+    emit,
+    release: () => release,
+    installed: (next) => {
+      release = next
+    },
+    disconnect: (ms) => {
+      offline = true
+      for (const journal of logs.values())
+        for (const listener of journal.listeners) listener('resync-required')
+      clearTimeout(restartTimer)
+      restartTimer = setTimeout(() => {
+        offline = false
+      }, ms)
+    },
   })
   const media = createFakeMedia({
     ...scope,
@@ -947,6 +965,10 @@ export function createFakeCore(
       if (path.startsWith('/__demo/')) {
         if (!options.testControls)
           throw new WireError(404, 'not-found', 'Route not found')
+        if (path === '/__demo/updates' && method === 'GET')
+          return json(softwareUpdates.inspect())
+        if (path === '/__demo/updates' && method === 'POST')
+          return json(softwareUpdates.control(record(await request.json())))
         if (path === '/__demo/inspect' && method === 'GET')
           return json({
             ids: DEMO_IDS,
@@ -1146,6 +1168,8 @@ export function createFakeCore(
       if (method === 'GET' && path === '/v1/bootstrap')
         return json({ ...administration.bootstrap(), ...scope, ...release })
       if (method === 'GET' && path === '/v1/directory') return json(directory())
+      const updatesResponse = await softwareUpdates.handle(request)
+      if (updatesResponse) return updatesResponse
       const mediaResponse = await media.handle(request)
       if (mediaResponse) return mediaResponse
       const adminResponse = await administration.handle(request)
@@ -1784,6 +1808,8 @@ export function createFakeCore(
     seed = 100
     offline = false
     release = initialRelease()
+    clearTimeout(restartTimer)
+    softwareUpdates.reset()
     administration = createAdministration({
       emit,
       cursor: () => cursor(),
@@ -1804,6 +1830,7 @@ export function createFakeCore(
     dispose() {
       disposed = true
       clearInterval(timer)
+      clearTimeout(restartTimer)
       for (const journal of logs.values())
         for (const listener of journal.listeners) listener('gone')
     },
