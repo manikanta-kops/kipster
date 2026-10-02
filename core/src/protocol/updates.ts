@@ -56,6 +56,6 @@ export type UpdaterRequest = Infer<typeof updaterRequest>
 export const updaterStatusFile = object({
   version: literal(1), requestId: nonempty(), state: union(literal('running'), literal('done'), literal('failed'), literal('rolled-back')),
   step: nullable(union(literal('downloading'), literal('verifying'), literal('backing-up'), literal('installing'), literal('migrating'), literal('restarting'), literal('checking'), literal('restoring'))),
-  from: nonempty(), to: nonempty(), error: nullable(string()), updatedAt: utcTimestamp(), backups: array(updateBackup),
+  from: nullable(nonempty()), to: nonempty(), error: nullable(string()), updatedAt: utcTimestamp(), backups: array(updateBackup),
 }, false)
 export type UpdaterStatusFile = Infer<typeof updaterStatusFile>

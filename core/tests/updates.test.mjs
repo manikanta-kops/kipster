@@ -12,7 +12,8 @@ import { writeUpdateFile } from '../dist/modules/updates/files.js'
 import { MaintenanceService } from '../dist/modules/memory/public.js'
 import { resolveDirectChat, acceptText } from '../dist/modules/conversations/public.js'
 import { snapshot, readEvents } from '../dist/modules/synchronization/public.js'
-import { updateSettings, updateStatus, textEvent, stableError, updaterRequest } from '../dist/protocol/index.js'
+import { updateSettings, updateStatus, textEvent, stableError, updaterRequest, updaterStatusFile } from '../dist/protocol/index.js'
+import { Installer } from '../../installer/src/installer.mjs'
 import { validateHostConfig } from '../dist/host-config.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
@@ -90,6 +91,38 @@ test('semver follows prerelease ordering and ignores build metadata', () => {
   assert.equal(compareVersions('1.0.0+abc', '1.0.0+def'), 0)
   assert.ok(compareVersions('1.0.0-next.99999999999999999999', '1.0.0-next.9999999999999999999') > 0)
   for (const version of ['v1.0.0', '01.0.0', '1.0', '1.0.0-next.01', '../escape']) assert.throws(() => compareVersions(version, '1.0.0'), /Invalid semver/)
+})
+
+test('Core reads the installer\'s real first-install status and resumes automatic scheduling', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
+  const installer = new Installer(ctx.home, { catalogURL: 'https://example.com/v1/' }, { databaseUrl: ctx.config.connectionString })
+  await installer.directories()
+  const journal = { request: { id: randomUUID(), target: '1.2.0' }, fromVersion: null }
+  // Exercise every step emitted by the installer, using its actual file writer.
+  for (const step of ['downloading', 'verifying', 'backing-up', 'installing', 'migrating', 'restarting', 'checking', 'restoring']) {
+    await installer.publish(journal, 'running', step)
+    const file = JSON.parse(await readFile(join(ctx.home, 'updates/status.json'), 'utf8'))
+    assert.deepEqual(updaterStatusFile.parse(file), file)
+    await ctx.runtime.updates.refresh()
+    assert.equal((await ctx.status()).core.state, 'installing')
+    assert.equal(await ctx.gate(), journal.request.id)
+  }
+  for (const state of ['failed', 'rolled-back', 'done']) {
+    await installer.publish(journal, state, null, state === 'done' ? null : 'First-install failure')
+    await ctx.runtime.updates.refresh()
+    const status = updateStatus.parse(await ctx.status())
+    assert.equal(status.core.state, state === 'done' ? 'idle' : 'failed')
+    assert.equal(status.core.error, state === 'done' ? null : 'First-install failure')
+    assert.equal(status.core.lastResult, null)
+    assert.equal(await ctx.gate(), null)
+  }
+  await ctx.restart()
+  assert.equal((await ctx.status()).core.state, 'idle')
+  assert.equal((await ctx.status()).core.error, null)
+  ctx.time.now = new Date(2026, 9, 4, 3)
+  await ctx.runtime.updates.check(ctx.actor)
+  await ctx.runtime.updates.tick()
+  assert.equal((await ctx.status()).core.state, 'scheduled')
 })
 
 test('update response schemas retain metadata and provide neutral unknown-value fallbacks', () => {

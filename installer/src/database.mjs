@@ -55,6 +55,18 @@ export class Database {
       await save(join(directory, 'backup.json'), { ...metadata, archive })
     } finally { await rm(temporary, { force: true }) }
   }
+  async deleteData() {
+    // This is the dedicated installation database. Keep its login, database
+    // and pgvector prerequisite so a later install can initialize it again.
+    await run(this.program('psql'), ['-X', '--no-password', '--single-transaction', '-v', 'ON_ERROR_STOP=1'], { env: this.env, timeout: 300000, label: 'Delete installation database data', input: `DO $$ DECLARE item record; BEGIN
+      FOR item IN SELECT extname FROM pg_extension WHERE extname <> 'plpgsql' LOOP EXECUTE format('DROP EXTENSION %I CASCADE',item.extname); END LOOP;
+      FOR item IN SELECT nspname FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' LOOP EXECUTE format('DROP SCHEMA %I CASCADE',item.nspname); END LOOP;
+    END $$;
+    SELECT lo_unlink(oid) FROM pg_largeobject_metadata;
+    CREATE SCHEMA public AUTHORIZATION pg_database_owner;
+    GRANT USAGE ON SCHEMA public TO PUBLIC;
+    CREATE EXTENSION vector;\n` })
+  }
   async restore(directory, scratch) {
     const metadata = await json(join(directory, 'backup.json')), archive = join(directory, 'database.dump')
     const actual = await digest(archive)

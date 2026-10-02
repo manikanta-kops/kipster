@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 import { realpathSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline/promises'
 import { Installer, install, prerequisites } from './installer.mjs'
-import { json } from './files.mjs'
+import { exists, json } from './files.mjs'
 
 const usage = `Usage:
   kipster install [--channel stable|next] [--version X] [--home DIR]
@@ -17,8 +17,9 @@ const usage = `Usage:
   kipster update [--to X] [--home DIR]
   kipster status [--home DIR]
   kipster rollback [--home DIR] [--yes]
+  kipster uninstall [--home DIR] [--delete-data] [--yes]
 
-Run as the backend owner. Only initial system service registration uses sudo.
+Run as the backend owner. System service registration and removal use sudo.
 --no-launchd starts Core without registering jobs and prints the generated plists.
 Use a private host JSON for database credentials, or KIPSTER_DATABASE_URL.
 Core owns automatic update scheduling and idle-work policy.`
@@ -27,14 +28,14 @@ function options(args) {
   const command = args.shift(), result = {}
   const allowed = {
     install: ['channel', 'version', 'home', 'config', 'maintenance-config', 'pg-bin', 'catalog', 'no-launchd', 'health-timeout'],
-    apply: ['home'], update: ['to', 'home'], status: ['home'], rollback: ['home', 'yes'], 'self-check': [],
+    apply: ['home'], update: ['to', 'home'], status: ['home'], rollback: ['home', 'yes'], uninstall: ['home', 'delete-data', 'yes'], 'self-check': [],
   }
   if (!allowed[command]) throw new Error(usage)
   for (let i = 0; i < args.length; i++) {
     const flag = args[i].slice(2)
     if (!args[i].startsWith('--') || !allowed[command].includes(flag)) throw new Error(usage)
     const key = flag.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())
-    if (['yes', 'no-launchd'].includes(flag)) result[key] = true
+    if (['yes', 'no-launchd', 'delete-data'].includes(flag)) result[key] = true
     else {
       const value = args[++i]
       if (!value || value.startsWith('--')) throw new Error(usage)
@@ -52,9 +53,10 @@ export async function main(args = process.argv.slice(2)) {
   }
   await prerequisites()
   if (parsed.command === 'install') {
-    console.log(JSON.stringify(await install(parsed), null, 2))
-    const source = parsed.config ? await json(resolve(parsed.config)) : null
-    const home = await import('node:fs/promises').then(fs => fs.realpath(parsed.home ?? source?.home ?? join(homedir(), '.kipster')))
+    const result = await install(parsed)
+    console.log(JSON.stringify(result, null, 2))
+    if (result.alreadyInstalled) { console.log(`Kipster Core ${result.coreVersion} is already installed at ${result.home}.`); return }
+    const home = result.home
     if (parsed.noLaunchd) {
       const { readdir } = await import('node:fs/promises')
       for (const file of await readdir(join(home, 'services'))) console.log(await readFile(join(home, 'services', file), 'utf8'))
@@ -62,12 +64,26 @@ export async function main(args = process.argv.slice(2)) {
     console.log(`Use ${join(home, 'bin/kipster')} for this installation.`)
     return
   }
-  const installer = await Installer.open(parsed.home ?? join(homedir(), '.kipster'))
+  const home = parsed.home ?? join(homedir(), '.kipster')
+  if (parsed.command === 'uninstall' && !await exists(join(home, 'updater.json'))) {
+    const marker = join(home, 'updates/uninstalled.json')
+    if (!await exists(marker) || (await json(marker)).state !== 'uninstalling') { console.log(`Kipster is already uninstalled at ${home}.`); return }
+  }
+  const installer = await Installer.open(home)
   let result
   if (parsed.command === 'status') { await installer.directories(); result = await installer.status() }
   else if (parsed.command === 'apply') result = await installer.apply()
   else if (parsed.command === 'update') result = await installer.update(parsed.to)
-  else {
+  else if (parsed.command === 'uninstall') {
+    if (parsed.deleteData && !parsed.yes) {
+      if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Uninstall --delete-data deletes the dedicated database contents and home files. Use --yes only to confirm this deletion in a script.')
+      const input = createInterface({ input: process.stdin, output: process.stdout })
+      let answer
+      try { answer = await input.question(`Delete all database contents and home data at ${installer.home}? Type delete: `) } finally { input.close() }
+      if (answer !== 'delete') { console.log('Uninstall cancelled.'); return }
+    }
+    result = await installer.uninstall({ deleteData: parsed.deleteData })
+  } else {
     await installer.directories()
     const backup = (await installer.backups())[0]
     if (!backup) throw new Error('No backup is available to restore.')

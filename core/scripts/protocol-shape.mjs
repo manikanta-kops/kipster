@@ -148,7 +148,9 @@ export function breakingChanges(base, head) {
   for (const mode of ['requests', 'responses'])
     for (const [name, shape] of Object.entries(base[mode])) {
       if (!head[mode][name]) out.push(`${name}: ${mode === 'requests' ? 'request' : 'response'} schema removed`)
-      else compare(shape, head[mode][name], name, mode === 'requests' ? 'request' : 'response', out)
+      // This open object is read by Core from the installer, rather than sent
+      // to clients. Check its accepted values as input despite its open shape.
+      else compare(shape, head[mode][name], name, mode === 'requests' || name === 'updaterStatusFile' ? 'request' : 'response', out)
     }
   return out
 }

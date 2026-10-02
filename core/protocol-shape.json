@@ -1784,7 +1784,7 @@
             ]
           }
         },
-        "from": {"type":"string","min":1},
+        "from": {"type":"nullable","of":{"type":"string","min":1}},
         "to": {"type":"string","min":1},
         "error": {"type":"nullable","of":{"type":"string"}},
         "updatedAt": {"type":"string","format":"utc-timestamp"},

@@ -371,7 +371,7 @@ export class UpdatesService {
       const value = await readUpdateFile(join(this.directory, 'status.json'))
       if (value === undefined) return
       file = updaterStatusFile.parse(value)
-      compareVersions(file.from, file.to)
+      compareVersions(file.from ?? file.to, file.to)
       for (const backup of file.backups) compareVersions(backup.coreVersion, backup.coreVersion)
       if (new Set(file.backups.map(backup => backup.id)).size !== file.backups.length) throw new TypeError('Duplicate update backup IDs')
       if (file.to === this.coreVersion && (startup || file.state !== 'running')) {
@@ -413,7 +413,9 @@ export class UpdatesService {
         await client.query('UPDATE kipster.execution_permits SET update_request_id=$2 WHERE installation_id=$1', [this.installationId, file.requestId])
       } else {
         status.core.state = file.state === 'done' ? 'idle' : 'failed'; status.core.step = null
-        status.core.lastResult = { from: file.from, to: file.to, outcome: file.state === 'done' ? 'installed' : file.state === 'rolled-back' ? 'rolled-back' : 'failed', at: file.updatedAt }
+        // First installation has no previous version or update result. Keep the
+        // public response compatible with clients that require lastResult.from.
+        status.core.lastResult = file.from === null ? null : { from: file.from, to: file.to, outcome: file.state === 'done' ? 'installed' : file.state === 'rolled-back' ? 'rolled-back' : 'failed', at: file.updatedAt }
         await client.query('UPDATE kipster.execution_permits SET update_request_id=NULL WHERE installation_id=$1', [this.installationId])
         await client.query('UPDATE kipster.update_requests SET terminal=true,delivered=true WHERE installation_id=$1 AND id::text=$2', [this.installationId, file.requestId])
       }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { cp, lstat, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { appendFile, cp, lstat, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -7,7 +7,9 @@ import { Catalog, channelFor, channel, defaultCatalog, version } from './catalog
 import { atomic, canonicalHome, exists, json, locked, point, privateDirectory, save, syncDirectory } from './files.mjs'
 import { Database, databaseEndpoint } from './database.mjs'
 import { run } from './process.mjs'
-import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, sudoSteps, writeServices } from './services.mjs'
+import { safeError } from './diagnostics.mjs'
+import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
+import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, sudoSteps, templates, unregister, writeServices } from './services.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export async function prerequisites() {
@@ -60,9 +62,11 @@ async function within(path, root) {
   return canonical
 }
 export class Installer {
-  constructor(home, settings, config, { onStep, platformCheck = prerequisites } = {}) {
+  constructor(home, settings, config, { onStep, platformCheck = prerequisites, registerServices = register, unregisterServices = unregister } = {}) {
     this.home = home; this.settings = settings; this.config = withManagedUpdates(config); this.onStep = onStep; this.platformCheck = platformCheck
     this.env = runtimeEnvironment(config)
+    this.registerServices = registerServices
+    this.unregisterServices = unregisterServices
     if (settings.pgBin) this.env.PATH = settings.pgBin + ':' + this.env.PATH
     const maintenanceURL = settings.maintenanceDatabaseUrl ?? config.databaseUrl
     if (databaseEndpoint(maintenanceURL) !== databaseEndpoint(config.databaseUrl)) throw new Error('Maintenance login must connect to the same database endpoint as host.json.')
@@ -73,10 +77,13 @@ export class Installer {
   }
   static async open(home, options) {
     home = await canonicalHome(home)
-    const settings = await json(join(home, 'updater.json'))
-    if (settings.version !== 1 || !['launchd', 'manual'].includes(settings.services) || !Number.isInteger(settings.healthTimeout) || settings.healthTimeout < 100 || settings.healthTimeout > 300000) throw new Error('Invalid private updater configuration. Reinstall with the same home; preserve its data.')
+    const pending = await exists(join(home, 'updates/uninstalled.json')) ? await json(join(home, 'updates/uninstalled.json')) : null
+    const settings = await exists(join(home, 'updater.json')) ? await json(join(home, 'updater.json')) : pending?.state === 'uninstalling' ? pending.settings : null
+    if (!settings || settings.version !== 1 || !['launchd', 'manual'].includes(settings.services) || !Number.isInteger(settings.healthTimeout) || settings.healthTimeout < 100 || settings.healthTimeout > 300000) throw new Error('Invalid private updater configuration. Reinstall with the same home; preserve its data.')
     channel(settings.channel)
-    return new Installer(home, settings, await readPrivateConfig(join(home, 'host.json')), options)
+    const config = await exists(join(home, 'host.json')) ? await readPrivateConfig(join(home, 'host.json')) : pending?.state === 'uninstalling' ? pending.config : null
+    if (!config) throw new Error('Private host configuration is missing. Preserve this home and inspect the uninstall recovery marker.')
+    return new Installer(home, settings, config, options)
   }
   async directories() {
     for (const name of ['updates', 'releases', 'backups', 'updater', 'updater/versions', 'work', 'logs']) await privateDirectory(join(this.home, name))
@@ -187,6 +194,7 @@ export class Installer {
     await this.persist(journal)
     await this.cleanup(journal)
     await rm(join(this.directory, 'first-install-failed.json'), { force: true })
+    await rm(join(this.directory, 'uninstalled.json'), { force: true })
     await this.publish(journal, 'done', null)
     // Core reads the retained request, including its settings, after a restore.
     await rm(this.journalPath, { force: true }); await syncDirectory(this.directory)
@@ -238,7 +246,10 @@ export class Installer {
         catch { await recoverOwnership(currentPath, this.home) }
       }
       await this.publish(journal, 'running', 'restoring')
-      if (journal.destructive) await this.database.restore(join(this.home, 'backups', journal.backupId), journal.work)
+      if (journal.destructive) {
+        await this.database.restore(join(this.home, 'backups', journal.backupId), journal.work)
+        if (journal.homeSnapshot) await restoreHome(this.home, journal.work)
+      }
       // A process can die after recording a same-version move but before rename.
       let previous = journal.fromRelease
       if (journal.retired && previous === journal.retired.path && !await exists(previous)) previous = journal.retired.original
@@ -265,14 +276,14 @@ export class Installer {
       // Do not allow startup against a database whose recovery is uncertain.
       await atomic(this.hold, journal.request.id + '\n')
       try { await stop(journal.targetRelease ?? journal.fromRelease, this.home, this.env) } catch { /* The hold and journal preserve recovery until ownership is reachable. */ }
-      await this.publish(journal, 'failed', 'restoring', `${error} Recovery failed: ${failure.message}`)
+      await this.publish(journal, 'failed', 'restoring', `${error} Recovery failed: ${safeError(failure, this.config, this.settings, this.env)}`)
       return 'failed'
     }
   }
   async recover() {
     if (!await exists(this.journalPath)) {
       if (await exists(this.hold)) {
-        if (await exists(join(this.directory, 'first-install-failed.json')) && !await exists(join(this.home, 'current'))) return 'rolled-back'
+        if ((await exists(join(this.directory, 'first-install-failed.json')) || await exists(join(this.directory, 'uninstalled.json'))) && !await exists(join(this.home, 'current'))) return 'rolled-back'
         throw new Error('Updater hold exists without a recovery journal. Inspect the private update files before removing it.')
       }
       return null
@@ -337,6 +348,10 @@ export class Installer {
       journal.backupId = refreshedId; delete journal.refreshingBackupId
       await this.persist(journal)
       await rm(backup, { recursive: true, force: true })
+      if (!current) {
+        await snapshotHome(this.home, journal.work)
+        journal.homeSnapshot = true; await this.persist(journal)
+      }
       journal.destructive = true; await this.persist(journal)
       await this.activate(journal)
       if (restoring) {
@@ -349,24 +364,27 @@ export class Installer {
       await this.publish(journal, 'running', 'restarting')
       if (initial) {
         await point(join(this.home, 'updater/current'), journal.targetUpdater)
-        if (this.settings.services === 'launchd') await register(this.home, jobs)
+        if (this.settings.services === 'launchd') await this.registerServices(this.home, jobs)
       }
       await this.start(wanted.target, journal)
       await this.finish(journal)
       return await this.status()
     } catch (failure) {
+      const error = safeError(failure, this.config, this.settings, this.env)
+      console.error(error)
+      await appendFile(join(this.home, 'logs/installer-error.log'), `${new Date().toISOString()} ${wanted.id}: ${error}\n`, { mode: 0o600 }).catch(() => {})
       if (journal.committed) {
         // Health has passed and the commit is durable. A later run retries only
         // retention/status cleanup, never restores an obsolete snapshot.
         throw new Error('Update committed successfully; cleanup is pending and will retry on the next apply.')
       }
-      if (journal.stopped || journal.destructive || await exists(this.hold)) await this.rollbackJournal(journal, failure.message)
+      if (journal.stopped || journal.destructive || await exists(this.hold)) await this.rollbackJournal(journal, error)
       else {
         await this.pruneBackups()
-        await this.publish(journal, 'failed', null, failure.message)
+        await this.publish(journal, 'failed', null, error)
         await rm(journal.work, { recursive: true, force: true }); await rm(this.journalPath, { force: true })
       }
-      throw failure
+      throw new Error(error)
     }
   }
   async apply() {
@@ -397,6 +415,34 @@ export class Installer {
       return this.perform(input, { selectedChannel })
     })
   }
+  async uninstall({ deleteData = false } = {}) {
+    await this.platformCheck(); await this.directories()
+    return locked(this.home, async () => {
+      if (!await exists(join(this.directory, 'uninstalled.json')) && await this.recover() === 'failed') throw new Error('Finish update recovery before uninstalling.')
+      return this.removeInstallation(deleteData)
+    })
+  }
+  async removeInstallation(deleteData) {
+    const marker = join(this.directory, 'uninstalled.json')
+    const current = await this.current()
+    await atomic(this.hold, 'uninstall\n')
+    await save(marker, { version: 1, state: 'uninstalling', deleteData, config: this.config, settings: this.settings })
+    if (current) await stop(current.path, this.home, this.env)
+    else if (await exists(join(this.home, '.host-control'))) throw new Error('Core ownership remains without an installed release. Recover the stopped host before uninstalling.')
+    if (this.settings.services === 'launchd') {
+      const jobs = await Promise.all(templates(this.home, this.env).map(async job => ({ ...job, contents: await exists(join(this.home, 'services', job.label + '.plist')) ? await readFile(join(this.home, 'services', job.label + '.plist'), 'utf8') : job.contents })))
+      await this.unregisterServices(this.home, jobs)
+    }
+    if (deleteData) { await this.database.check(); await this.database.deleteData() }
+    for (const name of ['current', 'releases', 'updater', 'bin', 'services', 'work']) await rm(join(this.home, name), { recursive: true, force: true })
+    if (deleteData) {
+      for (const name of await readdir(this.home)) if (!['.installer-lock.sqlite', 'updates'].includes(name)) await rm(join(this.home, name), { recursive: true, force: true })
+    }
+    for (const name of await readdir(this.directory)) if (!['hold', 'uninstalled.json'].includes(name)) await rm(join(this.directory, name), { recursive: true, force: true })
+    await save(marker, { version: 1, state: 'done', deleteData })
+    await syncDirectory(this.home)
+    return { home: this.home, uninstalled: true, dataDeleted: deleteData }
+  }
 }
 async function accessHost(release) {
   const info = await lstat(hostCLI(release))
@@ -406,7 +452,7 @@ export async function install(options, hooks) {
   await (hooks?.platformCheck ?? prerequisites)()
   const source = options.config ? await readPrivateConfig(resolve(options.config)) : null
   const home = await canonicalHome(options.home ?? source?.home ?? join(process.env.HOME ?? '', '.kipster'))
-  const config = source ?? {
+  const config = source ?? (await exists(join(home, 'host.json')) ? await readPrivateConfig(join(home, 'host.json')) : null) ?? {
     version: 1, home, databaseUrl: process.env.KIPSTER_DATABASE_URL,
     listen: { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: ['tauri://localhost'] },
     adapters: [{ id: 'codex-cli', root: join(home, 'current'), entry: 'node_modules/@kipster/codex-cli/dist/index.js' }],
@@ -423,8 +469,21 @@ export async function install(options, hooks) {
     if (await exists(installer.journalPath)) {
       if (await installer.recover() === 'failed') throw new Error('Finish interrupted installation recovery before retrying install.')
     }
-    if (await installer.current()) throw new Error('This home already has Core installed. Use kipster update or kipster rollback.')
+    const uninstallMarker = join(installer.directory, 'uninstalled.json')
+    if (await exists(uninstallMarker)) {
+      const pending = await json(uninstallMarker)
+      if (pending.state === 'uninstalling') await Installer.open(home, hooks).then(previous => previous.removeInstallation(pending.deleteData === true))
+    }
+    const current = await installer.current()
+    if (current) return { ...await Installer.open(home, hooks).then(existing => existing.status()), alreadyInstalled: true }
     await installer.database.check()
+    if (await exists(join(installer.directory, 'first-install-failed.json')) && await exists(join(home, 'installation.json'))) {
+      const hasBootstrap = await installer.database.query("SELECT to_regclass('kipster.bootstrap') IS NOT NULL") === 't'
+      if (!hasBootstrap || await installer.database.query('SELECT count(*) FROM kipster.bootstrap') === '0') {
+        const backup = await preserveFailedHome(home)
+        console.log(`Preserved home files from an earlier failed install at ${backup}.`)
+      }
+    }
     const target = options.version ?? (await installer.catalog.read(settings.channel + '.json'))['@kipster/core']?.version
     await save(join(home, 'updater.json'), settings)
     await save(join(home, 'host.json'), installer.config)
