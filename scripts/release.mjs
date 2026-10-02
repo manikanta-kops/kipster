@@ -2,11 +2,13 @@
 //   node scripts/release.mjs prepare            open a release pull request into next from the pending changesets
 //   node scripts/release.mjs plan [names]       packages=<json> of unreleased versions, for $GITHUB_OUTPUT
 //   node scripts/release.mjs build <name> <dir> build one package's release files into <dir>
+//   node scripts/release.mjs metadata <name> <dir> refresh hashes after notarization/stapling
 //   node scripts/release.mjs notes <name>       that version's changelog section
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const read = path => JSON.parse(readFileSync(path, 'utf8'))
@@ -42,20 +44,73 @@ function find(name) {
   return pkg
 }
 
-function build(pkg, out) {
+export function appBuildArgs(env = process.env) {
+  return ['run', 'tauri', '-w', 'interface/kipster-ui', '--', 'build', '--ci',
+    '--target', 'aarch64-apple-darwin', '--bundles', 'app,dmg',
+    '--config', JSON.stringify({ bundle: { createUpdaterArtifacts: Boolean(env.TAURI_SIGNING_PRIVATE_KEY?.trim()) } })]
+}
+
+export function copyAppArtifacts(pkg, bundle, out, signed) {
+  const dmg = readdirSync(join(bundle, 'dmg')).filter(name => name.endsWith(`_${pkg.version}_aarch64.dmg`))
+  if (dmg.length !== 1) throw new Error(`Expected one aarch64 DMG for ${pkg.version}.`)
+  const sources = [join(bundle, 'dmg', dmg[0])]
+  if (signed) sources.push(join(bundle, 'macos', 'Kipster.app.tar.gz'), join(bundle, 'macos', 'Kipster.app.tar.gz.sig'))
+  return sources.map(source => {
+    copyFileSync(source, join(out, basename(source)))
+    return join(out, basename(source))
+  })
+}
+
+export function writeReleaseMetadata(pkg, out, range) {
+  const files = readdirSync(out).filter(name => name !== 'release.json').sort().map(name => {
+    const bytes = readFileSync(join(out, name))
+    return { name, size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+  })
+  if (!files.length) throw new Error(`No release files were produced for ${pkg.name}.`)
+  const metadata = { schemaVersion: 1, package: pkg.name, version: pkg.version, files }
+  if (pkg.name === '@kipster/core' || pkg.app) {
+    if (!Number.isSafeInteger(range?.current) || !Number.isSafeInteger(range?.oldest) || range.oldest < 1 || range.current < range.oldest) {
+      throw new Error('A valid build-time protocolRange is required.')
+    }
+    if (pkg.app) metadata.protocol = range.current
+    else metadata.protocolRange = { current: range.current, oldest: range.oldest }
+  }
+  if (pkg.app) {
+    const archive = files.find(file => file.name.endsWith('.app.tar.gz'))
+    if (archive) {
+      const signature = readFileSync(join(out, `${archive.name}.sig`), 'utf8').trim()
+      if (!signature) throw new Error('The updater signature is empty.')
+      metadata.updater = { platform: 'darwin-aarch64', file: archive.name, signature }
+    }
+  }
+  writeFileSync(join(out, 'release.json'), JSON.stringify(metadata, null, 2) + '\n')
+  return metadata
+}
+
+async function metadata(pkg, out) {
+  const { protocolRange } = await import(pathToFileURL(join(root, 'core/dist/protocol/version.js')))
+  writeReleaseMetadata(pkg, out, protocolRange)
+  return join(out, 'release.json')
+}
+
+async function build(pkg, out) {
   mkdirSync(out, { recursive: true })
+  if (readdirSync(out).length) throw new Error('Use an empty output directory for release files.')
   if (pkg.name !== '@kipster/core') run('npm', ['run', 'build', '-w', 'core'])
   if (!pkg.app) {
     run('npm', ['pack', '-w', pkg.dir, '--pack-destination', out])
     const tarball = join(out, `${pkg.name.slice(1).replace('/', '-')}-${pkg.version}.tgz`)
-    return existsSync(tarball) ? [tarball] : []
+    if (!existsSync(tarball)) throw new Error(`No release tarball was produced for ${pkg.name}.`)
+    return [tarball, await metadata(pkg, out)]
   }
-  run('npm', ['run', 'tauri', '-w', pkg.dir, '--', 'build', '--ci', '--bundles', 'dmg'])
-  const dmg = join(root, pkg.dir, 'src-tauri/target/release/bundle/dmg')
-  return readdirSync(dmg).filter(name => name.endsWith('.dmg') && name.includes(`_${pkg.version}_`)).map(name => {
-    copyFileSync(join(dmg, name), join(out, basename(name)))
-    return join(out, basename(name))
-  })
+  const signed = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY?.trim())
+  if (signed && !read(join(root, pkg.dir, 'src-tauri/tauri.conf.json')).plugins?.updater?.pubkey?.trim()) {
+    throw new Error('Commit the public key from scripts/setup-updater-key.sh before signing app releases.')
+  }
+  run('npm', appBuildArgs())
+  const target = process.env.CARGO_TARGET_DIR ? resolve(root, process.env.CARGO_TARGET_DIR) : join(root, pkg.dir, 'src-tauri/target')
+  const files = copyAppArtifacts(pkg, join(target, 'aarch64-apple-darwin/release/bundle'), out, signed)
+  return [...files, await metadata(pkg, out)]
 }
 
 function prepare() {
@@ -86,15 +141,16 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const tags = new Set(execFileSync('git', ['tag', '--list'], { cwd: root, encoding: 'utf8' }).split('\n'))
     console.log(`packages=${JSON.stringify(plan(packages(), tags, (name ?? '').split(',').map(item => item.trim()).filter(Boolean)))}`)
   } else if (command === 'build' && name && out) {
-    const files = build(find(name), resolve(out))
-    if (!files.length) throw new Error(`No release files were produced for ${name}.`)
+    const files = await build(find(name), resolve(out))
     console.log(files.join('\n'))
+  } else if (command === 'metadata' && name && out) {
+    console.log(await metadata(find(name), resolve(out)))
   } else if (command === 'notes' && name) {
     const pkg = find(name)
     const changelog = join(root, pkg.dir, 'CHANGELOG.md')
     console.log(existsSync(changelog) ? notes(readFileSync(changelog, 'utf8'), pkg.version) : `Version ${pkg.version}.`)
   } else {
-    console.error('Usage: node scripts/release.mjs prepare | plan [names] | build <name> <dir> | notes <name>')
+    console.error('Usage: node scripts/release.mjs prepare | plan [names] | build <name> <dir> | metadata <name> <dir> | notes <name>')
     process.exitCode = 2
   }
 }

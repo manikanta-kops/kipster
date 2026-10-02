@@ -33,7 +33,7 @@ export async function app({ buildOnly = false } = {}) {
     } catch { throw new Error('Install Rust (cargo) and Xcode Command Line Tools, then rerun npm run app.') }
     await dependencies()
     console.log('Building the Kipster desktop app…')
-    await run('npm', ['run', 'tauri', '--', 'build', '--debug', '--bundles', 'app', '--config', JSON.stringify({ build: { devUrl: null } })], { cwd: ui, env: appEnvironment() })
+    await run('npm', ['run', 'tauri', '--', 'build', '--debug', '--bundles', 'app', '--config', JSON.stringify({ build: { devUrl: null }, bundle: { createUpdaterArtifacts: false } })], { cwd: ui, env: appEnvironment() })
     const built = join(ui, 'src-tauri/target/debug/bundle/macos/Kipster.app')
     if (await appID(built) !== 'app.kipster.desktop') throw new Error('Built app identity does not match Kipster.')
     if (buildOnly) { console.log(`Built: ${built}`); return }

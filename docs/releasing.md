@@ -58,6 +58,15 @@ releases cannot be changed.
 | Adapter | `<adapter>-v<version>` | `kipster-<adapter>-<version>.tgz` |
 | App | `ui-v<version>` | `Kipster_<version>_aarch64.dmg` |
 
+Every new release also includes `release.json` (schema version 1). It records
+`package`, `version` and `files` with each file's `name`, byte `size` and hex
+`sha256`. Core includes `protocolRange: { current, oldest }`; the app includes
+the build-time `protocolRange.current` as `protocol`. Signed app releases also
+include `Kipster.app.tar.gz`, `Kipster.app.tar.gz.sig` and
+`updater: { platform: "darwin-aarch64", file, signature }`, where `signature` is
+the content of the `.sig` file. Metadata hashes the final published bytes,
+including the stapled DMG, and does not include itself in `files`.
+
 ## App signing
 
 The app is signed and notarized when these secrets exist in the `release`
@@ -72,6 +81,133 @@ unsigned.
 | `APPLE_API_ISSUER` | App Store Connect API issuer ID |
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_PRIVATE_KEY` | Contents of that key's `.p8` file |
+
+### Updater signing
+
+Updater signing is independent of Apple signing. Set these two secrets in the
+`release` environment to publish signed Apple Silicon updater bundles:
+
+| Secret | Value |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of the Tauri updater private key file |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | Password of that key |
+
+The owner generates the production key in their own terminal, after `npm ci`:
+
+```sh
+bash scripts/setup-updater-key.sh "$HOME/.config/kipster/updater.key"
+```
+
+The script prompts for a password, creates the key outside the repository,
+uploads both secrets with `gh secret set --env release`, and writes the public
+key to `plugins.updater.pubkey` in
+[`tauri.conf.json`](../interface/kipster-ui/src-tauri/tauri.conf.json). Only the
+public key is printed to stdout. Back up the private key file and password in
+1Password, and commit the public configuration through a pull request into
+`next` before publishing a signed app. The public key starts empty; a signed
+release build refuses to proceed until it is configured. Keep this key for all
+future releases: installed apps trust it.
+
+`bundle.createUpdaterArtifacts` is enabled in the app configuration. The release
+script disables it when the private key is absent, producing an unsigned DMG
+and metadata without an updater. `npm run app` also disables updater artifacts
+for development builds. Direct unsigned Tauri builds can use
+`--config '{"bundle":{"createUpdaterArtifacts":false}}'`. The future updater
+plugin will read `plugins.updater.pubkey`; its initial endpoint is
+`https://updates.kipster.app/v1/app/stable.json`. Installing and using that plugin
+is a separate change. See the [Tauri updater format](https://v2.tauri.app/plugin/updater/#static-json-file).
+
+## Channel files
+
+GitHub Releases is the source of truth. **Publish update channels** rebuilds and
+deploys the site after the stable or next release workflow finishes publishing,
+including any packages published by a partially failed matrix. It also supports
+manual runs. Merging into `next` does not publish or update these files. Releases
+without `release.json` are logged and skipped; invalid metadata or failed GitHub
+requests fail generation and leave the deployed site intact.
+
+All URLs are under `https://updates.kipster.app/v1/`:
+
+| Path | Contents |
+| --- | --- |
+| `stable.json` | Latest stable release for each package |
+| `next.json` | Highest semver for each package, stable or prerelease |
+| `releases.json` | All eligible versions per package, in descending semver order |
+| `app/stable.json` | Latest signed stable app in Tauri v2 static updater format |
+| `app/next.json` | Highest signed app semver, stable or prerelease |
+| `app/<version>.json` | One signed app version in that same format |
+
+The three package catalogs have `{ "schemaVersion": 1, "packages": { ... } }`.
+Keys are full package names, such as `@kipster/core` and `@kipster/ui`. A channel
+maps each key to an entry; `releases.json` maps it to an array of entries.
+Packages with no eligible release on a channel are omitted. With only legacy
+releases, all three catalogs have an empty `packages` object.
+
+Each entry has this shape (protocol fields apply to Core or the app only):
+
+```json
+{
+  "package": "@kipster/core",
+  "version": "0.2.0",
+  "prerelease": false,
+  "notes": "Release notes from GitHub.",
+  "publishedAt": "2026-10-02T09:00:00Z",
+  "files": [
+    {
+      "name": "kipster-core-0.2.0.tgz",
+      "url": "https://github.com/manikanta-kops/kipster/releases/download/core-v0.2.0/kipster-core-0.2.0.tgz",
+      "size": 12345,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
+  ],
+  "protocolRange": { "current": 2, "oldest": 1 }
+}
+```
+
+An app entry has `protocol` instead of `protocolRange`, plus
+`updater: { platform, url, signature }` or `updater: null` for an unsigned DMG.
+The generator checks tag/package/version consistency, asset sizes, SHA-256
+digests when supplied by GitHub, protocol values and complete updater pairs.
+Consumers must tolerate additive fields. Incompatible schema changes need a
+new URL namespace; released clients retain their `/v1/` URLs.
+
+Tauri files contain exactly `version`, `notes`, `pub_date` and
+`platforms: { "darwin-aarch64": { url, signature } }`; the URL points to the
+`.app.tar.gz`, and the signature is the `.sig` contents, never its URL.
+Unsigned app versions remain in the package catalogs but have no per-version
+Tauri file. Tauri channel files are absent (404) until a signed release exists
+on that channel; they then choose the latest signed version. This can differ
+from the package channel's newest unsigned DMG.
+
+Regenerate locally into an empty directory with an authenticated GitHub CLI:
+
+```sh
+node scripts/channels.mjs /tmp/kipster-update-site
+```
+
+The command uses `gh api --paginate` for the release list and the authenticated
+asset API for metadata. `GITHUB_REPOSITORY` or `GH_REPO` can override the default
+`manikanta-kops/kipster`. CI supplies `GH_TOKEN`. The output includes a `CNAME`
+for `updates.kipster.app`. Pages deployments share one concurrency group.
+
+### Pages setup (owner)
+
+1. In repository **Settings → Pages**, choose **GitHub Actions** as the build
+   source.
+2. At the DNS provider, add CNAME `updates` → `manikanta-kops.github.io`.
+3. In **Settings → Pages**, set the custom domain to `updates.kipster.app`.
+   Once DNS and the certificate are ready, enable **Enforce HTTPS**.
+4. In **Settings → Environments → github-pages**, select **Selected branches
+   and tags** under deployment branches, and add branch rules for both `master`
+   and `next`. Check any required reviewer rules allow release deployments.
+5. After merging the workflow and setting up signing, run
+   `gh workflow run pages.yml --ref next`, then check
+   `https://updates.kipster.app/v1/next.json` loads. Existing releases without
+   metadata remain excluded until new releases are published.
+
+No repository settings or DNS are changed by the generator. To redeploy later,
+run **Publish update channels** on `next` or `master` from the Actions tab, or
+use the same CLI command above.
 
 ## Compatibility
 

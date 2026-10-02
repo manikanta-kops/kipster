@@ -1,0 +1,49 @@
+name: Publish update channels
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: kipster-update-pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: github.ref_name == 'master' || github.ref_name == 'next'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Generate channel files from GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/channels.mjs "$RUNNER_TEMP/update-site"
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: ${{ runner.temp }}/update-site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy update channels
+        id: deployment
+        uses: actions/deploy-pages@v4
