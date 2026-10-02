@@ -25,6 +25,8 @@ const routes = {
   '/conversations/media/capabilities': 'File upload from an interface.',
   '/conversations/media/uploads/{id}': 'File upload from an interface.',
   '/conversations/media/artifacts/{id}(/content)?': 'File download to an interface.',
+  '/v1/documents': 'Kip reads, edits and deletes rich docs with its documents_* tools; drafts and submissions are the person\'s side of a doc.',
+  '/v1/documents/': 'Kip reads, edits and deletes rich docs with its documents_* tools; drafts and submissions are the person\'s side of a doc.',
   '/v1/directory': ['directory.get'],
   '/v1/settings/interface': ['interface.get', 'interface.set'],
   '/v1/settings/learning': ['learning.get', 'learning.set'],

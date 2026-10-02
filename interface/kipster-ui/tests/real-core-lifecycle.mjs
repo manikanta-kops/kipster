@@ -125,30 +125,30 @@ try {
   )
   const tool = (name, args) =>
     execution.handle.callTool(randomUUID(), name, args)
-  const written = await tool('artifacts.write', {
+  const written = await tool('artifacts_write', {
     name: 'garden.txt',
     content: 'Retained garden report',
   })
-  const file = (await tool('artifacts.publish', { outputId: written.outputId }))
+  const file = (await tool('artifacts_publish', { outputId: written.outputId }))
     .artifact
-  await tool('conversation.publish', {
+  await tool('conversation_publish', {
     text: 'Garden report',
     artifactIds: [file.id],
   })
   const published = (
-    await tool('artifacts.copy_to_organization', { artifactId: file.id })
+    await tool('artifacts_copy_to_organization', { artifactId: file.id })
   ).artifact
   const copySource = (
-    await tool('artifacts.publish', {
+    await tool('artifacts_publish', {
       outputId: (
-        await tool('artifacts.write', {
+        await tool('artifacts_write', {
           name: 'copy-only.txt',
           content: 'Retained garden report',
         })
       ).outputId,
     })
   ).artifact
-  await tool('conversation.publish', {
+  await tool('conversation_publish', {
     text: 'Copy this report too',
     artifactIds: [copySource.id],
   })
@@ -820,8 +820,9 @@ try {
   const adminExecution = await until(() =>
     executions.find((e) => e.context.runId === adminRun.runId),
   )
-  await adminExecution.handle.callTool(randomUUID(), 'admin.agents.archive', {
-    agentId: maple.id,
+  await adminExecution.handle.callTool(randomUUID(), 'admin_call', {
+    operation: 'agents.archive',
+    arguments: { agentId: maple.id },
   })
   const adminCard = (
     await call('GET', `/v1/threads/${adminRun.threadId}/snapshot`)
@@ -966,7 +967,7 @@ try {
   )
   const delegation = await parentExecution.handle.callTool(
     randomUUID(),
-    'agents.delegate',
+    'agents_delegate',
     { recipientId: helper.id, request: 'Ask the owner which color to use' },
   )
   parentExecution.handle.release({

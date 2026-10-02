@@ -89,9 +89,9 @@ const tripMarkdown = '# Trip\n\nWhere should we go?\n\n```question\nprompt: Dest
 test('a kip writes a doc, the user answers, edits, comments and submits, and the kip revises it', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   const writer = await ctx.start()
-  const created = await writer.tool('create-1', 'documents.create', { title: 'Trip plan', markdown: tripMarkdown })
+  const created = await writer.tool('create-1', 'documents_create', { title: 'Trip plan', markdown: tripMarkdown })
   assert.equal(created.revision, 1)
-  assert.deepEqual(await writer.tool('create-1', 'documents.create', { title: 'Trip plan', markdown: tripMarkdown }), created, 'one call ID creates one doc')
+  assert.deepEqual(await writer.tool('create-1', 'documents_create', { title: 'Trip plan', markdown: tripMarkdown }), created, 'one call ID creates one doc')
   const id = created.documentId
   const card = (await ctx.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [created.messageId])).rows[0]
   assert.deepEqual(card.parts, [{ kind: 'document', documentId: id, revision: 1 }])
@@ -161,21 +161,21 @@ test('a kip writes a doc, the user answers, edits, comments and submits, and the
   const history = revise.context.input.find(message => message.messageId !== submitted.messageId && message.parts.some(part => /Shared rich doc/.test(part.text ?? '')))
   assert.ok(history, 'the card the kip posted is in its history')
 
-  const read = await revise.tool('read-1', 'documents.read', { documentId: id })
+  const read = await revise.tool('read-1', 'documents_read', { documentId: id })
   assert.equal(read.revision, 2)
   assert.equal(read.turn, 'agent')
   assert.match(read.blocks.find(block => block.id === question.id).markdown, /answer: Oslo/)
   assert.match(read.blocks.find(block => block.id === checklist.id).markdown, /- \[x\] Book flights/)
   assert.deepEqual(read.openComments, [{ id: 'k1', number: 1, blockId: paragraph.id, quote: 'Where', body: 'Be specific' }])
   assert.deepEqual(read.lastSubmission.revision, 2)
-  const edited = await revise.tool('edit-1', 'documents.edit', { documentId: id, operations: [
+  const edited = await revise.tool('edit-1', 'documents_edit', { documentId: id, operations: [
     { op: 'replace', blockId: paragraph.id, markdown: 'We go to **Oslo** in May.' },
     { op: 'delete', blockId: 'u-budget' },
     { op: 'resolve', commentId: 'k1', reply: 'Made it specific' },
   ] })
   assert.equal(edited.publishedRevision, 2)
   assert.deepEqual(edited.resolvedComments, ['k1'])
-  const mine = await revise.tool('read-2', 'documents.read', { documentId: id })
+  const mine = await revise.tool('read-2', 'documents_read', { documentId: id })
   assert.equal(mine.unpublishedEdits, true)
   assert.deepEqual(mine.openComments, [])
   assert.equal(mine.blocks.find(block => block.id === paragraph.id).markdown, 'We go to **Oslo** in May.')
@@ -214,8 +214,8 @@ test('a kip writes a doc, the user answers, edits, comments and submits, and the
 test('turns: the kip takes a clean doc, waits for a dirty one, and loses it on take back', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   const writer = await ctx.start()
-  const { documentId: id } = await writer.tool('create', 'documents.create', { title: 'Notes', markdown: 'Hello' })
-  await writer.tool('edit', 'documents.edit', { documentId: id, operations: [{ op: 'insert', afterBlockId: null, markdown: '# Notes' }] })
+  const { documentId: id } = await writer.tool('create', 'documents_create', { title: 'Notes', markdown: 'Hello' })
+  await writer.tool('edit', 'documents_edit', { documentId: id, operations: [{ op: 'insert', afterBlockId: null, markdown: '# Notes' }] })
   const taken = await ctx.detail(id)
   assert.equal(taken.document.turn, 'agent', 'an edit on a clean doc takes the turn for the run')
   assert.equal((await ctx.draft(id, { baseRevision: 1, expectedDraftVersion: 0, title: 'Notes', blocks: taken.current.blocks })).status, 409)
@@ -226,17 +226,17 @@ test('turns: the kip takes a clean doc, waits for a dirty one, and loses it on t
 
   assert.equal((await ctx.draft(id, { baseRevision: 2, expectedDraftVersion: 0, title: 'Notes', blocks: published.current.blocks })).status, 200)
   const other = await ctx.start(ctx.rootAgentId, ctx.installation, 'Tidy the notes')
-  await assert.rejects(other.tool('edit', 'documents.edit', { documentId: id, operations: [{ op: 'title', title: 'Tidy' }] }), /unsubmitted changes.*Ask the user to submit/)
+  await assert.rejects(other.tool('edit', 'documents_edit', { documentId: id, operations: [{ op: 'title', title: 'Tidy' }] }), /unsubmitted changes.*Ask the user to submit/)
   other.end()
   assert.equal((await ctx.detail(id)).document.turn, 'user')
 
   const submitted = await ctx.ok('POST', `/v1/documents/${id}/submit`, { version: 1, operationId: randomUUID(), draftVersion: 1 })
   const revise = await ctx.run(submitted.runId)
-  await revise.tool('edit-1', 'documents.edit', { documentId: id, operations: [{ op: 'title', title: 'Changed' }] })
+  await revise.tool('edit-1', 'documents_edit', { documentId: id, operations: [{ op: 'title', title: 'Changed' }] })
   const back = documentDetail.parse(await ctx.ok('POST', `/v1/documents/${id}/take-back`, { version: 1 }))
   assert.equal(back.document.turn, 'user')
   assert.equal((await ctx.call('POST', `/v1/documents/${id}/take-back`, { version: 1, extra: true })).status, 400)
-  await assert.rejects(revise.tool('edit-2', 'documents.edit', { documentId: id, operations: [{ op: 'title', title: 'Again' }] }), /took this doc back/)
+  await assert.rejects(revise.tool('edit-2', 'documents_edit', { documentId: id, operations: [{ op: 'title', title: 'Again' }] }), /took this doc back/)
   revise.end()
   await until(async () => (await ctx.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [submitted.runId])).rows[0].state, state => state === 'completed', 'run end')
   const kept = await ctx.detail(id)
@@ -245,13 +245,13 @@ test('turns: the kip takes a clean doc, waits for a dirty one, and loses it on t
 
   const failing = await ctx.ok('POST', `/v1/documents/${id}/submit`, { version: 1, operationId: randomUUID(), draftVersion: 0 })
   const failed = await ctx.run(failing.runId)
-  await failed.tool('edit', 'documents.edit', { documentId: id, operations: [{ op: 'title', title: 'From a failed run' }] })
+  await failed.tool('edit', 'documents_edit', { documentId: id, operations: [{ op: 'title', title: 'From a failed run' }] })
   failed.handle.release({ kind: 'failed', attemptId: failed.context.attemptId, confirmedEnded: true, message: 'provider failed' })
   const afterFailure = await ctx.settled(id, value => value.document.turn === 'user', 'turn back after a failed run')
   assert.deepEqual([afterFailure.current.number, afterFailure.current.title], [5, 'From a failed run'], 'a run that fails still publishes its edits')
 
   const crashed = await ctx.start(ctx.rootAgentId, ctx.installation, 'Edit again')
-  await crashed.tool('edit', 'documents.edit', { documentId: id, operations: [{ op: 'title', title: 'Before the crash' }] })
+  await crashed.tool('edit', 'documents_edit', { documentId: id, operations: [{ op: 'title', title: 'Before the crash' }] })
   // Recovery after a crash moves the run to recovery-needed without the settlement hook; the next read ends the turn.
   await ctx.db.query("UPDATE kipster.text_runs SET state='recovery-needed' WHERE id=$1", [crashed.runId])
   const listed = documentList.parse(await ctx.ok('GET', '/v1/documents')).documents[0]
@@ -263,28 +263,28 @@ test('kips see their workspace, owners delete docs, and doc files are read throu
   const scout = (await ctx.ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name: 'Scout', organizationId: ctx.organizationId })).agent.id
   const organization = { kind: 'organization', organizationId: ctx.organizationId }
   const root = await ctx.start()
-  const { documentId: rootDoc } = await root.tool('c1', 'documents.create', { title: 'Root doc', markdown: 'Private' })
-  const { documentId: teamDoc } = await root.tool('c2', 'documents.create', { title: 'Team doc', markdown: 'Shared', organizationId: ctx.organizationId })
+  const { documentId: rootDoc } = await root.tool('c1', 'documents_create', { title: 'Root doc', markdown: 'Private' })
+  const { documentId: teamDoc } = await root.tool('c2', 'documents_create', { title: 'Team doc', markdown: 'Shared', organizationId: ctx.organizationId })
   assert.deepEqual((await ctx.detail(teamDoc)).document.context, organization)
-  assert.deepEqual(new Set((await root.tool('l1', 'documents.list', {})).documents.map(entry => entry.documentId)), new Set([rootDoc, teamDoc]))
+  assert.deepEqual(new Set((await root.tool('l1', 'documents_list', {})).documents.map(entry => entry.documentId)), new Set([rootDoc, teamDoc]))
 
   const member = await ctx.start(scout, organization, 'Hello')
-  assert.deepEqual((await member.tool('l1', 'documents.list', {})).documents.map(entry => entry.documentId), [teamDoc])
-  await assert.rejects(member.tool('r1', 'documents.read', { documentId: rootDoc }), /Document not found/)
-  await assert.rejects(member.tool('c1', 'documents.create', { title: 'Elsewhere', markdown: '', organizationId: randomUUID() }), /Only Kip/)
-  const own = await member.tool('c2', 'documents.create', { title: 'Scout notes', markdown: 'Mine' })
+  assert.deepEqual((await member.tool('l1', 'documents_list', {})).documents.map(entry => entry.documentId), [teamDoc])
+  await assert.rejects(member.tool('r1', 'documents_read', { documentId: rootDoc }), /Document not found/)
+  await assert.rejects(member.tool('c1', 'documents_create', { title: 'Elsewhere', markdown: '', organizationId: randomUUID() }), /Only Kip/)
+  const own = await member.tool('c2', 'documents_create', { title: 'Scout notes', markdown: 'Mine' })
   assert.deepEqual((await ctx.detail(own.documentId)).document.context, organization)
-  assert.equal((await member.tool('r2', 'documents.read', { documentId: teamDoc })).title, 'Team doc')
+  assert.equal((await member.tool('r2', 'documents_read', { documentId: teamDoc })).title, 'Team doc')
 
-  await assert.rejects(root.tool('c3', 'documents.create', { title: ' ', markdown: '' }), /Invalid title/)
-  await assert.rejects(root.tool('c4', 'documents.create', { title: 'T', markdown: '', extra: 1 }), /unknown field extra/)
-  await assert.rejects(root.tool('c5', 'documents.create', { title: 'T', markdown: '```question\noptions:\n- A\n```' }), /needs a prompt/)
-  await assert.rejects(root.tool('c6', 'documents.create', { title: 'T', markdown: `![x](artifact:${randomUUID()})` }), /not readable/)
-  await assert.rejects(root.tool('e1', 'documents.edit', { documentId: rootDoc, operations: [{ op: 'rewrite' }] }), /op must be one of/)
-  await assert.rejects(root.tool('e2', 'documents.edit', { documentId: rootDoc }), /1 to 100/)
-  await assert.rejects(root.tool('r1', 'documents.read', { documentId: rootDoc, revision: 0 }), /positive integer/)
-  await assert.rejects(root.tool('l2', 'documents.list', { all: true }), /unknown field all/)
-  await assert.rejects(root.tool('d1', 'documents.delete', {}), /documentId is required/)
+  await assert.rejects(root.tool('c3', 'documents_create', { title: ' ', markdown: '' }), /Invalid title/)
+  await assert.rejects(root.tool('c4', 'documents_create', { title: 'T', markdown: '', extra: 1 }), /unknown field extra/)
+  await assert.rejects(root.tool('c5', 'documents_create', { title: 'T', markdown: '```question\noptions:\n- A\n```' }), /needs a prompt/)
+  await assert.rejects(root.tool('c6', 'documents_create', { title: 'T', markdown: `![x](artifact:${randomUUID()})` }), /not readable/)
+  await assert.rejects(root.tool('e1', 'documents_edit', { documentId: rootDoc, operations: [{ op: 'rewrite' }] }), /op must be one of/)
+  await assert.rejects(root.tool('e2', 'documents_edit', { documentId: rootDoc }), /1 to 100/)
+  await assert.rejects(root.tool('r1', 'documents_read', { documentId: rootDoc, revision: 0 }), /positive integer/)
+  await assert.rejects(root.tool('l2', 'documents_list', { all: true }), /unknown field all/)
+  await assert.rejects(root.tool('d1', 'documents_delete', {}), /documentId is required/)
   assert.equal(Number((await ctx.db.query('SELECT count(*) AS n FROM kipster.documents')).rows[0].n), 3, 'refused calls create nothing')
 
   const actor = { installationId: ctx.installationId, personId: ctx.ownerId }
@@ -313,8 +313,8 @@ test('kips see their workspace, owners delete docs, and doc files are read throu
   assert.deepEqual(await ctx.ok('DELETE', `/v1/documents/${teamDoc}`), { version: 1, id: teamDoc })
   assert.equal((await ctx.call('GET', `/v1/documents/${teamDoc}`)).status, 404)
   assert.equal((await ctx.call('DELETE', `/v1/documents/${teamDoc}`)).status, 404)
-  await assert.rejects(member.tool('r3', 'documents.read', { documentId: teamDoc }), /Document not found/)
-  assert.deepEqual(await root.tool('d2', 'documents.delete', { documentId: rootDoc }), { documentId: rootDoc, deleted: true })
+  await assert.rejects(member.tool('r3', 'documents_read', { documentId: teamDoc }), /Document not found/)
+  assert.deepEqual(await root.tool('d2', 'documents_delete', { documentId: rootDoc }), { documentId: rootDoc, deleted: true })
   assert.deepEqual(documentList.parse(await ctx.ok('GET', '/v1/documents')).documents.map(entry => entry.id), [own.documentId])
   const removals = (await ctx.events()).filter(event => event.type === 'document-removed').map(event => event.data.id)
   assert.deepEqual(removals, [teamDoc, rootDoc])
