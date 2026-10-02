@@ -6,6 +6,7 @@
     "beforeBuildCommand": "npm run build:desktop-demo"
   },
   "bundle": {
+    "createUpdaterArtifacts": false,
     "targets": ["app"]
   }
 }

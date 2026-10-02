@@ -36,3 +36,12 @@ jobs:
       packages: ${{ needs.plan.outputs.packages }}
       ref: ${{ github.sha }}
     secrets: inherit
+
+  channels:
+    needs: publish
+    if: always() && !cancelled() && needs.publish.result != 'skipped'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml

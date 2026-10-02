@@ -51,3 +51,13 @@ jobs:
       ref: ${{ github.sha }}
       snapshot: ${{ needs.plan.outputs.snapshot }}
     secrets: inherit
+
+  channels:
+    needs: publish
+    # A failed matrix may still have published packages; regenerate those too.
+    if: always() && !cancelled() && needs.publish.result != 'skipped'
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/pages.yml
