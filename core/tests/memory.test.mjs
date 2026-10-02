@@ -160,16 +160,16 @@ test('attempt-bound save is idempotent and changes the next admitted execution c
     await dispatcher.start()
     for(let i=0;i<100&&handles.length<1;i++)await new Promise(resolve=>setTimeout(resolve,20))
     assert.equal(handles.length,1)
-    assert.equal(contexts[0].memoryEnabled,true)
+    assert.equal(contexts[0].tools.some(tool=>tool.name==='memory_save'),true)
     const host=textPublicationHost(dispatcher)
-    const request={attemptId:contexts[0].attemptId,callId:'memory-save-1',name:'memory.save',arguments:{kind:'fact',text:'Amsterdam office opens at ten'}}
+    const request={attemptId:contexts[0].attemptId,callId:'memory-save-1',name:'memory_save',arguments:{kind:'fact',text:'Amsterdam office opens at ten'}}
     const [saved,simultaneous]=await Promise.all([host.invokeTool(request),host.invokeTool(request)])
     assert.equal(saved.status,'completed')
     assert.deepEqual(simultaneous,saved)
     assert.deepEqual(await host.invokeTool(request),saved)
     await assert.rejects(host.invokeTool({...request,arguments:{kind:'fact',text:'Amsterdam office opens at nine'}}),/identity reused/)
     assert.equal((await runtime.db.query(`SELECT count(*)::int AS n FROM kipster.memory_records WHERE scope='agent'`)).rows[0].n,1)
-    const badCorrection={attemptId:contexts[0].attemptId,callId:'memory-correct-rollback',name:'memory.correct',arguments:{id:saved.record.id,expectedRevision:99,text:'Amsterdam office opens at ten sharp'}}
+    const badCorrection={attemptId:contexts[0].attemptId,callId:'memory-correct-rollback',name:'memory_correct',arguments:{id:saved.record.id,expectedRevision:99,text:'Amsterdam office opens at ten sharp'}}
     await assert.rejects(host.invokeTool(badCorrection),/revision conflict/)
     assert.equal((await runtime.db.query(`SELECT count(*)::int AS n FROM kipster.memory_tool_receipts WHERE attempt_id=$1 AND call_id=$2`,[contexts[0].attemptId,badCorrection.callId])).rows[0].n,0)
     const corrected=await host.invokeTool({...badCorrection,arguments:{...badCorrection.arguments,expectedRevision:1}})
@@ -181,7 +181,7 @@ test('attempt-bound save is idempotent and changes the next admitted execution c
     await runtime.db.query(`INSERT INTO kipster.memory_relationships(id,installation_id,owner_kind,owner_id,from_id,to_id,kind,weight,from_revision,to_revision) VALUES ($1,$2,'agent',$3,$4,$5,'contradicts',0.9,1,1)`,[largeEdge,ids.installationId,ids.rootAgentId,firstLarge,lastLarge])
     await runtime.db.query(`INSERT INTO kipster.memory_relationship_changes(relationship_id,revision,operation,actor_id,kind,weight,active,from_revision,to_revision) VALUES ($1,1,'link',$2,'contradicts',0.9,true,1,1)`,[largeEdge,ids.rootAgentId])
     await runtime.db.query(`INSERT INTO kipster.memory_relationship_evidence(relationship_id,relationship_revision,ordinal,memory_id,memory_revision,source_hash) VALUES ($1,1,1,$2,1,$3)`,[largeEdge,firstLarge,firstHash])
-    const projected=await host.invokeTool({attemptId:contexts[0].attemptId,callId:'bounded-search-pair',name:'memory.search',arguments:{query:'Batch result',limit:20}})
+    const projected=await host.invokeTool({attemptId:contexts[0].attemptId,callId:'bounded-search-pair',name:'memory_search',arguments:{query:'Batch result',limit:20}})
     assert.ok(Buffer.byteLength(JSON.stringify(projected))<=32768)
     const projectedIds=new Set(projected.map(item=>item.record.id))
     assert.ok(projectedIds.has(firstLarge))
@@ -193,7 +193,7 @@ test('attempt-bound save is idempotent and changes the next admitted execution c
     const entered=new Promise(resolve=>{reached=resolve})
     const held=new Promise(resolve=>{release=resolve})
     runtime.memory.search=async(...args)=>{const result=await originalSearch(...args);reached();await held;return result}
-    const reading=host.invokeTool({attemptId:contexts[0].attemptId,callId:'search-stop-race',name:'memory.search',arguments:{query:'Amsterdam office'}})
+    const reading=host.invokeTool({attemptId:contexts[0].attemptId,callId:'search-stop-race',name:'memory_search',arguments:{query:'Amsterdam office'}})
     await entered
     await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=true WHERE id=$1',[first.runId])
     release()
@@ -209,7 +209,7 @@ test('attempt-bound save is idempotent and changes the next admitted execution c
     for(let i=0;i<100&&handles.length<2;i++)await new Promise(resolve=>setTimeout(resolve,20))
     assert.equal(handles.length,2)
     assert.ok(contexts[1].memory.join('\n').includes('Amsterdam office opens at ten'))
-    assert.equal(contexts[1].memoryEnabled,true)
+    assert.equal(contexts[1].tools.some(tool=>tool.name==='memory_save'),true)
     handles[1].release({kind:'ended',attemptId:contexts[1].attemptId,confirmed:true})
     for(let i=0;i<100;i++){const row=(await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1',[first.runId])).rows[0];if(row?.state==='completed')break;await new Promise(resolve=>setTimeout(resolve,20))}
     assert.equal((await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1',[first.runId])).rows[0].state,'completed')
@@ -248,7 +248,7 @@ test('concurrent attempt-bound saves use one transaction each and Stop fences la
     for(let index=0;index<200&&contexts.length<12;index++)await new Promise(resolve=>setTimeout(resolve,25))
     assert.equal(contexts.length,12)
     const host=textPublicationHost(dispatcher)
-    const calls=contexts.map((item,index)=>host.invokeTool({attemptId:item.attemptId,callId:`pool-save-${index}`,name:'memory.save',arguments:{kind:'fact',text:`Pool memory ${index}`}}))
+    const calls=contexts.map((item,index)=>host.invokeTool({attemptId:item.attemptId,callId:`pool-save-${index}`,name:'memory_save',arguments:{kind:'fact',text:`Pool memory ${index}`}}))
     let poolTimeout
     const results=await Promise.race([Promise.all(calls),new Promise((_,reject)=>{poolTimeout=setTimeout(()=>reject(Error('Concurrent memory tools exhausted the pool')),10000)})]).finally(()=>clearTimeout(poolTimeout))
     assert.equal(results.filter(item=>item.status==='completed').length,12)
@@ -258,7 +258,7 @@ test('concurrent attempt-bound saves use one transaction each and Stop fences la
     let unblock,entered
     const gate=new Promise(resolve=>unblock=resolve),arrival=new Promise(resolve=>entered=resolve)
     runtime.memory.provenance=async(...args)=>{entered();await gate;return original(...args)}
-    const racing=host.invokeTool({attemptId:first.attemptId,callId:'race-save',name:'memory.save',arguments:{kind:'fact',text:'Race memory'}})
+    const racing=host.invokeTool({attemptId:first.attemptId,callId:'race-save',name:'memory_save',arguments:{kind:'fact',text:'Race memory'}})
     await arrival
     const firstRun=submissions.find(item=>item.runId===first.runId)
     const stop=post('/v1/work/controls',{version:1,operationId:randomUUID(),context,chatId:chat,threadId:firstRun.threadId,runId:first.runId,attemptId:first.attemptId,action:'stop'})
@@ -268,7 +268,7 @@ test('concurrent attempt-bound saves use one transaction each and Stop fences la
     unblock()
     assert.equal((await racing).status,'completed')
     assert.equal((await stop).outcome,'accepted')
-    await assert.rejects(host.invokeTool({attemptId:first.attemptId,callId:'late-race',name:'memory.save',arguments:{kind:'fact',text:'Too late'}}),/no longer owns/)
+    await assert.rejects(host.invokeTool({attemptId:first.attemptId,callId:'late-race',name:'memory_save',arguments:{kind:'fact',text:'Too late'}}),/no longer owns/)
     for(let index=0;index<handles.length;index++)handles[index].release({kind:'ended',attemptId:contexts[index].attemptId,confirmed:true})
   }finally{
     await dispatcher?.close();await server?.close();await runtime?.close()

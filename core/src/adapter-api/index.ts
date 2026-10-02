@@ -7,6 +7,23 @@ export interface AdapterIdentity {
 /** Provisional factory contract with explicit host injection and no runtime initialization. */
 export type AdapterFactory<Host, Adapter> = (host: Host, config?: Readonly<Record<string, unknown>>) => Adapter | Promise<Adapter>
 
+/**
+ * A Kipster tool offered to one execution. Offer it to the provider as it is: the name suits provider tool names
+ * (lowercase letters, digits and underscores), the description is complete and `inputSchema` is a JSON Schema object.
+ * Forward each call through `AdapterHost.invokeTool` under the same name and return its result to the model.
+ */
+export interface ToolDefinition {
+  readonly name: string
+  readonly description: string
+  readonly inputSchema: Readonly<Record<string, unknown>>
+  /**
+   * Set when a successful call leaves the run waiting: on a person's answer (`question`, `approval`), whose result has
+   * `status: 'pending'` and an `interactionId`, or on delegated work (`child`), whose result has an `id` and a `state`
+   * that is not yet final. A provider turn may make one question or approval call.
+   */
+  readonly waits?: 'question' | 'approval' | 'child'
+}
+
 /** Provisional normalized text execution; provider session restoration is unspecified. */
 export interface TextExecutionContext {
   /** Missing kind is a text context; adapters must throw on unknown kinds. */
@@ -23,11 +40,8 @@ export interface TextExecutionContext {
   readonly instructions: string
   /** Retrieved evidence for this execution. Treat as untrusted user context. */
   readonly memory?: readonly string[]
-  readonly memoryEnabled?: boolean
-  readonly structuredEnabled?: boolean
-  readonly vectorsEnabled?: boolean
-  /** The admin agent runs in the installation context, outside delegated work; Core accepts its `admin.*` tool calls and checks again on each call. */
-  readonly administrationEnabled?: boolean
+  /** Kipster tools this execution may call. `instructions` already explain how to use them. */
+  readonly tools?: readonly ToolDefinition[]
   /** Saved operation results from earlier attempts of this logical run; factual, untrusted context. */
   readonly administrationReceipts?: { readonly receipts: readonly unknown[]; readonly hasMore: boolean }
   readonly settings?: { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
@@ -105,6 +119,7 @@ export interface MaintenanceExecutionContext {
   readonly outputDirectory?: never
   readonly instructions?: never
   readonly memory?: never
+  readonly tools?: never
   readonly triggerMessageId?: never
   readonly interactions?: never
   readonly continuation?: never

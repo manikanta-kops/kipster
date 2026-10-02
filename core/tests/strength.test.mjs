@@ -201,10 +201,10 @@ test('weak memories are deleted with vectors, links and receipts; deliberate sav
   const first = await conversation(ctx, learned)
   await learn(ctx, first.runId, [learned])
   const second = await startConversation(ctx, 'Remember that the office moved to Hyderabad')
-  const saved = await second.execution.handle.callTool('save-1', 'memory.save', { kind: 'fact', text: deliberate })
+  const saved = await second.execution.handle.callTool('save-1', 'memory_save', { kind: 'fact', text: deliberate })
   const from = (await memory(ctx, learned)).id
   const to = saved.record.id
-  const linked = await second.execution.handle.callTool('link-1', 'memory.link', { owner: { kind: 'agent', ownerId: ctx.agentId }, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'contradicts', weight: 0.9, evidence: [{ memoryId: from, revision: 1 }, { memoryId: to, revision: 1 }] })
+  const linked = await second.execution.handle.callTool('link-1', 'memory_link', { owner: { kind: 'agent', ownerId: ctx.agentId }, fromId: from, toId: to, fromRevision: 1, toRevision: 1, kind: 'contradicts', weight: 0.9, evidence: [{ memoryId: from, revision: 1 }, { memoryId: to, revision: 1 }] })
   await second.finish()
   await learn(ctx, second.runId, [])
   await ctx.runtime.memory.indexPending(10, true)
@@ -386,11 +386,11 @@ test('memory.search and memory.get from a live execution refresh age without add
   const { id } = await memory(ctx, 'The office is in Pune')
   const live = await startConversation(ctx, 'Tell me about something else')
   await setDays(ctx, 10)
-  const found = await live.execution.handle.callTool('search-1', 'memory.search', { query: 'office Pune' })
+  const found = await live.execution.handle.callTool('search-1', 'memory_search', { query: 'office Pune' })
   assert.ok(found.some(hit => hit.record.id === id))
   assert.deepEqual([(await memory(ctx, 'The office is in Pune')).refreshed_day, (await memory(ctx, 'The office is in Pune')).evidence], [10, 1])
   await setDays(ctx, 15)
-  assert.equal((await live.execution.handle.callTool('get-1', 'memory.get', { id })).id, id)
+  assert.equal((await live.execution.handle.callTool('get-1', 'memory_get', { id })).id, id)
   assert.deepEqual([(await memory(ctx, 'The office is in Pune')).refreshed_day, (await memory(ctx, 'The office is in Pune')).evidence], [15, 1])
   await live.finish()
 })
@@ -400,9 +400,9 @@ test('a link between surviving memories keeps its history minus citations of a f
   const ctx = await setup(t)
   await ctx.dispatcher.start()
   const live = await startConversation(ctx, 'Remember these')
-  const save = async (callId, text) => (await live.execution.handle.callTool(callId, 'memory.save', { kind: 'fact', text })).record.id
+  const save = async (callId, text) => (await live.execution.handle.callTool(callId, 'memory_save', { kind: 'fact', text })).record.id
   const [a, b, x] = [await save('a', 'The office is in Pune'), await save('b', 'The team sits on floor three'), await save('x', 'Someone mentioned a parking pass')]
-  const link = (await live.execution.handle.callTool('link', 'memory.link', { owner: { kind: 'agent', ownerId: ctx.agentId }, fromId: a, toId: b, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.6, evidence: [{ memoryId: a, revision: 1 }, { memoryId: x, revision: 1 }] })).relationship
+  const link = (await live.execution.handle.callTool('link', 'memory_link', { owner: { kind: 'agent', ownerId: ctx.agentId }, fromId: a, toId: b, fromRevision: 1, toRevision: 1, kind: 'related_to', weight: 0.6, evidence: [{ memoryId: a, revision: 1 }, { memoryId: x, revision: 1 }] })).relationship
   await live.finish()
   await learn(ctx, live.runId, [])
   await ctx.db.query('UPDATE kipster.memory_records SET importance=0.2 WHERE id=$1', [x])

@@ -37,7 +37,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   try {
     assert.equal((await adapter.readiness()).ready,true)
     const settled = {id:'earlier',kind:'question',prompt:'Earlier choice?',options:[{id:'opaque',label:'Human choice'}],freeText:false,response:{actorId:'human',answer:{kind:'choice',optionId:'opaque'},acceptedAt:'2026-09-23T00:00:00Z'}}
-    const handle = await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'Ask once'}],triggerMessageId:'message',interactions:[settled]})
+    const handle = await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',tools:[{name:'interactions_ask',description:'Ask',inputSchema:{type:'object'},waits:'question'}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'Ask once'}],triggerMessageId:'message',interactions:[settled]})
     const events = []
     for await (const event of handle.events) events.push(event)
     assert.equal(calls.length,1)

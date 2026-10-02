@@ -231,6 +231,21 @@
         "answer": {"ref":"interactionAnswer"}
       }
     },
+    "interfacePreferencesWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "palette": {"type":"optional","of":{"ref":"interfacePalette"}},
+        "theme": {"type":"optional","of":{"ref":"interfaceTheme"}},
+        "desktopNotifications": {"type":"optional","of":{"type":"boolean"}},
+        "notifyNeeds": {"type":"optional","of":{"type":"boolean"}},
+        "notifyFailures": {"type":"optional","of":{"type":"boolean"}},
+        "notifyReplies": {"type":"optional","of":{"type":"boolean"}},
+        "inAppBanners": {"type":"optional","of":{"type":"boolean"}},
+        "dockBadge": {"type":"optional","of":{"type":"boolean"}}
+      }
+    },
     "learningUpdate": {
       "type": "object",
       "exact": true,
@@ -912,6 +927,15 @@
         }
       }
     },
+    "identityChange": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "agentId": {"type":"string","min":1},
+        "file": {"ref":"identityFileName"},
+        "sha256": {"type":"string","min":1}
+      }
+    },
     "identityFile": {
       "type": "object",
       "exact": false,
@@ -923,6 +947,7 @@
         "sha256": {"type":"string","min":1}
       }
     },
+    "instructionsChange": {"type":"object","exact":false,"fields":{"organizationId":{"type":"string","min":1}}},
     "interactionResponseReceipt": {
       "type": "union",
       "of": [
@@ -949,6 +974,37 @@
           }
         }
       ]
+    },
+    "interfacePreferences": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "revision": {"type":"integer","min":0},
+        "palette": {"type":"nullable","of":{"type":"string"}},
+        "theme": {"type":"nullable","of":{"type":"string"}},
+        "desktopNotifications": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyNeeds": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyFailures": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyReplies": {"type":"nullable","of":{"type":"boolean"}},
+        "inAppBanners": {"type":"nullable","of":{"type":"boolean"}},
+        "dockBadge": {"type":"nullable","of":{"type":"boolean"}}
+      }
+    },
+    "interfacePreferencesRecord": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "revision": {"type":"integer","min":0},
+        "palette": {"type":"nullable","of":{"type":"string"}},
+        "theme": {"type":"nullable","of":{"type":"string"}},
+        "desktopNotifications": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyNeeds": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyFailures": {"type":"nullable","of":{"type":"boolean"}},
+        "notifyReplies": {"type":"nullable","of":{"type":"boolean"}},
+        "inAppBanners": {"type":"nullable","of":{"type":"boolean"}},
+        "dockBadge": {"type":"nullable","of":{"type":"boolean"}}
+      }
     },
     "learningChange": {
       "type": "object",
@@ -1537,6 +1593,51 @@
             "occurredAt": {"type":"string","format":"utc-timestamp"},
             "resourceId": {"type":"string","min":1},
             "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"interface-changed"},
+            "data": {"ref":"interfacePreferencesRecord"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"identity-changed"},
+            "data": {"ref":"identityChange"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"instructions-changed"},
+            "data": {"ref":"instructionsChange"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"resync-required"}
           }
         }
@@ -1890,6 +1991,24 @@
         {"type":"literal","value":"settled"},
         {"type":"literal","value":"cancelled"},
         {"type":"literal","value":"superseded"}
+      ]
+    },
+    "interfacePalette": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"glacier"},
+        {"type":"literal","value":"alpenglow"},
+        {"type":"literal","value":"pine"},
+        {"type":"literal","value":"graphite"},
+        {"type":"literal","value":"obsidian"}
+      ]
+    },
+    "interfaceTheme": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"light"},
+        {"type":"literal","value":"dark"},
+        {"type":"literal","value":"system"}
       ]
     },
     "organizationLifecycle": {

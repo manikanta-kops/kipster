@@ -180,6 +180,48 @@ export function parseAgentLearning(value: unknown): AgentLearning {
   return value as AgentLearning
 }
 
+/** Installation-wide interface choices; null is the interface default. */
+/** Notification choices are undefined when the connected Core does not keep them. */
+export const notificationChoices = [
+  'notifyNeeds',
+  'notifyFailures',
+  'notifyReplies',
+  'inAppBanners',
+  'dockBadge',
+] as const
+export type InterfaceChoices = {
+  revision: number
+  palette: string | null
+  theme: string | null
+  desktopNotifications: boolean | null
+} & Partial<Record<(typeof notificationChoices)[number], boolean | null>>
+export function parseInterfaceChoices(value: unknown): InterfaceChoices {
+  check(
+    record(value) &&
+      typeof value.revision === 'number' &&
+      (value.palette === null || typeof value.palette === 'string') &&
+      (value.theme === null || typeof value.theme === 'string') &&
+      (value.desktopNotifications === null ||
+        typeof value.desktopNotifications === 'boolean') &&
+      notificationChoices.every(
+        (name) =>
+          value[name] === undefined ||
+          value[name] === null ||
+          typeof value[name] === 'boolean',
+      ),
+  )
+  return {
+    revision: value.revision,
+    palette: value.palette,
+    theme: value.theme,
+    desktopNotifications: value.desktopNotifications,
+    ...Object.fromEntries(
+      notificationChoices.flatMap((name) =>
+        value[name] === undefined ? [] : [[name, value[name]]],
+      ),
+    ),
+  }
+}
 export function parseLearning(value: unknown): Learning {
   check(
     record(value) &&
@@ -560,6 +602,22 @@ export class CoreSettingsClient {
   }
   async directory(signal: AbortSignal) {
     return parseDirectory(await this.request('GET', '/v1/directory', signal))
+  }
+  async interfacePreferences(signal: AbortSignal) {
+    return parseInterfaceChoices(
+      await this.request('GET', '/v1/settings/interface', signal),
+    )
+  }
+  async saveInterfacePreferences(
+    changes: Partial<Omit<InterfaceChoices, 'revision'>>,
+    signal: AbortSignal,
+  ) {
+    return parseInterfaceChoices(
+      await this.request('PUT', '/v1/settings/interface', signal, {
+        version: 1,
+        ...changes,
+      }),
+    )
   }
   /** Follows the application stream after `cursor` until it fails or `signal` aborts. */
   async events(

@@ -145,3 +145,43 @@ test('desktop settings follow the host: permission, test, keep running and open 
     await page.evaluate(() => (window as any).notificationTest.settingsOpened),
   ).toBe(1)
 })
+
+const coreInterface = (page: Page, change?: Record<string, unknown>) =>
+  page.evaluate(async (change) => {
+    const core =
+      new URLSearchParams(location.search).get('testCore') || 'default'
+    const response = await fetch(
+      `https://${core}.demo.kipster.invalid/v1/settings/interface`,
+      change === undefined
+        ? undefined
+        : {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ version: 1, ...change }),
+          },
+    )
+    return response.json()
+  }, change)
+
+test('notification switches live in Core, so Kip and other windows share them', async ({
+  page,
+}) => {
+  await startDemo(page, { notification: 'background' })
+  await openNotificationSettings(page)
+  // Kip changes two switches through Core; the open window follows.
+  await coreInterface(page, { notifyReplies: false, dockBadge: false })
+  await expect(page.getByRole('switch', { name: /^Replies/ })).not.toBeChecked()
+  await expect(
+    page.getByRole('switch', { name: /^Dock badge/ }),
+  ).not.toBeChecked()
+  await expect(page.getByRole('switch', { name: /^Needs you/ })).toBeChecked()
+  await expect
+    .poll(() =>
+      page.evaluate(() => (window as any).notificationTest.badges.at(-1)),
+    )
+    .toBe(0)
+  await page.getByRole('switch', { name: /^In-app banners/ }).check()
+  await expect
+    .poll(async () => (await coreInterface(page)).inAppBanners)
+    .toBe(true)
+})

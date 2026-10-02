@@ -2,7 +2,7 @@ import Dexie, { type Table } from 'dexie'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Platform } from '../../platform/platform'
 import { deliveryKind, type InboxNotification } from '../../data/notifications'
-import { notificationSetting, useSystemNotifications } from './settings'
+import { useNotificationSettings, useSystemNotifications } from './settings'
 
 const db = new Dexie('kipster-notification-attention') as Dexie & {
   claims: Table<{ id: string; at: number }, string>
@@ -35,9 +35,10 @@ export function useDelivery(
   const [banners, setBanners] = useState<string[]>([])
   const seen = useRef(new Set<string>())
   const system = useSystemNotifications(platform, scope).on
-  const latest = useRef({ items, selected, scope, system })
+  const { settings } = useNotificationSettings(platform)
+  const latest = useRef({ items, selected, scope, system, settings })
   useEffect(() => {
-    latest.current = { items, selected, scope, system }
+    latest.current = { items, selected, scope, system, settings }
   })
   useEffect(() => {
     if (!platform || !scope) return
@@ -50,13 +51,12 @@ export function useDelivery(
         const n = now.items.find((n) => n.id === id)
         if (!n || n.read || now.scope !== scope) return null
         if (foreground(platform))
-          return n.target.threadId !== now.selected &&
-            notificationSetting(platform, 'banners')
+          return n.target.threadId !== now.selected && now.settings.banners
             ? { n, banner: true }
             : null
         return platform.notifications.sendExisting &&
           now.system &&
-          notificationSetting(platform, deliveryKind(n))
+          now.settings[deliveryKind(n)]
           ? { n, banner: false }
           : null
       }

@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import {
   backendURL,
   localBackendURL,
@@ -9,10 +9,13 @@ import { TextClient } from '../../data/text'
 import { Workspace } from './Workspace'
 import { useAppearance } from '../../app/appearance'
 import { PlatformContext } from '../../platform/context'
+import {
+  InterfacePreferences,
+  InterfacePreferencesContext,
+} from '../../data/interface-preferences'
 
 export function ConnectedApp({ demoURL }: { demoURL?: string }) {
   const platform = useContext(PlatformContext)!
-  const appearance = useAppearance(platform)
   const [initial] = useState(() => {
     if (demoURL) return { endpoint: demoURL, error: '' }
     try {
@@ -28,6 +31,11 @@ export function ConnectedApp({ demoURL }: { demoURL?: string }) {
     }
   })
   const [endpoint, setEndpoint] = useState(initial.endpoint)
+  const preferences = useMemo(
+    () => (endpoint ? new InterfacePreferences(endpoint) : null),
+    [endpoint],
+  )
+  const appearance = useAppearance(platform, preferences)
   const [discovering, setDiscovering] = useState(
     !initial.endpoint && !initial.error,
   )
@@ -77,19 +85,21 @@ export function ConnectedApp({ demoURL }: { demoURL?: string }) {
     )
   if (!editing)
     return (
-      <Workspace
-        appearance={appearance}
-        key={endpoint}
-        endpoint={endpoint}
-        changeConnection={
-          demoURL
-            ? undefined
-            : () => {
-                setDraft(endpoint)
-                setEditing(true)
-              }
-        }
-      />
+      <InterfacePreferencesContext.Provider value={preferences}>
+        <Workspace
+          appearance={appearance}
+          key={endpoint}
+          endpoint={endpoint}
+          changeConnection={
+            demoURL
+              ? undefined
+              : () => {
+                  setDraft(endpoint)
+                  setEditing(true)
+                }
+          }
+        />
+      </InterfacePreferencesContext.Provider>
     )
   return (
     <main className="workspace-state connection-setup">

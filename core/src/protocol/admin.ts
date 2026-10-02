@@ -150,3 +150,21 @@ export type ExecutionAdapters = Infer<typeof executionAdapters>
 export const adaptersRefresh = object({ version: literal(1) })
 export type AdaptersRefresh = Infer<typeof adaptersRefresh>
 export const adaptersChange = object({ adapters: array(executionAdapter) }, false)
+
+export const interfacePalette = union(literal('glacier'), literal('alpenglow'), literal('pine'), literal('graphite'), literal('obsidian'))
+export const interfaceTheme = union(literal('light'), literal('dark'), literal('system'))
+/**
+ * Installation-wide interface choices that every connected interface applies: colour palette, light or dark theme,
+ * desktop alerts and which kinds of them, in-app banners and the app icon badge. A null value leaves the interface
+ * default. Readers treat an unknown palette or theme as unset.
+ */
+const interfaceFields = { revision: integer(), palette: nullable(string()), theme: nullable(string()), desktopNotifications: nullable(boolean()),
+  notifyNeeds: nullable(boolean()), notifyFailures: nullable(boolean()), notifyReplies: nullable(boolean()), inAppBanners: nullable(boolean()), dockBadge: nullable(boolean()) }
+export const interfacePreferencesRecord = object(interfaceFields, false)
+export type InterfacePreferencesRecord = Infer<typeof interfacePreferencesRecord>
+export const interfacePreferences = object({ version: literal(1), ...interfaceFields }, false)
+export type InterfacePreferences = Infer<typeof interfacePreferences>
+/** Changes the given choices; an omitted one is unchanged. */
+export const interfacePreferencesWrite = object({ version: literal(1), palette: optional(interfacePalette), theme: optional(interfaceTheme), desktopNotifications: optional(boolean()),
+  notifyNeeds: optional(boolean()), notifyFailures: optional(boolean()), notifyReplies: optional(boolean()), inAppBanners: optional(boolean()), dockBadge: optional(boolean()) })
+export type InterfacePreferencesWrite = Infer<typeof interfacePreferencesWrite>

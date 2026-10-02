@@ -12,8 +12,9 @@ import { textEvent } from '../dist/protocol/index.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-// The admin agent administers the installation through `admin.*` tool calls, which the deterministic
-// fixture adapter makes through the Core tool host against real PostgreSQL.
+// The admin agent administers the installation through `admin_call` with catalog operations, which the
+// deterministic fixture adapter makes through the Core tool host against real PostgreSQL. Steps name an
+// operation as `admin.<operation>`; `adminCall` turns them into tool calls.
 
 const names = { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }
 const fixture = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
@@ -26,6 +27,17 @@ const toolNames = [
   'admin.appearances.add', 'admin.appearances.remove', 'admin.appearances.reorder',
 ]
 
+/** An `admin.<operation>` step as its admin_call. A receipt operation gets an attempt-scoped operation ID unless the step names one. */
+function adminCall(context, callId, name, args = {}) {
+  if (!name.startsWith('admin.')) return [name, args]
+  const operation = name.slice('admin.'.length)
+  const receipt = /\.(create|update|restore|add|remove|rename|reorder|instructions_set|set|clear)$/.test(operation) || ['groups.delete', 'updates.settings_set', 'updates.unpin'].includes(operation)
+  const { operationId, ...rest } = receipt ? args : { ...args, operationId: undefined }
+  if (!receipt && args.operationId !== undefined) rest.operationId = args.operationId
+  return ['admin_call', { operation, arguments: rest, ...(operationId !== undefined ? { operationId } : receipt ? { operationId: `${context.attemptId}:${callId}` } : {}) }]
+}
+const toolCall = (execution, callId, name, args) => execution.handle.callTool(callId, ...adminCall(execution.context, callId, name, args))
+
 async function until(read, match, label) {
   for (let n = 0; n < 400; n++) {
     const value = await read()
@@ -37,7 +49,7 @@ async function until(read, match, label) {
 const count = async (db, sql, values) => Number((await db.query(sql, values)).rows[0].n)
 
 /** A runtime with an HTTP server for the owner and a dispatcher that runs the fixture adapter. */
-async function setup(t) {
+async function setup(t, updates) {
   const admin = new Postgres(adminUrl)
   const name = `kipster_admin_tools_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${name}"`)
@@ -51,7 +63,7 @@ async function setup(t) {
     await admin.close().catch(() => undefined)
     await rm(home, { recursive: true, force: true })
   })
-  const runtime = await openRuntime({ connectionString: url.href, home, names, executionLimit: 4 })
+  const runtime = await openRuntime({ connectionString: url.href, home, names, executionLimit: 4, ...(updates ? { updates } : {}) })
   closers.push(() => runtime.close())
   const { installationId, ownerId, organizationId, rootAgentId } = runtime.bootstrap
   const executions = []
@@ -81,7 +93,7 @@ async function setup(t) {
       const { chatId } = await ok('POST', '/v1/direct-chats', { version: 1, context, agentId })
       const accepted = await ok('POST', '/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId, callerId: ownerId }, target: { context, chatId }, mode: 'root', parts: [{ kind: 'text', text }] })
       const execution = await until(() => executions.find(e => e.context.runId === accepted.runId), Boolean, `execution of ${accepted.runId}`)
-      return { ...execution, chat: context, chatId, runId: accepted.runId, threadId: accepted.threadId, tool: (callId, toolName, args = {}) => execution.handle.callTool(callId, toolName, (/\.(create|update|restore|add|remove|rename|reorder|instructions_set|set|clear)$/.test(toolName) || toolName === 'admin.groups.delete') ? { operationId: `${execution.context.attemptId}:${callId}`, ...args } : args) }
+      return { ...execution, chat: context, chatId, runId: accepted.runId, threadId: accepted.threadId, tool: (callId, toolName, args = {}) => toolCall(execution, callId, toolName, args) }
     },
     control: (run, action, attemptId = run.context.attemptId) => call('POST', '/v1/work/controls', { version: 1, operationId: randomUUID(), context: run.chat, chatId: run.chatId, threadId: run.threadId, runId: run.runId, attemptId, action }),
     executions,
@@ -203,7 +215,8 @@ async function recordsAndEvents(ctx, cursor, organizationId) {
 test('the admin agent gets the tools, and each read matches its HTTP route', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.start()
-  assert.equal(run.context.administrationEnabled, true)
+  assert.deepEqual(run.context.tools.filter(tool => tool.name.startsWith('admin_')).map(tool => tool.name), ['admin_operations', 'admin_call'])
+  assert.match(run.context.instructions, /kipster-admin: .* File: \/.*\/skills\/kipster-admin\/SKILL\.md/)
   const { organizationId: org, rootAgentId: root } = ctx
   await ctx.ok('PUT', `/v1/organizations/${org}/instructions`, { version: 1, content: 'Be brief.' })
 
@@ -241,13 +254,13 @@ test('the admin agent gets the tools, and each read matches its HTTP route', { s
 
   // Targets are explicit and arguments are exact.
   await assert.rejects(run.tool('x1', 'admin.agents.get', { agentId: randomUUID() }), /Agent not found/)
-  await assert.rejects(run.tool('x2', 'admin.organizations.update', { name: 'No target' }), /Invalid admin.organizations.update arguments/)
+  await assert.rejects(run.tool('x2', 'admin.organizations.update', { name: 'No target' }), /Invalid wire value at \$\.arguments\.organizationId/)
   await assert.rejects(run.tool('x3', 'admin.agents.create', { name: 'Scout', operationId: '' }), /Invalid/)
   await assert.rejects(run.tool('x4', 'admin.agents.create', { name: 'Scout', admin: true }), /Invalid wire value/)
   await assert.rejects(run.tool('x5', 'admin.directory.get', { organizationId: org }), /Invalid/)
-  await assert.rejects(run.tool('x6', 'admin.agents.unsupported', { agentId: created.agent.id }), /Unsupported administration tool/)
+  await assert.rejects(run.tool('x6', 'admin.agents.unsupported', { agentId: created.agent.id }), /Unknown administration operation agents.unsupported/)
   await assert.rejects(run.tool('x'.repeat(161), 'admin.directory.get'), /Invalid administration call ID/)
-  await assert.rejects(run.tool('x7', 'admin.settings.set', { target: 'agent', id: root, options: { set: 'x'.repeat(70000) } }), /Invalid admin.settings.set arguments/)
+  await assert.rejects(run.tool('x7', 'admin.settings.set', { target: 'agent', id: root, options: { set: 'x'.repeat(70000) } }), /Invalid settings.set arguments: too large/)
   await assert.rejects(run.tool('x8', 'admin.organizations.instructions_set', { organizationId: org, content: 'x'.repeat(70000) }), /Instructions|instructions|Invalid/)
   assert.equal(await ctx.operations(), 3)
 })
@@ -333,10 +346,12 @@ test('an ordinary agent is not offered the tools and is refused when it calls on
   const org = ctx.organizationId
   const scout = (await ctx.ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name: 'Scout', organizationId: org })).agent.id
   const run = await ctx.start(scout, { kind: 'organization', organizationId: org })
-  assert.equal(run.context.administrationEnabled, false)
+  assert.equal(run.context.tools.some(tool => tool.name.startsWith('admin_')), false)
+  assert.doesNotMatch(run.context.instructions, /kipster-admin/)
   const operations = await ctx.operations()
   const directory = await ctx.ok('GET', '/v1/directory')
   for (const name of toolNames) await assert.rejects(run.tool(`call-${name}`, name, {}), /Administration access denied/, name)
+  await assert.rejects(run.tool('list', 'admin_operations', {}), /Administration access denied/)
   await assert.rejects(run.tool('create', 'admin.agents.create', { name: 'Rogue', organizationId: org }), /Administration access denied/)
   assert.equal(await ctx.operations(), operations)
   assert.deepEqual(await ctx.ok('GET', '/v1/directory'), directory)
@@ -347,7 +362,7 @@ test('the admin agent has no administration tools in an organization chat', { sk
   const ctx = await setup(t)
   const org = ctx.organizationId
   const admin = await ctx.start(ctx.rootAgentId, { kind: 'organization', organizationId: org })
-  assert.equal(admin.context.administrationEnabled, false)
+  assert.equal(admin.context.tools.some(tool => tool.name.startsWith('admin_')), false)
   const operations = await ctx.operations()
   for (const name of toolNames) await assert.rejects(admin.tool(`call-${name}`, name, {}), /Administration access denied/, name)
   await assert.rejects(admin.tool('create', 'admin.agents.create', { name: 'From the organization chat', organizationId: org }), /Administration access denied/)
@@ -355,7 +370,7 @@ test('the admin agent has no administration tools in an organization chat', { sk
   assert.equal(await count(ctx.db, "SELECT count(*) AS n FROM kipster.agents WHERE display_name='From the organization chat'"), 0)
   // The same agent in its installation chat has them.
   const installation = await ctx.start()
-  assert.equal(installation.context.administrationEnabled, true)
+  assert.equal(installation.context.tools.some(tool => tool.name === 'admin_call'), true)
   assert.equal((await installation.tool('list', 'admin.directory.get')).agents.length, 1)
 })
 
@@ -364,7 +379,7 @@ test('a run waiting on a person, or delegated work, cannot use the tools', { ski
   const operations = await ctx.operations()
 
   // After an approval request or a question the attempt still runs, but its run waits on the owner.
-  for (const [name, args] of [['interactions.request_approval', { prompt: 'Create Alpha?', proposalId: 'alpha', proposal: 'Create the organization Alpha' }], ['interactions.ask', { prompt: 'Which name?', options: [{ id: 'a', label: 'Alpha' }], freeText: false }]]) {
+  for (const [name, args] of [['interactions_request_approval', { prompt: 'Create Alpha?', proposalId: 'alpha', proposal: 'Create the organization Alpha' }], ['interactions_ask', { prompt: 'Which name?', options: [{ id: 'a', label: 'Alpha' }], freeText: false }]]) {
     const run = await ctx.start()
     await run.tool('ask', name, args)
     assert.equal((await ctx.db.query('SELECT r.state, a.state AS attempt FROM kipster.text_runs r JOIN kipster.attempts a ON a.id=r.current_attempt_id WHERE r.id=$1', [run.runId])).rows[0].state, 'waiting')
@@ -379,13 +394,13 @@ test('a run waiting on a person, or delegated work, cannot use the tools', { ski
   await ctx.db.query("INSERT INTO kipster.agent_roles(agent_id, role) VALUES ($1, 'root-admin')", [second])
   const recorded = await ctx.operations()
   const parent = await ctx.start()
-  const delegation = await parent.tool('delegate', 'agents.delegate', { recipientId: second, request: 'Create an organization' })
+  const delegation = await parent.tool('delegate', 'agents_delegate', { recipientId: second, request: 'Create an organization' })
   parent.handle.release({ kind: 'ended', attemptId: parent.context.attemptId, confirmed: true })
   const child = await until(() => ctx.executions.find(e => e.context.runId === delegation.childRunId), Boolean, 'delegated execution')
   assert.equal(child.context.agentId, second)
-  assert.equal(child.context.administrationEnabled, false)
-  for (const tool of toolNames) await assert.rejects(child.handle.callTool(`child-${tool}`, tool, {}), /Administration access denied/, tool)
-  await assert.rejects(child.handle.callTool('create', 'admin.organizations.create', { operationId: 'delegated-create', name: 'From delegated work' }), /Administration access denied/)
+  assert.equal(child.context.tools.some(tool => tool.name.startsWith('admin_')), false)
+  for (const tool of toolNames) await assert.rejects(toolCall(child, `child-${tool}`, tool, {}), /Administration access denied/, tool)
+  await assert.rejects(toolCall(child, 'create', 'admin.organizations.create', { operationId: 'delegated-create', name: 'From delegated work' }), /Administration access denied/)
   assert.equal(await ctx.operations(), recorded)
 })
 
@@ -441,7 +456,7 @@ test('a stopped, ended or superseded attempt cannot use the tools', { skip: noDa
   assert.equal((await ctx.control(third, 'retry')).data.outcome, 'accepted')
   const retried = await until(() => ctx.executions.find(e => e.context.runId === third.runId && e.context.attemptId !== third.context.attemptId), Boolean, 'retried attempt')
   await assert.rejects(third.tool('rename-3', 'admin.organizations.update', { organizationId: org, name: 'From the old attempt' }), /no longer owns/)
-  assert.equal((await retried.handle.callTool('rename-3', 'admin.organizations.update', { operationId: 'rename-retry', organizationId: org, name: 'From the new attempt' })).organization.name, 'From the new attempt')
+  assert.equal((await toolCall(retried, 'rename-3', 'admin.organizations.update', { operationId: 'rename-retry', organizationId: org, name: 'From the new attempt' })).organization.name, 'From the new attempt')
   assert.equal(await ctx.operations(), operations + 1)
 })
 
@@ -548,13 +563,13 @@ test('stable administration identities reconcile committed creates after reply l
   await dispatcher.control(actor, { operationId: randomUUID(), context: run.chat, chatId: run.chatId, threadId: run.threadId, runId: run.runId, attemptId: run.context.attemptId, action: 'retry' })
   const retry = await until(() => executions.find(e => e.context.runId === run.runId), Boolean, 'retry after restart')
   assert.deepEqual(retry.context.administrationReceipts.receipts.find(r => r.operationId === operationId).result, original)
-  const replay = await retry.handle.callTool('new-provider-call', 'admin.agents.create', { operationId, name: 'Saved create' })
+  const replay = await toolCall(retry, 'new-provider-call', 'admin.agents.create', { operationId, name: 'Saved create' })
   assert.equal(replay.agent.id, original.agent.id)
   assert.equal(replay.alreadyApplied, true)
-  const distinct = await retry.handle.callTool('intentional-create', 'admin.agents.create', { operationId: randomUUID(), name: 'Saved create' })
+  const distinct = await toolCall(retry, 'intentional-create', 'admin.agents.create', { operationId: randomUUID(), name: 'Saved create' })
   assert.notEqual(distinct.agent.id, original.agent.id)
-  await assert.rejects(retry.handle.callTool('changed', 'admin.agents.create', { operationId, name: 'Changed' }), /different request/)
-  await assert.rejects(dispatcher.adminTool(run.context.attemptId, 'stale', 'admin.agents.create', { operationId, name: 'Saved create' }), /no longer owns/)
+  await assert.rejects(toolCall(retry, 'changed', 'admin.agents.create', { operationId, name: 'Changed' }), /different request/)
+  await assert.rejects(dispatcher.adminTool(run.context.attemptId, 'stale', 'admin_call', { operation: 'agents.create', operationId, arguments: { name: 'Saved create' } }), /no longer owns/)
   assert.equal(Number((await runtime.db.query("SELECT count(*) FROM kipster.agents WHERE display_name='Saved create'")).rows[0].count), 2)
 })
 
@@ -578,4 +593,123 @@ test('instruction staging does not hold the installation execution lock and rech
   release()
   await assert.rejects(saving, /Organization not found/)
   assert.equal(await readFile(join(home.organization(ctx.organizationId), 'instructions.md'), 'utf8'), '# Organization instructions\n')
+})
+
+test('the catalog lists every operation by area and describes its arguments', { skip: noDatabase, timeout: 60000 }, async t => {
+  const ctx = await setup(t)
+  const run = await ctx.start()
+  const listing = await run.tool('list', 'admin_operations', {})
+  assert.deepEqual(listing.areas.map(area => area.area), ['directory', 'organizations', 'agents', 'identity', 'memberships', 'groups', 'settings', 'adapters', 'learning', 'interface', 'updates', 'operations'])
+  const listed = listing.areas.flatMap(area => area.operations.map(item => item.operation))
+  for (const name of toolNames) assert.ok(listed.includes(name.slice('admin.'.length)), name)
+  for (const name of ['identity.set', 'learning.agent_set', 'interface.set', 'updates.install', 'updates.settings_set']) assert.ok(listed.includes(name), name)
+  assert.deepEqual((await run.tool('area', 'admin_operations', { area: 'interface' })).areas.map(area => area.operations.map(item => item.operation)), [['interface.get', 'interface.set']])
+
+  const identity = await run.tool('describe', 'admin_operations', { operation: 'identity.set' })
+  assert.equal(identity.kind, 'write'); assert.equal(identity.operationId, 'not used')
+  assert.deepEqual(identity.arguments.required, ['agentId', 'file', 'content', 'expectedSha256'])
+  assert.deepEqual(identity.arguments.properties.file, { enum: ['AGENTS.md', 'soul.md', 'identity.md'] })
+  assert.equal(identity.arguments.additionalProperties, false)
+  const create = await run.tool('describe-create', 'admin_operations', { operation: 'agents.create' })
+  assert.equal(create.operationId, 'required')
+  assert.deepEqual(create.arguments.required, ['name'])
+  assert.equal(create.arguments.properties.version, undefined, 'Core supplies the protocol version')
+  assert.equal((await run.tool('describe-delete', 'admin_operations', { operation: 'agents.delete' })).kind, 'approval')
+  await assert.rejects(run.tool('unknown', 'admin_operations', { operation: 'nothing.here' }), /Unknown administration operation nothing.here/)
+  await assert.rejects(run.tool('needs-id', 'admin_call', { operation: 'agents.create', arguments: { name: 'No ID' } }), /agents.create needs an operationId/)
+  assert.equal(await ctx.operations(), 2, 'listing and refused calls record nothing')
+})
+
+test('learning, interface, identity and update reads and writes match their HTTP routes', { skip: noDatabase, timeout: 60000 }, async t => {
+  const ctx = await setup(t)
+  const run = await ctx.start()
+  const cursor = (await ctx.ok('GET', '/v1/directory')).cursor
+  const scout = (await ctx.ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name: 'Scout' })).agent.id
+
+  // Learning
+  const { version: _l, ...learning } = await ctx.ok('GET', '/v1/settings/learning')
+  assert.deepEqual(await run.tool('learning', 'admin.learning.get'), learning)
+  const sleep = await run.tool('sleep', 'admin.learning.set', { sleepTime: '04:30' })
+  assert.equal(sleep.sleepTime, '04:30')
+  assert.equal((await ctx.ok('GET', '/v1/settings/learning')).sleepTime, '04:30')
+  const agentSleep = await run.tool('agent-sleep', 'admin.learning.agent_set', { agentId: scout, sleepTime: '01:15', enabled: false })
+  assert.deepEqual([agentSleep.sleepTime, agentSleep.enabled], ['01:15', false])
+  await assert.rejects(run.tool('bad-sleep', 'admin.learning.set', { sleepTime: '25:00' }), /Invalid wire value/)
+
+  // Interface
+  assert.deepEqual(await run.tool('look', 'admin.interface.get'), await ctx.ok('GET', '/v1/settings/interface'))
+  assert.deepEqual(await run.tool('look-0', 'admin.interface.get'), { version: 1, revision: 0, palette: null, theme: null, desktopNotifications: null, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: null, dockBadge: null })
+  const dark = await run.tool('dark', 'admin.interface.set', { theme: 'dark', desktopNotifications: true, inAppBanners: true })
+  assert.deepEqual(dark, { version: 1, revision: 1, palette: null, theme: 'dark', desktopNotifications: true, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: true, dockBadge: null })
+  assert.deepEqual(await run.tool('dark-again', 'admin.interface.set', { theme: 'dark' }), dark, 'saving the current value changes nothing')
+  assert.deepEqual(await ctx.ok('PUT', '/v1/settings/interface', { version: 1, palette: 'pine' }), { ...dark, revision: 2, palette: 'pine' })
+  await assert.rejects(run.tool('bad-theme', 'admin.interface.set', { theme: 'sepia' }), /Invalid wire value/)
+  await assert.rejects(run.tool('no-change', 'admin.interface.set', {}), /no change given/)
+  assert.equal((await ctx.call('PUT', '/v1/settings/interface', { version: 1, palette: 'neon' })).status, 400)
+
+  // Identity files of another kip
+  const soul = await run.tool('soul', 'admin.identity.get', { agentId: scout, file: 'soul.md' })
+  assert.deepEqual(soul, await ctx.ok('GET', `/v1/agents/${scout}/identity/soul.md`))
+  const saved = await run.tool('soul-set', 'admin.identity.set', { agentId: scout, file: 'soul.md', content: '# Soul\n\nCurious and precise.\n', expectedSha256: soul.sha256 })
+  assert.equal(saved.content, '# Soul\n\nCurious and precise.\n')
+  assert.equal(await readFile(join(ctx.runtime.home.agent(scout), 'soul.md'), 'utf8'), '# Soul\n\nCurious and precise.\n')
+  await assert.rejects(run.tool('soul-stale', 'admin.identity.set', { agentId: scout, file: 'soul.md', content: 'Stale', expectedSha256: soul.sha256 }), /changed|conflict/i)
+  const backups = await run.tool('backups', 'admin.identity.backups', { agentId: scout, file: 'soul.md' })
+  assert.equal(backups.backups.length, 1)
+  assert.equal((await run.tool('backup', 'admin.identity.backup_get', { agentId: scout, file: 'soul.md', backupId: backups.backups[0].id })).content, soul.content)
+  const restored = await run.tool('restore', 'admin.identity.restore', { agentId: scout, file: 'soul.md', backupId: backups.backups[0].id, expectedSha256: saved.sha256 })
+  assert.equal(restored.content, soul.content)
+  const own = await run.tool('own', 'admin.identity.get', { agentId: ctx.rootAgentId, file: 'AGENTS.md' })
+  await run.tool('own-set', 'admin.identity.set', { agentId: ctx.rootAgentId, file: 'AGENTS.md', content: `${own.content}\n- Answer in one paragraph.\n`, expectedSha256: own.sha256 })
+
+  // Updates
+  assert.deepEqual(await run.tool('updates', 'admin.updates.get'), await ctx.ok('GET', '/v1/updates'))
+  const channel = await run.tool('channel', 'admin.updates.settings_set', { channel: 'next' })
+  assert.deepEqual([channel.channel, channel.mode], ['next', 'automatic'])
+  assert.deepEqual(await ctx.ok('GET', '/v1/settings/updates'), { version: 1, channel: 'next', mode: 'automatic' })
+  await assert.rejects(run.tool('install', 'admin.updates.install', { target: '9.9.9' }), /managed updater/)
+
+  // Every change reached the application stream.
+  const types = (await ctx.events(cursor)).map(event => event.type)
+  for (const type of ['learning-changed', 'interface-changed', 'identity-changed', 'updates-changed']) assert.ok(types.includes(type), type)
+  assert.equal(types.filter(type => type === 'interface-changed').length, 2)
+  assert.equal(types.filter(type => type === 'identity-changed').length, 3)
+  const receipts = (await ctx.db.query("SELECT kind, actor_kind FROM kipster.admin_operations WHERE kind='updates.settings'")).rows
+  assert.deepEqual(receipts, [{ kind: 'updates.settings', actor_kind: 'agent' }])
+})
+
+test('saving workspace instructions or an identity file over HTTP publishes a change event', { skip: noDatabase, timeout: 60000 }, async t => {
+  const ctx = await setup(t)
+  const cursor = (await ctx.ok('GET', '/v1/directory')).cursor
+  await ctx.ok('PUT', `/v1/organizations/${ctx.organizationId}/instructions`, { version: 1, content: 'Be kind.' })
+  const file = await ctx.ok('GET', `/v1/agents/${ctx.rootAgentId}/identity/identity.md`)
+  const saved = await ctx.ok('PUT', `/v1/agents/${ctx.rootAgentId}/identity/identity.md`, { version: 1, content: 'I am Kip.\n', expectedSha256: file.sha256 })
+  const events = (await ctx.events(cursor)).filter(event => ['instructions-changed', 'identity-changed'].includes(event.type))
+  assert.deepEqual(events.map(event => [event.type, event.resourceId, event.data]), [
+    ['instructions-changed', ctx.organizationId, { organizationId: ctx.organizationId }],
+    ['identity-changed', ctx.rootAgentId, { agentId: ctx.rootAgentId, file: 'identity.md', sha256: saved.sha256 }],
+  ])
+})
+
+test('installing a Core version waits for the owner, then starts once', { skip: noDatabase, timeout: 60000 }, async t => {
+  const ctx = await setup(t, { managed: true, coreVersion: '1.2.0' })
+  const run = await ctx.start()
+  await assert.rejects(run.tool('same', 'admin.updates.install', { target: '1.2.0' }), /already installed/)
+  await assert.rejects(run.tool('older', 'admin.updates.install', { target: '1.1.0' }), /requires a backup/)
+  const requested = await run.tool('install', 'admin.updates.install', { target: '1.3.0' })
+  assert.equal(requested.status, 'pending')
+  const card = (await ctx.db.query('SELECT * FROM kipster.interactions WHERE id=$1', [requested.interactionId])).rows[0]
+  assert.equal(card.prompt, 'Install Kipster Core 1.3.0?')
+  assert.match(card.proposal, /1\.2\.0 → 1\.3\.0/)
+  const requests = () => ctx.db.query('SELECT request FROM kipster.update_requests').then(result => result.rows.map(row => row.request))
+  assert.deepEqual(await requests(), [], 'nothing installs before the owner answers')
+  const answer = () => ctx.call('POST', '/v1/work/interactions/answer', { version: 1, operationId: randomUUID(), interactionId: card.id, threadId: run.threadId, runId: run.runId, attemptId: run.context.attemptId, proposalId: card.proposal_id, answer: { kind: 'approve' } })
+  assert.equal((await answer()).data.outcome, 'accepted')
+  const [request] = await requests()
+  assert.deepEqual([request.action, request.target, request.reason, request.id], ['install', '1.3.0', 'manual', (await ctx.db.query("SELECT id FROM kipster.admin_operations WHERE kind='updates.install'")).rows[0].id])
+  const binding = (await ctx.db.query('SELECT result FROM kipster.admin_approvals WHERE interaction_id=$1', [card.id])).rows[0]
+  assert.equal(binding.result.core.pinned, '1.3.0')
+  assert.equal((await answer()).data.outcome, 'rejected')
+  assert.equal((await requests()).length, 1, 'an answered card installs once')
+  run.handle.release({ kind: 'ended', attemptId: run.context.attemptId, confirmed: true })
 })

@@ -71,7 +71,7 @@ export function useNotifications(input: {
     if (input.online) void retry()
   }, [input.online, retry])
 
-  const settings = useNotificationSettings(platform)
+  const { settings } = useNotificationSettings(platform)
   const needs = items.filter(needsYou).length
   useEffect(() => {
     void platform?.badge?.set(settings.badge ? needs : 0).catch(() => {})

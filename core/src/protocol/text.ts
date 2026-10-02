@@ -1,5 +1,5 @@
 import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
-import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange } from './admin.js'
+import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange, interfacePreferencesRecord } from './admin.js'
 import { updateStatus } from './updates.js'
 
 export const WIRE_MAJOR = 1
@@ -117,6 +117,10 @@ export type IdentityFile = Infer<typeof identityFile>
 export const identityBackups = object({ version: literal(1), agentId: id, file: identityFileName, backups: array(object({ id, sha256: nonempty(), size: integer(), createdAt: utcTimestamp() }, false)) }, false)
 export type IdentityBackups = Infer<typeof identityBackups>
 export const learningChange = object({ target: union(literal('installation'), literal('agent')), enabled: boolean(), sleepTime: nullable(clockTime()) }, false)
+/** An agent's identity file was saved or restored; read the file again for its content. */
+export const identityChange = object({ agentId: id, file: identityFileName, sha256: nonempty() }, false)
+/** An organization's instructions were saved; read them again for their content. */
+export const instructionsChange = object({ organizationId: id }, false)
 /** A thread deleted with its chat, for example when its agent was permanently deleted. */
 export const threadRemoved = object({ threadId: id, chatId: id }, false)
 const eventBase = { version: literal(1), eventId: id, scope: streamScope, cursor: id, occurredAt: utcTimestamp(), resourceId: id, revision: integer() }
@@ -141,6 +145,9 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('thread-removed'), data: threadRemoved }, false),
   object({ ...eventBase, type: literal('settings-changed'), data: settingsRecord }, false),
   object({ ...eventBase, type: literal('adapters-changed'), data: adaptersChange }, false),
+  object({ ...eventBase, type: literal('interface-changed'), data: interfacePreferencesRecord }, false),
+  object({ ...eventBase, type: literal('identity-changed'), data: identityChange }, false),
+  object({ ...eventBase, type: literal('instructions-changed'), data: instructionsChange }, false),
   object({ ...eventBase, type: literal('resync-required') }, false),
 )
 export type TextEvent = Infer<typeof textEvent>

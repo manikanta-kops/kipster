@@ -230,6 +230,25 @@ export function createAdministration(options: Options = {}) {
     revision: 1,
     available: true,
   }
+  const interfaceChoices = {
+    revision: 0,
+    palette: null as string | null,
+    theme: null as string | null,
+    desktopNotifications: null as boolean | null,
+    notifyNeeds: null as boolean | null,
+    notifyFailures: null as boolean | null,
+    notifyReplies: null as boolean | null,
+    inAppBanners: null as boolean | null,
+    dockBadge: null as boolean | null,
+  }
+  const switches = [
+    'desktopNotifications',
+    'notifyNeeds',
+    'notifyFailures',
+    'notifyReplies',
+    'inAppBanners',
+    'dockBadge',
+  ] as const
   const agentLearning = agents.map((a) => ({
     agentId: a.id,
     enabled: true,
@@ -349,7 +368,11 @@ export function createAdministration(options: Options = {}) {
     callerId: DEMO_IDS.caller,
     organizationId: DEMO_IDS.organization,
     rootAgentId: DEMO_IDS.rootAgent,
-    capabilities: { voiceRecording: true, notificationActions: true },
+    capabilities: {
+      voiceRecording: true,
+      interfacePreferences: true,
+      notificationActions: true,
+    },
   })
   const adapters = () => ({
     version: 1,
@@ -403,6 +426,63 @@ export function createAdministration(options: Options = {}) {
       })
     if (path === '/v1/execution-adapters' && method === 'GET')
       return json(adapters())
+    if (path === '/v1/settings/interface' && method === 'GET')
+      return json({ version: 1, ...interfaceChoices })
+    if (path === '/v1/settings/interface' && method === 'PUT') {
+      const body = object(await request.json())
+      if (body.version !== 1) invalid()
+      keys(body, ['version', 'palette', 'theme', ...switches])
+      const palettes = ['glacier', 'alpenglow', 'pine', 'graphite', 'obsidian']
+      if (
+        body.palette !== undefined &&
+        !palettes.includes(body.palette as string)
+      )
+        invalid()
+      if (
+        body.theme !== undefined &&
+        !['light', 'dark', 'system'].includes(body.theme as string)
+      )
+        invalid()
+      if (
+        switches.some(
+          (name) => body[name] !== undefined && typeof body[name] !== 'boolean',
+        )
+      )
+        invalid()
+      if (
+        body.palette === undefined &&
+        body.theme === undefined &&
+        switches.every((name) => body[name] === undefined)
+      )
+        invalid('Invalid interface preferences: no change given')
+      const next = {
+        palette:
+          (body.palette as string | undefined) ?? interfaceChoices.palette,
+        theme: (body.theme as string | undefined) ?? interfaceChoices.theme,
+        ...Object.fromEntries(
+          switches.map((name) => [
+            name,
+            (body[name] as boolean | undefined) ?? interfaceChoices[name],
+          ]),
+        ),
+      }
+      if (
+        (Object.keys(next) as (keyof typeof next)[]).some(
+          (name) => next[name] !== interfaceChoices[name],
+        )
+      ) {
+        Object.assign(interfaceChoices, next, {
+          revision: interfaceChoices.revision + 1,
+        })
+        emit(
+          'interface-changed',
+          { ...interfaceChoices },
+          DEMO_IDS.installation,
+          interfaceChoices.revision,
+        )
+      }
+      return json({ version: 1, ...interfaceChoices })
+    }
     const resource = '[0-9a-f-]{36}'
     const routes: [string, string][] = [
       ['GET', '/v1/operations/[^/]{1,600}'],

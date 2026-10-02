@@ -20,7 +20,7 @@ test('a learned memory cites the exact message it came from, and a quote nobody 
   }])
 
   // The agent can trace the memory back to its conversation.
-  const later = await s.northwind.chat('Which days does the Lyon supplier ship?', { tools: call => call('memory.get', { id: memory.id }) })
+  const later = await s.northwind.chat('Which days does the Lyon supplier ship?', { tools: call => call('memory_get', { id: memory.id }) })
   assert.deepEqual(later.used.provenance.map(item => [item.sourceThreadId, item.authorId]), [[source.thread_id, s.owner.personId]])
 
   // An answer quoting words the person never wrote is refused as a whole; nothing is learned from it.
@@ -36,7 +36,7 @@ test('delegated work is learned by the agent that did it, with each message cred
   const scout = await s.hire('Scout', { organizations: [s.northwind] })
   const run = await s.send(s.northwind, 'Ask Scout what the supplier quoted for steel.')
   const lead = await s.execution(run.runId)
-  await lead.call('agents.delegate', { recipientId: scout, request: 'What did the supplier quote for the steel order?' })
+  await lead.call('agents_delegate', { recipientId: scout, request: 'What did the supplier quote for the steel order?' })
   lead.handle.release({ kind: 'waiting', attemptId: lead.context.attemptId, for: 'child', interactionId: 'delegation' })
   lead.finish('Asking Scout.')
   const delegated = await until(async () => (await s.row('SELECT child_run_id FROM kipster.delegations WHERE parent_run_id=$1', [run.runId]))?.child_run_id, Boolean, 'delegated run')

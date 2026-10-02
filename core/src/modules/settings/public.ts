@@ -3,6 +3,7 @@ import { HomeInstructionError, type Home, type HomeInstructions, type IdentityBa
 import { authorizeAdministration, requireOrganizationMember, type AdminCaller, type TrustedActor } from '../identity/public.js'
 import { applicationCursor, publishAppEvent } from '../synchronization/public.js'
 import type { EffectiveSettings, ExecutionAdapter, ExecutionAdapters, SettingsRecord, SettingsSnapshot } from '../../protocol/admin.js'
+export { readInterfacePreferences, writeInterfacePreferences } from './interface.js'
 
 export type Field = 'adapterId' | 'modelId' | 'effort' | 'options'
 export type SettingsTarget = 'agent' | 'organization'
@@ -136,31 +137,36 @@ export async function requireSettingsOwner(db: Postgres, actor: AdminCaller): Pr
 }
 
 /** Identity files of a listed agent can be read; only a live agent's files change. */
-async function ownedAgent(db: Postgres, actor: TrustedActor, agentId: string, write = false): Promise<void> {
-  await ownerExists(db, actor)
+async function ownedAgent(db: Postgres, actor: AdminCaller, agentId: string, write = false): Promise<void> {
+  await authorizeAdministration(db, actor)
   const found = await db.query(`SELECT 1 FROM kipster.agents WHERE id=$1 AND installation_id=$2 AND ${write ? 'kipster.live_agent(id)' : listed.agent}`, [agentId, actor.installationId])
   if (!found.rows.length) throw new Error('Agent not found')
 }
-/** Owner access to an agent's identity files. Writes and restores are compare-and-swap and keep a backup. */
-export async function readIdentityFile(db: Postgres, home: Home, actor: TrustedActor, agentId: string, file: IdentityFileName): Promise<IdentityFile> {
+/** Tells clients the file changed. The file is content-addressed, so the event carries its hash and no revision. */
+async function identityChanged(db: Postgres, installationId: string, agentId: string, saved: IdentityFile): Promise<IdentityFile> {
+  await db.transaction(client => publishAppEvent(client, installationId, 'identity-changed', agentId, 0, { agentId, file: saved.file, sha256: saved.sha256 }))
+  return saved
+}
+/** Administration access to an agent's identity files. Writes and restores are compare-and-swap and keep a backup. */
+export async function readIdentityFile(db: Postgres, home: Home, actor: AdminCaller, agentId: string, file: IdentityFileName): Promise<IdentityFile> {
   await ownedAgent(db, actor, agentId)
   return home.identity.read(agentId, file)
 }
-export async function writeIdentityFile(db: Postgres, home: Home, actor: TrustedActor, agentId: string, file: IdentityFileName, content: string, expectedSha256: string): Promise<IdentityFile> {
+export async function writeIdentityFile(db: Postgres, home: Home, actor: AdminCaller, agentId: string, file: IdentityFileName, content: string, expectedSha256: string): Promise<IdentityFile> {
   await ownedAgent(db, actor, agentId, true)
-  return home.identity.write(agentId, file, content, expectedSha256, 'owner')
+  return identityChanged(db, actor.installationId, agentId, await home.identity.write(agentId, file, content, expectedSha256, 'owner'))
 }
-export async function listIdentityBackups(db: Postgres, home: Home, actor: TrustedActor, agentId: string, file: IdentityFileName): Promise<IdentityBackup[]> {
+export async function listIdentityBackups(db: Postgres, home: Home, actor: AdminCaller, agentId: string, file: IdentityFileName): Promise<IdentityBackup[]> {
   await ownedAgent(db, actor, agentId)
   return home.identity.listBackups(agentId, file)
 }
-export async function readIdentityBackup(db: Postgres, home: Home, actor: TrustedActor, agentId: string, file: IdentityFileName, backupId: string): Promise<IdentityFile> {
+export async function readIdentityBackup(db: Postgres, home: Home, actor: AdminCaller, agentId: string, file: IdentityFileName, backupId: string): Promise<IdentityFile> {
   await ownedAgent(db, actor, agentId)
   return home.identity.readBackup(agentId, file, backupId)
 }
-export async function restoreIdentityBackup(db: Postgres, home: Home, actor: TrustedActor, agentId: string, file: IdentityFileName, backupId: string, expectedSha256: string): Promise<IdentityFile> {
+export async function restoreIdentityBackup(db: Postgres, home: Home, actor: AdminCaller, agentId: string, file: IdentityFileName, backupId: string, expectedSha256: string): Promise<IdentityFile> {
   await ownedAgent(db, actor, agentId, true)
-  return home.identity.restore(agentId, file, backupId, expectedSha256)
+  return identityChanged(db, actor.installationId, agentId, await home.identity.restore(agentId, file, backupId, expectedSha256))
 }
 
 export async function resolveSettings(db: Postgres, home: Home, actor: TrustedActor, agentId: string, organizationId: string | null, catalog: Catalog | null): Promise<Resolution> {

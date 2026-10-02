@@ -5,7 +5,6 @@ import type {
   Platform,
 } from '../../platform/platform'
 import {
-  setNotificationSetting,
   useNotificationSettings,
   useSystemNotifications,
   type NotificationSetting,
@@ -107,10 +106,9 @@ export function NotificationSettings({
   /** The connection and caller, as `JSON.stringify([endpoint, installationId, callerId])`. */
   scope: string
 }) {
-  const settings = useNotificationSettings(platform)
+  const { settings, set: save } = useNotificationSettings(platform)
   const master = useSystemNotifications(platform, scope)
-  const set = (name: NotificationSetting) => (on: boolean) =>
-    setNotificationSetting(platform, name, on)
+  const set = (name: NotificationSetting) => (on: boolean) => save(name, on)
   const system = platform.notifications.supported
   const [permission, setPermission] = useState<NotificationPermission | null>(
     null,

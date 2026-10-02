@@ -22,3 +22,4 @@ async function migrations(relative = '') {
 
 await migrations()
 await copy('starter/playground')
+await copy('skills')

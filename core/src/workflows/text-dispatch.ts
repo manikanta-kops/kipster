@@ -12,6 +12,8 @@ import { claimPreparation, issueAttempt, childDelegation, delegate, delegationAc
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
+import { executionTools, toolGuidance } from './agent-tools.js'
+import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
 import { recordAdapters, resolveSettings, resolveAgentSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
@@ -63,35 +65,36 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
       if (await dispatcher.isMaintenanceAttempt?.(request.attemptId)) throw new Error('Maintenance tools denied')
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
-      if (request.name === 'conversation.publish') {
+      if (request.name === 'conversation_publish') {
         if (Object.keys(args).some(key=>!['text','artifactIds'].includes(key)) || (args.text!==undefined&&typeof args.text!=='string') || (args.artifactIds!==undefined&&(!Array.isArray(args.artifactIds)||args.artifactIds.some(id=>typeof id!=='string')))) throw new Error('Invalid publication arguments')
         return dispatcher.publishToolText(request.attemptId, request.callId, typeof args.text==='string'?args.text:'', args.artifactIds as string[]|undefined)
       }
-      if(request.name==='audio.transcribe'){
+      if(request.name==='audio_transcribe'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid transcription arguments')
         return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
       }
-      if(request.name==='artifacts.write'){
+      if(request.name==='artifacts_write'){
         if(Object.keys(args).some(key=>!['name','content'].includes(key))||typeof args.name!=='string'||typeof args.content!=='string')throw new Error('Invalid artifact write arguments')
         return dispatcher.writeArtifactTool(request.attemptId,request.callId,args.name,args.content)
       }
-      if(request.name==='artifacts.publish'){
+      if(request.name==='artifacts_publish'){
         if(Object.keys(args).length!==1||typeof args.outputId!=='string')throw new Error('Invalid artifact publication arguments')
         return dispatcher.publishArtifactTool(request.attemptId,request.callId,args.outputId)
       }
-      if(request.name==='artifacts.copy_to_organization'){
+      if(request.name==='artifacts_copy_to_organization'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid organization publication arguments')
         return dispatcher.copyArtifactTool(request.attemptId,request.callId,args.artifactId)
       }
-      if (request.name === 'interactions.ask' || request.name === 'interactions.request_approval') {
-        const kind = request.name === 'interactions.ask' ? 'question' : 'approval'
+      if (request.name === 'interactions_ask' || request.name === 'interactions_request_approval') {
+        const kind = request.name === 'interactions_ask' ? 'question' : 'approval'
         return dispatcher.askToolInteraction(request.attemptId, request.callId, { ...args, kind } as unknown as InteractionInput)
       }
-      if (request.name.startsWith('agents.')) return dispatcher.agentTool(request.attemptId,request.callId,request.name,args)
-      if (request.name.startsWith('admin.') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
-      if (request.name.startsWith('memory.')) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
-      if (request.name === 'data.space') return dispatcher.structuredTool(request.attemptId, request.callId, args)
-      if (request.name === 'vectors.space') return dispatcher.vectorTool(request.attemptId, request.callId, args)
+      // Agent and memory tools keep their Core names, such as `memory.relationship_get` for `memory_relationship_get`.
+      if (/^agents_(list|get|delegate|delegation_status)$/.test(request.name)) return dispatcher.agentTool(request.attemptId,request.callId,request.name.replace('_','.'),args)
+      if ((request.name === 'admin_operations' || request.name === 'admin_call') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
+      if (request.name.startsWith('memory_')) return dispatcher.memoryTool(request.attemptId, request.callId, request.name.replace('_','.'), args)
+      if (request.name === 'data_space') return dispatcher.structuredTool(request.attemptId, request.callId, args)
+      if (request.name === 'vectors_space') return dispatcher.vectorTool(request.attemptId, request.callId, args)
       throw new Error('Unsupported Kipster tool')
     },
   }
@@ -716,7 +719,6 @@ export class TextDispatcher {
       let memory: readonly string[] = []
       if (this.memory) memory = await this.memory.read(context.agentId,organizationId,context.threadId,triggerText)
       else if (this.runtime.memory) ({ excerpts: memory, memoryIds: recalled } = await this.runtime.memory.recall(context.agentId,organizationId,triggerText))
-      const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization].filter(Boolean).join('\n\n')
       const interactionRows = (await this.runtime.db.query<{ id:string }>("SELECT id FROM kipster.interactions WHERE run_id=$1 AND state='settled' ORDER BY created_at,id",[runId])).rows
       const settledInteractions = await Promise.all(interactionRows.map(row=>interactionRecord(this.runtime.db,row.id)))
       const interactions = settledInteractions.filter(item=>item.response).map(item=>({id:item.id,kind:item.kind,prompt:item.prompt,options:item.options,freeText:item.freeText,...(item.proposalId?{proposalId:item.proposalId}:{}),...(item.proposal?{proposal:item.proposal}:{}),response:{actorId:item.response!.actorId,answer:item.response!.answer,acceptedAt:item.response!.acceptedAt}}))
@@ -725,7 +727,9 @@ export class TextDispatcher {
       const delegationResults=delegationRows.map(row=>({id:row.id,recipientAgentId:row.recipient_agent_id,request:row.request,state:row.state,...(row.result!==null?{result:row.result}:{}),...(row.failure!==null?{failure:row.failure}:{})}))
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
-      execution = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, memoryEnabled: !!this.runtime.memory, structuredEnabled: !!this.runtime.structured, vectorsEnabled: !!this.runtime.vectors, administrationEnabled, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const tools = executionTools({ organization: organizationId !== null, memory: !!this.runtime.memory, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
+      const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
+      execution = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -1332,7 +1336,7 @@ export class TextDispatcher {
 
   /** Administration tools of the admin agent, authorized again for the calling attempt. */
   async adminTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
-    const host = { db: this.runtime.db, home: this.runtime.home, jobs: this.runtime.jobs, catalog: () => this.catalog(), refreshAdapters: () => this.refreshAdapters() }
+    const host = { db: this.runtime.db, home: this.runtime.home, jobs: this.runtime.jobs, learning: this.runtime.learning, updates: this.runtime.updates, catalog: () => this.catalog(), refreshAdapters: () => this.refreshAdapters() }
     return administrationTool(host, { installationId: this.runtime.bootstrap.installationId, attemptId, incarnation: this.incarnation }, callId, name, args)
   }
 

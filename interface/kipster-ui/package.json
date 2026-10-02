@@ -11,7 +11,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "typecheck": "tsc -b",
-    "check": "npm run lint && npm run format:check && npm run build",
+    "check": "npm run lint && npm run format:check && npm run test:storage && npm run build",
     "test:e2e": "playwright test",
     "test:native-updater": "node tests/native-updater-smoke.mjs",
     "test:screenshots": "playwright test -c playwright.screenshots.config.ts",
@@ -30,7 +30,8 @@
     "preview:test": "vite preview --mode test",
     "test:fake-core": "node --test --test-timeout=15000 tests/fake-core-conformance.mjs tests/fake-core-media.mjs",
     "test:real-core": "node tests/real-core-suite.mjs",
-    "test:entry": "node tests/entry-startup.mjs"
+    "test:entry": "node tests/entry-startup.mjs",
+    "test:storage": "node --test tests/client-storage.mjs"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",
