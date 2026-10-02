@@ -452,4 +452,5 @@ stop rollout rather than editing shipped files.
 
 Rollback restores the database backup taken before the upgrade and runs the
 matching Core version. Core refuses newer, changed or incomplete migration
-histories; there are no down migrations. Backup and updater tooling is deferred.
+histories; there are no down migrations. The [macOS installer](../installer/README.md)
+backs up and restores the database with its matching Core release.

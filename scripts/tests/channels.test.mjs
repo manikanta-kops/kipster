@@ -62,6 +62,13 @@ test('channels select independently per package by semver, including stable fall
     url: 'https://github.com/manikanta-kops/kipster/releases/download/core-v0.3.0/kipster-core-0.3.0.tgz',
   })
 })
+test('installer releases appear in every eligible package catalog without protocol fields', async () => {
+  const site = await generate([release('installer', '0.1.0'), release('installer', '0.2.0-next.1')])
+  assert.equal(site['v1/stable.json'].packages['@kipster/installer'].version, '0.1.0')
+  assert.equal(site['v1/next.json'].packages['@kipster/installer'].version, '0.2.0-next.1')
+  assert.equal(site['v1/releases.json'].packages['@kipster/installer'].length, 2)
+  assert.equal(site['v1/stable.json'].packages['@kipster/installer'].protocolRange, undefined)
+})
 
 test('Tauri manifests contain the signed archive URL and signature in the exact v2 static shape', async () => {
   const site = await generate([release('ui', '0.3.0', { signed: true }), release('ui', '0.4.0-next.10', { signed: true }), release('ui', '0.4.0-next.2', { signed: true })])

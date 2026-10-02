@@ -55,6 +55,7 @@ releases cannot be changed.
 | Package | Tag | File |
 | --- | --- | --- |
 | Core | `core-v<version>` | `kipster-core-<version>.tgz` |
+| Installer | `installer-v<version>` | `kipster-installer-<version>.tgz` |
 | Adapter | `<adapter>-v<version>` | `kipster-<adapter>-<version>.tgz` |
 | App | `ui-v<version>` | `Kipster_<version>_aarch64.dmg` |
 
