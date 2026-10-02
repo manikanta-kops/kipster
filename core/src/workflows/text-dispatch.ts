@@ -23,6 +23,8 @@ import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { MaintenanceService, SleepService, MAINTENANCE_LIMITS, MAINTENANCE_INSTRUCTIONS_V1, MAINTENANCE_SWEEP_JOB_ID, CONSOLIDATION, consolidationPrompt, promotionPrompt } from '../modules/memory/public.js'
 import type { MaintenanceSettleMode, MaintenanceSource, SleepRunClaim } from '../modules/memory/public.js'
+import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
+import type { MessagePart } from '../protocol/text.js'
 
 /** An unavailable adapter that work selects is probed again at most this often. */
 const REPROBE_INTERVAL_MS = 30000
@@ -57,8 +59,8 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
     try{operation().then(finish,fail)}catch(error){fail(error)}
   })
 }
-const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:['invalid']}))
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'memoryTool' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'isMaintenanceAttempt' | 'adminTool'>>): AdapterHost {
+const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'memoryTool' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'isMaintenanceAttempt' | 'adminTool' | 'documentTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
@@ -95,6 +97,8 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
       if (request.name.startsWith('memory_')) return dispatcher.memoryTool(request.attemptId, request.callId, request.name.replace('_','.'), args)
       if (request.name === 'data_space') return dispatcher.structuredTool(request.attemptId, request.callId, args)
       if (request.name === 'vectors_space') return dispatcher.vectorTool(request.attemptId, request.callId, args)
+      const document = /^documents_(create|list|read|edit|delete)$/.exec(request.name)
+      if (document && dispatcher.documentTool) return dispatcher.documentTool(request.attemptId, request.callId, `documents.${document[1]}`, args)
       throw new Error('Unsupported Kipster tool')
     },
   }
@@ -388,6 +392,7 @@ export class TextDispatcher {
     })
     if (input.action==='stop') {this.voiceControllers.get(input.runId)?.abort();for(const [key,controller] of this.toolControllers)if(key.startsWith(`${input.runId}:`))controller.abort()}
     for(const cancelAttempt of cancelAttempts)this.requestCancel(cancelAttempt)
+    if (receipt.outcome === 'accepted') await finishRunDocuments(this.runtime.db, receipt.runId).catch(() => undefined)
     return receipt
   }
 
@@ -709,6 +714,7 @@ export class TextDispatcher {
       const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,parts:(await Promise.all(message.parts.map(async (part,index)=>{
         if(part.kind==='text')return part
         if(part.kind==='removed')return null
+        if(part.kind==='document')return {kind:'text' as const,text:await documentInput(this.runtime.db,part.documentId,part.revision)}
         const file=await this.runtime.artifacts.inputForExecution(context.actor,part.artifactId,{installationId:context.actor.installationId,callerId:context.actor.personId,context:context.context,chatId:context.chatId,threadId:context.threadId})
         const derived=part.purpose==='voice_note'?(await this.runtime.db.query<{status:string;transcript:string|null;provider_id:string|null;failure:string|null}>(`SELECT status,transcript,provider_id,failure FROM kipster.voice_preparations WHERE message_id=$1 AND ordinal=$2`,[message.messageId,index])).rows[0]:undefined
         return {kind:'file' as const,purpose:part.purpose,...file,...(derived?{transcription:{status:derived.status==='pending'||derived.status==='preparing'?'unavailable':derived.status,provider:derived.provider_id??'unconfigured',...(derived.transcript!==null?{text:derived.transcript}:{}),...(derived.failure?{reason:derived.failure}:{})}}:{})}
@@ -1340,6 +1346,21 @@ export class TextDispatcher {
     return administrationTool(host, { installationId: this.runtime.bootstrap.installationId, attemptId, incarnation: this.incarnation }, callId, name, args)
   }
 
+  /** Document tools. `documents.create` publishes the new document's card in the run's thread, with the call ID as its publication identity. */
+  async documentTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+    if (name !== 'documents.create') return documentTool(this.runtime.db, attemptId, this.incarnation, name, args)
+    const input = documentCreation(args)
+    if (!callId || callId.length > 200) throw new Error('Invalid call ID')
+    const row = (await this.runtime.db.query<{ intent_id: string; generation: string; incarnation: string }>('SELECT intent_id,generation,incarnation FROM kipster.attempts WHERE id=$1 AND incarnation=$2', [attemptId, this.incarnation])).rows[0]
+    const context = row ? await runContext(this.runtime.db, row.intent_id) : null
+    if (!row || !context) throw new Error('Attempt no longer owns document tools')
+    const attempt: Attempt = { id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }
+    const run = { installationId: context.actor.installationId, attemptId, agentId: context.agentId, chatId: context.chatId, threadId: context.threadId, context: context.context }
+    const messageId = await this.publishText(attempt, { kind: 'text', attemptId, messageId: callId, text: '', final: true }, context, 'tool', [], client => createDocumentIn(client, run, callId, input))
+    if (!messageId) throw new Error('Attempt no longer owns document tools')
+    return { ...await createdDocument(this.runtime.db, attemptId, callId), messageId }
+  }
+
   async transcribeTool(attemptId:string,callId:string,artifactId:string):Promise<unknown>{
     if(!callId||callId.length>200||!/^[0-9a-f-]{36}$/i.test(artifactId))return {status:'unavailable',reason:'invalid-input'}
     const key=`${attemptId}:${callId}`
@@ -1398,7 +1419,8 @@ export class TextDispatcher {
   async publishArtifactTool(attemptId:string,callId:string,outputId:string):Promise<unknown>{return this.runtime.artifacts.publishOutput(attemptId,this.incarnation,callId,outputId)}
   async copyArtifactTool(attemptId:string,callId:string,artifactId:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId)}
 
-  private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = []): Promise<string | null> {
+  /** `coreParts`, when given, runs in the publication's transaction and returns parts Core appends, such as a document card; the call ID alone then identifies the publication. */
+  private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = [], coreParts?: (client: SqlClient) => Promise<MessagePart[]>): Promise<string | null> {
     const saved = await this.runtime.db.transaction(async client => {
       // Publications share this guard, so different threads can write concurrently.
       // Controls/recovery take it exclusively before locking multiple threads: dropping
@@ -1408,14 +1430,15 @@ export class TextDispatcher {
       const owner = await client.query(`SELECT 1 FROM kipster.text_runs r JOIN kipster.work_intents i ON i.id=r.id JOIN kipster.attempts a ON a.id=r.current_attempt_id
         WHERE r.id=$1 AND r.state IN ('running','waiting') AND r.stop_requested=false AND r.current_attempt_id=$2 AND i.state='issued' AND i.generation=$3 AND a.incarnation=$4 AND a.state='issued'`, [attempt.intentId, attempt.id, attempt.generation, attempt.incarnation])
       if (!owner.rows.length) return null
-      const parts=[...(event.text?[{kind:'text' as const,text:event.text}]:[]),...artifactIds.map(artifactId=>({kind:'file' as const,artifactId,purpose:'attachment' as const}))]
+      const parts: MessagePart[]=[...(event.text?[{kind:'text' as const,text:event.text}]:[]),...artifactIds.map(artifactId=>({kind:'file' as const,artifactId,purpose:'attachment' as const}))]
       const prior = (await client.query<{ id: string; revision: string; final: boolean; parts: unknown[] }>('SELECT id,revision,final,parts FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source=$2 AND publication_id=$3', [attempt.id, source, event.messageId])).rows[0]
       if (prior?.final) {
-        if (!event.final) return prior.id
+        if (!event.final || coreParts) return prior.id
         if (publicationPartsKey(prior.parts)!==publicationPartsKey(parts)) throw new Error('Publication identity conflict')
         return prior.id
       }
       for(const artifactId of artifactIds){const artifact=(await client.query<{id:string}>("SELECT id FROM kipster.artifacts WHERE id=$1 AND installation_id=$2 AND state='ready' AND ((owner_kind='agent' AND owner_id=$3) OR (owner_kind='organization' AND owner_id=$4))",[artifactId,context.actor.installationId,context.agentId,context.context.kind==='organization'?context.context.organizationId:null])).rows[0];if(!artifact)throw new Error('Artifact publication denied')}
+      if (coreParts) parts.push(...await coreParts(client))
       let messageId = prior?.id ?? randomUUID()
       let revision = prior ? Number(prior.revision) + 1 : 1
       if (prior) {
@@ -1480,6 +1503,7 @@ export class TextDispatcher {
       if (!uncertain) await wakeEligible(client, this.runtime, context.actor.installationId)
     })
     if(state==='recovery-needed')await reconcileInterruptedDelegations(this.runtime.db)
+    await finishRunDocuments(this.runtime.db, attempt.intentId).catch(() => undefined)
   }
 
   private async fenceOwnedOnClose(): Promise<void> {

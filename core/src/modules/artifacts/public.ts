@@ -339,6 +339,18 @@ export class ArtifactService {
     if(bytes.length!==record.size||createHash('sha256').update(bytes).digest('hex')!==record.sha256)throw new Error('Artifact content recovery needed')
     return {metadata:record,bytes}
   }
+  /** A ready artifact of the installation for a caller that authorized access itself, such as a document that references it. */
+  async referenced(installationId:string,id:string):Promise<{metadata:ArtifactMetadata;bytes:Buffer}> {
+    if(!uuid.test(id))throw new Error('Artifact not found')
+    const row=await this.db.transaction(client=>this.row(client,id))
+    if(row.installation_id!==installationId)throw new Error('Artifact not found')
+    if(row.state!=='ready')throw new Error('Artifact unavailable')
+    const record=metadata(row)
+    await this.verifyReady(record)
+    const bytes=await managedFile(this.object(id),this.objects)
+    if(bytes.length!==record.size||createHash('sha256').update(bytes).digest('hex')!==record.sha256)throw new Error('Artifact content recovery needed')
+    return {metadata:record,bytes}
+  }
   async inputForExecution(actor:TrustedActor,id:string,target:ArtifactTarget):Promise<{artifactId:string;name:string;mimeType:string;size:number;availability:'available';readablePath:string}|{artifactId:string;name:string;mimeType:string;size:number;availability:'unavailable'}> {
     const row=await this.db.transaction(client=>this.scopedRecord(client,actor,id,target,true))
     const file=metadata(row),details={artifactId:id,name:file.name,mimeType:file.mimeType,size:file.size}

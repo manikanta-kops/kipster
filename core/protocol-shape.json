@@ -132,6 +132,50 @@
         "agentId": {"type":"string","min":1}
       }
     },
+    "documentContext": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"installation"},
+            "installationId": {"type":"string","min":1}
+          }
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "kind": {"type":"literal","value":"organization"},
+            "organizationId": {"type":"string","min":1}
+          }
+        }
+      ]
+    },
+    "documentDraftWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "baseRevision": {"type":"integer","min":0},
+        "expectedDraftVersion": {"type":"integer","min":0},
+        "title": {"type":"string","min":1,"max":200},
+        "blocks": {"type":"array","items":{"ref":"documentBlock"}},
+        "comments": {"type":"array","items":{"ref":"draftComment"}},
+        "note": {"type":"string","min":0,"max":8000}
+      }
+    },
+    "documentSubmit": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1},
+        "draftVersion": {"type":"integer","min":0}
+      }
+    },
+    "documentTakeBack": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "filePart": {
       "type": "object",
       "exact": true,
@@ -743,6 +787,378 @@
         "groups": {"type":"array","items":{"ref":"directoryGroup"}}
       }
     },
+    "documentBlock": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"paragraph"},
+            "text": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"heading"},
+            "level": {"type":"integer","min":1,"max":3},
+            "text": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"list"},
+            "ordered": {"type":"boolean"},
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "exact": false,
+                "fields": {"id":{"type":"string","min":1},"text":{"type":"string","min":0,"max":20000}}
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"checklist"},
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "exact": false,
+                "fields": {
+                  "id": {"type":"string","min":1},
+                  "text": {"type":"string","min":0,"max":20000},
+                  "done": {"type":"boolean"}
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"quote"},
+            "text": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"callout"},
+            "tone": {
+              "type": "union",
+              "of": [
+                {"type":"literal","value":"note"},
+                {"type":"literal","value":"success"},
+                {"type":"literal","value":"warning"}
+              ]
+            },
+            "text": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"code"},
+            "language": {"type":"string"},
+            "code": {"type":"string"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {"id":{"type":"string","min":1},"type":{"type":"literal","value":"divider"}}
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"image"},
+            "artifactId": {"type":"string","min":1},
+            "caption": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"file"},
+            "artifactId": {"type":"string","min":1}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"table"},
+            "header": {"type":"array","items":{"type":"string","min":0,"max":20000}},
+            "rows": {"type":"array","items":{"type":"array","items":{"type":"string","min":0,"max":20000}}}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"toggle"},
+            "summary": {"type":"string","min":0,"max":20000},
+            "text": {"type":"string","min":0,"max":20000}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"question"},
+            "prompt": {"type":"string","min":0,"max":20000},
+            "help": {"type":"string","min":0,"max":20000},
+            "multiple": {"type":"boolean"},
+            "other": {"type":"boolean"},
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "exact": false,
+                "fields": {
+                  "id": {"type":"string","min":1},
+                  "label": {"type":"string","min":0,"max":20000},
+                  "hint": {"type":"string","min":0,"max":20000}
+                }
+              }
+            },
+            "answer": {
+              "type": "nullable",
+              "of": {
+                "type": "object",
+                "exact": false,
+                "fields": {
+                  "optionIds": {"type":"array","items":{"type":"string","min":1}},
+                  "other": {"type":"string"}
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "id": {"type":"string","min":1},
+            "type": {"type":"literal","value":"scale"},
+            "prompt": {"type":"string","min":0,"max":20000},
+            "min": {"type":"integer","min":0,"max":1000},
+            "max": {"type":"integer","min":1,"max":1000},
+            "step": {"type":"integer","min":1,"max":1000},
+            "minLabel": {"type":"string","min":0,"max":20000},
+            "maxLabel": {"type":"string","min":0,"max":20000},
+            "value": {"type":"nullable","of":{"type":"integer","min":0,"max":1000}}
+          }
+        }
+      ]
+    },
+    "documentComment": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "number": {"type":"integer","min":0},
+        "blockId": {"type":"string","min":1},
+        "field": {"type":"string","min":1},
+        "quote": {"type":"string"},
+        "start": {"type":"integer","min":0},
+        "end": {"type":"integer","min":0},
+        "body": {"type":"string"},
+        "state": {
+          "type": "union",
+          "of": [{"type":"literal","value":"open"},{"type":"literal","value":"resolved"}]
+        },
+        "reply": {"type":"nullable","of":{"type":"string"}},
+        "submittedInRevision": {"type":"integer","min":0},
+        "resolvedInRevision": {"type":"nullable","of":{"type":"integer","min":0}},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "documentDetail": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "document": {"ref":"documentSummary"},
+        "current": {"ref":"documentRevision"},
+        "draft": {"type":"nullable","of":{"ref":"documentDraft"}},
+        "comments": {"type":"array","items":{"ref":"documentComment"}},
+        "revisions": {"type":"array","items":{"ref":"documentRevisionInfo"}}
+      }
+    },
+    "documentDraft": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "draftVersion": {"type":"integer","min":0},
+        "baseRevision": {"type":"integer","min":0},
+        "title": {"type":"string"},
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "of": [
+              {"ref":"documentBlock"},
+              {
+                "type": "object",
+                "exact": false,
+                "fields": {"id":{"type":"string","min":1},"type":{"type":"string","min":1}}
+              }
+            ]
+          }
+        },
+        "comments": {"type":"array","items":{"ref":"draftComment"}},
+        "note": {"type":"string"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "documentDraftResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "draftVersion": {"type":"integer","min":0},
+        "updatedAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "documentList": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "documents": {"type":"array","items":{"ref":"documentSummary"}}
+      }
+    },
+    "documentPart": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "kind": {"type":"literal","value":"document"},
+        "documentId": {"type":"string","min":1},
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "documentRemoved": {"type":"object","exact":false,"fields":{"id":{"type":"string","min":1}}},
+    "documentRevision": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "number": {"type":"integer","min":0},
+        "authorKind": {"type":"union","of":[{"type":"literal","value":"user"},{"type":"literal","value":"agent"}]},
+        "authorId": {"type":"string","min":1},
+        "title": {"type":"string"},
+        "blocks": {
+          "type": "array",
+          "items": {
+            "type": "union",
+            "of": [
+              {"ref":"documentBlock"},
+              {
+                "type": "object",
+                "exact": false,
+                "fields": {"id":{"type":"string","min":1},"type":{"type":"string","min":1}}
+              }
+            ]
+          }
+        },
+        "note": {"type":"string"},
+        "changes": {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "added": {"type":"array","items":{"type":"string","min":1}},
+            "updated": {"type":"array","items":{"type":"string","min":1}},
+            "removed": {"type":"array","items":{"type":"string","min":1}}
+          }
+        },
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "documentRevisionInfo": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "number": {"type":"integer","min":0},
+        "authorKind": {"type":"union","of":[{"type":"literal","value":"user"},{"type":"literal","value":"agent"}]},
+        "authorId": {"type":"string","min":1},
+        "note": {"type":"string"},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
+    "documentRevisionResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"revision":{"ref":"documentRevision"}}
+    },
+    "documentSubmitResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "document": {"ref":"documentSummary"},
+        "messageId": {"type":"string","min":1},
+        "runId": {"type":"string","min":1}
+      }
+    },
+    "documentSummary": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "title": {"type":"string"},
+        "context": {"ref":"context"},
+        "agentId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "turn": {"type":"union","of":[{"type":"literal","value":"user"},{"type":"literal","value":"agent"}]},
+        "currentRevision": {"type":"integer","min":0},
+        "pendingQuestions": {"type":"integer","min":0},
+        "openComments": {"type":"integer","min":0},
+        "hasDraft": {"type":"boolean"},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"},
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "draftComment": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "blockId": {"type":"string","min":1},
+        "field": {"type":"string","min":1},
+        "quote": {"type":"string"},
+        "start": {"type":"integer","min":0},
+        "end": {"type":"integer","min":0},
+        "body": {"type":"string","min":1,"max":4000}
+      }
+    },
     "effectiveSettings": {
       "type": "object",
       "exact": false,
@@ -1068,7 +1484,10 @@
         "authorId": {"type":"string","min":1},
         "parts": {
           "type": "array",
-          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"}]}
+          "items": {
+            "type": "union",
+            "of": [{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"},{"ref":"documentPart"}]
+          }
         },
         "revision": {"type":"integer","min":0}
       }
@@ -1504,7 +1923,7 @@
             "resourceId": {"type":"string","min":1},
             "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"organization-removed"},
-            "data": {"ref":"organizationRemoved"}
+            "data": {"ref":"documentRemoved"}
           }
         },
         {
@@ -1638,6 +2057,36 @@
             "occurredAt": {"type":"string","format":"utc-timestamp"},
             "resourceId": {"type":"string","min":1},
             "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"document-changed"},
+            "data": {"ref":"documentSummary"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"document-removed"},
+            "data": {"ref":"documentRemoved"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"resync-required"}
           }
         }
@@ -1724,7 +2173,10 @@
         "authorId": {"type":"string","min":1},
         "parts": {
           "type": "array",
-          "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"}]}
+          "items": {
+            "type": "union",
+            "of": [{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"},{"ref":"documentPart"}]
+          }
         },
         "final": {"type":"boolean"},
         "revision": {"type":"integer","min":0},

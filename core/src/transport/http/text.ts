@@ -19,6 +19,8 @@ import { listIdentityBackups, readIdentityBackup, readIdentityFile, readInterfac
 import { interfacePreferencesWrite } from '../../protocol/admin.js'
 import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from '../../platform/home/public.js'
 import { RefusedError } from '../../platform/errors/public.js'
+import { DocumentConflictError } from '../../modules/documents/public.js'
+import { documentRoute } from './documents.js'
 
 export interface TextServer { url: string; close(): Promise<void> }
 const maxBodyBytes = 64 * 1024
@@ -34,7 +36,7 @@ function errorCode(error: unknown): { status: number; code: string; message: str
   if (error instanceof RefusedError) return { status: error.code === 'membership-removed' ? 403 : error.code === 'agent-archived' ? 409 : 410, code: error.code, message }
   if (error instanceof ServiceUnavailableError) return { status: 503, code: 'unavailable', message }
   if (error instanceof UpdateRefusedError) return { status: 409, code: error.code, message }
-  if (error instanceof IdentityConflictError || error instanceof OperationConflictError || error instanceof OrderConflictError || error instanceof AgentNotArchivedError) return { status: 409, code: 'conflict', message }
+  if (error instanceof IdentityConflictError || error instanceof DocumentConflictError || error instanceof OperationConflictError || error instanceof OrderConflictError || error instanceof AgentNotArchivedError) return { status: 409, code: 'conflict', message }
   if (/denied|mismatch|unauthorized/i.test(message)) return { status: 403, code: 'forbidden', message }
   if (/not found/i.test(message)) return { status: 404, code: 'not-found', message }
   if (/Invalid|Expected|Unknown|Future|missing|required/i.test(message) || error instanceof SyntaxError || error instanceof TypeError) return { status: 400, code: 'invalid', message }
@@ -153,7 +155,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true,documents:true} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){
@@ -204,6 +206,11 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
           catch (error) { await recordInstall(runtime.db, row.interactionId, { error: error instanceof Error ? error.message : String(error) }) }
         }
         json(response, 200, { version: 1, operationId: row.operationId, ...result }); return
+      }
+      if (path === '/v1/documents' || path.startsWith('/v1/documents/')) {
+        const reply = await documentRoute(runtime, actor, request.method ?? '', path, limit => body(request, limit), options.afterAccepted)
+        if (reply && 'bytes' in reply) { response.writeHead(reply.status, reply.headers); response.end(reply.bytes); return }
+        if (reply) { json(response, reply.status, reply.body); return }
       }
       if (request.method === 'GET' && path === '/v1/directory') { json(response, 200, await readDirectory(runtime.db, actor)); return }
       const administration = await administrationRoute(runtime, actor, request.method ?? '', path, url.searchParams, limit => body(request, limit), options.dispatcher)
