@@ -27,6 +27,11 @@ const closeWaitMs = 5000
 /** A held coordinator lock. `pid` is the lock session's backend, for checking in SQL that the lock is still held. */
 export interface CoordinatorLock { readonly pid: number; release(): Promise<void>; discard(): void }
 
+/** Safe to show at startup: an incompatible applied migration history and its recovery action. */
+export class MigrationHistoryError extends Error {
+  constructor(message: string) { super(message); this.name = 'MigrationHistoryError' }
+}
+
 export class Postgres {
   private readonly pool: Pool
   private readonly connections = new Set<object>()
@@ -170,16 +175,16 @@ export class Postgres {
       if (new Set(files).size !== files.length || files.some((file, index) => index > 0 && file <= files[index - 1]!)) throw new Error('Migrations must be unique and ordered')
       const applied = await client.query<{ version: string; checksum: string }>('SELECT version, checksum FROM kipster.schema_migrations ORDER BY version')
       const known = new Set(files)
-      for (const row of applied.rows) if (!known.has(row.version)) throw new Error(`Unknown applied migration: ${row.version}`)
+      for (const row of applied.rows) if (!known.has(row.version)) throw new MigrationHistoryError(`This database was upgraded by a newer Kipster Core (migration ${row.version}). Install that version or restore a backup.`)
       for (const [index, row] of applied.rows.entries()) {
-        if (files[index] !== row.version) throw new Error(`Applied migrations are not a prefix: ${row.version}`)
+        if (files[index] !== row.version) throw new MigrationHistoryError(`This database has an incomplete or out-of-order migration history (migration ${row.version}; expected ${files[index]}). Install a Core version matching this database or restore a backup.`)
       }
       const done = new Map(applied.rows.map(row => [row.version, row.checksum]))
       for (const migration of migrations) {
         const file = migration.version
         const checksum = createHash('sha256').update(migration.sql).digest('hex')
         if (done.has(file)) {
-          if (done.get(file) !== checksum) throw new Error(`Changed applied migration: ${file}`)
+          if (done.get(file) !== checksum) throw new MigrationHistoryError(`This database's applied migration ${file} differs from this Kipster Core. Install the Core version that applied it or restore a backup. For schema fixes, add a new migration instead of editing ${file.slice(0, 3)}.`)
           continue
         }
         await client.query('BEGIN')

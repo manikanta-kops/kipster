@@ -34,9 +34,9 @@ test('real PostgreSQL persistence, identity, jobs and settings', { skip: noDatab
     await Promise.all([db.migrate(migrations), peer.migrate(migrations)])
     await db.migrate(migrations)
     const retro = [{ version: '000_retro.sql', sql: 'CREATE TABLE kipster.retro(id int);' }, ...migrations]
-    await assert.rejects(db.migrate(retro), /not a prefix/)
+    await assert.rejects(db.migrate(retro), /out-of-order migration history/)
     assert.equal((await db.query("SELECT to_regclass('kipster.retro') AS name")).rows[0].name, null)
-    await assert.rejects(db.migrate([{ ...migrations[0], sql: migrations[0].sql + '\n-- changed' }, ...migrations.slice(1)]), /Changed applied migration/)
+    await assert.rejects(db.migrate([{ ...migrations[0], sql: migrations[0].sql + '\n-- changed' }, ...migrations.slice(1)]), /applied migration .* differs from this Kipster Core/)
     await assert.rejects(db.migrate([...migrations, { version: 'zzz_bad.sql', sql: 'CREATE TABLE kipster.bad_migration(id int); SELECT 1/0;' }]), /division by zero/)
     assert.equal((await db.query("SELECT count(*)::int AS n FROM kipster.schema_migrations")).rows[0].n, migrations.length)
     const absent = await db.query("SELECT to_regclass('kipster.bad_migration') AS name")

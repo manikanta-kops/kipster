@@ -24,6 +24,7 @@ instructions take precedence over older decisions.
 - Never claim a feature works without testing the relevant behavior. Report
   what you tested, the results and anything still unverified.
 - Preserve unrelated work and respect each package's boundaries.
+- Database migrations merged into `next` are shipped and immutable; every schema change or fix adds a new number above the base branch's highest and updates the ordered list in `core/src/runtime.ts`.
 - Keep released clients working: change protocol responses by addition only,
   and follow the compatibility rules in decision record 5.1.7.
 - Start each task on a new branch from the latest `origin/next`, in its own git

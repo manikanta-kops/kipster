@@ -8,7 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost, AdapterRegistry, type Runtime, type TextServer } from './runtime.js'
 import type { TranscriptionProvider } from './transcription/index.js'
-import { Postgres } from './platform/postgres/public.js'
+import { MigrationHistoryError, Postgres } from './platform/postgres/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import { boundedEmbed } from './modules/memory/public.js'
 import { readHostConfig, type HostConfig } from './host-config.js'
@@ -224,5 +224,5 @@ function invokedAsCommand(): boolean {
 if (invokedAsCommand()) {
   const deadline = setTimeout(() => { console.error('Host command exceeded its deadline; inspect configuration/dependencies.'); process.exit(1) }, 120000)
   if (process.argv[2] === 'serve') clearTimeout(deadline)
-  main().catch(error => { console.error(error instanceof Error && /^(Usage:|Invalid host|Configure |Set the configured|Host |Stop the configured|Core requires|Kipster home|Another host|Environment|Adapter IDs|Execution limit)/.test(error.message) ? error.message : 'Host command failed. Verify configuration and dependency readiness with doctor.'); process.exitCode=1 }).finally(() => clearTimeout(deadline))
+  main().catch(error => { console.error(error instanceof MigrationHistoryError || error instanceof Error && /^(Usage:|Invalid host|Configure |Set the configured|Host |Stop the configured|Core requires|Kipster home|Another host|Environment|Adapter IDs|Execution limit)/.test(error.message) ? error.message : 'Host command failed. Verify configuration and dependency readiness with doctor.'); process.exitCode=1 }).finally(() => clearTimeout(deadline))
 }

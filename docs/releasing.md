@@ -80,5 +80,7 @@ Apps and Core release independently. Protocol changes follow decision record
 and Core serves the previous protocol number for at least one release after
 raising it in `core/src/protocol/version.ts`.
 
+Database migrations are shipped when merged into `next` and are immutable; schema fixes add a new numbered migration, and rollback restores a pre-upgrade database backup with its matching Core version.
+
 CI enforces this against the committed `core/protocol-shape.json`; see
 [Core](../core/README.md). Regenerate it with `npm run protocol:shape -w core`.
