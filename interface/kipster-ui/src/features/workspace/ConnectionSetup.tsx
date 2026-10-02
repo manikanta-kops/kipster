@@ -1,9 +1,11 @@
 import { useContext, useEffect, useRef, useState } from 'react'
 import {
   backendURL,
+  localBackendURL,
   readBackendConnection,
   saveBackendConnection,
 } from '../../data/backend-connection'
+import { TextClient } from '../../data/text'
 import { Workspace } from './Workspace'
 import { useAppearance } from '../../app/appearance'
 import { PlatformContext } from '../../platform/context'
@@ -26,13 +28,53 @@ export function ConnectedApp({ demoURL }: { demoURL?: string }) {
     }
   })
   const [endpoint, setEndpoint] = useState(initial.endpoint)
-  const [editing, setEditing] = useState(!endpoint)
-  const [draft, setDraft] = useState(endpoint)
+  const [discovering, setDiscovering] = useState(
+    !initial.endpoint && !initial.error,
+  )
+  const [editing, setEditing] = useState(!endpoint && !discovering)
+  const [draft, setDraft] = useState(endpoint || localBackendURL)
   const [error, setError] = useState(initial.error)
   const address = useRef<HTMLInputElement>(null)
   useEffect(() => {
+    if (initial.endpoint || initial.error) return
+    const abort = new AbortController()
+    // Show setup even if the webview delays rejecting an aborted request.
+    const timeout = window.setTimeout(() => {
+      abort.abort()
+      setEditing(true)
+      setDiscovering(false)
+    }, 3000)
+    void (async () => {
+      try {
+        // Discovery stays on this address even if a local service redirects.
+        await new TextClient(localBackendURL).bootstrap(abort.signal, 'error')
+        if (abort.signal.aborted) return
+        saveBackendConnection(localBackendURL)
+        setEndpoint(localBackendURL)
+      } catch {
+        if (!abort.signal.aborted) setEditing(true)
+      } finally {
+        window.clearTimeout(timeout)
+        if (!abort.signal.aborted) setDiscovering(false)
+      }
+    })()
+    return () => {
+      window.clearTimeout(timeout)
+      abort.abort()
+    }
+  }, [initial])
+  useEffect(() => {
     if (editing) address.current?.focus()
   }, [editing])
+  if (discovering)
+    return (
+      <main className="workspace-state" aria-busy="true">
+        <div className="state-card mat thick lifted">
+          <h1>Connecting to Kipster</h1>
+          <p>Looking for Kipster on this computer…</p>
+        </div>
+      </main>
+    )
   if (!editing)
     return (
       <Workspace

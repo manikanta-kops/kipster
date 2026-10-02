@@ -16,6 +16,7 @@ export function backendURL(value: string): string {
   return url.origin
 }
 export const backendStorageKey = 'kipster-backend-url'
+export const localBackendURL = 'http://127.0.0.1:43120'
 
 export function readBackendConnection(): string {
   const saved = localStorage.getItem(backendStorageKey)

@@ -1,7 +1,221 @@
 import { startDemo } from './demo.ts'
 import { managementDialog, openManagement } from './management-helpers.ts'
-import { expect, test } from '@playwright/test'
-import { backendURL } from '../src/data/backend-connection.js'
+import { expect, test, type Page } from '@playwright/test'
+import {
+  backendStorageKey,
+  backendURL,
+  localBackendURL,
+} from '../src/data/backend-connection.js'
+import { protocolRange } from '@kipster/core/protocol'
+import { createServer, type RequestListener } from 'node:http'
+import type { AddressInfo } from 'node:net'
+
+async function localServer(handler: RequestListener) {
+  const server = createServer(handler)
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return {
+    url: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        server.closeAllConnections()
+        server.close((error) => (error ? reject(error) : resolve()))
+      }),
+  }
+}
+
+async function fakeConnection(page: Page, endpoint = localBackendURL) {
+  const session = `/__test-core/${crypto.randomUUID()}`
+  const requests: string[] = []
+  await page.route(`${endpoint}/**`, async (route) => {
+    const url = new URL(route.request().url())
+    requests.push(url.href)
+    if (url.pathname.endsWith('/events'))
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: '',
+      })
+    const response = await route.fetch({
+      url: new URL(session + url.pathname + url.search, page.url()).href,
+    })
+    await route.fulfill({ response })
+  })
+  return { session, requests }
+}
+
+const savedConnection = (page: Page) =>
+  page.evaluate((key) => localStorage.getItem(key), backendStorageKey)
+
+test('first launch connects to the local fake Core and remembers its address', async ({
+  page,
+}) => {
+  const { requests } = await fakeConnection(page)
+  await page.goto('/tests/desktop.html')
+  await expect(page.locator('.app-shell')).toBeVisible()
+  await expect(page.getByLabel('Backend address')).toHaveCount(0)
+  expect(await savedConnection(page)).toBe(localBackendURL)
+  expect(requests[0]).toBe(`${localBackendURL}/v1/bootstrap`)
+  expect(requests.every((url) => new URL(url).origin === localBackendURL)).toBe(
+    true,
+  )
+  await page.reload()
+  await expect(page.locator('.app-shell')).toBeVisible()
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Change connection' }).click()
+  await expect(page.getByLabel('Backend address')).toHaveValue(localBackendURL)
+})
+
+test('an unavailable local fake Core shows setup with the local address pre-filled', async ({
+  page,
+}) => {
+  const { session, requests } = await fakeConnection(page)
+  await page.request.post(`${session}/__demo/connection`, {
+    data: { offline: true },
+  })
+  await page.goto('/tests/desktop.html')
+  await expect(
+    page.getByRole('heading', { name: 'Connect to Kipster' }),
+  ).toBeVisible()
+  await expect(page.getByLabel('Backend address')).toHaveValue(localBackendURL)
+  await expect(page.getByLabel('Backend address')).toBeFocused()
+  expect(requests).toEqual([`${localBackendURL}/v1/bootstrap`])
+  expect(await savedConnection(page)).toBeNull()
+
+  await page.request.post(`${session}/__demo/connection`, {
+    data: { offline: false },
+  })
+  await page.getByRole('button', { name: 'Connect', exact: true }).click()
+  await expect(page.locator('.app-shell')).toBeVisible()
+  expect(await savedConnection(page)).toBe(localBackendURL)
+})
+
+test('nothing listening locally falls back to address entry without saving a connection', async ({
+  page,
+}) => {
+  const requests: string[] = []
+  await page.route(`${localBackendURL}/**`, async (route) => {
+    requests.push(route.request().url())
+    await route.abort('connectionrefused')
+  })
+  await page.goto('/tests/desktop.html')
+  await expect(page.getByLabel('Backend address')).toHaveValue(localBackendURL)
+  expect(requests).toEqual([`${localBackendURL}/v1/bootstrap`])
+  expect(await savedConnection(page)).toBeNull()
+})
+
+test('a stalled local probe keeps setup hidden until it times out', async ({
+  page,
+}) => {
+  const server = await localServer(() => {})
+  try {
+    await page.route(`${localBackendURL}/**`, (route) =>
+      route.continue({ url: `${server.url}/v1/bootstrap` }),
+    )
+    await page.goto('/tests/desktop.html')
+    await expect(
+      page.getByRole('heading', { name: 'Connecting to Kipster' }),
+    ).toBeVisible()
+    await expect(page.getByLabel('Backend address')).toHaveCount(0)
+    await expect(page.getByLabel('Backend address')).toHaveValue(
+      localBackendURL,
+    )
+    expect(await savedConnection(page)).toBeNull()
+  } finally {
+    await server.close()
+  }
+})
+
+test('an unrelated service on the local port is not saved as Core', async ({
+  page,
+}) => {
+  await page.route(`${localBackendURL}/**`, (route) =>
+    route.fulfill({ json: { status: 'ok' } }),
+  )
+  await page.goto('/tests/desktop.html')
+  await expect(page.getByLabel('Backend address')).toHaveValue(localBackendURL)
+  expect(await savedConnection(page)).toBeNull()
+})
+
+test('local discovery refuses redirects without probing a remote host', async ({
+  page,
+}) => {
+  const requests: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname === '/v1/bootstrap')
+      requests.push(request.url())
+  })
+  const server = await localServer((_request, response) => {
+    response.writeHead(302, {
+      location: 'https://unexpected.example/v1/bootstrap',
+      'access-control-allow-origin': '*',
+    })
+    response.end()
+  })
+  try {
+    await page.route('https://unexpected.example/**', (route) => route.abort())
+    await page.route(`${localBackendURL}/**`, (route) =>
+      route.continue({ url: `${server.url}/v1/bootstrap` }),
+    )
+    await page.goto('/tests/desktop.html')
+    await expect(page.getByLabel('Backend address')).toHaveValue(
+      localBackendURL,
+    )
+    expect(requests).toEqual([`${localBackendURL}/v1/bootstrap`])
+    expect(await savedConnection(page)).toBeNull()
+  } finally {
+    await server.close()
+  }
+})
+
+for (const [name, protocol] of [
+  [
+    'Update the app',
+    { oldest: protocolRange.current + 1, current: protocolRange.current + 1 },
+  ],
+  [
+    'Update the backend',
+    { oldest: protocolRange.current - 1, current: protocolRange.current - 1 },
+  ],
+] as const)
+  test(`local discovery preserves the ${name} compatibility screen`, async ({
+    page,
+  }) => {
+    const { session } = await fakeConnection(page)
+    await page.request.post(`${session}/__demo/release`, {
+      data: { coreVersion: '0.7.0', protocol },
+    })
+    await page.goto('/tests/desktop.html')
+    await expect(page.getByRole('heading', { name })).toBeVisible()
+    await expect(page.getByLabel('Backend address')).toHaveCount(0)
+    await expect(page.locator('.app-shell')).toHaveCount(0)
+    expect(await savedConnection(page)).toBe(localBackendURL)
+  })
+
+test('a saved destination skips local discovery even when that destination is unavailable', async ({
+  page,
+}) => {
+  const endpoint = 'https://saved.example'
+  const { session } = await fakeConnection(page, endpoint)
+  await page.request.post(`${session}/__demo/connection`, {
+    data: { offline: true },
+  })
+  await page.addInitScript(
+    ({ key, endpoint }) => localStorage.setItem(key, endpoint),
+    { key: backendStorageKey, endpoint },
+  )
+  const localRequests: string[] = []
+  await page.route(`${localBackendURL}/**`, async (route) => {
+    localRequests.push(route.request().url())
+    await route.abort()
+  })
+  await page.goto('/tests/desktop.html')
+  await expect(
+    page.getByRole('heading', { name: 'Workspace unavailable' }),
+  ).toBeVisible()
+  await expect(page.getByLabel('Backend address')).toHaveCount(0)
+  expect(localRequests).toEqual([])
+  expect(await savedConnection(page)).toBe(endpoint)
+})
 
 test('connection addresses reject credentials, remote plaintext and ambiguous scopes', () => {
   expect(backendURL('https://garden.example/')).toBe('https://garden.example')
