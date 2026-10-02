@@ -87,7 +87,8 @@ Software update scenarios use `{ state }`: `idle`, `available`, `checking`,
 updates and refuses installation with `update-unmanaged`. Supply `{ managed: true }`
 to return to a managed host. Supply `step` for install progress and `disconnectMs` for
 the restart outage. `core` and `backups` override status fields; `app` sets the
-simulated app’s state, version, availability or error. App pinning through the UI
+simulated app’s state, version, availability or error; a version containing
+`-next.` shows the Testing section. App pinning through the UI
 stays device-local. The fake serves the shared `/v1/settings/updates` and
 `/v1/updates` routes, and emits `updates-changed`; app simulation uses a separate
 demo-only event. Neither simulation contacts the public update service.
