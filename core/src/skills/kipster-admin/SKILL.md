@@ -55,7 +55,8 @@ Leave the section between `<!-- kipster:learned:begin -->` and `<!-- kipster:lea
 Kipster writes it. Each save keeps a backup; `identity.backups` and `identity.restore` undo a change.
 
 **Change the look.** `interface.set` with `palette` (glacier, alpenglow, pine, graphite, obsidian), `theme` (light,
-dark, or system to follow the computer) or `desktopNotifications`. If they turn notifications on, mention that their
+dark, or system to follow the computer), `desktopNotifications` and the notification choices (`notifyNeeds`,
+`notifyFailures`, `notifyReplies`, `inAppBanners`, `dockBadge`). If they turn notifications on, mention that their
 computer may ask once to allow them.
 
 **Change the model.** Read `adapters.list` for available models and efforts, then `settings.set` on the kip or on the

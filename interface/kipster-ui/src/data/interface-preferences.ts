@@ -56,10 +56,17 @@ export class InterfacePreferences {
     )
     if (Object.keys(missing).length) await this.save(missing, signal)
   }
-  /** Saves choices in Core. Without Core support it does nothing. */
+  /** Saves the choices Core keeps; an older Core may keep only some, or none. */
   async save(change: InterfaceChange, signal = AbortSignal.timeout(15000)) {
-    if (!this.current) return
-    this.accept(await this.client.saveInterfacePreferences(change, signal))
+    const current = this.current
+    if (!current) return
+    const kept = Object.fromEntries(
+      Object.entries(change).filter(
+        ([key]) => current[key as keyof InterfaceChange] !== undefined,
+      ),
+    )
+    if (!Object.keys(kept).length) return
+    this.accept(await this.client.saveInterfacePreferences(kept, signal))
   }
 }
 

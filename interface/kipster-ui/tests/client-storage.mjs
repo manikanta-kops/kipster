@@ -12,10 +12,15 @@ const allowed = {
     keys: ["'palette'", "'theme'"],
     reason: 'Cache of the palette and theme Core keeps, for the first paint.',
   },
-  'features/settings/DesktopPreferences.tsx': {
-    keys: ['desktopAlertsKey(scopeKey)'],
+  'features/notifications/settings.ts': {
+    keys: ['desktopAlertsKey(scope)', 'key(name)'],
     reason:
-      'Cache of the desktop alert choice Core keeps; the choice itself while Core keeps none.',
+      'Cache of the notification choices Core keeps; the choices themselves while Core keeps none.',
+  },
+  'features/notifications/use-notifications.ts': {
+    keys: ['permissionAskedKey'],
+    reason:
+      'Whether this app already asked the operating system for notification permission.',
   },
   'platform/preferences.ts': {
     keys: ['`kipster:${key}`'],
@@ -55,15 +60,11 @@ const allowed = {
     keys: ["'kipster-core-settings-saves'"],
     reason: 'Retry journal of settings saves.',
   },
-  'data/control-journal.ts': {
-    keys: ["'kipster-settings-inbox-commands'"],
-    reason: 'Retry journal of inbox commands.',
-  },
   'data/work-journal.ts': {
     keys: ["'kipster-work-commands'"],
     reason: 'Retry journal of work commands.',
   },
-  'features/settings/use-attention.ts': {
+  'features/notifications/use-delivery.ts': {
     keys: ["'kipster-notification-attention'"],
     reason: 'Which alerts this browser profile already showed.',
   },

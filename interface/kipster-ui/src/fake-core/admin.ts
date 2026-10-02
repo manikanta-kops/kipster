@@ -235,7 +235,20 @@ export function createAdministration(options: Options = {}) {
     palette: null as string | null,
     theme: null as string | null,
     desktopNotifications: null as boolean | null,
+    notifyNeeds: null as boolean | null,
+    notifyFailures: null as boolean | null,
+    notifyReplies: null as boolean | null,
+    inAppBanners: null as boolean | null,
+    dockBadge: null as boolean | null,
   }
+  const switches = [
+    'desktopNotifications',
+    'notifyNeeds',
+    'notifyFailures',
+    'notifyReplies',
+    'inAppBanners',
+    'dockBadge',
+  ] as const
   const agentLearning = agents.map((a) => ({
     agentId: a.id,
     enabled: true,
@@ -355,7 +368,11 @@ export function createAdministration(options: Options = {}) {
     callerId: DEMO_IDS.caller,
     organizationId: DEMO_IDS.organization,
     rootAgentId: DEMO_IDS.rootAgent,
-    capabilities: { voiceRecording: true, interfacePreferences: true },
+    capabilities: {
+      voiceRecording: true,
+      interfacePreferences: true,
+      notificationActions: true,
+    },
   })
   const adapters = () => ({
     version: 1,
@@ -414,7 +431,7 @@ export function createAdministration(options: Options = {}) {
     if (path === '/v1/settings/interface' && method === 'PUT') {
       const body = object(await request.json())
       if (body.version !== 1) invalid()
-      keys(body, ['version', 'palette', 'theme', 'desktopNotifications'])
+      keys(body, ['version', 'palette', 'theme', ...switches])
       const palettes = ['glacier', 'alpenglow', 'pine', 'graphite', 'obsidian']
       if (
         body.palette !== undefined &&
@@ -427,28 +444,32 @@ export function createAdministration(options: Options = {}) {
       )
         invalid()
       if (
-        body.desktopNotifications !== undefined &&
-        typeof body.desktopNotifications !== 'boolean'
+        switches.some(
+          (name) => body[name] !== undefined && typeof body[name] !== 'boolean',
+        )
       )
         invalid()
       if (
         body.palette === undefined &&
         body.theme === undefined &&
-        body.desktopNotifications === undefined
+        switches.every((name) => body[name] === undefined)
       )
         invalid('Invalid interface preferences: no change given')
       const next = {
         palette:
           (body.palette as string | undefined) ?? interfaceChoices.palette,
         theme: (body.theme as string | undefined) ?? interfaceChoices.theme,
-        desktopNotifications:
-          (body.desktopNotifications as boolean | undefined) ??
-          interfaceChoices.desktopNotifications,
+        ...Object.fromEntries(
+          switches.map((name) => [
+            name,
+            (body[name] as boolean | undefined) ?? interfaceChoices[name],
+          ]),
+        ),
       }
       if (
-        next.palette !== interfaceChoices.palette ||
-        next.theme !== interfaceChoices.theme ||
-        next.desktopNotifications !== interfaceChoices.desktopNotifications
+        (Object.keys(next) as (keyof typeof next)[]).some(
+          (name) => next[name] !== interfaceChoices[name],
+        )
       ) {
         Object.assign(interfaceChoices, next, {
           revision: interfaceChoices.revision + 1,

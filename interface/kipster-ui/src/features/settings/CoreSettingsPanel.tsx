@@ -2,7 +2,7 @@ import { useContext, type ReactNode } from 'react'
 import { PlatformContext } from '../../platform/context'
 import type { Appearance } from '../../app/appearance'
 import { AppearanceSettings } from './AppearanceSettings'
-import { DesktopPreferences } from './DesktopPreferences'
+import { NotificationSettings } from '../notifications/NotificationSettings'
 import { IdentityFiles } from './IdentityFiles'
 import type { ApplicationUpdates } from '../../data/application-updates'
 import { useMemo, useState } from 'react'
@@ -37,7 +37,7 @@ type Tab =
   | 'adapters'
   | 'learning'
   | 'identity'
-  | 'desktop'
+  | 'notifications'
   | 'appearance'
   | 'about'
   | 'updates'
@@ -53,6 +53,7 @@ const tabs: Record<
       | 'brain'
       | 'sun'
       | 'info'
+      | 'bell'
     description: string
   }
 > = {
@@ -66,10 +67,10 @@ const tabs: Record<
     icon: 'sun',
     description: 'Palette and light or dark mode for this device',
   },
-  desktop: {
-    label: 'Desktop',
-    icon: 'settings',
-    description: 'Attention on this device',
+  notifications: {
+    label: 'Notifications',
+    icon: 'bell',
+    description: 'How your kips reach you on this device',
   },
   identity: {
     label: 'Identity files',
@@ -191,7 +192,7 @@ export function CoreSettingsPanel({
           {settings.connection &&
             tab !== 'workspace' &&
             tab !== 'appearance' &&
-            tab !== 'desktop' &&
+            tab !== 'notifications' &&
             tab !== 'about' && (
               <output className="settings-callout" data-tone="wait">
                 {settings.connection}
@@ -210,11 +211,9 @@ export function CoreSettingsPanel({
             <About {...versions} />
           ) : tab === 'appearance' ? (
             <AppearanceSettings appearance={appearance} />
-          ) : tab === 'desktop' ? (
-            platform ? (
-              <DesktopPreferences platform={platform} scopeKey={journalScope} />
-            ) : (
-              <p>Desktop preferences are unavailable.</p>
+          ) : tab === 'notifications' ? (
+            platform && (
+              <NotificationSettings platform={platform} scope={journalScope} />
             )
           ) : ready ? (
             tab === 'identity' ? (

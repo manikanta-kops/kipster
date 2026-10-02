@@ -1,9 +1,12 @@
-import type { Platform } from '../src/platform/platform.ts'
+import type {
+  NotificationMessage,
+  NotificationTarget,
+  Platform,
+} from '../src/platform/platform.ts'
 import {
   conversationStorage,
   mediaStorage,
 } from '../src/data/conversation-storage.ts'
-import { controlJournal } from '../src/data/control-journal.ts'
 import { workJournal } from '../src/data/work-journal.ts'
 import { navigationPreferences } from '../src/data/preferences.ts'
 import {
@@ -63,18 +66,26 @@ export function prepareBrowser(platform: Platform) {
   wrap(conversationStorage, 'reserve', 'draft-reserve')
   wrap(conversationStorage, 'list', 'outbox-read')
   wrap(mediaStorage, 'add', 'media-add', 'media-commit')
-  wrap(controlJournal, 'list', 'control-read')
-  wrap(controlJournal, 'reserve', 'control-reserve')
   wrap(workJournal, 'list', 'work-read')
   wrap(workJournal, 'reserve', 'work-reserve')
   wrap(navigationPreferences, 'read', 'navigation-read')
   wrap(navigationPreferences, 'write', 'navigation-write')
+  const opened = new Set<(target: NotificationTarget) => void>()
   const notificationTest = {
     prompts: 0,
     attentionChecks: 0,
-    sends: [] as string[],
+    foreground: parameters.get('notification') === 'foreground',
+    sends: [] as NotificationMessage[],
+    badges: [] as number[],
     permission: 'granted',
     failure: false,
+    settingsOpened: 0,
+    keepRunning: true,
+    openAtLogin: false,
+    /** Simulates a click on a system notification. */
+    open(target: NotificationTarget) {
+      for (const listener of opened) listener(target)
+    },
   }
   if (parameters.has('notification')) {
     const driver = {
@@ -85,22 +96,53 @@ export function prepareBrowser(platform: Platform) {
         notificationTest.prompts++
         return notificationTest.permission
       },
-      sendNotification(message: { title: string }) {
+      sendNotification(message: NotificationMessage) {
         if (notificationTest.failure)
           throw new Error('Notification delivery failed')
-        notificationTest.sends.push(message.title)
+        notificationTest.sends.push(message)
       },
     }
+    const answer = () =>
+      notificationTest.permission === 'default'
+        ? ('prompt' as const)
+        : (notificationTest.permission as 'granted' | 'denied')
+    const host = (key: 'keepRunning' | 'openAtLogin') => ({
+      get: async () => notificationTest[key],
+      set: async (on: boolean) => {
+        notificationTest[key] = on
+      },
+    })
     platform.attention = {
       isForeground() {
         notificationTest.attentionChecks++
-        return parameters.get('notification') === 'foreground'
+        return notificationTest.foreground
       },
     }
     platform.notifications = {
       supported: true,
+      permission: async () => answer(),
+      async requestPermission() {
+        await driver.requestPermission()
+        return answer()
+      },
       send: (message) => requestNotification(driver, message),
       sendExisting: (message) => sendExistingNotification(driver, message),
+      onOpen(listener) {
+        opened.add(listener)
+        return () => opened.delete(listener)
+      },
+      async openSettings() {
+        notificationTest.settingsOpened++
+      },
+    }
+    platform.badge = {
+      async set(count) {
+        notificationTest.badges.push(count)
+      },
+    }
+    platform.app = {
+      keepRunning: host('keepRunning'),
+      openAtLogin: host('openAtLogin'),
     }
   }
   Object.assign(window, {

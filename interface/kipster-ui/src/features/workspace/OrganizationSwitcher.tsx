@@ -4,10 +4,13 @@ import type { WorkspaceSnapshot } from '../../data/directory'
 export function OrganizationSwitcher({
   data,
   organizationId,
+  elsewhere = false,
   onOrganization,
 }: {
   data: WorkspaceSnapshot
   organizationId: string | null
+  /** Another organization has something that needs the person. */
+  elsewhere?: boolean
   onOrganization: (id: string) => void
 }) {
   const organization = data.organizations.find(
@@ -22,9 +25,17 @@ export function OrganizationSwitcher({
       <div className="profile-context sidebar-label">
         <strong>{organization?.name ?? 'No organization'}</strong>
       </div>
+      {elsewhere && (
+        <span className="elsewhere-mark" aria-hidden="true">
+          <span id="organization-elsewhere" hidden>
+            Another organization needs you
+          </span>
+        </span>
+      )}
       <Icon name="chevron" className="profile-caret sidebar-label" />
       <select
         aria-label="Organization"
+        aria-describedby={elsewhere ? 'organization-elsewhere' : undefined}
         value={organizationId ?? ''}
         onChange={(event) => onOrganization(event.target.value)}
         disabled={!data.organizations.length}

@@ -638,9 +638,9 @@ test('learning, interface, identity and update reads and writes match their HTTP
 
   // Interface
   assert.deepEqual(await run.tool('look', 'admin.interface.get'), await ctx.ok('GET', '/v1/settings/interface'))
-  assert.deepEqual(await run.tool('look-0', 'admin.interface.get'), { version: 1, revision: 0, palette: null, theme: null, desktopNotifications: null })
-  const dark = await run.tool('dark', 'admin.interface.set', { theme: 'dark', desktopNotifications: true })
-  assert.deepEqual(dark, { version: 1, revision: 1, palette: null, theme: 'dark', desktopNotifications: true })
+  assert.deepEqual(await run.tool('look-0', 'admin.interface.get'), { version: 1, revision: 0, palette: null, theme: null, desktopNotifications: null, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: null, dockBadge: null })
+  const dark = await run.tool('dark', 'admin.interface.set', { theme: 'dark', desktopNotifications: true, inAppBanners: true })
+  assert.deepEqual(dark, { version: 1, revision: 1, palette: null, theme: 'dark', desktopNotifications: true, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: true, dockBadge: null })
   assert.deepEqual(await run.tool('dark-again', 'admin.interface.set', { theme: 'dark' }), dark, 'saving the current value changes nothing')
   assert.deepEqual(await ctx.ok('PUT', '/v1/settings/interface', { version: 1, palette: 'pine' }), { ...dark, revision: 2, palette: 'pine' })
   await assert.rejects(run.tool('bad-theme', 'admin.interface.set', { theme: 'sepia' }), /Invalid wire value/)

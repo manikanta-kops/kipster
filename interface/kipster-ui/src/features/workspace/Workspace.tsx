@@ -1,5 +1,4 @@
 import { HistoryWindow } from '../chat/HistoryWindow'
-import { Attention } from '../settings/Attention'
 import { ApplicationUpdates } from '../../data/application-updates'
 import {
   SoftwareUpdates,
@@ -46,12 +45,18 @@ import { quickFade } from '../../app/motion'
 import type { Appearance } from '../../app/appearance'
 import { DurableComposer } from '../chat/DurableComposer'
 import { ConversationRecovery } from '../chat/ConversationRecovery'
-import { Inbox } from '../settings/Inbox'
+import { Inbox } from '../notifications/Inbox'
+import { Banners } from '../notifications/Banners'
+import { useNotifications } from '../notifications/use-notifications'
+import { ownNotificationChoices } from '../notifications/settings'
+import {
+  chatMarks,
+  needsYou,
+  type InboxNotification,
+} from '../../data/notifications'
 import { WorkPanel, WorkRecovery } from '../work/WorkPanel'
 import { useWorkCommands } from '../work/use-work-commands'
-import { useControlCommands } from '../../data/use-control-commands'
 import {
-  createCoreInboxClient,
   createCoreWorkClient,
   inboxItems,
   summaryTarget,
@@ -155,6 +160,14 @@ const summaryState = (state: string): LiveState =>
     }) as Record<string, LiveState>
   )[state] ?? 'unknown'
 
+/** Summary states of a thread whose kip is busy with it. */
+const working = new Set([
+  'preparing',
+  'running',
+  'waiting',
+  'cancellation-requested',
+])
+
 export function Workspace({
   endpoint,
   appearance,
@@ -205,8 +218,6 @@ export function Workspace({
   const narrow = useMediaQuery('(max-width: 820px)')
   const [drawer, setDrawer] = useState(false)
   const drawerOpen = narrow && drawer
-  const [feedSlot, setFeedSlot] = useState<HTMLDivElement | null>(null)
-  const [threadSlot, setThreadSlot] = useState<HTMLDivElement | null>(null)
   const dock = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const element = dock.current
@@ -264,7 +275,7 @@ export function Workspace({
   // Everything received; chats that are gone are filtered out below.
   const [allSummaries, setSummaries] = useState<Record<string, Summary>>({})
   const knownNotices = useRef(new Set<string>())
-  const [attentionIds, setAttentionIds] = useState<string[]>([])
+  const [arrivals, setArrivals] = useState<string[]>([])
   const [allNotices, setNotices] = useState<Record<string, Notice>>({})
   // Threads Core reported gone, and unsent text kept from them.
   const [goneThreads, setGoneThreads] = useState<Record<string, true>>({})
@@ -380,6 +391,25 @@ export function Workspace({
     )
   }, [])
 
+  const markRead = useCallback(
+    (ids: string[]) =>
+      setNotices((old) => {
+        const next = { ...old }
+        for (const id of ids)
+          if (next[id]) next[id] = { ...next[id], read: true }
+        return next
+      }),
+    [],
+  )
+  const removeNotices = useCallback(
+    (ids: string[]) =>
+      setNotices((old) =>
+        Object.fromEntries(
+          Object.entries(old).filter(([id]) => !ids.includes(id)),
+        ),
+      ),
+    [],
+  )
   /** Clears everything read from Core, as for a new installation. */
   const forget = useCallback(() => {
     setSelected(null)
@@ -747,7 +777,7 @@ export function Workspace({
                 const note = event.data as Notice
                 if (!knownNotices.current.has(note.id)) {
                   knownNotices.current.add(note.id)
-                  setAttentionIds((ids) => [...ids.slice(-99), note.id])
+                  setArrivals((ids) => [...ids.slice(-99), note.id])
                 }
                 setNotices((old) => ({
                   ...old,
@@ -807,6 +837,7 @@ export function Workspace({
                         theme: own('theme'),
                         desktopNotifications:
                           alerts === null ? null : alerts === 'enabled',
+                        ...(platform ? ownNotificationChoices(platform) : {}),
                       },
                       abort.signal,
                     )
@@ -1203,27 +1234,6 @@ export function Workspace({
     [client, applyInteraction, threadGone],
   )
   const workCommands = useWorkCommands(scope, identity ? workClient : undefined)
-  const noticesRef = useRef(allNotices)
-  noticesRef.current = allNotices
-  const inboxClient = useMemo(
-    () =>
-      createCoreInboxClient(client.endpoint, {
-        isRead: (id) => !!noticesRef.current[id]?.read,
-        read: (id) =>
-          setNotices((old) =>
-            old[id] ? { ...old, [id]: { ...old[id], read: true } } : old,
-          ),
-        gone: (id) => {
-          const threadId = noticesRef.current[id]?.threadId
-          if (threadId) threadGone(threadId)
-        },
-      }),
-    [client, threadGone],
-  )
-  const inboxCommands = useControlCommands(
-    scope,
-    identity ? inboxClient : undefined,
-  )
   // When the open thread or chat goes away, text typed there but not sent is kept and shown.
   const shown = useRef<{
     chatId: string | null
@@ -1476,6 +1486,38 @@ export function Workspace({
         ),
       )
   }
+  const inbox = identity
+    ? inboxItems({
+        scope: identity,
+        notices: Object.values(notices),
+        summaries,
+        interactions,
+        firstMessage: (threadId) => ordered(threadId)[0],
+        agentName: (agentId) => agentLabel(directory, agentId),
+        organizationName: (organizationId) =>
+          directory?.organizations[organizationId]?.name,
+      })
+    : []
+  const notifications = useNotifications({
+    endpoint: client.endpoint,
+    actions: identity
+      ? identity.capabilities?.notificationActions === true
+      : undefined,
+    scope,
+    items: inbox,
+    arrivals,
+    selected,
+    ready: appReady,
+    online: !connection,
+    read: markRead,
+    remove: removeNotices,
+    openThread,
+  })
+  const openNotification = (n: InboxNotification) => {
+    setSettingsOpener(null)
+    openThread(n.target.threadId)
+    notifications.readThread(n.target.threadId)
+  }
   if (blocked)
     return (
       <CompatibilityBlock
@@ -1526,18 +1568,36 @@ export function Workspace({
         </div>
       </main>
     )
-  const unread = Object.values(notices).filter((n) => !n.read)
   // Questions and approvals still waiting, wherever they were asked.
   const questions = waitingNotices(notices)
-  // Agents in this organization with a question waiting, placed by their thread's chat context.
-  const waiting = new Set(
-    questions.flatMap((n) => {
-      const thread = summaries[n.threadId]
-      return thread?.contextKind === 'organization' &&
-        thread.contextId === nav.organizationId
-        ? [thread.agentId]
-        : []
-    }),
+  const marks = chatMarks(
+    inbox,
+    Object.values(summaries)
+      .filter((s) => working.has(s.state))
+      .map((s) => s.threadId),
+    (threadId) => summaries[threadId] && summaryKey(summaries[threadId]),
+  )
+  const markOf = (agentId: string, admin: boolean) =>
+    marks[
+      chatKey(
+        admin
+          ? {
+              kind: 'installation',
+              installationId: identity.installationId,
+              agentId,
+            }
+          : {
+              kind: 'organization',
+              organizationId: nav.organizationId ?? '',
+              agentId,
+            },
+      )
+    ]
+  const elsewhere = inbox.some(
+    (n) =>
+      needsYou(n) &&
+      n.target.context.kind === 'organization' &&
+      n.target.context.organizationId !== nav.organizationId,
   )
   const threadState = (id: string): LiveState =>
     connection || (selected === id && threadConnection)
@@ -1595,16 +1655,6 @@ export function Workspace({
       title: 'a thread that is no longer available',
       messageIds: [],
     }
-  const inbox = inboxItems({
-    scope: identity,
-    notices: Object.values(notices),
-    summaries,
-    interactions,
-    firstMessage: (threadId) => ordered(threadId)[0],
-    agentName: (agentId) => agentLabel(directory, agentId),
-    organizationName: (organizationId) =>
-      directory?.organizations[organizationId]?.name,
-  })
   const themeToggle = isDarkOnly(appearance.palette)
     ? null
     : {
@@ -1704,14 +1754,24 @@ export function Workspace({
                 />
                 <button
                   className="management-trigger"
-                  aria-label={`Notifications, ${unread.length} unread`}
+                  aria-label={
+                    notifications.needs
+                      ? `Notifications, ${notifications.needs} need${notifications.needs === 1 ? 's' : ''} you`
+                      : notifications.unread
+                        ? `Notifications, ${notifications.unread} unread`
+                        : 'Notifications, nothing new'
+                  }
                   data-tip="Notifications"
                   onClick={(event) => setInboxOpener(event.currentTarget)}
                 >
                   <Icon name="bell" />
                   <span className="sidebar-label">Notifications</span>
-                  {unread.length > 0 && (
-                    <span className="unread-count">{unread.length}</span>
+                  {notifications.needs > 0 ? (
+                    <span className="unread-count">{notifications.needs}</span>
+                  ) : (
+                    notifications.unread > 0 && (
+                      <span className="unread-mark" aria-hidden="true" />
+                    )
                   )}
                 </button>
                 <button
@@ -1735,7 +1795,8 @@ export function Workspace({
             collapsed={nav.collapsed && !narrow}
             drawer={narrow}
             segment={nav.segment}
-            waiting={waiting}
+            markOf={markOf}
+            elsewhere={elsewhere}
             kipState={kip.state}
             formerMembers={formerHere}
             onOrganization={(organizationId) =>
@@ -1919,7 +1980,6 @@ export function Workspace({
                 discard={outbox.discard}
                 openThread={chooseThread}
               />
-              <div className="attention-slot" ref={setFeedSlot} />
               {compose()}
             </div>
           </main>
@@ -2035,9 +2095,6 @@ export function Workspace({
                       />
                     </>
                   }
-                  attention={
-                    <div className="attention-slot" ref={setThreadSlot} />
-                  }
                   composer={compose(selected)}
                   unread={threadFollowing.unread}
                   latest={latestThread}
@@ -2105,18 +2162,13 @@ export function Workspace({
         )}
         {inboxOpener && (
           <Inbox
-            data={view}
-            notifications={inbox}
-            scope={{
-              installationId: identity.installationId,
-              callerId: identity.callerId,
-            }}
-            commands={inboxCommands}
-            open={(n) => {
-              setSettingsOpener(null)
-              openThread(n.target.threadId)
-            }}
-            routeStatus=""
+            items={inbox}
+            actors={view.actorsById}
+            kipId={kipId}
+            canClear={notifications.canClear}
+            read={notifications.read}
+            clear={notifications.clear}
+            open={openNotification}
             availability={
               connection
                 ? 'Inbox updates are reconnecting. Showing the last received records.'
@@ -2126,32 +2178,12 @@ export function Workspace({
             close={() => setInboxOpener(null)}
           />
         )}
-        <Attention
-          scope={scope}
-          notifications={inbox}
-          attentionIds={attentionIds}
-          selected={selected}
-          open={async (notice) => {
-            openThread(notice.target.threadId)
-            if (!notice.read) {
-              try {
-                await inboxCommands.send({
-                  operationId: crypto.randomUUID(),
-                  target: {
-                    installationId: identity.installationId,
-                    callerId: identity.callerId,
-                  },
-                  action: 'read',
-                  notificationId: notice.id,
-                })
-              } catch {
-                setGoneNotice(
-                  'Could not mark the notification read. Retry from Notifications.',
-                )
-              }
-            }
-          }}
-          host={selected && (narrow || expanded) ? threadSlot : feedSlot}
+        <Banners
+          banners={notifications.banners}
+          actors={view.actorsById}
+          kipId={kipId}
+          open={openNotification}
+          dismiss={notifications.dismiss}
         />
       </QueryClientProvider>
     </WorkspaceContext.Provider>

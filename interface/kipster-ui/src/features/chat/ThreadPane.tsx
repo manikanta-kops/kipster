@@ -28,7 +28,6 @@ export function ThreadPane({
   history,
   work,
   recovery,
-  attention,
   composer,
   unread,
   latest,
@@ -47,7 +46,6 @@ export function ThreadPane({
   work: ReactNode
   history: ReactNode
   recovery: ReactNode
-  attention: ReactNode
   composer: ReactNode
   unread: boolean
   latest: () => void
@@ -112,7 +110,6 @@ export function ThreadPane({
         </button>
       )}
       {recovery}
-      {attention}
       {composer}
     </motion.section>
   )

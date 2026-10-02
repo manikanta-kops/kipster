@@ -96,6 +96,7 @@ export function createFakeCore(
   const chats = new Map<string, Chat>()
   const threads = new Map<string, Thread>()
   const notifications = new Map<string, Notice>()
+  const cleared = new Set<string>()
   const receipts = new Map<string, Record<string, unknown>>()
   const controls = new Map<string, Record<string, unknown>>()
   const answers = new Map<string, Record<string, unknown>>()
@@ -463,6 +464,19 @@ export function createFakeCore(
     kind: Notice['kind'],
     interaction?: TextInteraction,
   ) {
+    const reply = thread.messages
+      .findLast((m) => m.authorId === thread.summary.agentId && m.final)
+      ?.parts.flatMap((p) => (p.kind === 'text' ? [p.text] : []))
+      .join(' ')
+    const excerpt = (
+      kind === 'interaction'
+        ? interaction?.prompt
+        : kind === 'completed'
+          ? reply
+          : work.failure
+    )
+      ?.replace(/\s+/g, ' ')
+      .trim()
     const notice: Notice = {
       id: id(),
       threadId: thread.summary.threadId,
@@ -473,6 +487,12 @@ export function createFakeCore(
       createdAt: now(),
       ...(interaction
         ? { interactionId: interaction.id, interactionState: interaction.state }
+        : {}),
+      ...(excerpt
+        ? {
+            preview:
+              excerpt.length > 200 ? `${excerpt.slice(0, 199)}…` : excerpt,
+          }
         : {}),
     }
     notifications.set(notice.id, notice)
@@ -1272,9 +1292,66 @@ export function createFakeCore(
       const noticeMatch = /^\/v1\/notifications\/([0-9a-f-]{36})\/read$/.exec(
         path,
       )
+      if (
+        method === 'POST' &&
+        (path === '/v1/notifications/read' ||
+          path === '/v1/notifications/clear')
+      ) {
+        const row = fields(
+          await body(request),
+          ['version', 'notificationIds'],
+          ['notificationIds'],
+        )
+        const ids = row.notificationIds
+        if (
+          !Array.isArray(ids) ||
+          !ids.length ||
+          ids.length > 200 ||
+          new Set(ids).size !== ids.length ||
+          !ids.every((id) => typeof id === 'string')
+        )
+          throw new Error('Invalid notification IDs')
+        const present = (ids as string[]).flatMap((id) => {
+          const notice = notifications.get(id)
+          return notice ? [notice] : []
+        })
+        if (path.endsWith('/read')) {
+          for (const notice of present)
+            if (!notice.read) {
+              notice.read = true
+              notice.revision++
+              emit('notification', notice, notice.id, notice.revision)
+            }
+          return json({
+            version: 1,
+            status: 'read',
+            notificationIds: present.map((n) => n.id),
+          })
+        }
+        const kept = present.filter((n) => n.interactionState === 'pending')
+        const removed = present.filter((n) => !kept.includes(n))
+        for (const notice of removed) {
+          notifications.delete(notice.id)
+          cleared.add(notice.id)
+          emit(
+            'notification-removed',
+            { id: notice.id, threadId: notice.threadId },
+            notice.id,
+            notice.revision + 1,
+          )
+        }
+        return json({
+          version: 1,
+          status: 'cleared',
+          cleared: removed.map((n) => n.id),
+          kept: kept.map((n) => n.id),
+        })
+      }
       if (method === 'POST' && noticeMatch) {
         const row = await body(request)
         fields(row, ['version'])
+        if (cleared.has(noticeMatch[1]))
+          throw new WireError(410, 'gone', 'Notification is gone')
         const notice = notifications.get(noticeMatch[1])
         if (!notice) throw new Error('Notification not found')
         if (!notice.read) {
@@ -1645,6 +1722,8 @@ export function createFakeCore(
         ].includes(run.state)
         if (run.state === 'cancellation-requested')
           run.cancelDelivery = 'requested'
+        if (run.state === 'recovery-needed')
+          run.failure = 'The handoff stopped when the backend restarted.'
         run.revision++
         changeWork(thread, run)
         if (run.state === 'recovery-needed')
@@ -1800,6 +1879,7 @@ export function createFakeCore(
     chats.clear()
     threads.clear()
     notifications.clear()
+    cleared.clear()
     receipts.clear()
     controls.clear()
     answers.clear()

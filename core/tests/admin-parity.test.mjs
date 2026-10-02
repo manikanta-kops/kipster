@@ -20,6 +20,8 @@ const routes = {
   '/v1/work/interactions/answer': 'The person answers questions and approvals; Kip asks them.',
   '/v1/work/interactions/receipt': 'Receipt of an interface answer.',
   '/v1/notifications/{id}/read': 'Read state of the person\'s own inbox.',
+  '/v1/notifications/read': 'Read state of the person\'s own inbox.',
+  '/v1/notifications/clear': 'Clearing the person\'s own inbox.',
   '/conversations/media/capabilities': 'File upload from an interface.',
   '/conversations/media/uploads/{id}': 'File upload from an interface.',
   '/conversations/media/artifacts/{id}(/content)?': 'File download to an interface.',

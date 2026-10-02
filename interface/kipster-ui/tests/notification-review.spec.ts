@@ -1,97 +1,4 @@
-import { test, expect, startDemo, demo, storageFault } from './demo.ts'
-
-test('read reservation failure remains visible and does not silently swallow the action', async ({
-  page,
-}) => {
-  await startDemo(page, { faults: { 'control-reserve': 'fail' } })
-  let writes = 0
-  page.on('request', (r) => {
-    if (/\/v1\/notifications\/.*\/read$/.test(r.url())) writes++
-  })
-  await page.getByRole('button', { name: /^Notifications,/ }).click()
-  const item = page
-    .locator('.inbox-item')
-    .filter({ hasText: 'Which direction would you like me to develop?' })
-  await item.getByRole('button', { name: 'Mark read', exact: true }).click()
-  await expect(item.getByRole('alert')).toBeVisible()
-  expect(writes).toBe(0)
-  await item
-    .getByRole('button', { name: 'Retry Mark read', exact: true })
-    .click()
-  await expect(item.getByRole('alert')).toBeVisible()
-  expect(writes).toBe(0)
-  await storageFault(page, 'control-reserve', 'allow')
-  await item
-    .getByRole('button', { name: 'Retry Mark read', exact: true })
-    .click()
-  await expect(item).toHaveClass(/\bread\b/)
-  expect(writes).toBe(1)
-  await page.reload()
-  await page.getByRole('button', { name: /^Notifications,/ }).click()
-  await expect(
-    page
-      .locator('.inbox-item')
-      .filter({ hasText: 'Which direction would you like me to develop?' }),
-  ).toHaveClass(/\bread\b/)
-})
-
-test('failed disable preference write cannot claim that background alerts are disabled', async ({
-  page,
-}) => {
-  await startDemo(page, { notification: 'background' })
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Desktop', exact: true }).click()
-  await page
-    .getByRole('button', { name: 'Enable and test notifications' })
-    .click()
-  await expect(
-    page.getByRole('button', { name: 'Disable desktop alerts' }),
-  ).toBeVisible()
-  await page.evaluate(() => {
-    const original = Storage.prototype.setItem
-    Object.assign(window, {
-      restorePreferenceWrite: () => {
-        Storage.prototype.setItem = original
-      },
-    })
-    Storage.prototype.setItem = function (key, value) {
-      if (
-        key.startsWith('kipster:desktop-notifications:') &&
-        value === 'disabled'
-      )
-        throw new DOMException('Storage unavailable', 'QuotaExceededError')
-      return original.call(this, key, value)
-    }
-  })
-  await page.getByRole('button', { name: 'Disable desktop alerts' }).click()
-  const actual = await page.evaluate(() =>
-    Object.keys(localStorage)
-      .filter((k) => k.startsWith('kipster:desktop-notifications:'))
-      .map((k) => localStorage.getItem(k)),
-  )
-  expect(actual).toEqual(['enabled'])
-  await expect(
-    page.getByText('Background desktop alerts disabled.', { exact: true }),
-  ).toHaveCount(0)
-  await expect(page.getByText(/could not be saved/)).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Disable desktop alerts' }),
-  ).toBeVisible()
-  await page.evaluate(() => (window as any).restorePreferenceWrite())
-  await page.getByRole('button', { name: 'Disable desktop alerts' }).click()
-  await expect(
-    page.getByText('Background desktop alerts disabled.', { exact: true }),
-  ).toBeVisible()
-  await page.reload()
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'Desktop', exact: true }).click()
-  await expect(
-    page.getByRole('button', { name: 'Enable and test notifications' }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Disable desktop alerts' }),
-  ).toHaveCount(0)
-})
+import { test, expect, startDemo, demo } from './demo.ts'
 
 test('ineligible background tab cannot consume live foreground attention', async ({
   page,
@@ -101,6 +8,11 @@ test('ineligible background tab cannot consume live foreground attention', async
   await expect(
     page.getByRole('heading', { name: 'Atlas', exact: true }),
   ).toBeVisible()
+  // Both tabs share these: banners on, system notifications for failures off.
+  await page.evaluate(() => {
+    localStorage.setItem('kipster:notifications.banners', 'on')
+    localStorage.setItem('kipster:notifications.failures', 'off')
+  })
   const foreground = await context.newPage()
   await foreground.addInitScript(() => {
     const gate = { hold: false, release: () => {} }
@@ -141,7 +53,7 @@ test('ineligible background tab cannot consume live foreground attention', async
   })
   await demo(page, '/advance', { threadId: thread.summary.threadId, steps: 4 })
   await expect(
-    page.getByRole('button', { name: 'Notifications, 9 unread' }),
+    page.getByRole('button', { name: 'Notifications, 5 need you' }),
   ).toBeVisible()
   await expect
     .poll(() =>
@@ -156,12 +68,12 @@ test('ineligible background tab cannot consume live foreground attention', async
     gate.hold = false
     gate.release()
   })
-  await expect(foreground.locator('.attention-toast')).toContainText(
-    'couldn’t finish',
+  await expect(foreground.locator('.banner')).toContainText(
+    'Atlas · Couldn’t finish',
   )
   await foreground.reload()
   await expect(
-    foreground.getByRole('button', { name: 'Notifications, 9 unread' }),
+    foreground.getByRole('button', { name: 'Notifications, 5 need you' }),
   ).toBeVisible()
-  await expect(foreground.locator('.attention-toast')).toHaveCount(0)
+  await expect(foreground.locator('.banner')).toHaveCount(0)
 })

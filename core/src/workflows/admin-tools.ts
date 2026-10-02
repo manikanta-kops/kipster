@@ -34,7 +34,7 @@ const areas = {
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
   adapters: 'Execution adapters and the models they offer.',
   learning: 'Learning from conversations and the nightly sleep time, for the installation and each kip.',
-  interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications.',
+  interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
   operations: 'The state and result of an earlier change, by its operationId.',
 } as const
@@ -302,12 +302,12 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'interface.get': operation({
     area: 'interface', kind: 'read', input: none,
-    description: 'Read the colour palette, theme and desktop notification choice every open Kipster window applies. null means the app default.',
+    description: 'Read the colour palette, theme and notification choices every open Kipster window applies. null means the app default: desktop notifications, needs-you, failure and reply alerts and the badge on; in-app banners off.',
     run: ({ host, caller }) => readInterfacePreferences(host.db, caller),
   }),
   'interface.set': operation({
     area: 'interface', kind: 'write', input: fields({}, interfacePreferencesWrite),
-    description: 'Change the colour palette, the theme (light, dark, or system to follow the computer) or whether desktop notifications are on. Open windows apply it at once. Turning notifications on may still need the person to allow them once in the operating system.',
+    description: 'Change the colour palette, the theme (light, dark, or system to follow the computer), whether desktop notifications are on, which kinds alert (notifyNeeds: questions and approvals, notifyFailures, notifyReplies), inAppBanners for chats not on screen, or dockBadge, the count of items that need the person. Open windows apply it at once. Turning notifications on may still need the person to allow them once in the operating system.',
     run: ({ host, caller, args }) => writeInterfacePreferences(host.db, caller, { version: 1, ...args }),
   }),
   'updates.get': operation({

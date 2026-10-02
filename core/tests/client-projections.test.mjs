@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { changeLifecycle } from '../dist/modules/administration/public.js'
-import { readEvents, retainLast } from '../dist/modules/synchronization/public.js'
+import { interactionNotificationChanged, readEvents, retainLast } from '../dist/modules/synchronization/public.js'
 import { agentCreateResult, appSnapshot, membershipRemovalResult, organizationResult, stableError, textEvent, threadSnapshot } from '../dist/protocol/index.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
@@ -335,4 +335,102 @@ test('removed targets are refused with stable codes, and gone chats leave the ap
   // The installation chat is unaffected.
   const rootChat = (await ctx.ok('POST', '/v1/direct-chats', { version: 1, context: { kind: 'installation', installationId: ctx.installationId }, agentId: ctx.runtime.bootstrap.rootAgentId })).chatId
   assert.ok(rootChat)
+})
+
+test('notifications preview the reply, the failure or the question', { skip: noDatabase, timeout: 90000 }, async t => {
+  const ctx = await setup(t)
+  const org = await ctx.organization('Acme')
+  const { agent } = await ctx.agent('Scout', org.id)
+  const chatId = await ctx.chat(org.id, agent.id)
+  const start = await ctx.cursor()
+  const preview = async runId => (await ctx.app()).notifications.find(n => n.runId === runId && n.kind !== 'interaction').preview
+
+  // The last final reply of the run, text parts only, on one line.
+  const replied = (await ctx.say(org.id, chatId, 'Hello')).data
+  const execution = await ctx.execution(replied.runId)
+  execution.handle.release({ kind: 'text', attemptId: execution.context.attemptId, messageId: randomUUID(), text: 'Looking into it.', final: true })
+  ctx.finish(execution, '  The report is\n\n ready.\tThree files changed.  ')
+  await ctx.settled(replied.runId, 'completed')
+  assert.equal(await preview(replied.runId), 'The report is ready. Three files changed.')
+  const event = (await ctx.events(start)).find(e => e.type === 'notification' && e.data.runId === replied.runId)
+  assert.equal(event.data.preview, 'The report is ready. Three files changed.')
+
+  const longer = (await ctx.say(org.id, chatId, 'Longer')).data
+  ctx.finish(await ctx.execution(longer.runId), `${'é'.repeat(150)} ${'x'.repeat(100)}`)
+  await ctx.settled(longer.runId, 'completed')
+  const cut = await preview(longer.runId)
+  assert.equal([...cut].length, 200)
+  assert.equal(cut, `${'é'.repeat(150)} ${'x'.repeat(48)}…`)
+
+  // A run that published nothing has no preview.
+  const silent = (await ctx.say(org.id, chatId, 'Quiet')).data
+  const quiet = await ctx.execution(silent.runId)
+  quiet.handle.release({ kind: 'ended', attemptId: quiet.context.attemptId, confirmed: true })
+  await ctx.settled(silent.runId, 'completed')
+  assert.equal(Object.hasOwn((await ctx.app()).notifications.find(n => n.runId === silent.runId), 'preview'), false)
+
+  const failing = (await ctx.say(org.id, chatId, 'Fail')).data
+  const failure = await ctx.execution(failing.runId)
+  failure.handle.release({ kind: 'failed', attemptId: failure.context.attemptId, confirmedEnded: true, message: 'Provider\nrefused the request' })
+  await ctx.settled(failing.runId, 'failed')
+  assert.equal(await preview(failing.runId), 'Provider refused the request')
+
+  const asked = await ctx.question(org.id, chatId, 'ask-preview')
+  assert.equal((await ctx.notice(asked.card.interactionId)).preview, 'Blue or red?')
+})
+
+test('batch read and clear act on the caller\'s notifications only', { skip: noDatabase, timeout: 90000 }, async t => {
+  const ctx = await setup(t)
+  assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.notificationActions, true)
+  const org = await ctx.organization('Acme')
+  const { agent } = await ctx.agent('Scout', org.id)
+  const chatId = await ctx.chat(org.id, agent.id)
+  const runs = [await ctx.complete(org.id, chatId, 'One'), await ctx.complete(org.id, chatId, 'Two'), await ctx.complete(org.id, chatId, 'Three')]
+  const asked = await ctx.question(org.id, chatId, 'ask-batch')
+  const listed = (await ctx.app()).notifications
+  const [one, two, three] = runs.map(run => listed.find(n => n.runId === run.runId))
+  const question = await ctx.notice(asked.card.interactionId)
+  // Another person's notification in the same installation.
+  const foreign = randomUUID(), stranger = randomUUID()
+  await ctx.db.query('INSERT INTO kipster.people(id,installation_id,display_name) VALUES ($1,$2,$3)', [stranger, ctx.installationId, 'Stranger'])
+  await ctx.db.query("INSERT INTO kipster.notifications(id,installation_id,recipient_id,thread_id,run_id,kind) VALUES ($1,$2,$3,$4,$5,'failed')", [foreign, ctx.installationId, stranger, one.threadId, one.runId])
+  const unknown = randomUUID()
+
+  for (const notificationIds of [[], [one.id, one.id], [one.id, one.id.toUpperCase()], ['not-a-uuid'], Array.from({ length: 201 }, () => randomUUID()), 'x']) {
+    refused(await ctx.call('POST', '/v1/notifications/read', { notificationIds }), 400, 'invalid')
+    refused(await ctx.call('POST', '/v1/notifications/clear', { notificationIds }), 400, 'invalid')
+  }
+  refused(await ctx.call('POST', '/v1/notifications/read', { version: 1, notificationIds: [one.id], extra: true }), 400, 'invalid')
+
+  const beforeRead = await ctx.cursor()
+  assert.deepEqual(await ctx.ok('POST', '/v1/notifications/read', { version: 1, notificationIds: [one.id, unknown, foreign, two.id] }), { version: 1, status: 'read', notificationIds: [one.id, two.id] })
+  assert.deepEqual((await ctx.events(beforeRead)).map(e => [e.type, e.data.id, e.revision, e.data.read]).sort(), [['notification', one.id, 2, true], ['notification', two.id, 2, true]].sort())
+  const beforeAgain = await ctx.cursor()
+  assert.deepEqual((await ctx.ok('POST', '/v1/notifications/read', { notificationIds: [two.id, three.id] })).notificationIds, [two.id, three.id])
+  assert.deepEqual((await ctx.events(beforeAgain)).map(e => [e.type, e.data.id]), [['notification', three.id]], 'already read changes nothing')
+
+  // Clearing removes the notification for every client; a pending question is kept.
+  const beforeClear = await ctx.cursor()
+  assert.deepEqual(await ctx.ok('POST', '/v1/notifications/clear', { version: 1, notificationIds: [question.id, one.id, unknown, foreign] }), { version: 1, status: 'cleared', cleared: [one.id], kept: [question.id] })
+  assert.deepEqual((await ctx.events(beforeClear)).map(e => [e.type, e.resourceId, e.revision, e.data]), [['notification-removed', one.id, 3, { id: one.id, threadId: one.threadId }]])
+  assert.deepEqual((await ctx.app()).notifications.map(n => n.id), [two.id, three.id, question.id])
+  assert.deepEqual((await ctx.db.query('SELECT read_at,cleared_at FROM kipster.notifications WHERE id=$1', [foreign])).rows[0], { read_at: null, cleared_at: null })
+
+  // An unread notification is read once cleared; clearing again is accepted without another event.
+  const beforeUnread = await ctx.cursor()
+  assert.deepEqual((await ctx.ok('POST', '/v1/notifications/clear', { notificationIds: [question.id] })).kept, [question.id])
+  const answered = await ctx.answer(asked.card, asked.receipt.threadId, asked.receipt.runId, asked.execution.context.attemptId, { kind: 'choice', optionId: 'red' })
+  assert.equal(answered.data.outcome, 'accepted')
+  assert.deepEqual((await ctx.ok('POST', '/v1/notifications/clear', { notificationIds: [question.id, one.id] })).cleared, [question.id, one.id])
+  assert.deepEqual((await ctx.events(beforeUnread)).filter(e => e.type.startsWith('notification')).map(e => [e.type, e.resourceId, e.revision]), [['notification', question.id, 2], ['notification-removed', question.id, 3]])
+  assert.notEqual((await ctx.db.query('SELECT read_at FROM kipster.notifications WHERE id=$1', [question.id])).rows[0].read_at, null)
+
+  // A cleared notification stays gone: reading it is refused, and a later interaction change does not publish it again.
+  refused(await ctx.call('POST', `/v1/notifications/${one.id}/read`, { version: 1 }), 410, 'gone')
+  assert.deepEqual((await ctx.ok('POST', '/v1/notifications/read', { notificationIds: [one.id, question.id] })).notificationIds, [])
+  const beforeChange = await ctx.cursor()
+  await ctx.db.transaction(client => interactionNotificationChanged(client, asked.card.interactionId))
+  assert.deepEqual(await ctx.events(beforeChange), [])
+  await retainLast(ctx.db, ctx.appScope, 0)
+  assert.deepEqual((await ctx.app()).notifications.map(n => n.id), [two.id, three.id])
 })

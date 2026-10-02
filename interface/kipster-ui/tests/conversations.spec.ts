@@ -902,6 +902,11 @@ test('a version 2 response with an unknown interaction kind still displays the t
     await route.fulfill({ json: body })
   })
   await setup(page)
+  await page.getByRole('button', { name: /^Notifications, / }).click()
+  await expect(page.locator('.note[data-kind="digest"]')).toContainText(
+    'has an update',
+  )
+  await page.keyboard.press('Escape')
   const pane = await open(page)
   await expect(
     pane.getByRole('heading', { name: 'A newer interaction' }),
@@ -911,10 +916,6 @@ test('a version 2 response with an unknown interaction kind still displays the t
     pane.getByRole('textbox', { name: 'Reply in this thread' }),
   ).toBeVisible()
   await expect(pane.locator('.work-status')).toContainText('paused')
-  await page.getByRole('button', { name: /^Notifications, / }).click()
-  await expect(
-    page.locator('.inbox-kind').filter({ hasText: /^digest$/ }),
-  ).toBeVisible()
   await expect(page.getByText(/Backend.*incompatible/)).toHaveCount(0)
   expect(errors).toEqual([])
 })

@@ -6,6 +6,8 @@ import { useSettledState } from '../status/use-settled-state'
 import { kipScenes } from '../status/kip-scenes'
 import { liveStates, type LiveState } from '../status/live-state'
 import type { Agent } from '../chat/model'
+import type { Mark } from '../../data/notifications'
+import { CornerMark, UnreadMark } from '../notifications/Mark'
 
 const cols = 46
 const rows = 18
@@ -18,12 +20,14 @@ const pitch = 5
 export function KipHome({
   agent,
   state,
+  mark,
   selected,
   collapsed,
   onOpen,
 }: {
   agent: Agent
   state: LiveState
+  mark?: Mark
   selected: boolean
   collapsed: boolean
   onOpen: () => void
@@ -40,9 +44,10 @@ export function KipHome({
   )
   const common = {
     'aria-label': agent.name,
-    'aria-describedby': described,
+    'aria-describedby': mark ? `${described} kip-mark-${mark}` : described,
     'aria-current': selected ? ('page' as const) : undefined,
     'data-tone': info.tone,
+    'data-mark': mark,
     onClick: onOpen,
   }
   if (collapsed)
@@ -55,7 +60,7 @@ export function KipHome({
         <span aria-hidden="true" className="avatar kip">
           <KipHead />
         </span>
-        {resting ? null : <span className="kip-home-dot" aria-hidden="true" />}
+        <CornerMark mark={mark} />
         {status}
       </button>
     )
@@ -82,6 +87,7 @@ export function KipHome({
             {info.label}
           </span>
         )}
+        <UnreadMark mark={mark} />
       </span>
       {status}
     </button>

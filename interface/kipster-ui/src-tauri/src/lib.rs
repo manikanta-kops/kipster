@@ -1,3 +1,6 @@
+mod notifications;
+mod shell;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -92,32 +95,70 @@ fn finish_software_update_quit(app: tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // React calls this official plugin through the TypeScript platform adapter.
+    let context = tauri::generate_context!();
+    if shell::started_hidden_as_duplicate(&context.config().identifier) {
+        return;
+    }
+    let login_item = tauri_plugin_autostart::Builder::new()
+        .app_name(context.config().identifier.clone())
+        .arg(shell::HIDDEN_ARG);
+    #[cfg(target_os = "macos")]
+    let login_item = login_item.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
+    let builder = tauri::Builder::default()
+        // Fallback for notifications where the native macOS center is unavailable.
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(login_item.build())
         .manage(SoftwareUpdateExit::default())
+        .setup(|app| {
+            notifications::setup(app.handle());
+            shell::setup(app.handle());
+            Ok(())
+        })
+        .on_window_event(shell::on_window_event);
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(shell::menu).on_menu_event(|app, event| {
+        if event.id() == shell::QUIT_MENU_ID {
+            app.exit(0);
+        }
+    });
+    builder
         .invoke_handler(tauri::generate_handler![
             software_updater_available,
             check_software_update,
             arm_software_update,
-            finish_software_update_quit
+            finish_software_update_quit,
+            notifications::notification_permission,
+            notifications::request_notification_permission,
+            notifications::send_notification,
+            notifications::take_pending_notification_target,
+            notifications::open_notification_settings,
+            shell::keep_running_enabled,
+            shell::set_keep_running,
+            shell::open_at_login_enabled,
+            shell::set_open_at_login,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Kipster")
-        .run(|app, event| {
-            if let tauri::RunEvent::ExitRequested { api, .. } = event {
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<SoftwareUpdateExit>();
                 if state.ready.load(Ordering::SeqCst) && state.automatic.load(Ordering::SeqCst) {
                     api.prevent_exit();
-                    if !state.quitting.swap(true, Ordering::SeqCst) {
-                        if app.emit("software-update-quit", ()).is_err() {
-                            state.ready.store(false, Ordering::SeqCst);
-                            app.exit(0);
-                        }
+                    if !state.quitting.swap(true, Ordering::SeqCst)
+                        && app.emit("software-update-quit", ()).is_err()
+                    {
+                        state.ready.store(false, Ordering::SeqCst);
+                        app.exit(0);
                     }
                 }
             }
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => notifications::show_main_window(app),
+            _ => {}
         });
 }

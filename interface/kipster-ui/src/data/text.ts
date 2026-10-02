@@ -30,7 +30,11 @@ export type Bootstrap = Scope & {
   rootAgentId: string
   coreVersion: string
   protocol: ProtocolRange
-  capabilities?: { voiceRecording: boolean; interfacePreferences?: boolean }
+  capabilities?: {
+    voiceRecording: boolean
+    interfacePreferences?: boolean
+    notificationActions?: boolean
+  }
 }
 export type Summary = {
   -readonly [
@@ -225,7 +229,8 @@ export function parseNotice(value: unknown): Notice {
       (value.interactionId === undefined ||
         typeof value.interactionId === 'string') &&
       (value.interactionState === undefined ||
-        typeof value.interactionState === 'string'),
+        typeof value.interactionState === 'string') &&
+      (value.preview === undefined || typeof value.preview === 'string'),
   )
   return value as Notice
 }
@@ -478,7 +483,10 @@ export class TextClient {
         isProtocolRange(data.protocol) &&
         (data.capabilities === undefined ||
           (record(data.capabilities) &&
-            typeof data.capabilities.voiceRecording === 'boolean')),
+            typeof data.capabilities.voiceRecording === 'boolean' &&
+            ['undefined', 'boolean'].includes(
+              typeof data.capabilities.notificationActions,
+            ))),
     )
     return data as Bootstrap
   }
