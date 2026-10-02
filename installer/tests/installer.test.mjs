@@ -7,7 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { install, Installer, managedConfiguration, request } from '../src/installer.mjs'
 import { channelFor, version } from '../src/catalog.mjs'
 import { locked, json, save } from '../src/files.mjs'
-import { templates } from '../src/services.mjs'
+import { hostCommand, removalSteps, templates, unregister } from '../src/services.mjs'
+import { main as cliMain } from '../src/cli.mjs'
 import { run } from '../src/process.mjs'
 import { Database, databaseEndpoint } from '../src/database.mjs'
 import { database, directory, configuration, catalogs, hooks, noDatabase, cli, repository } from './support.mjs'
@@ -28,6 +29,17 @@ test('system templates fence startup, run as the owner and exclude credentials',
   assert.doesNotMatch(jobs[0].contents, /SuccessfulExit|secret|PASSWORD/)
   assert.match(jobs[1].contents, /StartInterval<\/key><integer>60/)
   assert.match(jobs[1].contents, /updates\/request.json/)
+})
+test('uninstall removes both owned system jobs with exact sudo commands and accepts already removed jobs', async () => {
+  const jobs = templates('/tmp/test-home', { PATH: '/runtime/bin' }), calls = []
+  const command = async (program, args) => { calls.push([program, args]); return '' }
+  await unregister('/tmp/test-home', jobs, { runCommand: command, readInstalled: async path => jobs.find(job => path.endsWith(job.label + '.plist')).contents })
+  assert.deepEqual(calls.slice(2), removalSteps(jobs).map(step => ['/usr/bin/sudo', [step.program, ...step.args]]))
+  for (const step of removalSteps(jobs)) assert.match(step.command, /^'sudo' /)
+  let changed = false
+  await assert.rejects(unregister('/tmp/test-home', jobs, { runCommand: async program => { if (program === '/usr/bin/sudo') changed = true }, readInstalled: async () => 'different job' }), /differs/)
+  assert.equal(changed, false)
+  await unregister('/tmp/test-home', jobs, { runCommand: async () => { throw new Error('not loaded') }, readInstalled: async () => { throw Object.assign(new Error('absent'), { code: 'ENOENT' }) } })
 })
 test('provider roots move with current while retaining provider options', () => {
   const result = managedConfiguration({ adapters: [{ id: 'custom', entry: 'node_modules/@kipster/codex-cli/dist/index.js', root: '/old', config: { model: 'chosen' } }], embedding: { module: '/old/embedding-ollama/dist/index.js', options: { model: 'chosen' } } }, '/tmp/home')
@@ -249,19 +261,85 @@ test('restore can download a pruned release and honors pinned provider versions'
   assert.deepEqual((await installer.backups()).map(item => item.id), backups)
   assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
 })
-test('failed first installation restores its database and can be retried', { skip: noDatabase, timeout: 120000 }, async t => {
+test('failed first installations restore the database and home so the same command can be retried', { skip: noDatabase, timeout: 180000 }, async t => {
+  const catalog = await catalogs(t, { versions: ['0.1.0'] })
+  for (const stage of ['download', 'sudo registration', 'Core setup', 'health check']) await t.test(stage, async t => {
+    const home = await directory(t), { database: db, databaseUrl } = await database(t)
+    const { path, maintenancePath } = await configuration(t, home, databaseUrl)
+    await db.query("CREATE TABLE public.existing_data(note text); INSERT INTO public.existing_data VALUES('retained')")
+    await mkdir(join(home, 'system'), { mode: 0o700 })
+    await writeFile(join(home, 'system/authored.md'), 'Retain these instructions', { mode: 0o600 })
+    const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'sudo registration', healthTimeout: 500 }
+    let failing = true
+    const retryHooks = { ...hooks,
+      registerServices: async () => { if (failing) throw new Error('System service registration timed out.') },
+      onStep: async step => {
+        if (step === 'checking' && stage === 'sudo registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
+      },
+    }
+    const file = catalog.packages['@kipster/core'][0].files[0], originalURL = file.url
+    if (stage === 'download') file.url = new URL('/missing.tgz', catalog.base).href
+    await save(join(home, 'fixture.json'), stage === 'Core setup' ? { migrationFailure: '0.1.0' } : stage === 'health check' ? { healthFailure: '0.1.0' } : {})
+    await assert.rejects(install(options, retryHooks), /Download.*404|System service registration timed out|Core setup failed.*Injected failed migration|health check/)
+    assert.equal(await db.query('SELECT note FROM public.existing_data'), 'retained')
+    assert.equal(await db.query("SELECT count(*) FROM pg_namespace WHERE nspname='fixture'"), '0')
+    await assert.rejects(stat(join(home, 'current')), { code: 'ENOENT' })
+    for (const name of ['installation.json', 'agents', 'organizations', 'artifacts', 'system/fixture-created.txt']) await assert.rejects(stat(join(home, name)), { code: 'ENOENT' })
+    assert.equal(await readFile(join(home, 'system/authored.md'), 'utf8'), 'Retain these instructions')
+    const status = await json(join(home, 'updates/status.json'))
+    assert.ok(status.error)
+    assert.match(await readFile(join(home, 'logs/installer-error.log'), 'utf8'), new RegExp(stage === 'Core setup' ? 'Injected failed migration' : stage === 'download' ? 'HTTP 404' : stage === 'health check' ? 'health check' : 'registration timed out'))
+    if (stage !== 'download') assert.ok(await stat(join(home, 'updates/hold')))
+    failing = false; file.url = originalURL
+    await save(join(home, 'fixture.json'), {})
+    await install(options, retryHooks)
+    assert.equal((await Installer.open(home, hooks).then(installer => installer.status())).coreVersion, '0.1.0')
+    await assert.rejects(stat(join(home, 'updates/hold')), { code: 'ENOENT' })
+  })
+})
+
+test('install is repeatable, uninstall preserves data, reinstall works, and deletion requires confirmation', { skip: noDatabase, timeout: 120000 }, async t => {
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0'] })
-  const { path, maintenancePath } = await configuration(t, home, databaseUrl)
-  await db.query("CREATE TABLE public.existing_data(note text); INSERT INTO public.existing_data VALUES('retained')")
-  await save(join(home, 'fixture.json'), { migrationFailure: '0.1.0' })
+  const { config, path, maintenancePath } = await configuration(t, home, databaseUrl)
   const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 1000 }
-  await assert.rejects(install(options, hooks), /Core setup failed/)
-  assert.equal(await db.query('SELECT note FROM public.existing_data'), 'retained')
-  assert.equal(await db.query("SELECT count(*) FROM pg_namespace WHERE nspname='fixture'"), '0')
-  await assert.rejects(stat(join(home, 'current')), { code: 'ENOENT' })
-  assert.ok(await stat(join(home, 'updates/hold')))
-  await save(join(home, 'fixture.json'), {})
   await install(options, hooks)
-  assert.equal((await Installer.open(home, hooks).then(installer => installer.status())).coreVersion, '0.1.0')
-  await assert.rejects(stat(join(home, 'updates/hold')), { code: 'ENOENT' })
+  await db.query("INSERT INTO fixture.items VALUES(1,'authored data')")
+  const marker = await readFile(join(home, 'installation.json'), 'utf8'), host = await readFile(join(home, 'host.json'), 'utf8')
+  const again = await install(options, hooks)
+  assert.equal(again.alreadyInstalled, true)
+  assert.equal(await readFile(join(home, 'host.json'), 'utf8'), host)
+  assert.equal(await readFile(join(home, 'installation.json'), 'utf8'), marker)
+  const installer = await Installer.open(home, hooks)
+  await installer.uninstall()
+  await installer.uninstall()
+  for (const name of ['current', 'releases', 'updater', 'bin', 'services']) await assert.rejects(stat(join(home, name)), { code: 'ENOENT' })
+  assert.equal(await db.query('SELECT note FROM fixture.items WHERE id=1'), 'authored data')
+  assert.equal(await readFile(join(home, 'installation.json'), 'utf8'), marker)
+  await install(options, hooks)
+  assert.equal(await readFile(join(home, 'installation.json'), 'utf8'), marker)
+  assert.equal(await db.query('SELECT note FROM fixture.items WHERE id=1'), 'authored data')
+  // Finish an interrupted service removal before treating install as complete.
+  const pending = await Installer.open(home, { ...hooks, unregisterServices: async () => { throw new Error('Injected service removal failure') } })
+  pending.settings.services = 'launchd'
+  await save(join(home, 'updater.json'), pending.settings)
+  await assert.rejects(pending.uninstall(), /Injected service removal failure/)
+  let removed = false
+  const repaired = await install(options, { ...hooks, unregisterServices: async () => { removed = true } })
+  assert.equal(removed, true)
+  assert.equal(repaired.coreVersion, '0.1.0')
+  assert.notEqual(repaired.alreadyInstalled, true)
+  assert.equal(await db.query('SELECT note FROM fixture.items WHERE id=1'), 'authored data')
+  if (process.platform === 'darwin' && process.arch === 'arm64' && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+    await assert.rejects(cliMain(['uninstall', '--home', home, '--delete-data']), /Use --yes only to confirm/)
+    assert.ok(await stat(join(home, 'current')))
+  }
+  if (process.platform === 'darwin' && process.arch === 'arm64') await cliMain(['uninstall', '--home', home, '--delete-data', '--yes'])
+  else await Installer.open(home, hooks).then(installer => installer.uninstall({ deleteData: true }))
+  assert.equal(await db.query("SELECT count(*) FROM pg_namespace WHERE nspname='fixture'"), '0')
+  for (const name of ['installation.json', 'agents', 'organizations', 'system', 'host.json', 'updater.json', 'backups', 'logs', 'input.json']) await assert.rejects(stat(join(home, name)), { code: 'ENOENT' })
+  await save(path, config)
+  const maintenanceURL = new URL(process.env.KIPSTER_TEST_DATABASE_URL); maintenanceURL.pathname = new URL(databaseUrl).pathname
+  await save(maintenancePath, { databaseUrl: maintenanceURL.href })
+  await install(options, hooks)
+  assert.notEqual(await readFile(join(home, 'installation.json'), 'utf8'), marker)
 })

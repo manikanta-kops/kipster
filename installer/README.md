@@ -27,6 +27,7 @@ kipster install --home /absolute/path/kipster --config /absolute/path/host-input
 /absolute/path/kipster/bin/kipster update
 /absolute/path/kipster/bin/kipster update --to 0.2.0
 /absolute/path/kipster/bin/kipster rollback
+kipster uninstall --home /absolute/path/kipster
 ```
 
 `install` defaults to stable; use `--channel next` or `--version <version>` to
@@ -39,6 +40,15 @@ version. Use `--yes` only to confirm a scripted restore; it replaces database
 changes made since the backup. A restore takes a fresh backup of the current
 database first.
 
+Repeating `install` on an installed home safely reports its current version.
+`uninstall` stops Core, unregisters both system jobs with printed sudo commands,
+and removes installed releases, updater versions and launchers. It preserves the
+database, home data and backups. Run `install` again with the same configuration
+to reinstall. `uninstall --delete-data` also clears the dedicated database and
+deletes home files, including backups and private configuration. It asks for
+confirmation; `--yes` confirms deletion in a script. The database itself, its
+login and pgvector remain available for a fresh install.
+
 Use `--pg-bin <directory>` when matching PostgreSQL clients are outside PATH.
 `--no-launchd` runs a disposable/manual installation and prints the generated
 plists without registering them. `--catalog <URL>` uses an alternate HTTPS catalog;
@@ -47,16 +57,18 @@ sets a bounded health deadline (default 60000, maximum 300000).
 
 The macOS installer runs as the backend owner. Core and the updater are system
 LaunchDaemons with `UserName`, so they can start before login without running as
-root. Service registration needs sudo once; updates use the private host-control
+root. Service registration and removal need sudo; updates use the private host-control
 socket and a launchd hold file.
 
-The only sudo steps are `/usr/bin/install -o root -g wheel -m 644` for each plist
+Installation's sudo steps are `/usr/bin/install -o root -g wheel -m 644` for each plist
 under `/Library/LaunchDaemons`, followed by `launchctl bootstrap system` for each
 job. The command prints the exact arguments and reasons before registration.
 Do not run the installer itself as root. Generated plists contain runtime paths,
 the owner and log paths; Core/provider credentials stay in mode-0600 `host.json`
 and maintenance credentials in mode-0600 `updater.json`. launchd receives an
-explicit runtime PATH and the owner's HOME.
+explicit runtime PATH and the owner's HOME. Uninstall prints and runs
+`sudo launchctl bootout system/<label>` and `sudo rm -f <plist>` for each
+registered job; it refuses to remove a job whose plist differs from this home.
 
 Core releases live in `<home>/releases/<version>`, behind `<home>/current`.
 The updater has independent versions under `<home>/updater` and a stable launcher
@@ -100,9 +112,13 @@ never signals a PID read from disk. Proven-dead Core ownership can be reclaimed
 only with a hold and the same instance; ordinary host commands still refuse stale
 ownership. An older Core without that recovery helper needs manual stale-socket
 inspection. Keep the journal and backup when recovery reports a failure.
-A failed first install restores the original database and keeps startup held;
+A failed first install restores the original database and Core home files and keeps startup held;
 retry `install` with the same home and configuration to finish setup. It reuses
 already registered identical jobs and refuses to overwrite a differing job.
+Retries also preserve orphaned Core home files left by older failed installers
+under `backups/failed-install-home-*` before setting up an empty database again.
+Setup failures include their cause in stderr, `updates/status.json`, and
+`logs/installer-error.log`, with database URLs and credentials redacted.
 
 PostgreSQL snapshots cover this dedicated database, including application tables,
 schema, extension and grants. The file home and external provider sessions remain

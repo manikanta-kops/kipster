@@ -14,6 +14,7 @@ import { boundedEmbed } from './modules/memory/public.js'
 import { readHostConfig, type HostConfig } from './host-config.js'
 import { playground, playgroundNames } from './starter/playground.js'
 import { control, ownControl, type HostStatus } from './host-control.js'
+import { safeHostError } from './host-diagnostics.js'
 export { readHostConfig, validateHostConfig } from './host-config.js'
 export { control, ownControl, recoverStoppedControl } from './host-control.js'
 
@@ -48,7 +49,7 @@ async function runtime(config: HostConfig, providers: boolean, signal?: AbortSig
       ...(providers && config.embedding ? { embedding: (await loadEmbeddingProvider(config))! } : {}),
       ...(provider ? { transcription: provider } : {}),
       ...(config.updates ? { updates: config.updates } : {}),
-      onError: () => { console.error('A Core background operation failed; inspect service readiness and update status.') },
+      onError: error => { console.error(`A Core background operation failed: ${safeHostError(error, config, process.env)}`) },
     })
   } catch (error) { await provider?.close(); throw error }
 }
@@ -87,7 +88,7 @@ export async function serve(config: HostConfig): Promise<void> {
     for (const adapter of config.adapters) {
       if (abort.signal.aborted) return
       try { await registry.register(adapter.id, adapter.root, adapter.entry, abort.signal, adapter.config, adapterData(config, adapter.id)) }
-      catch { if (!abort.signal.aborted) console.error(`Adapter ${adapter.id} is unavailable. Verify its package, dependency configuration and explicit operator sign-in.`) }
+      catch (error) { if (!abort.signal.aborted) console.error(`Adapter ${adapter.id} is unavailable: ${safeHostError(error, config, process.env)}`) }
     }
     if (abort.signal.aborted) return
     dispatcher = new TextDispatcher(core, registry)

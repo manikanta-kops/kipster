@@ -1,7 +1,7 @@
 import { spawn, execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, open, readFile, realpath } from 'node:fs/promises'
+import { access, mkdir, open, readFile, realpath, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -24,6 +24,16 @@ export async function main(args) {
     try {
       const table = 'migration_' + pkg.version.replaceAll(/[^a-zA-Z0-9]/g, '_')
       query(config, `CREATE SCHEMA IF NOT EXISTS fixture; CREATE TABLE IF NOT EXISTS fixture.${table}(id int); CREATE TABLE IF NOT EXISTS fixture.items(id int PRIMARY KEY, note text)`)
+      query(config, 'CREATE TABLE IF NOT EXISTS fixture.installation(id uuid)')
+      let id = query(config, 'SELECT id FROM fixture.installation')
+      if (!id) { id = randomUUID(); query(config, `INSERT INTO fixture.installation VALUES('${id}')`) }
+      const marker = join(home, 'installation.json')
+      if (await exists(marker) && JSON.parse(await readFile(marker)).installationId !== id) throw new Error('Home belongs to another installation')
+      await writeFile(marker, JSON.stringify({ installationId: id }), { mode: 0o600 })
+      for (const name of ['agents', 'organizations', 'system', 'artifacts']) {
+        await mkdir(join(home, name), { recursive: true, mode: 0o700 })
+        await writeFile(join(home, name, 'fixture-created.txt'), 'Core setup state', { mode: 0o600 })
+      }
       if ((await settings(home)).migrationCrash === pkg.version) process.exit(81)
       if ((await settings(home)).migrationFailure === pkg.version) {
         query(config, 'CREATE SCHEMA failed_migration; CREATE TABLE failed_migration.new_table(id int REFERENCES fixture.items(id))')

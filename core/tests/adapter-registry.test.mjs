@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, readFile, lstat } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, rm, readFile, lstat, symlink, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -22,6 +22,31 @@ export function createAdapter() {
   }
 }`
 const context = id => ({ runId: id, attemptId: id, organizationId: null, agentId: 'agent', instructions: '', settings: { adapterId: 'fixture', modelId: 'test' }, triggerMessageId: 'input', input: [{ messageId: 'input', text: 'hello' }] })
+
+test('a symlinked current root registers and switches releases while existing generations keep their bytes', async t => {
+  const home = await mkdtemp(join(tmpdir(), 'kipster-registry-link-'))
+  const registry = new AdapterRegistry({ now: () => '', async invokeTool() {} }, join(home, 'generations'))
+  t.after(async () => { await registry.close(); await rm(home, { recursive: true, force: true }) })
+  for (const version of ['one', 'two']) {
+    const root = join(home, version)
+    await mkdir(join(root, 'dist'), { recursive: true })
+    await writeFile(join(root, 'package.json'), '{"type":"module"}')
+    await writeFile(join(root, 'dependency.mjs'), `export const value = '${version}'`)
+    await writeFile(join(root, 'dist/index.mjs'), fixture)
+  }
+  const current = join(home, 'current')
+  await symlink(join(home, 'one'), current)
+  assert.equal((await registry.register('fixture', current, 'dist/index.mjs')).readiness.ready, true)
+  const old = registry.selected('fixture', 'old')
+  const handle = await old.adapter.execute(context('old'))
+  await symlink(join(home, 'two'), join(home, 'next-current'))
+  await rename(join(home, 'next-current'), current)
+  assert.equal((await registry.register('fixture', current, 'dist/index.mjs')).readiness.ready, true)
+  assert.equal(registry.adapters()[0].version, 'two')
+  const events = []; for await (const event of handle.events) events.push(event)
+  assert.equal(events.find(event => event.kind === 'text').text, 'one')
+  old.release('old')
+})
 
 test('generation refresh pins transitive bytes, rolls back failed readiness and drains removal', async () => {
   const root = await mkdtemp(join(tmpdir(), 'kipster-registry-test-'))

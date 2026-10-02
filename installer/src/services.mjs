@@ -6,12 +6,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { atomic, exists, json, privateDirectory } from './files.mjs'
 import { run } from './process.mjs'
+import { safeError } from './diagnostics.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export const hostCLI = release => join(release, 'node_modules/@kipster/core/dist/host.js')
 export const runtimeEnvironment = config => ({ ...process.env, ...config.environment, PATH: `${dirname(process.execPath)}:${config.environment?.PATH ?? process.env.PATH ?? '/usr/bin:/bin'}` })
 export async function hostCommand(release, action, home, env, onSpawn) {
-  if (action === 'setup') return run(process.execPath, [fileURLToPath(new URL('migrate.mjs', import.meta.url)), hostCLI(release), join(home, 'host.json')], { env, onSpawn, gated: true, input: 'migrate\n', timeout: 300000, label: 'Core setup' })
+  if (action === 'setup') {
+    const config = await json(join(home, 'host.json'))
+    return run(process.execPath, [fileURLToPath(new URL('migrate.mjs', import.meta.url)), hostCLI(release), join(home, 'host.json')], { env, onSpawn, gated: true, input: 'migrate\n', timeout: 300000, label: 'Core setup', sanitizeStderr: error => safeError(error, config, env) })
+  }
   return run(process.execPath, [hostCLI(release), action, '--config', join(home, 'host.json')], { env, onSpawn, timeout: action === 'setup' ? 300000 : 90000, label: `Core ${action}` })
 }
 export async function stop(release, home, env) {
@@ -82,11 +86,34 @@ export async function writeServices(home, env) {
   return jobs
 }
 export function sudoSteps(home, jobs) {
-  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
-  return jobs.flatMap(job => [
+  return describeSteps(jobs.flatMap(job => [
     { why: 'root ownership and mode 0644 are required in /Library/LaunchDaemons', program: '/usr/bin/install', args: ['-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), '/Library/LaunchDaemons/' + job.label + '.plist'] },
     { why: 'register a system LaunchDaemon that starts before login', program: '/bin/launchctl', args: ['bootstrap', 'system', '/Library/LaunchDaemons/' + job.label + '.plist'] },
-  ]).map(step => ({ ...step, command: ['sudo', step.program, ...step.args].map(quote).join(' ') }))
+  ]))
+}
+function describeSteps(steps) {
+  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
+  return steps.map(step => ({ ...step, command: ['sudo', step.program, ...step.args].map(quote).join(' ') }))
+}
+export function removalSteps(jobs) {
+  return describeSteps(jobs.flatMap(job => [
+    { why: 'stop and unregister the system LaunchDaemon', program: '/bin/launchctl', args: ['bootout', `system/${job.label}`] },
+    { why: 'remove the root-owned system LaunchDaemon plist', program: '/bin/rm', args: ['-f', '/Library/LaunchDaemons/' + job.label + '.plist'] },
+  ]))
+}
+export async function unregister(home, jobs, { runCommand = run, readInstalled = path => readFile(path, 'utf8') } = {}) {
+  const steps = []
+  // Verify both jobs before changing either; never remove a differing job.
+  for (const job of jobs) {
+    const loaded = await runCommand('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
+    const installed = await readInstalled('/Library/LaunchDaemons/' + job.label + '.plist').catch(error => { if (error.code === 'ENOENT') return null; throw error })
+    if ((loaded || installed !== null) && installed !== job.contents) throw new Error(`Existing system job ${job.label} differs from this installation. Inspect it before uninstalling.`)
+    const [bootout, remove] = removalSteps([job])
+    if (loaded) steps.push(bootout)
+    if (installed !== null) steps.push(remove)
+  }
+  for (const step of steps) console.log(`${step.command}\n  Requires sudo: ${step.why}.`)
+  for (const step of steps) await runCommand('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service removal' })
 }
 export async function register(home, jobs) {
   for (const job of jobs) {

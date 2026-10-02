@@ -1,6 +1,6 @@
 import { fork, type ChildProcess } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -221,7 +221,9 @@ class Generation implements TextExecutionAdapter {
 }
 
 async function snapshot(root: string, entryRelative: string, generationRoot: string): Promise<{ root: string; entry: string; digest: string }> {
-  const source = resolve(root)
+  // Pin the release selected by current once. Updates can switch the symlink
+  // without changing the bytes this generation snapshots and verifies.
+  const source = await realpath(root)
   const selected = resolve(source, entryRelative)
   const distance = relative(source, selected)
   if (!distance || distance.startsWith('..' + sep) || distance === '..' || distance.startsWith(sep)) throw new Error('Adapter entry must be inside its installation root')
