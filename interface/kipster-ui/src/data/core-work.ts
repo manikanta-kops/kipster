@@ -11,8 +11,7 @@ import {
   type WorkTarget,
   type Workflow,
 } from './work.js'
-import type { ControlClient, ControlReceipt } from './settings.js'
-import type { InboxNotification } from './settings.js'
+import type { InboxNotification } from './notifications.js'
 import {
   TextHttpError,
   httpError,
@@ -326,69 +325,59 @@ function coreAnswer(answer: Answer): Answer {
   return answer
 }
 
+const chunks = (ids: string[]) =>
+  Array.from({ length: Math.ceil(ids.length / 200) }, (_, i) =>
+    ids.slice(i * 200, i * 200 + 200),
+  )
+
 /**
- * Marks notifications read for the shared inbox. Core has no read receipt; a read is confirmed
- * once the notification shows it, and Retry sends the same read again, which changes nothing twice.
+ * Reads and clears notifications. Core skips IDs it no longer has, so a refusal ends the
+ * attempt; other failures throw and the caller sends the same IDs again. Without batch
+ * actions, reads go one by one and nothing can be cleared.
  */
-export function createCoreInboxClient(
-  endpoint: string,
-  notices: {
-    isRead: (id: string) => boolean
-    read: (id: string) => void
-    gone: (id: string) => void
-  },
-): ControlClient {
-  const receipt = (
-    operation: Parameters<ControlClient['command']>[0],
-    status: 'accepted' | 'rejected',
-    message: string,
-  ): ControlReceipt => ({
-    operationId: operation.operationId,
-    target: operation.target,
-    operation,
-    status,
-    message,
-  })
-  const unsupported = async (): Promise<never> => {
-    throw new Error('Unsupported inbox operation.')
+export function createNotificationClient(endpoint: string, batch: boolean) {
+  const send = async (path: string, body: unknown, signal: AbortSignal) => {
+    try {
+      return await post(endpoint, path, body, signal)
+    } catch (error) {
+      if (!final(error)) throw error
+    }
   }
   return {
-    async command(operation, signal) {
-      if (operation.action !== 'read') return unsupported()
-      try {
-        await post(
-          endpoint,
-          `/v1/notifications/${encodeURIComponent(operation.notificationId)}/read`,
-          { version: 1 },
+    canClear: batch,
+    async read(ids: string[], signal: AbortSignal) {
+      if (batch)
+        for (const notificationIds of chunks(ids))
+          await send(
+            '/v1/notifications/read',
+            { version: 1, notificationIds },
+            signal,
+          )
+      else
+        for (const id of ids)
+          await send(
+            `/v1/notifications/${encodeURIComponent(id)}/read`,
+            { version: 1 },
+            signal,
+          )
+    },
+    async clear(ids: string[], signal: AbortSignal) {
+      if (!batch) return
+      for (const notificationIds of chunks(ids))
+        await send(
+          '/v1/notifications/clear',
+          { version: 1, notificationIds },
           signal,
         )
-      } catch (error) {
-        if (!final(error)) throw error
-        if (error.code === 'gone') notices.gone(operation.notificationId)
-        return receipt(operation, 'rejected', error.message)
-      }
-      notices.read(operation.notificationId)
-      return receipt(operation, 'accepted', '')
-    },
-    async receipt(operation) {
-      if (operation.action !== 'read') return unsupported()
-      return notices.isRead(operation.notificationId)
-        ? receipt(operation, 'accepted', '')
-        : { operationId: operation.operationId, status: 'unknown' }
     },
   }
 }
+export type NotificationClient = ReturnType<typeof createNotificationClient>
 
-const quote = (text: string) =>
-  text.length > 60 ? `“${text.slice(0, 57).trimEnd()}…”` : `“${text}”`
-const interactionDetail: Record<string, string> = {
-  pending: 'Waiting for you',
-  settled: 'Answered',
-  cancelled: 'Cancelled',
-  superseded: 'No longer needed',
-}
+const short = (text: string) =>
+  text.length > 60 ? `${text.slice(0, 57).trimEnd()}…` : text
 
-/** Inbox entries for Core notifications, named by agent, organization and thread. */
+/** Inbox entries for Core notifications: who did what, its excerpt, and where. */
 export function inboxItems(input: {
   scope: Scope
   notices: Notice[]
@@ -403,38 +392,37 @@ export function inboxItems(input: {
     const interaction = n.interactionId
       ? input.interactions[n.threadId]?.[n.interactionId]
       : undefined
-    const agent = summary ? input.agentName(summary.agentId) : 'A kip'
-    const asker = interaction?.sourceAgentId
-      ? input.agentName(interaction.sourceAgentId)
-      : agent
+    const agentId = interaction?.sourceAgentId ?? summary?.agentId ?? ''
+    const agent = agentId ? input.agentName(agentId) : 'A kip'
     const text = firstText(input.firstMessage(n.threadId))
-    const about = text ? ` ${quote(text)}` : ''
-    const kind: InboxNotification['kind'] =
+    const kind =
       n.kind === 'interaction'
         ? (interaction?.kind ?? 'question')
         : n.kind === 'completed'
           ? 'completion'
           : n.kind === 'failed'
             ? 'failure'
-            : n.kind === 'recovery-needed'
-              ? 'recovery-needed'
-              : n.kind
+            : n.kind
+    const pending = n.interactionState === 'pending'
     const title =
-      kind === 'question' || kind === 'approval'
-        ? interaction
-          ? `${asker} asks: ${quote(interaction.prompt)}`
-          : `${agent} needs your ${kind === 'approval' ? 'approval' : 'answer'}${text ? ` on${about}` : ''}`
-        : kind === 'completion'
-          ? `${agent} finished${about}`
-          : kind === 'failure'
-            ? `${agent} couldn’t finish${about}`
-            : kind === 'recovery-needed'
-              ? `${agent}’s work needs a check${about ? ` on${about}` : ''}`
-              : `${agent} · ${kind}${about}`
+      kind === 'question'
+        ? pending
+          ? `${agent} needs your answer`
+          : `${agent} asked a question`
+        : kind === 'approval'
+          ? pending
+            ? `${agent} needs your approval`
+            : `${agent} asked for approval`
+          : kind === 'completion'
+            ? `${agent} replied`
+            : kind === 'failure'
+              ? `${agent} couldn’t finish`
+              : kind === 'recovery-needed'
+                ? `${agent}’s work was interrupted`
+                : `${agent} has an update`
     return {
       id: n.id,
       revision: n.revision,
-      recipientId: input.scope.callerId,
       target: summary
         ? summaryTarget(input.scope, summary)
         : {
@@ -447,18 +435,17 @@ export function inboxItems(input: {
             chatId: '',
             threadId: n.threadId,
           },
-      resourceId: n.interactionId ?? n.runId,
+      agentId,
+      agent,
       kind,
       title,
+      body: n.preview ?? interaction?.prompt ?? '',
+      thread: short(text),
       context:
         summary?.contextKind === 'organization'
           ? (input.organizationName(summary.contextId) ?? 'Organization')
           : 'Kipster',
-      ...(n.interactionState
-        ? {
-            detail: interactionDetail[n.interactionState] ?? n.interactionState,
-          }
-        : {}),
+      pending,
       createdAt: n.createdAt,
       read: n.read,
     }

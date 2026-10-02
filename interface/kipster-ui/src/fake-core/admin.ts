@@ -349,7 +349,7 @@ export function createAdministration(options: Options = {}) {
     callerId: DEMO_IDS.caller,
     organizationId: DEMO_IDS.organization,
     rootAgentId: DEMO_IDS.rootAgent,
-    capabilities: { voiceRecording: true },
+    capabilities: { voiceRecording: true, notificationActions: true },
   })
   const adapters = () => ({
     version: 1,

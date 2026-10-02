@@ -18,6 +18,8 @@ import type { Agent, AgentGroup, Membership } from '../chat/model'
 import type { WorkspaceSnapshot } from '../../data/directory'
 import { groupHue } from '../../app/appearance'
 import type { LiveState } from '../status/live-state'
+import { markLabel, type Mark } from '../../data/notifications'
+import { CornerMark, UnreadMark } from '../notifications/Mark'
 
 interface Props {
   id?: string
@@ -30,7 +32,10 @@ interface Props {
   /** Rendered as an overlay drawer on narrow screens. */
   drawer?: boolean
   segment: string
-  waiting: ReadonlySet<string>
+  /** A kip's status mark in its organization chat, or its installation chat for admins. */
+  markOf: (agentId: string, admin: boolean) => Mark | undefined
+  /** Another organization has something that needs the person. */
+  elsewhere: boolean
   /** What Kip, the root admin, is doing across its chat. */
   kipState: LiveState
   /** Agents removed from this organization whose chats stay readable. */
@@ -61,7 +66,8 @@ export function Sidebar({
   collapsed,
   drawer = false,
   segment,
-  waiting,
+  markOf,
+  elsewhere,
   kipState,
   formerMembers = [],
   onOrganization,
@@ -129,12 +135,15 @@ export function Sidebar({
     const selected = isSelected(agent.id, admin)
     const duplicate = duplicateName(agent)
     const label = duplicate ? `${agent.name} (${agent.id})` : agent.name
+    const mark = formerMember ? undefined : markOf(agent.id, admin)
     return (
       <button
         key={agent.id}
         className={`agent-button gloss ${admin ? 'admin-button' : ''} ${formerMember ? 'former' : ''} ${selected ? 'selected' : ''}`}
         aria-label={formerMember ? `${label}, former member` : label}
         aria-current={selected ? 'page' : undefined}
+        aria-describedby={mark && `kip-mark-${mark}`}
+        data-mark={mark}
         data-tip={admin ? label : undefined}
         onClick={() => {
           setFlyout(null)
@@ -143,9 +152,7 @@ export function Sidebar({
       >
         <span className="avatar-slot">
           <Avatar name={agent.name} color={agent.color} kip={admin} />
-          {waiting.has(agent.id) && (
-            <span className="presence wait" aria-hidden="true" />
-          )}
+          <CornerMark mark={mark} />
         </span>
         <span className="agent-info sidebar-label">
           <span className="agent-name">
@@ -161,13 +168,15 @@ export function Sidebar({
             )
           )}
         </span>
+        <UnreadMark mark={mark} />
       </button>
     )
   }
   const agentsOf = (folder: Folder) =>
     folder.members.map((m) => data.actorsById[m.actorId] as Agent)
-  const folderWaits = (folder: Folder) =>
-    folder.members.some((m) => waiting.has(m.actorId))
+  const folderMarks = (folder: Folder) =>
+    folder.former ? [] : folder.members.map((m) => markOf(m.actorId, false))
+  const folderWaits = (folder: Folder) => folderMarks(folder).includes('needs')
   const activeFolder =
     segment === 'all' ? undefined : folders.find((f) => f.id === segment)
   const openFolder = flyout && stacks.find((f) => f.id === flyout.id)
@@ -206,6 +215,7 @@ export function Sidebar({
                   key={agent.id}
                   agent={agent}
                   state={kipState}
+                  mark={markOf(agent.id, true)}
                   selected={isSelected(agent.id, true)}
                   collapsed={collapsed}
                   onOpen={() => {
@@ -230,7 +240,7 @@ export function Sidebar({
                   holds={folder.members.some((m) =>
                     isSelected(m.actorId, false),
                   )}
-                  waits={folderWaits(folder)}
+                  mark={stackMark(folderMarks(folder))}
                   open={flyout?.id === folder.id}
                   onOpen={(anchor) =>
                     setFlyout((current) =>
@@ -300,11 +310,19 @@ export function Sidebar({
             </>
           )}
         </nav>
+        <div hidden>
+          {Object.entries(markLabel).map(([mark, label]) => (
+            <span key={mark} id={`kip-mark-${mark}`}>
+              {label}
+            </span>
+          ))}
+        </div>
         <div className="sidebar-footer">
           {utilities}
           <OrganizationSwitcher
             data={data}
             organizationId={organizationId}
+            elsewhere={elsewhere}
             onOrganization={onOrganization}
           />
           {connectionStatus !== 'ready' && (
@@ -360,6 +378,9 @@ export function Sidebar({
     </>
   )
 }
+
+const stackMark = (marks: (Mark | undefined)[]) =>
+  (['needs', 'failed', 'working'] as const).find((m) => marks.includes(m))
 
 function membersOf(
   data: WorkspaceSnapshot,
@@ -441,14 +462,14 @@ function GroupStack({
   folder,
   agents,
   holds,
-  waits,
+  mark,
   open,
   onOpen,
 }: {
   folder: Folder
   agents: Agent[]
   holds: boolean
-  waits: boolean
+  mark?: Mark
   open: boolean
   onOpen: (anchor: HTMLButtonElement) => void
 }) {
@@ -457,7 +478,7 @@ function GroupStack({
     <button
       className={`group-stack ${holds ? 'holds' : ''}`}
       style={{ '--fc': folder.color } as CSSProperties}
-      aria-label={`${folder.name}, ${agents.length} ${agents.length === 1 ? 'kip' : 'kips'}${waits ? ', needs you' : ''}`}
+      aria-label={`${folder.name}, ${agents.length} ${agents.length === 1 ? 'kip' : 'kips'}${mark ? `, ${markLabel[mark]}` : ''}`}
       aria-haspopup="dialog"
       aria-expanded={open}
       data-stack={folder.id || 'ungrouped'}
@@ -474,7 +495,9 @@ function GroupStack({
       <span className="stack-label" aria-hidden="true">
         {folder.name}
       </span>
-      {waits && <span className="stack-wait" aria-hidden="true" />}
+      <span className="stack-mark">
+        <CornerMark mark={mark} />
+      </span>
     </button>
   )
 }

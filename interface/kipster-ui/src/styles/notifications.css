@@ -1,0 +1,398 @@
+/* Sidebar marks: one dot per kip on its avatar's corner. */
+.corner-mark {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--presence-edge);
+}
+.corner-mark.needs {
+  background: var(--wait);
+}
+.corner-mark.failed {
+  background: var(--danger);
+}
+.corner-mark.working {
+  background: var(--run);
+  animation: mark-breathe 2.8s ease-in-out var(--phase, 0s) infinite;
+}
+.mark-in {
+  animation: mark-in 0.35s var(--ease) both;
+}
+.corner-mark.working.mark-in {
+  animation:
+    mark-in 0.35s var(--ease) both,
+    mark-breathe 2.8s ease-in-out var(--phase, 0s) infinite;
+}
+@keyframes mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+@keyframes mark-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.38;
+  }
+}
+.unread-mark {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin-left: auto;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--label) 72%, transparent);
+}
+.agent-button .unread-mark {
+  margin-right: 4px;
+}
+.management-trigger .unread-mark {
+  margin-right: 6px;
+}
+.sidebar-collapsed .management-trigger .unread-mark {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  margin: 0;
+}
+.sidebar-collapsed .sidebar .agent-button .unread-mark {
+  display: none;
+}
+.kip-home-mini .corner-mark {
+  right: 3px;
+  bottom: 3px;
+}
+.stack-mark {
+  position: absolute;
+  top: 43px;
+  left: 40px;
+  z-index: 5;
+}
+.stack-mark .corner-mark {
+  inset: 0 auto auto 0;
+}
+.elsewhere-mark {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--wait);
+}
+.sidebar-collapsed .elsewhere-mark {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+}
+
+/* Inbox: denser glass than other panels, so rows stay legible over busy chats. */
+.inbox-panel {
+  --panel-fill: color-mix(in oklab, var(--glass-thick) 55%, var(--canvas));
+}
+.inbox-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 14px 6px;
+}
+.inbox-section {
+  margin: 10px 10px 4px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--label-3);
+}
+.inbox-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.note {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  border-radius: 16px;
+  transition: background-color 0.2s;
+}
+.note:hover {
+  background: var(--fill);
+}
+.note-open {
+  grid-area: 1 / 1;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 11px;
+  width: 100%;
+  padding: 10px 0 10px 10px;
+  border-radius: 16px;
+  text-align: left;
+}
+.note-avatar {
+  position: relative;
+  display: inline-grid;
+  align-self: start;
+}
+.note .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: 12.5px;
+}
+.kind-badge {
+  position: absolute;
+  left: 21px;
+  top: 21px;
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: 0 0 0 2px
+    color-mix(in oklab, var(--canvas) 70%, var(--glass-thick));
+}
+.kind-badge svg {
+  width: 10px;
+  height: 10px;
+}
+.kind-badge.needs {
+  background: var(--wait);
+}
+.kind-badge.failed {
+  background: var(--danger);
+}
+.kind-badge.done {
+  background: color-mix(in oklab, var(--run) 88%, #000);
+}
+.note-text {
+  display: grid;
+  min-width: 0;
+}
+.note-title {
+  font-size: 13.5px;
+  line-height: 1.35;
+  color: var(--label);
+}
+.note-title b {
+  font-weight: 650;
+}
+.note-body,
+.banner-body {
+  margin-top: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--label-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.note-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--label-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.note.read .note-title,
+.note.read .note-body {
+  color: var(--label-3);
+}
+.note-reply {
+  grid-area: 2 / 1;
+  justify-self: start;
+  height: 28px;
+  margin: -2px 0 10px 53px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  background: var(--fill-2);
+  transition: background-color 0.15s;
+}
+.note-reply:hover {
+  background: color-mix(in oklab, var(--label) 12%, transparent);
+}
+.note-side {
+  grid-area: 1 / 2 / 3 / 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 0 6px;
+}
+.note-side .unread-mark,
+.note-side .udot {
+  margin: 5px 0 0;
+}
+.udot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--label) 72%, transparent);
+}
+.clear-x {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--label-3);
+  opacity: 0;
+  transition:
+    opacity 0.15s,
+    background-color 0.15s;
+}
+.clear-x svg {
+  width: 13px;
+  height: 13px;
+}
+.note:hover .clear-x,
+.clear-x:focus-visible {
+  opacity: 1;
+}
+.clear-x:hover {
+  color: var(--label);
+  background: var(--fill-2);
+}
+@media (hover: none) {
+  .clear-x {
+    opacity: 1;
+  }
+}
+
+/* In-app banners, under the toolbar at the window's top right. */
+.banners {
+  position: fixed;
+  z-index: 30;
+  top: 68px;
+  right: 18px;
+  width: min(340px, calc(100vw - 32px));
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.banner {
+  --m: color-mix(in oklab, var(--glass-thick) 55%, var(--canvas));
+  position: relative;
+  border-radius: 18px;
+  pointer-events: auto;
+}
+.banner-open {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  width: 100%;
+  padding: 12px 36px 12px 12px;
+  border-radius: 18px;
+  text-align: left;
+}
+.banner .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+.banner-text {
+  display: grid;
+  min-width: 0;
+}
+.banner-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.banner-tag i {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+}
+.banner-tag.needs {
+  color: var(--wait-ink);
+}
+.banner-tag.failed {
+  color: var(--danger);
+}
+.banner-tag.done {
+  color: var(--run-ink);
+}
+.banner-body {
+  color: var(--label);
+}
+.banner-dismiss {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--label-3);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.banner-dismiss svg {
+  width: 12px;
+  height: 12px;
+}
+.banner:hover .banner-dismiss,
+.banner-dismiss:focus-visible {
+  opacity: 1;
+}
+.banner-dismiss:hover {
+  color: var(--label);
+  background: var(--fill-2);
+}
+@media (hover: none) {
+  .banner-dismiss {
+    opacity: 1;
+  }
+}
+
+/* Settings */
+.setting-row.sub {
+  padding-left: 30px;
+}
+.setting-row.sub.off .setting-label {
+  opacity: 0.45;
+}
+.permission {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--run-ink);
+}
+.permission i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.permission[data-state='denied'] {
+  color: var(--danger);
+}
+.permission[data-state='prompt'],
+.permission[data-state='unavailable'] {
+  color: var(--label-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .corner-mark.working,
+  .corner-mark.working.mark-in,
+  .mark-in {
+    animation: none;
+  }
+}

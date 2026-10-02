@@ -1601,3 +1601,58 @@ test('unmanaged Core exposes releases without scheduling installs and refuses wi
     true,
   )
 })
+
+test('notification previews, batch reads and clears keep pending questions', async (t) => {
+  const { json, request } = harness(t)
+  const bootstrap = await json('/v1/bootstrap')
+  assert.equal(bootstrap.capabilities.notificationActions, true)
+  const before = await json('/v1/app/snapshot', protocol.appSnapshot)
+  assert.ok(before.notifications.every((n) => n.preview))
+  const pending = before.notifications.filter(
+    (n) => n.interactionState === 'pending',
+  )
+  assert.ok(pending.length)
+  const ids = before.notifications.map((n) => n.id)
+  const read = await json(
+    '/v1/notifications/read',
+    protocol.notificationsRead,
+    'POST',
+    { version: 1, notificationIds: [ids[0], randomUUID()] },
+  )
+  assert.deepEqual(read.notificationIds, [ids[0]])
+  const result = await json(
+    '/v1/notifications/clear',
+    protocol.notificationsCleared,
+    'POST',
+    { version: 1, notificationIds: ids },
+  )
+  assert.deepEqual(result.kept.sort(), pending.map((n) => n.id).sort())
+  assert.equal(result.cleared.length, ids.length - pending.length)
+  const after = await json('/v1/app/snapshot', protocol.appSnapshot)
+  assert.deepEqual(
+    after.notifications.map((n) => n.id).sort(),
+    result.kept.sort(),
+  )
+  const events = await replay(
+    await request(`/v1/app/events?after=${encodeURIComponent(before.cursor)}`),
+    after.cursor,
+  )
+  assert.deepEqual(
+    events
+      .filter((e) => e.type === 'notification-removed')
+      .map((e) => e.data.id)
+      .sort(),
+    result.cleared.sort(),
+  )
+  const gone = await request(
+    `/v1/notifications/${result.cleared[0]}/read`,
+    'POST',
+    { version: 1 },
+  )
+  assert.equal(gone.status, 410)
+  const invalid = await request('/v1/notifications/read', 'POST', {
+    version: 1,
+    notificationIds: [ids[0], ids[0]],
+  })
+  assert.equal(invalid.status, 400)
+})

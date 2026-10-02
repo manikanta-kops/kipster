@@ -16,10 +16,7 @@ export type NotificationResult =
   | { status: 'failed' }
 
 export type NotificationPermission =
-  | 'granted'
-  | 'denied'
-  | 'prompt'
-  | 'unavailable'
+  'granted' | 'denied' | 'prompt' | 'unavailable'
 
 export interface NotificationTarget {
   threadId: string

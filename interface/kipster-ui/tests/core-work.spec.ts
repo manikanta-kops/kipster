@@ -20,12 +20,17 @@ import {
 } from '../src/data/state.js'
 import { chatGone, type Directory } from '../src/data/directory.js'
 import {
-  createCoreInboxClient,
   createCoreWorkClient,
+  createNotificationClient,
   inboxItems,
   summaryTarget,
   threadWork,
 } from '../src/data/core-work.js'
+import {
+  chatMarks,
+  inboxSections,
+  needsYou,
+} from '../src/data/notifications.js'
 import type { WorkOperation } from '../src/data/work.js'
 
 const scope = { installationId: 'installation', callerId: 'caller' }
@@ -610,57 +615,67 @@ test('work commands use Core routes; refusals and gone threads are final', async
   expect(goneThreads).toEqual(['thread'])
 })
 
-test('mark read is confirmed by the notification, never by a second write', async () => {
-  const read = new Set<string>()
-  const posts: string[] = []
-  const inbox = createCoreInboxClient('http://core.test', {
-    isRead: (id) => read.has(id),
-    read: (id) => read.add(id),
-    gone: () => {},
-  })
-  const operation = {
-    operationId: 'op',
-    target: scope,
-    action: 'read' as const,
-    notificationId: 'notice',
-  }
+test('notification actions batch IDs, skip refusals and fall back to single reads', async () => {
+  const posts: { url: string; body: unknown }[] = []
+  const ids = Array.from({ length: 201 }, (_, i) => `n${i}`)
   const signal = new AbortController().signal
   await withFetch(
-    async (url) => {
-      posts.push(url)
-      return json(200, { version: 1, status: 'read', notificationId: 'notice' })
+    async (url, init) => {
+      posts.push({ url, body: JSON.parse(String(init?.body)) })
+      return url.endsWith('/n1/read')
+        ? json(404, { version: 1, code: 'gone', message: 'Gone' })
+        : json(200, { version: 1, status: 'read', notificationIds: [] })
     },
     async () => {
-      expect(await inbox.receipt(operation, signal)).toEqual({
-        operationId: 'op',
-        status: 'unknown',
-      })
-      expect(posts).toHaveLength(0)
-      expect(await inbox.command(operation, signal)).toMatchObject({
-        status: 'accepted',
-      })
-      expect(await inbox.receipt(operation, signal)).toMatchObject({
-        status: 'accepted',
-      })
+      const batch = createNotificationClient('http://core.test', true)
+      await batch.read(ids, signal)
+      await batch.clear(['n0'], signal)
+      const single = createNotificationClient('http://core.test', false)
+      expect(single.canClear).toBe(false)
+      await single.read(['n0', 'n1', 'n2'], signal)
+      await single.clear(['n0'], signal)
     },
   )
-  expect(posts).toEqual(['http://core.test/v1/notifications/notice/read'])
+  expect(posts.map((p) => p.url)).toEqual([
+    'http://core.test/v1/notifications/read',
+    'http://core.test/v1/notifications/read',
+    'http://core.test/v1/notifications/clear',
+    'http://core.test/v1/notifications/n0/read',
+    'http://core.test/v1/notifications/n1/read',
+    'http://core.test/v1/notifications/n2/read',
+  ])
+  expect(posts[0].body).toEqual({
+    version: 1,
+    notificationIds: ids.slice(0, 200),
+  })
+  expect(posts[1].body).toEqual({ version: 1, notificationIds: ['n200'] })
+  await expect(
+    withFetch(
+      async () => json(503, { version: 1, code: 'unavailable', message: '' }),
+      () =>
+        createNotificationClient('http://core.test', true).read(ids, signal),
+    ),
+  ).rejects.toThrow()
 })
 
-test('inbox entries name the asking agent, the organization and the current state', () => {
+test('inbox entries say who did what, with the excerpt and where', () => {
+  const done = {
+    id: 'done',
+    threadId: 'thread',
+    runId: 'run',
+    kind: 'completed',
+    read: false,
+    revision: 1,
+    createdAt,
+  }
   const items = inboxItems({
     scope,
     notices: [
       { ...question, read: true, revision: 2 },
-      {
-        id: 'done',
-        threadId: 'thread',
-        runId: 'run',
-        kind: 'completed',
-        read: false,
-        revision: 1,
-        createdAt,
-      },
+      { ...done, preview: 'Here is the summary.' },
+      { ...done, id: 'failed', kind: 'failed', preview: 'Provider stopped.' },
+      { ...done, id: 'interrupted', kind: 'recovery-needed' },
+      { ...done, id: 'future', kind: 'digest' },
     ],
     summaries: { thread: summary },
     interactions: { thread: { card: { ...card, sourceAgentId: 'ledger' } } },
@@ -676,19 +691,54 @@ test('inbox entries name the asking agent, the organization and the current stat
     agentName: (id) => ({ scout: 'Scout', ledger: 'Ledger' })[id] ?? id,
     organizationName: () => 'Harbor Labs',
   })
+  expect(items.map((n) => [n.title, n.body])).toEqual([
+    ['Ledger needs your answer', 'Blue or red?'],
+    ['Scout replied', 'Here is the summary.'],
+    ['Scout couldn’t finish', 'Provider stopped.'],
+    ['Scout’s work was interrupted', ''],
+    ['Scout has an update', ''],
+  ])
   expect(items[0]).toMatchObject({
     kind: 'question',
-    title: 'Ledger asks: “Blue or red?”',
+    agentId: 'ledger',
+    thread: 'Quarterly review',
     context: 'Harbor Labs',
-    detail: 'Waiting for you',
+    pending: true,
     read: true,
     target: { chatId: 'chat', threadId: 'thread' },
   })
-  expect(items[1]).toMatchObject({
-    kind: 'completion',
-    title: 'Scout finished “Quarterly review”',
-    read: false,
-  })
+  expect(items.filter(needsYou).map((n) => n.id)).toEqual([
+    'notice',
+    'failed',
+    'interrupted',
+  ])
+  const sections = inboxSections(items)
+  expect(sections.needs).toHaveLength(3)
+  expect(sections.updates).toHaveLength(1)
+  expect(sections.updates[0].ids.sort()).toEqual(['done', 'future'])
+  const marks = chatMarks(items, [], () => 'chat')
+  expect(marks).toEqual({ chat: 'needs' })
+  expect(
+    chatMarks(
+      items.filter((n) => !n.pending && n.kind !== 'failure'),
+      ['thread'],
+      () => 'chat',
+    ),
+  ).toEqual({ chat: 'failed' })
+  expect(
+    chatMarks(
+      items.filter((n) => n.kind === 'completion'),
+      ['thread'],
+      () => 'chat',
+    ),
+  ).toEqual({ chat: 'working' })
+  expect(
+    chatMarks(
+      items.filter((n) => n.kind === 'completion'),
+      [],
+      () => 'chat',
+    ),
+  ).toEqual({ chat: 'unread' })
 })
 
 test('records left by a deleted agent parse: null run links, removed files and removed threads', () => {

@@ -24,6 +24,7 @@ import { ArrowClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowClockwis
 import { BuildingsIcon } from '@phosphor-icons/react/dist/csr/Buildings'
 import { HandIcon } from '@phosphor-icons/react/dist/csr/Hand'
 import { InfoIcon } from '@phosphor-icons/react/dist/csr/Info'
+import { QuestionMarkIcon } from '@phosphor-icons/react/dist/csr/QuestionMark'
 
 const icons = {
   bell: BellIcon,
@@ -51,6 +52,7 @@ const icons = {
   refresh: ArrowClockwiseIcon,
   hand: HandIcon,
   info: InfoIcon,
+  question: QuestionMarkIcon,
 } as const
 
 /** Direct imports keep unused icons out of the development module graph too. */
