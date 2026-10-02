@@ -558,6 +558,13 @@ export class TextDispatcher {
             if(voiceChanged)await publishThreadChange(client,installationId,current.caller_id,row.thread_id,current.chat_id,'message-final',current.input_message_id,await this.bumpMessage(client,current.input_message_id),await messageRecord(client,current.input_message_id),'queued',null)
             await publishThreadChange(client, installationId, current.caller_id, row.thread_id, current.chat_id, 'work-changed', row.id, await workRevision(client, row.id), await workRecord(client, row.id), row.state === 'preparing' ? 'queued' : 'recovery-needed', null)
             if (row.state !== 'preparing') await createNotification(client, installationId, current.caller_id, row.thread_id, row.id, 'recovery-needed')
+            // As in settle(): an uncertain attempt cannot continue, so its open question cannot accept an answer.
+            const superseded = row.state === 'preparing' ? undefined : (await client.query<{ id: string }>(`UPDATE kipster.interactions SET state='superseded',revision=revision+1 WHERE id=$1 AND attempt_id=$2 AND state='pending' RETURNING id`, [current.continuation_interaction_id, row.current_attempt_id])).rows[0]
+            if (superseded) {
+              const card = await interactionRecord(client, superseded.id)
+              await publishThreadChange(client, installationId, current.caller_id, row.thread_id, current.chat_id, 'interaction-changed', card.id, card.revision, card, 'recovery-needed', null)
+              await interactionNotificationChanged(client, card.id)
+            }
           }
         }
         await wakeEligible(client, this.runtime, installationId)
