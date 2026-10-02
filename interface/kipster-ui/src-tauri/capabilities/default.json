@@ -1,12 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-notifications",
-  "description": "Allow the local main window to send notifications and manage signed app updates.",
+  "description": "Allow the local main window to receive notification clicks, set the Dock badge and manage signed app updates.",
   "windows": ["main"],
   "permissions": [
-    "notification:allow-is-permission-granted",
-    "notification:allow-request-permission",
-    "notification:allow-notify",
+    "core:window:allow-set-badge-count",
     "updater:allow-check",
     "updater:allow-download",
     "updater:allow-install",
