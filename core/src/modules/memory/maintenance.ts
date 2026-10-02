@@ -398,6 +398,7 @@ export class MaintenanceService {
    * Pending sources of agents that are not learning are skipped first; a refusal reports how many. */
   async claimSource(client: SqlClient, incarnation: string, memoryAvailable: boolean): Promise<{ source: MaintenanceSource; runId: string; attempt: Attempt } | { refused: string; skipped: number }> {
     if (!memoryAvailable) return { refused: 'memory_unavailable', skipped: 0 }
+    if ((await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 AND update_request_id IS NOT NULL', [this.installationId])).rows.length) return { refused: 'update_in_progress', skipped: 0 }
     const skipped = await this.skipNotLearning(client)
     const owner = (await client.query(
       `SELECT 1 FROM kipster.maintenance_runs WHERE installation_id=$1 AND state IN ('preparing','running','recovery-needed') LIMIT 1`,
@@ -495,7 +496,7 @@ export class MaintenanceService {
       return { refused: 'contention' }
     }
     const ceiling = (await client.query<{ ceiling: string }>(
-      'SELECT ceiling FROM kipster.execution_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
+      'SELECT CASE WHEN update_request_id IS NULL THEN ceiling ELSE 0 END AS ceiling FROM kipster.execution_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
     const held = (await client.query<{ count: string }>(
       'SELECT count(*) FROM kipster.owned_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
     if (Number(held.count) >= Number(ceiling.ceiling)) {
@@ -547,6 +548,7 @@ export class MaintenanceService {
    * so the caller claims a source instead. It shares the single maintenance slot and the fairness rule with
    * extraction. Caller holds the capacity lock. */
   async claimSleepRun(client: SqlClient, incarnation: string, memoryAvailable: boolean): Promise<{ sleepRun: SleepRunClaim; attempt: Attempt } | { refused: string } | null> {
+    if ((await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 AND update_request_id IS NOT NULL', [this.installationId])).rows.length) return { refused: 'update_in_progress' }
     if (!memoryAvailable) return null
     const pick = (await client.query<{ id: string; agent_id: string; task_kind: 'consolidate' | 'identity'; input: ConsolidationInput & PromotionInput }>(
       `${queuedSleepRun('$1')} ORDER BY r.created_at, r.id LIMIT 1 FOR UPDATE OF r`, [this.installationId])).rows[0]
@@ -602,7 +604,7 @@ export class MaintenanceService {
       await this.unissuedSleepRun(client, jobs, runId, attempt, { failure: run.sleep_running ? 'learning_disabled' : 'sleep ended' })
       return { refused: 'learning_disabled' }
     }
-    const ceiling = (await client.query<{ ceiling: string }>('SELECT ceiling FROM kipster.execution_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
+    const ceiling = (await client.query<{ ceiling: string }>('SELECT CASE WHEN update_request_id IS NULL THEN ceiling ELSE 0 END AS ceiling FROM kipster.execution_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
     const held = (await client.query<{ count: string }>('SELECT count(*) FROM kipster.owned_permits WHERE installation_id=$1', [this.installationId])).rows[0]!
     if (await this.otherRunActive(client, runId) || Number(held.count) >= Number(ceiling.ceiling)) {
       await this.unissuedSleepRun(client, jobs, runId, attempt, { queued: true, delayMs: MAINTENANCE_LIMITS.contentionBackoffMs })

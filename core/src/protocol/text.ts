@@ -1,5 +1,6 @@
 import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
 import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange } from './admin.js'
+import { updateStatus } from './updates.js'
 
 export const WIRE_MAJOR = 1
 const id = nonempty() // Opaque: consumers must not decode identity or scope from its spelling.
@@ -34,7 +35,7 @@ export const directChatResult = object({ version: literal(1), chatId: id }, fals
 
 export const acceptedReceipt = object({ version: literal(1), status: literal('accepted'), submissionId: id, chatId: id, threadId: id, messageId: id, runId: id, alreadyAccepted: boolean() }, false)
 export type AcceptedReceipt = Infer<typeof acceptedReceipt>
-export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived')), message: string(), requestId: id }, false)
+export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived'), literal('update-in-progress'), literal('update-already-installed'), literal('update-backup-required'), literal('update-backup-mismatch'), literal('update-confirmation-required')), message: string(), requestId: id }, false)
 export type StableError = Infer<typeof stableError>
 export const rejectedReceipt = object({ version: literal(1), status: literal('rejected'), submissionId: id, error: stableError }, false)
 export const submissionReceipt = union(acceptedReceipt, rejectedReceipt)
@@ -119,6 +120,7 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('notification'), data: notification }, false),
   object({ ...eventBase, type: literal('notification-removed'), data: object({ id, threadId: id }) }, false),
   object({ ...eventBase, type: literal('learning-changed'), data: learningChange }, false),
+  object({ ...eventBase, type: literal('updates-changed'), data: updateStatus }, false),
   object({ ...eventBase, type: literal('organization-changed'), data: directoryOrganization }, false),
   object({ ...eventBase, type: literal('agent-changed'), data: directoryAgent }, false),
   object({ ...eventBase, type: literal('membership-changed'), data: directoryMembership }, false),
