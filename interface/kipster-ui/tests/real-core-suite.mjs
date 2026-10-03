@@ -29,6 +29,66 @@ const run = (file, args = [], env = {}) =>
       code === 0 ? done() : reject(Error(`${file} exited ${code}`)),
     )
   })
+// A message with the marker makes the fixture kip write this doc; the doc's submission makes it revise.
+const docMarker = 'write a rich doc'
+const docSubmission =
+  /The user submitted rich doc .* \(doc ID ([0-9a-f-]+), revision \d+\)/
+const docMarkdown = [
+  '# Trip plan',
+  '',
+  'We fly out in May.',
+  '',
+  '- [ ] Book flights',
+  '- [ ] Reserve a hotel',
+  '',
+  '```question',
+  'prompt: Where should we go?',
+  'other: true',
+  'options:',
+  '- Oslo | Fjords and design',
+  '- Lisbon | Sun and tiles',
+  '```',
+  '',
+  '```scale',
+  'prompt: How flexible are the dates?',
+  'min: 1',
+  'max: 5',
+  'step: 1',
+  'minLabel: Fixed',
+  'maxLabel: Open',
+  '```',
+].join('\n')
+async function writeDoc(handle) {
+  await handle.callTool('fixture-doc-create', 'documents_create', {
+    title: 'Trip plan',
+    markdown: docMarkdown,
+  })
+  return 'Fixture wrote a rich doc.'
+}
+async function reviseDoc(handle, documentId, gate) {
+  const doc = await handle.callTool('fixture-doc-read', 'documents_read', {
+    documentId,
+  })
+  const heading = doc.blocks.find((block) => block.markdown.startsWith('# '))
+  await handle.callTool('fixture-doc-edit', 'documents_edit', {
+    documentId,
+    operations: [
+      { op: 'replace', blockId: heading.id, markdown: '# Trip plan, revised' },
+      {
+        op: 'insert',
+        afterBlockId: heading.id,
+        markdown: 'The kip added this after your submission.',
+      },
+      ...doc.openComments.map((comment) => ({
+        op: 'resolve',
+        commentId: comment.id,
+        reply: `Addressed: ${comment.body}`,
+      })),
+    ],
+  })
+  await gate
+  return 'Fixture revised the doc.'
+}
 if (!process.env.KIPSTER_TEST_DATABASE_URL) {
   await run('core/scripts/with-test-database.mjs', [
     process.execPath,
@@ -43,9 +103,13 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
     const url = new URL(process.env.KIPSTER_TEST_DATABASE_URL)
     url.pathname = '/' + database
     let runtime, dispatcher, core, vite
-    let releaseTranscription
+    let releaseTranscription, releaseRevision
     const transcriptionGate = new Promise((resolve) => {
       releaseTranscription = resolve
+    })
+    // Holds the kip's doc revision open until the browser has seen the doc locked.
+    const revisionGate = new Promise((resolve) => {
+      releaseRevision = resolve
     })
     try {
       const provider = {
@@ -86,22 +150,36 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
             .map((p) => p.text)
             .join('')
           const voice = parts.find((p) => p.purpose === 'voice_note')
-          handle.release({
-            kind: 'text',
-            attemptId: context.attemptId,
-            messageId: randomUUID(),
-            text: voice
+          const reply = (message) => {
+            handle.release({
+              kind: 'text',
+              attemptId: context.attemptId,
+              messageId: randomUUID(),
+              text: message,
+              final: true,
+            })
+            handle.release({
+              kind: 'ended',
+              attemptId: context.attemptId,
+              confirmed: true,
+            })
+          }
+          const submitted = docSubmission.exec(text)
+          if (submitted || text.includes(docMarker)) {
+            // Rich docs: the kip writes a doc, or revises one the user submitted.
+            ;(submitted
+              ? reviseDoc(handle, submitted[1], revisionGate)
+              : writeDoc(handle)
+            ).then(reply, (error) => reply(`Fixture doc error: ${error}`))
+            return handle
+          }
+          reply(
+            voice
               ? `Fixture received voice_note; original ${voice.availability}; transcription ${voice.transcription.status}; caption ${text}`
               : text === '__large_reply__'
                 ? 'Large reply '.repeat(30000)
                 : `Fixture reply: ${text}`,
-            final: true,
-          })
-          handle.release({
-            kind: 'ended',
-            attemptId: context.attemptId,
-            confirmed: true,
-          })
+          )
           return handle
         },
       })
@@ -141,12 +219,19 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
         root: ui,
         plugins: [
           {
-            name: 'fixture-transcription-gate',
+            name: 'fixture-gates',
             configureServer(server) {
               server.middlewares.use(
                 '/__test-transcription/release',
                 (_request, response) => {
                   releaseTranscription()
+                  response.end('released')
+                },
+              )
+              server.middlewares.use(
+                '/__test-documents/release',
+                (_request, response) => {
+                  releaseRevision()
                   response.end('released')
                 },
               )
@@ -181,6 +266,7 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
       )
     } finally {
       releaseTranscription()
+      releaseRevision()
       await vite?.close()
       await core?.close()
       await dispatcher?.close()

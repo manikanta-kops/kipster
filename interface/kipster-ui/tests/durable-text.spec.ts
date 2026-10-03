@@ -222,10 +222,10 @@ test('saved thread selection is isolated from a replacement installation at the 
   const callerId = crypto.randomUUID()
   const rootAgentId = crypto.randomUUID()
   const chatId = crypto.randomUUID()
-  await page.route('**/v1/bootstrap', (route) =>
+  await page.route('**/v1/bootstrap', async (route) =>
     route.fulfill({
       json: {
-        version: 1,
+        ...(await (await route.fetch()).json()),
         installationId,
         callerId,
         rootAgentId,
@@ -253,7 +253,7 @@ test('saved thread selection is isolated from a replacement installation at the 
   )
   await page.reload()
   await expect(
-    page.getByRole('heading', { name: 'A little space to think.' }),
+    page.getByRole('form', { name: 'Start a new thread', exact: true }),
   ).toBeVisible()
   await expect(page.getByRole('region', { name: 'Thread' })).toHaveCount(0)
 })

@@ -39,6 +39,13 @@ import {
 import { Avatar, Message } from '../chat/Message'
 import { RootFeed } from '../chat/RootFeed'
 import { ThreadPane } from '../chat/ThreadPane'
+import { DocPane } from '../documents/DocPane'
+import { DocsSection } from '../documents/DocCard'
+import { DocumentStore } from '../documents/store'
+import {
+  DocumentClient,
+  type Summary as DocumentSummary,
+} from '../../data/documents'
 import { useScrollHistory } from '../chat/use-scroll-history'
 import { usePointerGloss } from '../../app/use-pointer-gloss'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
@@ -190,6 +197,11 @@ export function Workspace({
   const softwareState = useSoftwareUpdates(softwareUpdates)
   useEffect(() => softwareUpdates.start(), [softwareUpdates])
   const client = useMemo(() => new TextClient(endpoint), [endpoint])
+  const documents = useMemo(
+    () => new DocumentStore(new DocumentClient(client.endpoint)),
+    [client],
+  )
+  const [openDoc, setOpenDoc] = useState<string | null>(null)
   const [queries] = useState(() => new QueryClient())
   useEffect(
     () => () => {
@@ -420,6 +432,7 @@ export function Workspace({
   /** Clears everything read from Core, as for a new installation. */
   const forget = useCallback(() => {
     setSelected(null)
+    setOpenDoc(null)
     setDirectory(null)
     setNavigation(defaultNavigation)
     setChatIds({})
@@ -600,6 +613,7 @@ export function Workspace({
   const selectionChange = useRef(0)
   const chooseThread = (threadId: string | null) => {
     selectionChange.current++
+    if (threadId) setOpenDoc(null)
     setSelected(threadId)
     setExpanded(false)
     if (!threadId && selected)
@@ -691,6 +705,8 @@ export function Workspace({
       if (event.key === '\\' && (event.metaKey || event.ctrlKey) && !narrow) {
         event.preventDefault()
         navigate({ collapsed: !latestNavigation.current.collapsed })
+      } else if (event.key === 'Escape' && openDoc && !drawerOpen) {
+        closeDoc()
       } else if (event.key === 'Escape' && selected && !drawerOpen) {
         chooseThread(null)
       }
@@ -764,6 +780,8 @@ export function Workspace({
               knownNotices.current.add(note.id)
             setNotices((old) => mergeAppNotices(old, snap.notifications))
             setAppReady(true)
+            if (identity.capabilities?.documents)
+              void documents.refresh(abort.signal).catch(() => undefined)
             cursor = snap.cursor
           }
           setConnection('')
@@ -800,6 +818,10 @@ export function Workspace({
               } else if (event.type === 'thread-removed') {
                 // Deleted with its agent: the same as a gone thread.
                 threadGone((event.data as ThreadRemoved).threadId)
+              } else if (event.type === 'document-changed') {
+                documents.upsert(event.data as DocumentSummary)
+              } else if (event.type === 'document-removed') {
+                documents.remove((event.data as { id: string }).id)
               } else if (directoryEventTypes.has(event.type)) {
                 const change = {
                   type: event.type,
@@ -950,6 +972,7 @@ export function Workspace({
     platform,
     interfacePreferences,
     queries,
+    documents,
   ])
 
   // Read-only background snapshots hydrate root text; the selected thread owns its own stream.
@@ -1353,15 +1376,21 @@ export function Workspace({
         parts: message.parts.map((part) =>
           part.kind === 'text'
             ? { type: 'text', text: part.text }
-            : part.kind === 'unknown'
-              ? { type: 'unknown', originalKind: part.originalKind }
-              : part.kind === 'removed'
-                ? { type: 'removed', artifactId: part.artifactId }
-                : {
-                    type: 'file',
-                    artifactId: part.artifactId,
-                    purpose: part.purpose,
-                  },
+            : part.kind === 'document'
+              ? {
+                  type: 'document',
+                  documentId: part.documentId,
+                  revision: part.revision,
+                }
+              : part.kind === 'unknown'
+                ? { type: 'unknown', originalKind: part.originalKind }
+                : part.kind === 'removed'
+                  ? { type: 'removed', artifactId: part.artifactId }
+                  : {
+                      type: 'file',
+                      artifactId: part.artifactId,
+                      purpose: part.purpose,
+                    },
         ),
       }
     }
@@ -1465,7 +1494,12 @@ export function Workspace({
     failed: 'Didn’t finish',
     'recovery-needed': 'Needs a check',
   }
+  const closeDoc = () => {
+    setOpenDoc(null)
+    if (!selected) setExpanded(false)
+  }
   const openThread = (threadId: string) => {
+    setOpenDoc(null)
     const saved = summaries[threadId]
     setInboxOpener(null)
     setGoneNotice('')
@@ -1796,11 +1830,34 @@ export function Workspace({
       e.operation.target.threadId !== selected &&
       !['accepted', 'rejected'].includes(e.state),
   )
+  const docsEnabled = identity.capabilities?.documents === true
+  const documentsContext = {
+    store: documents,
+    scope: identity,
+    openId: openDoc,
+    open: (id: string) => {
+      setDrawer(false)
+      setOpenDoc(id)
+    },
+    author: (agentId: string) => ({
+      name: agentLabel(directory, agentId),
+      color:
+        (view.actorsById[agentId] as Agent | undefined)?.color ??
+        agentColor(agentId),
+      kip: view.agentRoles.some((role) => role.agentId === agentId),
+    }),
+  }
+  const inspector = !!selected || !!openDoc
   return (
-    <WorkspaceContext.Provider value={mediaWorkspace}>
+    <WorkspaceContext.Provider
+      value={{
+        ...mediaWorkspace,
+        documents: docsEnabled ? documentsContext : null,
+      }}
+    >
       <QueryClientProvider client={queries}>
         <div
-          className={`app-shell ${nav.collapsed && !narrow ? 'sidebar-collapsed' : ''} ${drawerOpen ? 'drawer-open' : ''} ${selected ? 'has-thread' : ''} ${selected && expanded ? 'thread-expanded' : ''}`}
+          className={`app-shell ${nav.collapsed && !narrow ? 'sidebar-collapsed' : ''} ${drawerOpen ? 'drawer-open' : ''} ${inspector ? 'has-thread' : ''} ${openDoc ? 'has-doc' : ''} ${inspector && expanded ? 'thread-expanded' : ''}`}
           style={{ '--agent-hue': hueVar(agent?.color) } as CSSProperties}
         >
           <a className="skip-link" href="#conversation">
@@ -1852,6 +1909,11 @@ export function Workspace({
                   <span className="sidebar-label">Settings</span>
                 </button>
               </div>
+            }
+            documents={
+              docsEnabled ? (
+                <DocsSection organizationId={nav.organizationId} />
+              ) : null
             }
             data={view}
             organizationId={nav.organizationId}
@@ -2070,7 +2132,17 @@ export function Workspace({
             </div>
           </main>
           <AnimatePresence initial={false} mode="popLayout">
-            {selected &&
+            {openDoc && docsEnabled ? (
+              <DocPane
+                key={`doc:${openDoc}`}
+                id={openDoc}
+                expanded={expanded}
+                onExpand={() => setExpanded((value) => !value)}
+                onClose={closeDoc}
+                onThread={openThread}
+              />
+            ) : (
+              selected &&
               summaries[selected] &&
               preview.threadsById[selected] &&
               agent && (
@@ -2185,7 +2257,8 @@ export function Workspace({
                   unread={threadFollowing.unread}
                   latest={latestThread}
                 />
-              )}
+              )
+            )}
           </AnimatePresence>
         </div>
         {settingsOpener && (

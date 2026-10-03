@@ -2,6 +2,7 @@ import type { Runtime } from '../runtime.js'
 import type { SqlClient } from '../platform/postgres/public.js'
 import { tombstoneAgent, type Operation } from '../modules/administration/public.js'
 import { removeThreads } from '../modules/conversations/public.js'
+import { removeThreadDocuments } from '../modules/documents/public.js'
 import type { MaintenanceService } from '../modules/memory/public.js'
 import { dropOwnerTaskData } from '../modules/structured/public.js'
 import { deleteOwnerCollections } from '../modules/vectors/public.js'
@@ -106,6 +107,7 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
       await removeThreads(client, installationId, batch, async (threadId, messageIds) => {
         for (const messageId of messageIds) await host.maintenance.purgeMessageEvidence(client, messageId)
         await host.maintenance.purgeThreadContext(client, threadId)
+        await removeThreadDocuments(client, installationId, threadId)
       })
       if (batch.length === AGENT_DELETION_BATCH.threads) return { status: 'more' }
       await client.query('DELETE FROM kipster.direct_chats c WHERE c.installation_id=$1 AND c.agent_id=$2 AND NOT EXISTS (SELECT 1 FROM kipster.threads t WHERE t.chat_id=c.id)', [installationId, agentId])

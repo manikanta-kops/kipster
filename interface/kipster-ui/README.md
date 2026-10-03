@@ -119,7 +119,8 @@ demo plus test controls) on port 4187. `npm run test:screenshots` runs the visua
 specs and saves captures under ignored `test-results/screenshots/`.
 
 Run every real-Core UI check (durable text, lost acknowledgements, generated
-recording, management, lifecycle, startup cleanup and publication recovery) with:
+recording, management, rich docs, lifecycle, startup cleanup and publication
+recovery) with:
 
 ```sh
 npm run test:real-core

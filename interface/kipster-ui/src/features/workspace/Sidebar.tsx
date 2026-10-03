@@ -24,6 +24,8 @@ import { CornerMark, UnreadMark } from '../notifications/Mark'
 interface Props {
   id?: string
   utilities: ReactNode
+  /** Rich docs for this view, below the kips. */
+  documents?: ReactNode
   data: WorkspaceSnapshot
   organizationId: string | null
   selectedAgentId: string | null
@@ -60,6 +62,7 @@ interface Folder {
 export function Sidebar({
   id,
   utilities,
+  documents,
   data,
   organizationId,
   selectedAgentId,
@@ -310,6 +313,7 @@ export function Sidebar({
                   </p>
                 )}
               </div>
+              {documents}
             </>
           )}
         </nav>

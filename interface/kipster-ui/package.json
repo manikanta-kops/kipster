@@ -28,7 +28,7 @@
     "preview:demo": "vite preview",
     "build:test": "tsc -b && vite build --mode test",
     "preview:test": "vite preview --mode test",
-    "test:fake-core": "node --test --test-timeout=15000 tests/fake-core-conformance.mjs tests/fake-core-media.mjs",
+    "test:fake-core": "node --test --test-timeout=15000 tests/fake-core-conformance.mjs tests/fake-core-media.mjs tests/fake-core-documents.mjs",
     "test:real-core": "node tests/real-core-suite.mjs",
     "test:entry": "node tests/entry-startup.mjs",
     "test:storage": "node --test tests/client-storage.mjs"

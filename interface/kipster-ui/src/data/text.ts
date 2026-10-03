@@ -9,6 +9,10 @@ import type {
 import { check, incompatible, list, record, TextHttpError } from './response.ts'
 import { readEvents } from './sse.ts'
 import { isProtocolRange, type ProtocolRange } from './compatibility.ts'
+import {
+  parseSummary as parseDocumentSummary,
+  type Summary as DocumentSummary,
+} from './documents.ts'
 export { TextHttpError } from './response.ts'
 import type {
   ConversationClient,
@@ -34,6 +38,7 @@ export type Bootstrap = Scope & {
     voiceRecording: boolean
     interfacePreferences?: boolean
     notificationActions?: boolean
+    documents?: boolean
   }
 }
 export type Summary = {
@@ -67,7 +72,7 @@ export type TextMessage = {
 } & {
   preparation?: (Omit<Preparation, 'status'> & { status: string })[]
   parts: (
-    | Extract<MessagePart, { kind: 'text' | 'removed' }>
+    | Extract<MessagePart, { kind: 'text' | 'removed' | 'document' }>
     | (Omit<Extract<MessagePart, { kind: 'file' }>, 'purpose'> & {
         purpose: string
       })
@@ -138,6 +143,8 @@ export type WireEvent = Omit<TextEvent, 'version' | 'type' | 'data'> & {
     | 'notification'
     | 'thread-removed'
     | 'notification-removed'
+    | 'document-changed'
+    | 'document-removed'
     | DirectoryEventType
     | 'unsupported'
   data:
@@ -149,6 +156,8 @@ export type WireEvent = Omit<TextEvent, 'version' | 'type' | 'data'> & {
     | Notice
     | ThreadRemoved
     | NotificationRemoved
+    | DocumentSummary
+    | { id: string }
     | DirectoryEvent['data']
     | null
 }
@@ -162,6 +171,8 @@ const eventTypes = new Set([
   'notification',
   'thread-removed',
   'notification-removed',
+  'document-changed',
+  'document-removed',
 ])
 
 /** Core refusals that end a request for good; the client explains them in plain words. */
@@ -257,6 +268,13 @@ export function parseMessage(value: unknown): TextMessage {
         TextMessage['parts'][number],
         { kind: 'file' | 'removed' }
       >
+    }
+    if (part.kind === 'document') {
+      check(
+        typeof part.documentId === 'string' &&
+          Number.isSafeInteger(part.revision),
+      )
+      return part as Extract<MessagePart, { kind: 'document' }>
     }
     return { kind: 'unknown', originalKind: part.kind }
   })
@@ -423,6 +441,11 @@ export function parseWireEvent(
   } else if (threadId === null && type === 'thread-removed') {
     check(record(value.data) && typeof value.data.threadId === 'string')
     data = value.data as ThreadRemoved
+  } else if (threadId === null && type === 'document-changed')
+    data = parseDocumentSummary(value.data)
+  else if (threadId === null && type === 'document-removed') {
+    check(record(value.data) && typeof value.data.id === 'string')
+    data = value.data as { id: string }
   } else if (threadId === null && directoryEventTypes.has(type))
     data = parseDirectoryEvent(type as DirectoryEventType, value.data).data
   else return skipped
@@ -486,6 +509,9 @@ export class TextClient {
             typeof data.capabilities.voiceRecording === 'boolean' &&
             ['undefined', 'boolean'].includes(
               typeof data.capabilities.notificationActions,
+            ) &&
+            ['undefined', 'boolean'].includes(
+              typeof data.capabilities.documents,
             ))),
     )
     return data as Bootstrap

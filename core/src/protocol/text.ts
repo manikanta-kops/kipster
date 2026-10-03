@@ -1,6 +1,7 @@
 import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
 import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange, interfacePreferencesRecord } from './admin.js'
 import { updateStatus } from './updates.js'
+import { documentPart, documentRemoved, documentSummary } from './documents.js'
 
 export const WIRE_MAJOR = 1
 const id = nonempty() // Opaque: consumers must not decode identity or scope from its spelling.
@@ -16,7 +17,7 @@ export const filePart = object({ kind: literal('file'), artifactId: id, purpose:
 export type TextPart = Infer<typeof textPart> | Infer<typeof filePart>
 /** A file that was removed with its owner, such as a permanently deleted agent. Messages never submit it. */
 export const removedPart = object({ kind: literal('removed'), artifactId: id })
-const messagePart = union(textPart, filePart, removedPart)
+const messagePart = union(textPart, filePart, removedPart, documentPart)
 export type MessagePart = Infer<typeof messagePart>
 const partList = array(union(textPart, filePart))
 const parts: Schema<Infer<typeof partList>> = { describe: () => ({ ...partList.describe(), min: 1, max: 32 }), parse(value: unknown, path = '$') {
@@ -148,6 +149,8 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('interface-changed'), data: interfacePreferencesRecord }, false),
   object({ ...eventBase, type: literal('identity-changed'), data: identityChange }, false),
   object({ ...eventBase, type: literal('instructions-changed'), data: instructionsChange }, false),
+  object({ ...eventBase, type: literal('document-changed'), data: documentSummary }, false),
+  object({ ...eventBase, type: literal('document-removed'), data: documentRemoved }, false),
   object({ ...eventBase, type: literal('resync-required') }, false),
 )
 export type TextEvent = Infer<typeof textEvent>

@@ -372,6 +372,7 @@ export function createAdministration(options: Options = {}) {
       voiceRecording: true,
       interfacePreferences: true,
       notificationActions: true,
+      documents: true,
     },
   })
   const adapters = () => ({

@@ -10,6 +10,7 @@ export default defineConfig({
     'durable-text.spec.ts',
     'real-voice.spec.ts',
     'management-core.spec.ts',
+    'real-documents.spec.ts',
   ],
   workers: 1,
   timeout: 60000,

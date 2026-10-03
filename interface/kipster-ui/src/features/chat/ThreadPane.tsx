@@ -1,19 +1,16 @@
 import { type ReactNode, type RefObject } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Icon } from '../../components/Icon'
-import { quickFade } from '../../app/motion'
+import {
+  inspectorArrive,
+  inspectorAway,
+  inspectorExit,
+  quickFade,
+} from '../../app/motion'
 import { Avatar } from './Message'
 import type { Agent, Thread } from './model'
 import { StatusIsland } from '../status/StatusIsland'
 import type { LiveState } from '../status/live-state'
-
-/** The inspector swings in from the right edge, like a page turning toward you. */
-const inspectorAway = { opacity: 0, x: '108%', rotateY: -14 }
-const inspectorArrive = {
-  default: { type: 'spring', stiffness: 210, damping: 27, mass: 0.9 },
-  opacity: { duration: 0.2 },
-} as const
-const inspectorExit = { duration: 0.32, ease: [0.4, 0, 0.8, 0.2] } as const
 
 export function ThreadPane({
   thread,

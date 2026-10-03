@@ -54,7 +54,9 @@ export function ConversationRecovery({
                         ? `Artifact: ${part.artifactId}`
                         : part.type === 'removed'
                           ? 'File removed'
-                          : `Unsupported content: ${part.originalKind}`,
+                          : part.type === 'document'
+                            ? 'Rich doc'
+                            : `Unsupported content: ${part.originalKind}`,
                 )
                 .join('\n')}
             </p>

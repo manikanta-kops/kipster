@@ -100,42 +100,46 @@ export async function authorizedChat(client: SqlClient, actor: TrustedActor, con
 
 export async function acceptText(db: Postgres, jobs: Jobs, artifacts: ArtifactService, actor: TrustedActor, submission: TextSubmission): Promise<AcceptedReceipt> {
   if (submission.scope.installationId !== actor.installationId || submission.scope.callerId !== actor.personId) throw new Error('Caller scope mismatch')
-  return db.transaction(async client => {
-    let agentId = ''
-    const receipt = await acceptIntent(client, jobs, actor, submission.submissionId,
-      async c => { agentId = (await authorizedChat(c, actor, submission.target.context, submission.target.chatId, true)).agent_id },
-      async (c, intentId) => {
-        // Only new work needs the membership; a repeated submission ID returns its receipt first.
-        await requireAgentInContext(c, actor, submission.target.context, agentId)
-        const files=submission.parts.flatMap((part,index)=>part.kind==='file'?[{part,index}]:[])
-        if(files.length>MAX_FILES_PER_MESSAGE)throw new Error('Invalid file count')
-        let total=0
-        for(const {part} of files){const record=await artifacts.authorizedArtifact(c,actor,submission.target.context,part.artifactId);total+=Number(record.size_bytes);if(total>MAX_MESSAGE_FILE_BYTES)throw new Error('Invalid total file size')}
-        let threadId = submission.mode === 'root' ? randomUUID() : submission.threadId
-        if (submission.mode === 'root') {
-          await c.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2)', [threadId, submission.target.chatId])
-        } else {
-          const found = await c.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2 AND internal=false', [threadId, submission.target.chatId])
-          if (!found.rows.length) throw new Error('Thread not found in chat')
-        }
-        // Row lock serializes canonical positions and all later thread event positions.
-        const counter = (await c.query<{ next_message_position: string; next_queue_position: string }>('SELECT next_message_position,next_queue_position FROM kipster.threads WHERE id=$1 FOR UPDATE', [threadId])).rows[0]!
-        const messageId = randomUUID()
-        const position = Number(counter.next_message_position), queuePosition = Number(counter.next_queue_position)
-        await c.query('UPDATE kipster.threads SET next_message_position=next_message_position+1,next_queue_position=next_queue_position+1,revision=revision+1 WHERE id=$1', [threadId])
-        await c.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts) VALUES ($1,$2,$3,$4,$5::jsonb)', [messageId, threadId, position, actor.personId, JSON.stringify(submission.parts)])
-        for(const {part,index} of files){
-          const record=await artifacts.authorizedArtifact(c,actor,submission.target.context,part.artifactId)
-          await c.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index,part.artifactId,part.purpose])
-          if(part.purpose==='voice_note')await c.query("INSERT INTO kipster.voice_preparations(message_id,ordinal,artifact_id,source_sha256,status) VALUES ($1,$2,$3,$4,'pending')",[messageId,index,part.artifactId,record.sha256])
-        }
-        await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,$4,$5)', [intentId, threadId, messageId, 'queued', queuePosition])
-        await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'message-final', messageId, 1, await messageRecord(c, messageId), 'queued', messageId)
-        await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'work-changed', intentId, 1, await workRecord(c, intentId), 'queued', null)
-        return { version: 1, status: 'accepted', chatId: submission.target.chatId, threadId, messageId, runId: intentId }
-      })
-    return { ...receipt, version: 1, status: 'accepted', chatId: String(receipt.chatId), threadId: String(receipt.threadId), messageId: String(receipt.messageId), runId: String(receipt.runId) } as AcceptedReceipt
-  })
+  return db.transaction(client => acceptTextIn(client, jobs, artifacts, actor, submission))
+}
+
+/** `acceptText` in the caller's transaction. `coreParts` are parts Core appends after the submitted ones, such as a document card. */
+export async function acceptTextIn(client: SqlClient, jobs: Jobs, artifacts: ArtifactService, actor: TrustedActor, submission: TextSubmission, coreParts: readonly MessagePart[] = []): Promise<AcceptedReceipt> {
+  if (submission.scope.installationId !== actor.installationId || submission.scope.callerId !== actor.personId) throw new Error('Caller scope mismatch')
+  let agentId = ''
+  const receipt = await acceptIntent(client, jobs, actor, submission.submissionId,
+    async c => { agentId = (await authorizedChat(c, actor, submission.target.context, submission.target.chatId, true)).agent_id },
+    async (c, intentId) => {
+      // Only new work needs the membership; a repeated submission ID returns its receipt first.
+      await requireAgentInContext(c, actor, submission.target.context, agentId)
+      const files=submission.parts.flatMap((part,index)=>part.kind==='file'?[{part,index}]:[])
+      if(files.length>MAX_FILES_PER_MESSAGE)throw new Error('Invalid file count')
+      let total=0
+      for(const {part} of files){const record=await artifacts.authorizedArtifact(c,actor,submission.target.context,part.artifactId);total+=Number(record.size_bytes);if(total>MAX_MESSAGE_FILE_BYTES)throw new Error('Invalid total file size')}
+      let threadId = submission.mode === 'root' ? randomUUID() : submission.threadId
+      if (submission.mode === 'root') {
+        await c.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2)', [threadId, submission.target.chatId])
+      } else {
+        const found = await c.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2 AND internal=false', [threadId, submission.target.chatId])
+        if (!found.rows.length) throw new Error('Thread not found in chat')
+      }
+      // Row lock serializes canonical positions and all later thread event positions.
+      const counter = (await c.query<{ next_message_position: string; next_queue_position: string }>('SELECT next_message_position,next_queue_position FROM kipster.threads WHERE id=$1 FOR UPDATE', [threadId])).rows[0]!
+      const messageId = randomUUID()
+      const position = Number(counter.next_message_position), queuePosition = Number(counter.next_queue_position)
+      await c.query('UPDATE kipster.threads SET next_message_position=next_message_position+1,next_queue_position=next_queue_position+1,revision=revision+1 WHERE id=$1', [threadId])
+      await c.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts) VALUES ($1,$2,$3,$4,$5::jsonb)', [messageId, threadId, position, actor.personId, JSON.stringify([...submission.parts, ...coreParts])])
+      for(const {part,index} of files){
+        const record=await artifacts.authorizedArtifact(c,actor,submission.target.context,part.artifactId)
+        await c.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index,part.artifactId,part.purpose])
+        if(part.purpose==='voice_note')await c.query("INSERT INTO kipster.voice_preparations(message_id,ordinal,artifact_id,source_sha256,status) VALUES ($1,$2,$3,$4,'pending')",[messageId,index,part.artifactId,record.sha256])
+      }
+      await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,$4,$5)', [intentId, threadId, messageId, 'queued', queuePosition])
+      await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'message-final', messageId, 1, await messageRecord(c, messageId), 'queued', messageId)
+      await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'work-changed', intentId, 1, await workRecord(c, intentId), 'queued', null)
+      return { version: 1, status: 'accepted', chatId: submission.target.chatId, threadId, messageId, runId: intentId }
+    })
+  return { ...receipt, version: 1, status: 'accepted', chatId: String(receipt.chatId), threadId: String(receipt.threadId), messageId: String(receipt.messageId), runId: String(receipt.runId) } as AcceptedReceipt
 }
 
 export async function runContext(db: Postgres, runId: string): Promise<{ actor: TrustedActor; context: Context; agentId: string; threadId: string; chatId: string; inputMessageId: string } | null> {

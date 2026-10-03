@@ -25,6 +25,36 @@ import { BuildingsIcon } from '@phosphor-icons/react/dist/csr/Buildings'
 import { HandIcon } from '@phosphor-icons/react/dist/csr/Hand'
 import { InfoIcon } from '@phosphor-icons/react/dist/csr/Info'
 import { QuestionMarkIcon } from '@phosphor-icons/react/dist/csr/QuestionMark'
+import { DotsSixVerticalIcon } from '@phosphor-icons/react/dist/csr/DotsSixVertical'
+import { ChatTeardropTextIcon } from '@phosphor-icons/react/dist/csr/ChatTeardropText'
+import { ListChecksIcon } from '@phosphor-icons/react/dist/csr/ListChecks'
+import { SlidersHorizontalIcon } from '@phosphor-icons/react/dist/csr/SlidersHorizontal'
+import { ImageIcon } from '@phosphor-icons/react/dist/csr/Image'
+import { TableIcon } from '@phosphor-icons/react/dist/csr/Table'
+import { CodeIcon } from '@phosphor-icons/react/dist/csr/Code'
+import { TextTIcon } from '@phosphor-icons/react/dist/csr/TextT'
+import { TextHTwoIcon } from '@phosphor-icons/react/dist/csr/TextHTwo'
+import { TextHThreeIcon } from '@phosphor-icons/react/dist/csr/TextHThree'
+import { ListBulletsIcon } from '@phosphor-icons/react/dist/csr/ListBullets'
+import { ListNumbersIcon } from '@phosphor-icons/react/dist/csr/ListNumbers'
+import { QuotesIcon } from '@phosphor-icons/react/dist/csr/Quotes'
+import { MinusIcon } from '@phosphor-icons/react/dist/csr/Minus'
+import { CaretRightIcon } from '@phosphor-icons/react/dist/csr/CaretRight'
+import { ArrowCounterClockwiseIcon } from '@phosphor-icons/react/dist/csr/ArrowCounterClockwise'
+import { ClockCounterClockwiseIcon } from '@phosphor-icons/react/dist/csr/ClockCounterClockwise'
+import { EyeIcon } from '@phosphor-icons/react/dist/csr/Eye'
+import { TrashIcon } from '@phosphor-icons/react/dist/csr/Trash'
+import { ArrowDownIcon } from '@phosphor-icons/react/dist/csr/ArrowDown'
+import { CopyIcon } from '@phosphor-icons/react/dist/csr/Copy'
+import { LinkIcon } from '@phosphor-icons/react/dist/csr/Link'
+import { TextBIcon } from '@phosphor-icons/react/dist/csr/TextB'
+import { TextItalicIcon } from '@phosphor-icons/react/dist/csr/TextItalic'
+import { WarningIcon } from '@phosphor-icons/react/dist/csr/Warning'
+import { CheckCircleIcon } from '@phosphor-icons/react/dist/csr/CheckCircle'
+import { PaperclipIcon } from '@phosphor-icons/react/dist/csr/Paperclip'
+import { ArticleIcon } from '@phosphor-icons/react/dist/csr/Article'
+import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple'
+import { LightbulbIcon } from '@phosphor-icons/react/dist/csr/Lightbulb'
 
 const icons = {
   bell: BellIcon,
@@ -53,6 +83,36 @@ const icons = {
   hand: HandIcon,
   info: InfoIcon,
   question: QuestionMarkIcon,
+  drag: DotsSixVerticalIcon,
+  comment: ChatTeardropTextIcon,
+  checklist: ListChecksIcon,
+  slider: SlidersHorizontalIcon,
+  image: ImageIcon,
+  table: TableIcon,
+  code: CodeIcon,
+  text: TextTIcon,
+  heading: TextHTwoIcon,
+  subheading: TextHThreeIcon,
+  list: ListBulletsIcon,
+  numbered: ListNumbersIcon,
+  quote: QuotesIcon,
+  divider: MinusIcon,
+  caret: CaretRightIcon,
+  undo: ArrowCounterClockwiseIcon,
+  history: ClockCounterClockwiseIcon,
+  eye: EyeIcon,
+  trash: TrashIcon,
+  down: ArrowDownIcon,
+  copy: CopyIcon,
+  link: LinkIcon,
+  bold: TextBIcon,
+  italic: TextItalicIcon,
+  warning: WarningIcon,
+  success: CheckCircleIcon,
+  attach: PaperclipIcon,
+  doc: ArticleIcon,
+  pencil: PencilSimpleIcon,
+  lightbulb: LightbulbIcon,
 } as const
 
 /** Direct imports keep unused icons out of the development module graph too. */

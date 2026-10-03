@@ -79,6 +79,7 @@ export type ContentPart =
   | { type: 'local-file'; file: Attachment }
   | { type: 'unknown'; originalKind: string }
   | { type: 'removed'; artifactId: string }
+  | { type: 'document'; documentId: string; revision: number }
 export type Preparation = Omit<
   NonNullable<ThreadSnapshot['messages'][number]['preparation']>[number],
   'status'

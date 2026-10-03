@@ -29,7 +29,8 @@ Pass `coreVersion` or `protocol` to `createFakeCore` to start with others.
 The handler supplies bootstrap and directory discovery, direct chats, text
 submissions and receipts, application/thread snapshots and SSE, work controls
 and interaction answers, notifications, media, settings, identity files,
-administration and lifecycle operations. It intentionally has no backward
+administration and lifecycle operations, and rich docs (`/v1/documents`
+routes with `document-changed` and `document-removed` events). It intentionally has no backward
 history endpoint. Snapshots page messages/work and threads/notifications using
 Core's cursors; a mutation between pages requires a fresh snapshot. Events have
 separate application/thread replay logs, bounded to 2,000 events per scope.
@@ -40,6 +41,10 @@ delegation, a failure with held follow-ups, publications and a synthetic audio
 sample. New submissions progress every 1.8 seconds through running, a draft,
 and a question; answering completes the work. The synthetic transcription
 provider returns sample text and does not transcribe uploaded audio.
+A seeded thread shares a rich doc that Atlas revised once. Submitting a doc
+starts a scripted kip run in its thread: advancing it resolves open comments,
+records answered questions and publishes one new revision. `/__demo/inspect`
+includes `documents`.
 
 ## Deterministic tests
 

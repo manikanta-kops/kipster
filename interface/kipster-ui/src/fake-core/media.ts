@@ -332,6 +332,16 @@ export function createFakeMedia(options: {
       })
       return structuredClone(metadata)
     },
+    /** A registered artifact, for routes that authorize access themselves. */
+    read(id: string) {
+      const file = artifacts.get(id)
+      return file?.metadata.availability === 'registered'
+        ? {
+            metadata: structuredClone(file.metadata),
+            bytes: file.bytes.slice(),
+          }
+        : undefined
+    },
     validateParts(
       t: MediaTarget,
       parts: readonly { kind: string; artifactId?: string }[],
