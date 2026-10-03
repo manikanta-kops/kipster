@@ -26,7 +26,7 @@ test('real local database and host survive repeat startup, stop and occupied-por
   Client = postgresClient(installation)
   // Exercise the real adapter's unavailable path without accessing any provider account.
   const fakeBin = join(home, 'test-bin'); await mkdir(fakeBin)
-  await writeFile(join(fakeBin, 'codex'), '#!/bin/sh\necho "No provider in local lifecycle test" >&2\nexit 1\n', { mode: 0o700 })
+  for (const name of ['codex', 'claude']) await writeFile(join(fakeBin, name), '#!/bin/sh\necho "No provider in local lifecycle test" >&2\nexit 1\n', { mode: 0o700 })
   const occupied = createServer((_request, response) => response.end('foreign-owner'))
   await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve))
   t.after(() => occupied.listening ? new Promise(resolve => occupied.close(resolve)) : undefined)
@@ -75,6 +75,7 @@ test('real local database and host survive repeat startup, stop and occupied-por
   const rebuilt = await command()
   assert.match(rebuilt.output, /Backend running:/)
   assert.match(rebuilt.output, /Codex: unavailable/)
+  assert.match(rebuilt.output, /Claude CLI: unavailable/)
   assert.equal(await readFile(join(home, 'postgres/postmaster.pid'), 'utf8'), postgresPID)
   assert.equal(await readFile(identity, 'utf8'), before)
   await command(['--stop'])

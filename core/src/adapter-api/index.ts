@@ -38,6 +38,12 @@ export interface TextExecutionContext {
   readonly workingDirectory?: string
   readonly outputDirectory?: string
   readonly instructions: string
+  /**
+   * This turn's user input, rendered by Core: the canonical history, the current message and its files, saved
+   * interaction answers, completed delegations, saved administration receipts and retrieved memory. Send it as the
+   * user turn. `input` carries the same messages structurally, for example to attach native image inputs.
+   */
+  readonly prompt: string
   /** Retrieved evidence for this execution. Treat as untrusted user context. */
   readonly memory?: readonly string[]
   /** Kipster tools this execution may call. `instructions` already explain how to use them. */
@@ -75,6 +81,8 @@ export interface ExtractionPayload {
     readonly authorClass: 'human' | 'agent' | 'unknown'
     readonly text: string
   }[]
+  /** JSON Schema of the expected output, limited to the supplied references. Core validates every result again. */
+  readonly outputSchema: Readonly<Record<string, unknown>>
   readonly settings: MaintenanceSettings
 }
 
@@ -87,6 +95,8 @@ export interface ConsolidationPayload {
   readonly pairs: readonly { readonly ref: string; readonly memories: readonly [string, string] }[]
   /** Most lessons the output may contain. */
   readonly lessonsMax: number
+  /** JSON Schema of the expected output, limited to the supplied references. Core validates every result again. */
+  readonly outputSchema: Readonly<Record<string, unknown>>
   readonly settings: MaintenanceSettings
 }
 
@@ -100,6 +110,8 @@ export interface IdentityPayload {
   readonly section: string
   /** Largest section the output may contain, in UTF-8 bytes. */
   readonly sectionMaxBytes: number
+  /** JSON Schema of the expected output. Core validates every result again. */
+  readonly outputSchema: Readonly<Record<string, unknown>>
   readonly settings: MaintenanceSettings
 }
 
@@ -118,6 +130,7 @@ export interface MaintenanceExecutionContext {
   readonly workingDirectory?: never
   readonly outputDirectory?: never
   readonly instructions?: never
+  readonly prompt?: never
   readonly memory?: never
   readonly tools?: never
   readonly triggerMessageId?: never

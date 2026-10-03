@@ -63,6 +63,15 @@ export const MAINTENANCE_INSTRUCTIONS_V1 = [
   'Output schema: {"candidates": [{"kind": "fact", "text": "...", "subject": "...", "author_id": "...", "author_class": "human", "importance": 0.5, "explicit": false, "citations": [{"message_id": "...", "revision": 1, "parts_hash": "...", "excerpt": "..."}]}]}.',
 ].join('\n')
 
+const only = (values: readonly (string | number)[]) => values.length ? { enum: [...new Set(values)] } : {}
+/** JSON Schema for extraction output, limited to the supplied citation references. Every property is required, so
+ * strict structured output accepts it; `importance` is nullable and null means the default. */
+export function extractionOutputSchema(sources: readonly { messageId: string; revision: number; partsHash: string; authorId: string }[]): Record<string, unknown> {
+  const citation = { type: 'object', additionalProperties: false, required: ['message_id', 'revision', 'parts_hash', 'excerpt'], properties: { message_id: { type: 'string', ...only(sources.map(source => source.messageId)) }, revision: { type: 'integer', ...only(sources.map(source => source.revision)) }, parts_hash: { type: 'string', ...only(sources.map(source => source.partsHash)) }, excerpt: { type: 'string' } } }
+  const candidate = { type: 'object', additionalProperties: false, required: ['kind', 'text', 'subject', 'author_id', 'author_class', 'importance', 'explicit', 'citations'], properties: { kind: { type: 'string', enum: ['fact', 'observation', 'episode'] }, text: { type: 'string' }, subject: { type: 'string' }, author_id: { type: 'string', ...only(sources.map(source => source.authorId)) }, author_class: { type: 'string', enum: ['human', 'agent', 'unknown'] }, importance: { type: ['number', 'null'], minimum: 0, maximum: 1 }, explicit: { type: 'boolean' }, citations: { type: 'array', minItems: 1, items: citation } } }
+  return { type: 'object', additionalProperties: false, required: ['candidates'], properties: { candidates: { type: 'array', maxItems: MAINTENANCE_LIMITS.outputCandidatesMax, items: candidate } } }
+}
+
 export type MaintenanceSourceStatus = 'ready' | 'claimed' | 'issued' | 'recovery' | 'committed' | 'skipped' | 'fenced' | 'superseded' | 'source_deleted'
 export type MaintenanceRunState = 'queued' | 'preparing' | 'running' | 'recovery-needed' | 'completed' | 'failed'
 /** A maintenance run extracts one conversation source, or runs one model step of a sleep: consolidation or identity promotion. */
@@ -701,7 +710,7 @@ export class MaintenanceService {
       if (typeof row.subject !== 'string' || !validIdentityText(row.subject, MAINTENANCE_LIMITS.subjectMax)) return { invalid: 'malformed_output' }
       if (typeof row.author_id !== 'string' || !uuid.test(row.author_id)) return { invalid: 'malformed_output' }
       if (row.author_class !== 'human' && row.author_class !== 'agent' && row.author_class !== 'unknown') return { invalid: 'malformed_output' }
-      if (row.importance !== undefined && (typeof row.importance !== 'number' || !(row.importance >= 0 && row.importance <= 1))) return { invalid: 'malformed_output' }
+      if (row.importance !== undefined && row.importance !== null && (typeof row.importance !== 'number' || !(row.importance >= 0 && row.importance <= 1))) return { invalid: 'malformed_output' }
       if (row.explicit !== undefined && typeof row.explicit !== 'boolean') return { invalid: 'malformed_output' }
       if (!Array.isArray(row.citations) || !row.citations.length) return { invalid: 'malformed_output' }
       const citations: CandidateCitation[] = []

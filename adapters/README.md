@@ -8,7 +8,7 @@ through a factory. Keep provider-specific code inside the adapter. Core passes e
 execution adapter a private `host.dataDirectory` (`<Kipster home>/providers/<adapter id>`)
 for its own state.
 
-The Codex CLI package implements text execution and memory maintenance with durable recovery. The separate Spokenly package implements Core's transcription contract and is selected explicitly during runtime assembly.
+The Codex CLI and Claude CLI packages implement text execution and memory maintenance with durable recovery. Core renders each turn's user input as `context.prompt` and supplies each maintenance task's result schema as `outputSchema`; adapters send them as they are. The separate Spokenly package implements Core's transcription contract and is selected explicitly during runtime assembly.
 
 A transcription package exports `createTranscriptionProvider(options)` and declares its accepted MIME types in `inputTypes`. It receives `options` from `host.json`; API keys belong in the host's `environment` settings and should be read from the process environment.
 

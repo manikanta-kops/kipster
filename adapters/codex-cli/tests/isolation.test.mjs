@@ -55,7 +55,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const x=JSON.pa
   Object.assign(process.env, { PATH: `${directory}:${process.env.PATH}`, CODEX_HOME: userHome, OPENAI_API_KEY: 'ambient-key', OPENAI_BASE_URL: 'http://ambient.invalid', CODEX_SQLITE_HOME: join(directory, 'ambient-sqlite') })
   const adapter = createAdapter({ dataDirectory: data, now: () => new Date().toISOString(), async invokeTool() { throw new Error('Unexpected tool') } })
   const records = async () => (await readFile(log, 'utf8').catch(() => '')).split('\n').filter(Boolean).map(line => JSON.parse(line))
-  const context = { runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: agentHome, instructions: 'Current', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello' }], triggerMessageId: 'message' }
+  const context = { runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: agentHome, instructions: 'Current',prompt:'Current message', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello' }], triggerMessageId: 'message' }
   const mode = value => writeFile(modeFile, value)
   const cleanup = async () => { await adapter.close(); for (const key of Object.keys(process.env)) if (!(key in previous)) delete process.env[key]; Object.assign(process.env, previous); await rm(directory, { recursive: true, force: true }) }
   return { directory, userHome, data, adapter, records, context, mode, cleanup }

@@ -35,7 +35,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const adapter = createAdapter({ dataDirectory: join(directory, 'state'), now: () => '', async invokeTool() { throw new Error('unexpected tool') } }, { executable, codexHome: home })
   t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
   assert.equal((await adapter.readiness()).ready, true)
-  const handle = await adapter.execute({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello', parts:[{kind:'text',text:'Hello'},{kind:'file',artifactId:'photo',purpose:'attachment',name:'photo.png',mimeType:'image/png',size:10,availability:'available',readablePath:'/managed/photo.png'}] }], triggerMessageId: 'message' })
+  const handle = await adapter.execute({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '',prompt:'Current message', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello', parts:[{kind:'text',text:'Hello'},{kind:'file',artifactId:'photo',purpose:'attachment',name:'photo.png',mimeType:'image/png',size:10,availability:'available',readablePath:'/managed/photo.png'}] }], triggerMessageId: 'message' })
   const events = []
   for await (const event of handle.events) events.push(event)
   assert.deepEqual(events.filter(e => e.kind === 'text').map(({ messageId, text, final }) => ({ messageId, text, final })), [

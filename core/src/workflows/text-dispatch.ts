@@ -1,5 +1,6 @@
 import { coalesceDrafts } from './draft-events.js'
 import { administrationReceipts } from '../modules/administration/public.js'
+import { turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { randomUUID } from 'node:crypto'
 import { recoveryCompatible } from '../adapter-api/index.js'
@@ -21,7 +22,7 @@ import { publishThreadChange, createNotification, interactionNotificationChanged
 import { askInteraction, interactionRecord, type InteractionInput } from '../modules/work/public.js'
 import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
-import { MaintenanceService, SleepService, MAINTENANCE_LIMITS, MAINTENANCE_INSTRUCTIONS_V1, MAINTENANCE_SWEEP_JOB_ID, CONSOLIDATION, consolidationPrompt, promotionPrompt } from '../modules/memory/public.js'
+import { MaintenanceService, SleepService, MAINTENANCE_LIMITS, MAINTENANCE_INSTRUCTIONS_V1, MAINTENANCE_SWEEP_JOB_ID, CONSOLIDATION, consolidationPrompt, promotionPrompt, consolidationOutputSchema, extractionOutputSchema, PROMOTION_OUTPUT_SCHEMA } from '../modules/memory/public.js'
 import type { MaintenanceSettleMode, MaintenanceSource, SleepRunClaim } from '../modules/memory/public.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
@@ -735,7 +736,8 @@ export class TextDispatcher {
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
       const tools = executionTools({ organization: organizationId !== null, memory: !!this.runtime.memory, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
       const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
-      execution = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      execution = { ...prepared, prompt: turnPrompt(prepared) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -891,6 +893,7 @@ export class TextDispatcher {
             messageId: entry.messageId, position: entry.position, revision: entry.revision, partsHash: entry.partsHash,
             authorId: entry.authorId, authorClass: entry.authorClass, text: entry.text,
           })),
+          outputSchema: extractionOutputSchema(verified),
           settings: {
             adapterId, modelId,
             ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}),
@@ -953,12 +956,12 @@ export class TextDispatcher {
         const { input } = sleepRun
         const prompt = await this.runtime.db.transaction(client => promotionPrompt(client, this.runtime.home.identity, installationId, agentId, input))
         if (!prompt) return await fail('identity.md changed')
-        maintenance = { task: 'identity', ...prompt, settings }
+        maintenance = { task: 'identity', ...prompt, outputSchema: PROMOTION_OUTPUT_SCHEMA, settings }
       } else {
         const { input } = sleepRun
         const prompt = await this.runtime.db.transaction(client => consolidationPrompt(client, installationId, agentId, input))
         if (!prompt) return await fail('inputs changed')
-        maintenance = { task: 'consolidate', ...prompt, lessonsMax: CONSOLIDATION.lessons, settings }
+        maintenance = { task: 'consolidate', ...prompt, lessonsMax: CONSOLIDATION.lessons, outputSchema: consolidationOutputSchema(prompt.memories, prompt.pairs, CONSOLIDATION.lessons), settings }
       }
       const execution: MaintenanceExecutionContext = {
         kind: 'maintenance', runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation,
