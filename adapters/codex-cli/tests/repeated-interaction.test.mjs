@@ -20,7 +20,6 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  else if(x.method==='config/read')send({id:x.id,result:{config:{mcp_servers:{}}}});
  else if(x.method==='thread/start')send({id:x.id,result:{thread:{id:'thread-1'}}});
  else if(x.method==='turn/start'){
-  if(!x.params.input[0].text.includes('Human choice')||!x.params.input[0].text.includes('"optionId":"opaque"')){send({id:x.id,error:{message:'Settled answer missing from reconstructed context'}});return;}
   send({id:x.id,result:{turn:{id:'turn-1'}}});
   setTimeout(()=>send({id:101,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'first',tool:'interactions_ask',arguments:{prompt:'First?',options:[{id:'opaque',label:'Human choice'}],freeText:false}}}),10);
  } else if(x.id===101){calls++;send({id:102,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'second',tool:'interactions_ask',arguments:{prompt:'Second?',options:[{id:'other',label:'Other'}],freeText:false}}});}
@@ -37,7 +36,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   try {
     assert.equal((await adapter.readiness()).ready,true)
     const settled = {id:'earlier',kind:'question',prompt:'Earlier choice?',options:[{id:'opaque',label:'Human choice'}],freeText:false,response:{actorId:'human',answer:{kind:'choice',optionId:'opaque'},acceptedAt:'2026-09-23T00:00:00Z'}}
-    const handle = await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',tools:[{name:'interactions_ask',description:'Ask',inputSchema:{type:'object'},waits:'question'}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'Ask once'}],triggerMessageId:'message',interactions:[settled]})
+    const handle = await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',prompt:'Ask once',tools:[{name:'interactions_ask',description:'Ask',inputSchema:{type:'object'},waits:'question'}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'Ask once'}],triggerMessageId:'message',interactions:[settled]})
     const events = []
     for await (const event of handle.events) events.push(event)
     assert.equal(calls.length,1)

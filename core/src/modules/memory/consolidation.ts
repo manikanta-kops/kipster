@@ -112,6 +112,14 @@ export async function consolidationPrompt(client: SqlClient, installationId: str
   return { instructions, memories: memories.map(({ ref, text }) => ({ ref, text })), pairs }
 }
 
+/** JSON Schema for consolidation output: a verdict per supplied pair and lessons citing supplied memories. */
+export function consolidationOutputSchema(memories: readonly { ref: string }[], pairs: readonly { ref: string }[], lessonsMax: number): Record<string, unknown> {
+  const only = (values: readonly string[]) => values.length ? { enum: values } : {}
+  const verdict = { type: 'object', additionalProperties: false, required: ['pair', 'verdict'], properties: { pair: { type: 'string', ...only(pairs.map(pair => pair.ref)) }, verdict: { type: 'string', enum: ['same', 'contradicts', 'related', 'none'] } } }
+  const lesson = { type: 'object', additionalProperties: false, required: ['text', 'memories'], properties: { text: { type: 'string' }, memories: { type: 'array', minItems: 2, items: { type: 'string', ...only(memories.map(memory => memory.ref)) } } } }
+  return { type: 'object', additionalProperties: false, required: ['verdicts', 'lessons'], properties: { verdicts: { type: 'array', maxItems: pairs.length, items: verdict }, lessons: { type: 'array', maxItems: lessonsMax, items: lesson } } }
+}
+
 /** Validates model output against the frozen input. A structural deviation (not an object, missing arrays, too many
  * items, an unknown or repeated pair, an unknown verdict) makes the whole answer malformed. A lesson that breaks the
  * lesson rules is only skipped. */

@@ -82,7 +82,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const x=JSON.pa
   }
   return { directory, userHome, data, adapter, records, mode, launcher, cleanup }
 }
-const context = (attemptId = 'attempt-1') => ({ kind: 'maintenance', runId: 'maintenance-run', attemptId, organizationId: null, agentId: 'agent', maintenance: { task: 'extract', sourceRunId: 'source-run', sourceRevision: 1, contextKind: 'installation', contextId: 'installation', instructions: 'Extract durable memory candidates.\n--- message message-1 ---\nThe Amsterdam office opens at nine.', sources: [{ messageId: 'message-1', position: 1, revision: 1, partsHash: 'hash-1', authorId: author, authorClass: 'human', text: 'The Amsterdam office opens at nine.' }], settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } })
+const extractionSchema = { type: 'object', additionalProperties: false, required: ['candidates'], properties: { candidates: { type: 'array', maxItems: 8 } } }
+const context = (attemptId = 'attempt-1') => ({ kind: 'maintenance', runId: 'maintenance-run', attemptId, organizationId: null, agentId: 'agent', maintenance: { task: 'extract', sourceRunId: 'source-run', sourceRevision: 1, contextKind: 'installation', contextId: 'installation', instructions: 'Extract durable memory candidates.\n--- message message-1 ---\nThe Amsterdam office opens at nine.', sources: [{ messageId: 'message-1', position: 1, revision: 1, partsHash: 'hash-1', authorId: author, authorClass: 'human', text: 'The Amsterdam office opens at nine.' }], outputSchema: extractionSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } })
 async function collect(handle) { const events = []; for await (const event of handle.events) events.push(event); return events }
 async function run(f, mode) {
   await f.mode(mode)
@@ -120,7 +121,7 @@ test('extraction runs as an isolated, tool-free, ephemeral thread and returns th
     assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
     const [provider, text] = events
     assert.equal(text.final, true)
-    assert.equal(text.text, JSON.stringify(output), 'a result without importance passes through unchanged')
+    assert.equal(text.text, JSON.stringify(output), 'the result reaches Core unchanged')
     assert.equal(provider.threadId.startsWith('thread-'), true)
     assert.equal(provider.providerStateScope, 'shared-codex-home')
     assert.equal(provider.modelId, 'test-model')
@@ -152,25 +153,17 @@ test('extraction runs as an isolated, tool-free, ephemeral thread and returns th
     const turn = calls.findLast(record => record.method === 'turn/start').params
     assert.equal(turn.model, 'test-model')
     assert.equal(turn.effort, 'low')
-    assert.equal(turn.input[0].text, `${context().maintenance.instructions}\n\nCitation references, one per supplied message; copy them exactly:\n${JSON.stringify({ message_id: 'message-1', revision: 1, parts_hash: 'hash-1', author_id: author, author_class: 'human' })}`)
-    assert.deepEqual(turn.outputSchema.required, ['candidates'])
-    assert.equal(turn.outputSchema.properties.candidates.maxItems, 8)
-    const candidate = turn.outputSchema.properties.candidates.items
-    assert.deepEqual(candidate.required, ['kind', 'text', 'subject', 'author_id', 'author_class', 'importance', 'explicit', 'citations'])
-    assert.deepEqual(candidate.properties.importance, { type: ['number', 'null'], minimum: 0, maximum: 1 })
-    assert.deepEqual(candidate.properties.explicit, { type: 'boolean' })
-    assert.deepEqual(candidate.properties.author_id.enum, [author])
-    assert.deepEqual(candidate.properties.citations.items.properties.message_id.enum, ['message-1'])
-    assert.deepEqual(candidate.properties.citations.items.properties.revision.enum, [1])
-    assert.deepEqual(candidate.properties.citations.items.properties.parts_hash.enum, ['hash-1'])
+    assert.deepEqual(turn.input, [{ type: 'text', text: context().maintenance.instructions }])
+    assert.deepEqual(turn.outputSchema, extractionSchema, 'Core supplies the output schema')
     await until(() => gone(provider.processId), 'process exit')
     assert.deepEqual(await readdir(join(f.data, 'maintenance', 'processes')), [])
   } finally { await f.cleanup() }
 })
 
-const consolidation = { kind: 'maintenance', runId: 'consolidation-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'consolidate', instructions: 'Consolidate memories.\n\nMemories:\nm1 (new): The office opens at nine\nm2: The office opens at 9am\nm4: Invoices go out on Fridays\n\nPairs:\np1: m1 m2\np2: m1 m4', memories: [{ ref: 'm1', text: 'The office opens at nine' }, { ref: 'm2', text: 'The office opens at 9am' }, { ref: 'm4', text: 'Invoices go out on Fridays' }], pairs: [{ ref: 'p1', memories: ['m1', 'm2'] }, { ref: 'p2', memories: ['m1', 'm4'] }], lessonsMax: 3, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
+const consolidationSchema = { type: 'object', additionalProperties: false, required: ['verdicts', 'lessons'], properties: { verdicts: { type: 'array', maxItems: 2 }, lessons: { type: 'array', maxItems: 3 } } }
+const consolidation = { kind: 'maintenance', runId: 'consolidation-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'consolidate', instructions: 'Consolidate memories.\n\nMemories:\nm1 (new): The office opens at nine\nm2: The office opens at 9am\nm4: Invoices go out on Fridays\n\nPairs:\np1: m1 m2\np2: m1 m4', memories: [{ ref: 'm1', text: 'The office opens at nine' }, { ref: 'm2', text: 'The office opens at 9am' }, { ref: 'm4', text: 'Invoices go out on Fridays' }], pairs: [{ ref: 'p1', memories: ['m1', 'm2'] }, { ref: 'p2', memories: ['m1', 'm4'] }], lessonsMax: 3, outputSchema: consolidationSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
 
-test('consolidation runs in the same isolated thread with its own strict output schema', async () => {
+test('consolidation runs in the same isolated thread with the schema Core supplies', async () => {
   const f = await fixture()
   try {
     await f.mode('consolidate')
@@ -187,19 +180,16 @@ test('consolidation runs in the same isolated thread with its own strict output 
     assert.deepEqual(turn.input, [{ type: 'text', text: consolidation.maintenance.instructions }])
     assert.equal(turn.model, 'test-model')
     assert.equal(turn.effort, 'low')
-    const schema = turn.outputSchema
-    assert.deepEqual([schema.required, schema.additionalProperties], [['verdicts', 'lessons'], false])
-    assert.deepEqual(schema.properties.verdicts, { type: 'array', maxItems: 2, items: { type: 'object', additionalProperties: false, required: ['pair', 'verdict'], properties: { pair: { type: 'string', enum: ['p1', 'p2'] }, verdict: { type: 'string', enum: ['same', 'contradicts', 'related', 'none'] } } } })
-    assert.deepEqual(schema.properties.lessons, { type: 'array', maxItems: 3, items: { type: 'object', additionalProperties: false, required: ['text', 'memories'], properties: { text: { type: 'string' }, memories: { type: 'array', minItems: 2, items: { type: 'string', enum: ['m1', 'm2', 'm4'] } } } } })
+    assert.deepEqual(turn.outputSchema, consolidationSchema, 'Core supplies the output schema')
     await until(() => gone(events[0].processId), 'process exit')
     const unknown = await collect(await adapter.execute({ ...consolidation, attemptId: 'attempt-3', maintenance: { ...consolidation.maintenance, task: 'summarize' } }))
     assert.deepEqual(unknown, [{ kind: 'failed', attemptId: 'attempt-3', confirmedEnded: true, message: 'Unsupported maintenance task' }])
   } finally { await f.cleanup() }
 })
 
-const promotion = { kind: 'maintenance', runId: 'identity-run', attemptId: 'attempt-4', organizationId: null, agentId: 'agent', maintenance: { task: 'identity', instructions: 'Rewrite the Learned section.\n\nMemories, strongest first:\nm1: Prefers short summaries\n\nCurrent section:\n(empty)', memories: [{ ref: 'm1', text: 'Prefers short summaries' }], section: '', sectionMaxBytes: 2048, settings: { adapterId: 'codex-cli', modelId: 'test-model' } } }
+const promotion = { kind: 'maintenance', runId: 'identity-run', attemptId: 'attempt-4', organizationId: null, agentId: 'agent', maintenance: { task: 'identity', instructions: 'Rewrite the Learned section.\n\nMemories, strongest first:\nm1: Prefers short summaries\n\nCurrent section:\n(empty)', memories: [{ ref: 'm1', text: 'Prefers short summaries' }], section: '', sectionMaxBytes: 2048, outputSchema: { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string' } } }, settings: { adapterId: 'codex-cli', modelId: 'test-model' } } }
 
-test('identity promotion runs in the same isolated thread with a strict section schema', async () => {
+test('identity promotion runs in the same isolated thread with the schema Core supplies', async () => {
   const f = await fixture()
   try {
     await f.mode('identity')
@@ -220,14 +210,13 @@ test('identity promotion runs in the same isolated thread with a strict section 
   } finally { await f.cleanup() }
 })
 
-test('an emitted importance reaches Core and a null importance is omitted', async () => {
+test('emitted importance values, including null, reach Core unchanged', async () => {
   const f = await fixture()
   try {
     const events = await run(f, 'importance')
     assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
     const result = JSON.parse(events[1].text)
-    assert.deepEqual(result, { candidates: [{ ...output.candidates[0], importance: 0.8 }, unweighted] })
-    assert.equal('importance' in result.candidates[1], false)
+    assert.deepEqual(result, { candidates: [{ ...output.candidates[0], importance: 0.8 }, { ...unweighted, importance: null }] })
   } finally { await f.cleanup() }
 })
 

@@ -6,7 +6,7 @@ import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
 import { lstat, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, sep } from 'node:path'
-import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference, TextExecutionContext } from '@kipster/core/adapter'
+import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference } from '@kipster/core/adapter'
 
 type ObjectValue = Record<string, unknown>
 function object(value: unknown): ObjectValue { return value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : {} }
@@ -145,47 +145,6 @@ const maintenanceProfile: readonly (readonly [string, string])[] = [
 ]
 const maintenanceItems = new Set(['userMessage', 'agentMessage', 'reasoning'])
 const maintenanceInstructions = 'You are a Kipster memory maintenance step. Follow the task in the user message and answer with a single JSON object that matches the output schema. No tools are available.'
-type MaintenancePayload = MaintenanceExecutionContext['maintenance']
-type MaintenanceSources = Extract<MaintenancePayload, { task: 'extract' }>['sources']
-type Consolidation = Extract<MaintenancePayload, { task: 'consolidate' }>
-const only = (values: readonly (string | number)[]) => values.length ? { enum: [...new Set(values)] } : {}
-/** Structured output for Core's extraction contract, limited to the supplied citation references. Core validates every result again. */
-function maintenanceOutputSchema(sources: MaintenanceSources): ObjectValue {
-  const citation = { type: 'object', additionalProperties: false, required: ['message_id', 'revision', 'parts_hash', 'excerpt'], properties: { message_id: { type: 'string', ...only(sources.map(source => source.messageId)) }, revision: { type: 'integer', ...only(sources.map(source => source.revision)) }, parts_hash: { type: 'string', ...only(sources.map(source => source.partsHash)) }, excerpt: { type: 'string' } } }
-  const candidate = { type: 'object', additionalProperties: false, required: ['kind', 'text', 'subject', 'author_id', 'author_class', 'importance', 'explicit', 'citations'], properties: { kind: { type: 'string', enum: ['fact', 'observation', 'episode'] }, text: { type: 'string' }, subject: { type: 'string' }, author_id: { type: 'string', ...only(sources.map(source => source.authorId)) }, author_class: { type: 'string', enum: ['human', 'agent', 'unknown'] }, importance: { type: ['number', 'null'], minimum: 0, maximum: 1 }, explicit: { type: 'boolean' }, citations: { type: 'array', minItems: 1, items: citation } } }
-  return { type: 'object', additionalProperties: false, required: ['candidates'], properties: { candidates: { type: 'array', maxItems: 8, items: candidate } } }
-}
-/** Strict structured output requires every property, so Core's optional `importance` is requested as nullable. A null is removed so Core applies its default; any other text reaches Core unchanged for validation. */
-function maintenanceResult(text: string): string {
-  let parsed: unknown
-  try { parsed = JSON.parse(text) } catch { return text }
-  const candidates = object(parsed).candidates
-  if (!Array.isArray(candidates) || !candidates.some(candidate => object(candidate).importance === null)) return text
-  return JSON.stringify({ ...object(parsed), candidates: candidates.map(candidate => {
-    if (object(candidate).importance !== null) return candidate
-    const rest = { ...object(candidate) }
-    delete rest.importance
-    return rest
-  }) })
-}
-/** Structured output for Core's consolidation contract: a verdict per supplied pair and a few lessons citing supplied memories. Core validates every result again. */
-function consolidationOutputSchema(payload: Consolidation): ObjectValue {
-  const verdict = { type: 'object', additionalProperties: false, required: ['pair', 'verdict'], properties: { pair: { type: 'string', ...only(payload.pairs.map(pair => pair.ref)) }, verdict: { type: 'string', enum: ['same', 'contradicts', 'related', 'none'] } } }
-  const lesson = { type: 'object', additionalProperties: false, required: ['text', 'memories'], properties: { text: { type: 'string' }, memories: { type: 'array', minItems: 2, items: { type: 'string', ...only(payload.memories.map(memory => memory.ref)) } } } }
-  return { type: 'object', additionalProperties: false, required: ['verdicts', 'lessons'], properties: { verdicts: { type: 'array', maxItems: payload.pairs.length, items: verdict }, lessons: { type: 'array', maxItems: payload.lessonsMax, items: lesson } } }
-}
-/** Structured output for Core's identity promotion contract: the new Learned section. Core validates its size and content again. */
-const identityOutputSchema: ObjectValue = { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string' } } }
-/** The turn input and output schema for a maintenance task. Extraction also receives exact citation references. */
-function maintenanceTurn(payload: MaintenancePayload): { text: string; outputSchema: ObjectValue } {
-  if (payload.task === 'consolidate') return { text: payload.instructions, outputSchema: consolidationOutputSchema(payload) }
-  if (payload.task === 'identity') return { text: payload.instructions, outputSchema: identityOutputSchema }
-  return { text: maintenanceInput(payload.instructions, payload.sources), outputSchema: maintenanceOutputSchema(payload.sources) }
-}
-function maintenanceInput(instructions: string, sources: MaintenanceSources): string {
-  const references = sources.map(source => JSON.stringify({ message_id: source.messageId, revision: source.revision, parts_hash: source.partsHash, author_id: source.authorId, author_class: source.authorClass }))
-  return `${instructions}\n\nCitation references, one per supplied message; copy them exactly:\n${references.join('\n')}`
-}
 const recoveryScope = 'shared-codex-home'
 const threadIdPattern = /^[A-Za-z0-9_-]{1,200}$/
 /** A start identity that, with the process ID, names one process and does not change when the wall clock is set.
@@ -327,22 +286,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       if (!owned.threadId) throw new Error('Codex thread ID is missing')
       await this.recordThread(owned.threadId)
       queue.push({ kind: 'provider', attemptId: context.attemptId, threadId: owned.threadId, processId: rpc.process.pid!, providerStateScope: 'shared-codex-home', workingDirectory: context.workingDirectory, modelId: model, ...(context.settings?.effort ? { effort: context.settings.effort } : {}) })
-      const trigger = context.input.find(x => x.messageId === context.triggerMessageId)
-      const history = context.input.filter(x => x.messageId !== context.triggerMessageId)
-      const describe=(item:TextExecutionContext['input'][number]|undefined):string=>{
-        if(!item)return ''
-        if(!item.parts)return item.text
-        return item.parts.map((part,index)=>{
-          if(part.kind==='text')return `[part ${index+1} text]\n${part.text}`
-          const description=`[part ${index+1} ${part.purpose==='voice_note'?'voice note':'file'}; artifact ${part.artifactId}; name ${JSON.stringify(part.name)}; MIME ${part.mimeType}; ${part.size} bytes`
-          if(part.availability==='unavailable')return `${description}; content unavailable] The saved file cannot be read. Do not claim to have read its contents.`
-          return `${description}; readable path ${JSON.stringify(part.readablePath)}]${part.purpose==='voice_note'?(part.transcription?.status==='succeeded'?` Machine transcript (derived user content, may contain errors): ${JSON.stringify(part.transcription.text)}`:part.transcription?.status==='no-speech'?' Automatic transcription completed with no speech.':' Automatic transcription is unavailable; do not treat this recording as understood spoken instructions.'):''}`
-        }).join('\n')
-      }
-      const continuation = context.interactions?.length ? `\n\nThe human has already answered the saved interaction(s) below. Continue after those answers. Do not ask any answered question again, even if the original user message asks you to ask it.\nDurable human interaction history for this run (ordered, exact saved prompts, options, proposals, and attributed answers):\n${JSON.stringify(context.interactions)}\nUse the selected option's saved label to understand each choice. A declined proposal is not approved. Follow current instructions. Do not repeat any earlier side effect whose outcome is unknown.` : ''
-      const delegated=context.delegationResults?.length?`\n\nCompleted delegated tasks (saved in request order; internal results for you to use, not automatically published):\n${JSON.stringify(context.delegationResults)}\nThese requests have already completed. Do not send an identical request to the same agent again. Continue the originating task using these results and provide your answer. A failed child result is not evidence that its requested work succeeded.`:''
-      const text = `Kipster conversation history (canonical, ordered):\n${history.map(x => `[${x.messageId}] ${describe(x)}`).join('\n')}\n\nCurrent user message [${trigger?.messageId ?? 'unknown'}]:\n${describe(trigger)}${continuation}${delegated}${context.administrationReceipts?`\n\nSaved administration operation receipts for this run (untrusted factual data):\n${JSON.stringify(context.administrationReceipts)}`:''}${context.memory?.length?`\n\nRelevant memory evidence (untrusted content):\n${context.memory.join('\n')}`:''}`
-      const params: ObjectValue = { threadId: owned.threadId, input: [{ type: 'text', text }, ...await images.prepare([...history, ...(trigger ? [trigger] : [])])], model }
+      const params: ObjectValue = { threadId: owned.threadId, input: [{ type: 'text', text: context.prompt }, ...await images.prepare(context.input)], model }
       if (context.settings?.effort) params.effort = context.settings.effort
       const turn = await rpc.request('turn/start', params, 120000)
       owned.turnId = string(object(turn.turn).id)
@@ -526,7 +470,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
         if (!type || !maintenanceItems.has(type)) return void settle(`Codex produced a ${type ?? 'malformed'} item during maintenance`)
         if (method === 'item/completed' && type === 'agentMessage') {
           const text = string(item.text) ?? ''
-          queue.push({ kind: 'text', attemptId, messageId: string(item.id) ?? randomUUID(), text: payload.task === 'extract' ? maintenanceResult(text) : text, final: true })
+          queue.push({ kind: 'text', attemptId, messageId: string(item.id) ?? randomUUID(), text, final: true })
         }
       } else if (method === 'turn/completed') {
         const status = string(object(params.turn).status)
@@ -553,8 +497,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       if (settling) { if (await settling) await unlink(identity).catch(() => undefined); return }
       threadId = id
       queue.push({ kind: 'provider', attemptId, threadId, processId: pid, providerStateScope: recoveryScope, workingDirectory: workspace, modelId: settings.modelId, ...(settings.effort ? { effort: settings.effort } : {}) })
-      const turn = maintenanceTurn(payload)
-      await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: turn.text }], model: settings.modelId, outputSchema: turn.outputSchema, ...(settings.effort ? { effort: settings.effort } : {}) }, 120000)
+      await rpc.request('turn/start', { threadId, input: [{ type: 'text', text: payload.instructions }], model: settings.modelId, outputSchema: payload.outputSchema, ...(settings.effort ? { effort: settings.effort } : {}) }, 120000)
     })().catch(error => settle(error instanceof Error ? error.message : 'Codex maintenance failed'))
     return {
       events: queue,

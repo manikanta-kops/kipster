@@ -114,6 +114,9 @@ export async function promotionPrompt(client: SqlClient, identity: IdentityWrite
   return { instructions, memories, section, sectionMaxBytes: PROMOTION.sectionBytes }
 }
 
+/** JSON Schema for identity promotion output: the new Learned section. */
+export const PROMOTION_OUTPUT_SCHEMA: Readonly<Record<string, unknown>> = { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string' } } }
+
 /** Validates model output: an object whose `section` is text without control characters or section markers, at
  * most the section size once trimmed. */
 export function parsePromotion(raw: unknown): { section: string } | { invalid: string } {

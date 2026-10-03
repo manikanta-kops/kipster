@@ -12,25 +12,27 @@ export function configuration(home, installation, previous = {}) {
     version: 1, home, databaseUrl: databaseURL(home), taskDataUrl: databaseURL(home, 'kipster', 'kipster_task'),
     listen: previous.listen ?? { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: ['tauri://localhost'] },
     adapters: [
-      { id: 'codex-cli', root: installation, entry: 'node_modules/@kipster/codex-cli/dist/index.js', ...codex(previous) },
-      ...(previous.adapters ?? []).filter(adapter => adapter.id !== 'codex-cli'),
+      ...executionAdapters.map(id => ({ id, root: installation, entry: `node_modules/@kipster/${id}/dist/index.js`, ...saved(previous, id) })),
+      ...(previous.adapters ?? []).filter(adapter => !executionAdapters.includes(adapter.id)),
     ],
   }
 }
-function codex(previous) {
-  const config = (previous.adapters ?? []).find(adapter => adapter.id === 'codex-cli')?.config
+/** Execution adapters built from this repository; the first is the default for agents that choose none. */
+const executionAdapters = ['codex-cli', 'claude-cli']
+function saved(previous, id) {
+  const config = (previous.adapters ?? []).find(adapter => adapter.id === id)?.config
   return config ? { config } : {}
 }
 export async function buildBackend(home) {
-  const core = join(repository, 'core'), adapter = join(repository, 'adapters/codex-cli')
-  console.log('Building Core and the Codex adapter…')
+  const core = join(repository, 'core'), adapters = executionAdapters.map(id => join(repository, 'adapters', id))
+  console.log('Building Core and the Codex and Claude CLI adapters…')
   await dependencies()
   await run('npm', ['run', 'build'], { cwd: core })
-  await run('npm', ['run', 'build'], { cwd: adapter })
+  for (const adapter of adapters) await run('npm', ['run', 'build'], { cwd: adapter })
   const build = join(home, 'builds', randomUUID()), installation = join(build, 'packages')
   await mkdir(installation, { recursive: true, mode: 0o700 })
   const tarballs = []
-  for (const cwd of [core, adapter]) {
+  for (const cwd of [core, ...adapters]) {
     // Builds ran explicitly above; avoid running the full test suite on every launch.
     const packed = await run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', build], { cwd, capture: true })
     tarballs.push(join(build, JSON.parse(packed.output)[0].filename))
@@ -114,9 +116,10 @@ export async function backend(inputHome, action) {
     }
     await prepareDatabase(home, pgBin, postgresClient(installation))
     const started = await activateBackend(home, installation, pgBin)
-    const codex = started.adapters?.find(adapter => adapter.id === 'codex-cli')
+    const available = id => started.adapters?.find(adapter => adapter.id === id)?.available
     console.log(`\nBackend running: ${started.url}\nData: ${home}\nLogs: ${join(home, 'logs/host.log')}`)
-    console.log(codex?.available ? 'Codex: ready. Agents use its default model until you choose another in Settings.' : 'Codex: unavailable. Check your Codex CLI/account and the host log, then rerun npm run backend.')
+    console.log(available('codex-cli') ? 'Codex: ready. Agents use its default model until you choose another in Settings.' : 'Codex: unavailable. Check your Codex CLI/account and the host log, then rerun npm run backend.')
+    console.log(available('claude-cli') ? 'Claude CLI: ready. Choose it for a kip in Settings.' : 'Claude CLI: unavailable. Check your claude CLI login and the host log, then rerun npm run backend.')
     const config = await json(join(home, 'host.json'))
     if (!config.embedding) console.log('Embeddings: not configured. Configure an embedding provider module and options in host.json to enable indexed memory.')
     if (!config.transcription) console.log('Voice transcription: not configured.')

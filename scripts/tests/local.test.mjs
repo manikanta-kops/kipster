@@ -19,7 +19,7 @@ test('regenerating host configuration preserves user settings and isolates datab
   assert.deepEqual(config.listen, old.listen)
   assert.deepEqual(config.embedding, old.embedding)
   assert.equal(config.adapters[0].root, '/tmp/new-build')
-  assert.deepEqual(config.adapters[1], old.adapters[0])
+  assert.deepEqual(config.adapters[2], old.adapters[0])
   assert.equal(config.environment.CUSTOM, 'saved')
   assert.equal(config.adapters[0].config, undefined)
   const url = new URL(config.databaseUrl)
@@ -47,8 +47,8 @@ test('regenerating the install preserves adapter-owned settings', () => {
   const custom = { codexHome: '/absolute/custom/home', executable: '/absolute/custom/codex', environment: { PLUGIN_OPTION: 'value' } }
   const saved = { adapters: [{ id: 'codex-cli', root: '/old', entry: 'old.js', config: custom }] }
   const next = configuration('/tmp/kipster', '/new', saved)
-  assert.equal(next.adapters.length, 1)
-  assert.equal(next.adapters[0].id, 'codex-cli')
+  assert.deepEqual(next.adapters.map(adapter => adapter.id), ['codex-cli', 'claude-cli'], 'Codex stays the default adapter')
   assert.equal(next.adapters[0].root, '/new')
   assert.deepEqual(next.adapters[0].config, custom)
+  assert.deepEqual(next.adapters[1], { id: 'claude-cli', root: '/new', entry: 'node_modules/@kipster/claude-cli/dist/index.js' })
 })

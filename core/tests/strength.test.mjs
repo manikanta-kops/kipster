@@ -193,6 +193,14 @@ test('support from another conversation strengthens; recall into an execution re
   assert.equal((await memory(ctx, 'The office is in Pune')).importance, 0.5)
 })
 
+test('a null importance from strict structured output means the default', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
+  await ctx.dispatcher.start()
+  const first = await conversation(ctx, 'The warehouse is in Delft')
+  assert.equal(await learn(ctx, first.runId, ['The warehouse is in Delft'], { importance: null }), 'committed')
+  assert.equal((await memory(ctx, 'The warehouse is in Delft')).importance, 0.5)
+})
+
 test('weak memories are deleted with vectors, links and receipts; deliberate saves outlast learned ones', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   await ctx.dispatcher.start()

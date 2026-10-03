@@ -15,7 +15,7 @@ const list = [
 
 test('release plan covers every workspace package, and only the app builds on macOS', () => {
   const found = packages()
-  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
+  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/claude-cli', '@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
   assert.deepEqual(found.filter(pkg => pkg.runner === 'macos-latest').map(pkg => pkg.name), ['@kipster/ui'])
 })
 

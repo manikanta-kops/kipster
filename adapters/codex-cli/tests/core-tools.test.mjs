@@ -36,7 +36,7 @@ const tools = [
   { name: 'admin_call', description: 'Run one administration operation.', inputSchema: { type: 'object', properties: { operation: { type: 'string' } }, required: ['operation'] } },
 ]
 
-test('Core tools and instructions reach Codex unchanged, and only offered tools are forwarded', async () => {
+test('Core tools, instructions and prompt reach Codex unchanged, and only offered tools are forwarded', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'kipster-codex-tools-'))
   const read = await fakeCodex(directory)
   const previous = process.env.PATH
@@ -47,8 +47,7 @@ test('Core tools and instructions reach Codex unchanged, and only offered tools 
   const adapter = createAdapter({ dataDirectory: join(directory, 'codex-data'), now: () => new Date().toISOString(), async invokeTool(request) { calls.push(request); return { ok: true } } })
   try {
     assert.equal((await adapter.readiness()).ready, true)
-    const receipts = { receipts: [{ operationId: 'saved-operation', kind: 'agent.create', state: 'succeeded', result: { agent: { id: 'saved-agent' } } }], hasMore: false }
-    const handle = await adapter.execute({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'admin', workingDirectory: directory, instructions: 'Core instructions', tools, administrationReceipts: receipts, settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Add Scout' }] })
+    const handle = await adapter.execute({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'admin', workingDirectory: directory, instructions: 'Core instructions', prompt: 'Core prompt', tools, settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Add Scout' }] })
     const events = []
     for await (const event of handle.events) events.push(event)
     const log = await read()
@@ -56,7 +55,7 @@ test('Core tools and instructions reach Codex unchanged, and only offered tools 
     assert.deepEqual(log[0].tools, tools.map(tool => ({ type: 'function', ...tool })))
     assert.deepEqual(calls, [{ attemptId: 'attempt', callId: 'call-1', name: 'admin_call', arguments: { operation: 'agents.create', operationId: 'stable-create', arguments: { name: 'Scout' } } }])
     assert.deepEqual(log.filter(item => item.answer), [{ answer: 101, success: true }, { answer: 102, success: false }], 'a tool Core did not offer is refused before it reaches Core')
-    assert.match(JSON.stringify(log.find(item => item.input)), /saved-agent/)
+    assert.deepEqual(log.find(item => item.input).input, [{ type: 'text', text: 'Core prompt' }], 'Core renders the turn; the adapter sends it unchanged')
     assert.equal(events.at(-1).kind, 'ended')
   } finally {
     await adapter.close()

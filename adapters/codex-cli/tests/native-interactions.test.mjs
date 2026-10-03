@@ -67,7 +67,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const adapter = createAdapter({ dataDirectory: join(directory, 'state'), now: () => '', async invokeTool(request) { calls.push(request); return { status: 'pending', interactionId: 'card' } } }, { executable, codexHome: home })
   t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
   assert.equal((await adapter.readiness()).ready, true)
-  const base = { runId: 'run', attemptId: 'one', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello' }], triggerMessageId: 'message', interactions: [] }
+  const base = { runId: 'run', attemptId: 'one', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '',prompt:'Current message', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello' }], triggerMessageId: 'message', interactions: [] }
   const first = await adapter.execute(base)
   const events = []; for await (const event of first.events) events.push(event)
   assert.equal(calls.length, 1)

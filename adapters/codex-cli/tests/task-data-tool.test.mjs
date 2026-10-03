@@ -38,7 +38,7 @@ else if(x.method==='thread/start'){
   const adapter=createAdapter({dataDirectory:join(directory,'codex-data'),now:()=>new Date().toISOString(),async invokeTool(request){calls.push(request);return tool.result}})
   try {
     assert.equal((await adapter.readiness()).ready,true)
-    const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent-a',workingDirectory:directory,instructions:'Current',tools:[{name:tool.wire,description:tool.label,inputSchema:{type:'object',properties:{operation:{type:'string'},target:{type:'object'}},required:['operation','target']}}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'List tables'}],triggerMessageId:'message'})
+    const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent-a',workingDirectory:directory,instructions:'Current',prompt:'Current message',tools:[{name:tool.wire,description:tool.label,inputSchema:{type:'object',properties:{operation:{type:'string'},target:{type:'object'}},required:['operation','target']}}],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'message',text:'List tables'}],triggerMessageId:'message'})
     const events=[];for await(const event of handle.events)events.push(event)
     assert.deepEqual(calls,[{attemptId:'attempt',callId:tool.callId,name:tool.wire,arguments:{operation:'discover',target:{kind:'agent',ownerId:'agent-a'}}}])
     assert.equal(events.at(-1).kind,'ended')
