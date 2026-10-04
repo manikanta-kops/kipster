@@ -36,6 +36,13 @@ instructions take precedence over older decisions.
 - Core defines the Kipster tools every execution gets
   (`core/src/workflows/agent-tools.ts`); adapters pass them through and define
   none of their own.
+- A new adapter package must be listed where installations name their
+  adapters: `executionAdapters` in `scripts/local-backend.mjs` and, once the
+  package has a release on every channel, the installer's default `host.json`
+  in `installer/src/installer.mjs`. Updates install only the packages an
+  existing installation's `host.json` names, and refuse a package its channel
+  has not released, so add an entry to an existing `host.json` only after that
+  release is published.
 - Start each task on a new branch from the latest `origin/next`, in its own git
   worktree when other work may share this checkout. Install dependencies with
   `npm ci` at the repository root.

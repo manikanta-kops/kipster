@@ -106,10 +106,12 @@ class Rpc {
 /** `disabledMcpServers` names the configured servers a maintenance launch switches off. */
 async function appServer(config: LaunchConfig, maintenance = false, disabledMcpServers: readonly string[] = []): Promise<Rpc> {
   const { root, env } = await (maintenance ? maintenanceLaunch(config) : conversationLaunch(config))
-  const overrides = maintenance ? [...isolationSettings, ...maintenanceProfile, ...disabledMcpServers.map(name => [`mcp_servers.${name}.enabled`, 'false'] as const)] : []
+  const overrides = maintenance ? [...isolationSettings, ...maintenanceProfile, ...disabledMcpServers.map(name => [`mcp_servers.${name}.enabled`, 'false'] as const)] : conversationSettings
   const child = spawn(config.executable, ['app-server', '--stdio', '--strict-config', ...overrides.flatMap(([key, value]) => ['-c', `${key}=${value}`])], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
   return new Rpc(child)
 }
+/** Kipster owns kip memory, so Codex's own memories stay off in conversations. */
+const conversationSettings: readonly (readonly [string, string])[] = [['features.memories', 'false']]
 /** Names of MCP servers the effective configuration leaves enabled. Reading configuration starts no server. */
 async function enabledMcpServers(rpc: Rpc, cwd?: string): Promise<string[]> {
   const effective = await rpc.request('config/read', { includeLayers: false, ...(cwd ? { cwd } : {}) })

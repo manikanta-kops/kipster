@@ -12,7 +12,7 @@ Core's tools reach Claude through a loopback MCP server the adapter hosts: `mcp_
 
 Available JPEG, PNG, GIF and WebP images and PDF documents are attached as native content, labeled with their message, part and artifact identity, newest first within a bounded total. Every available attachment is also readable at its path through an exact `Read` permission for that file; a path containing whitespace, commas or parentheses gets no grant and is read only with permission.
 
-Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come from the user's Claude configuration unchanged.
+Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come from the user's Claude configuration. Claude Code's auto memory is switched off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), because Core owns kip memory. Passing Kipster's MCP server makes the CLI wait for the user's MCP servers before a turn starts, so `MCP_TIMEOUT` defaults to 5000 milliseconds; an unreachable server would otherwise delay every turn. Both defaults can be changed through `environment`.
 
 ## Human interactions
 
@@ -36,4 +36,4 @@ Core passes the optional adapter `config` object unchanged. This adapter accepts
 
 Processes receive a bounded environment: the user's home, shell and locale basics, proxies, certificates, `ANTHROPIC_*` variables and the Claude Code authentication and provider selectors (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock and Vertex settings). Core database credentials are not inherited. The adapter keeps its own records in the private data directory Core provides (`<Kipster home>/providers/claude-cli`).
 
-Sign in with `claude auth login` as the operating system user that runs Kipster. On macOS a signed-in CLI keeps its credentials in the login keychain, which a LaunchDaemon may not be able to read before login; for such hosts create a long-lived token with `claude setup-token` and pass it as `CLAUDE_CODE_OAUTH_TOKEN` in `environment`. launchd does not load shell profiles, so configure its `PATH` or `executable` explicitly.
+Sign in with `claude auth login` as the operating system user that runs Kipster. On macOS a signed-in CLI keeps its credentials in the login keychain, which a background service such as the installed Kipster host may not be able to read, and cannot read before login. For such hosts run `claude setup-token` once, which prints a long-lived token for your Claude account, and pass it as `CLAUDE_CODE_OAUTH_TOKEN` in this adapter's `environment` in `host.json`. If Claude stays unavailable with "not signed in" while `claude auth status` succeeds in a terminal, the service cannot read the keychain. launchd does not load shell profiles, so configure its `PATH` or `executable` explicitly.

@@ -89,6 +89,7 @@ test('conversations share user config; maintenance uses the user login with inte
       assert.equal(launch.env.CODEX_HOME, await realpath(f.userHome))
       assert.match(launch.config, /mcp_servers.ambient/)
       assert.equal(launch.argv.includes('features.plugins=false'), false)
+      assert.ok(launch.argv.includes('features.memories=false'), 'Codex memories stay off in conversations')
       assert.equal(launch.env.OPENAI_API_KEY, 'ambient-key')
       assert.equal(launch.env.CODEX_SQLITE_HOME, undefined)
     }

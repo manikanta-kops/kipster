@@ -20,7 +20,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
  else if(x.method==='mcpServerStatus/list')send({id:x.id,result:{data:[],nextCursor:null}});
  else if(x.method==='thread/start')send({id:x.id,result:{thread:{id:'thread'}}});
  else if(x.method==='turn/start'){
-  if(x.params.input[2]?.type!=='localImage'||x.params.input[2]?.path!=='/managed/photo.png'||process.argv.includes('-c')){send({id:x.id,error:{message:'Native image missing or tools overridden'}});return;}
+  if(x.params.input[2]?.type!=='localImage'||x.params.input[2]?.path!=='/managed/photo.png'||process.argv.some((a,i)=>process.argv[i-1]==='-c'&&a!=='features.memories=false')){send({id:x.id,error:{message:'Native image missing or tools overridden'}});return;}
   send({id:x.id,result:{turn:{id:'turn'}}});
   const delta=(itemId,delta)=>send({method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId,delta}});
   delta('a','Hello');delta('b','Second');delta('a',' there');
