@@ -247,3 +247,18 @@ test('one thread needing you opens directly, and a read failure leaves the islan
   await expect(island.locator('[aria-live]')).toHaveText('Mira, Ready')
   await expect(island.locator('.island-action')).toHaveCount(0)
 })
+
+test('paused follow-ups show on their thread but leave the kip ready', async ({
+  page,
+}) => {
+  const s = await setupWork(page, 'running', undefined, ids.designer)
+  const island = islandOf(page)
+  await expect(island.locator('[aria-live]')).toHaveText('Mira, Thinking')
+  await patchWork(page, s.threadId, { state: 'cancelled', queueHold: true })
+  await expect(page.locator('.pane-header .status-island')).toContainText(
+    'Paused',
+  )
+  await page.getByRole('button', { name: 'Close thread' }).click()
+  await expect(island.locator('[aria-live]')).toHaveText('Mira, Ready')
+  await expect(island.locator('.island-action')).toHaveCount(0)
+})
