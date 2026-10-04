@@ -14,6 +14,7 @@ export function DurableComposer({
   recordingContext,
   target,
   label,
+  dropHint,
   send,
   disabled = false,
   textOnly = false,
@@ -23,6 +24,7 @@ export function DurableComposer({
   recordingContext?: string
   target: ConversationTarget
   label: string
+  dropHint?: string
   disabled?: boolean
   textOnly?: boolean
   voiceEnabled?: boolean
@@ -119,6 +121,7 @@ export function DurableComposer({
         textOnly={textOnly}
         voiceEnabled={voiceEnabled}
         label={label}
+        dropHint={dropHint}
         notice={notice}
         recordingContext={recordingContext}
         media={media}

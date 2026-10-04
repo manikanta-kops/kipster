@@ -6,9 +6,11 @@ import { MotionConfig } from 'motion/react'
 import { paneSpring } from './app/motion'
 import { ConnectedApp } from './features/workspace/ConnectionSetup'
 import { trackInputModality } from './app/input-modality'
+import { guardFileDrops } from './features/media/file-drop'
 import './styles/app.css'
 
 trackInputModality()
+guardFileDrops()
 if (usesOverlayTitleBar())
   document.documentElement.classList.add('titlebar-overlay')
 

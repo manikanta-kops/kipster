@@ -341,6 +341,27 @@
   height: 34px;
   margin-top: 4px;
 }
+.pending-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 0.5px var(--hairline-2);
+}
+.pending-thumb .media-preview {
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  object-fit: cover;
+  border-radius: 0;
+}
+.pending-thumb small {
+  display: none;
+}
 .upload-meter {
   height: 4px;
   margin: 3px 0 1px;
@@ -489,4 +510,53 @@
     flex-basis: auto;
     flex-direction: column;
   }
+}
+
+/* Drop zone shown while files are dragged over a conversation or thread */
+.file-drop {
+  position: absolute;
+  z-index: 20;
+  inset: 8px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-panel);
+  background: color-mix(in oklab, var(--tint) 10%, var(--glass));
+  box-shadow: inset 0 0 0 1.5px
+    color-mix(in oklab, var(--tint) 45%, transparent);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  pointer-events: none;
+}
+.file-drop-card {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 18px 26px 16px;
+  border-radius: 20px;
+  text-align: center;
+  background: var(--sheen), color-mix(in srgb, var(--layer-1) 94%, transparent);
+  box-shadow: var(--edge), var(--drop);
+}
+.file-drop-card strong {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--label);
+}
+.file-drop-card small {
+  font-size: 12.5px;
+  color: var(--label-3);
+}
+.file-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  color: var(--tint);
+  background: color-mix(in oklab, var(--tint) 14%, transparent);
+}
+:root[data-surface='outline'] .file-drop-card {
+  background: var(--surface);
+  box-shadow: inset 0 0 0 1px var(--hairline-2);
 }
