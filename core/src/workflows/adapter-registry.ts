@@ -32,7 +32,7 @@ export function validReadiness(value: unknown): value is AdapterReadiness {
   const options = catalog.supportedOptions ?? []
   if (!Array.isArray(options) || options.some(option => typeof option !== 'string' || !option.trim()) || new Set(options).size !== options.length) return false
   const capability = catalog.capabilities
-  if (!capability || capability.text !== true || typeof capability.publication !== 'boolean' || typeof capability.cancellation !== 'boolean' || capability.steering !== false || capability.nativeResume !== false) return false
+  if (!capability || capability.text !== true || typeof capability.publication !== 'boolean' || typeof capability.cancellation !== 'boolean' || capability.steering !== false || typeof capability.nativeResume !== 'boolean') return false
   if (capability.maintenance !== undefined && typeof capability.maintenance !== 'boolean') return false
   const versions = ready.recoveryVersions
   if (versions !== undefined && (!Array.isArray(versions) || !versions.length || versions.some(version => !Number.isSafeInteger(version) || version < 1))) return false

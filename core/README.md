@@ -208,6 +208,11 @@ until the person removes it from `alwaysAllowed`. Core passes the grants that
 apply to each execution as `approvalGrants`, and the adapter answers matching
 requests without asking. An approval without a scope allows one request.
 
+When a run continues after waiting for the person or a delegated kip, its execution also carries `resume`: the
+provider thread the previous attempt reported and a short continuation prompt. An adapter that can reopen that
+session sends the continuation instead of the full prompt, so the kip carries on with its own history. A Retry after a
+failure starts fresh.
+
 Each write except an instructions save or an adapter refresh carries an
 `operationId`. A repeated ID returns the result recorded the first time, with
 `alreadyApplied: true`, when the validated request matches. Reusing an ID

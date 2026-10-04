@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, readdir, readFile, rename, rm, rmdir, unlink, writeFile } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference, TextExecutionContext } from '@kipster/core/adapter'
 import { claudePermissionMode, launchConfig, launchEnvironment, privateDirectory, probe, processIdentity, type LaunchConfig } from './launch.js'
 import { ClaudeProcess, type Message } from './process.js'
@@ -20,7 +21,7 @@ const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 const streamJson = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
 const maintenanceInstructions = 'You are a Kipster memory maintenance step. Follow the task in the user message and answer with a single JSON object that matches the output schema. No other tools are available.'
 const toolNote = 'Kipster tools are available to you as MCP tools named mcp__kipster__<tool name>, for example mcp__kipster__conversation_publish.'
-const capabilities = (maintenance: boolean) => ({ text: true as const, publication: true, cancellation: true, steering: false as const, nativeResume: false as const, maintenance })
+const capabilities = (maintenance: boolean) => ({ text: true as const, publication: true, cancellation: true, steering: false as const, nativeResume: true, maintenance })
 
 class Queue implements AsyncIterable<ExecutionEvent> {
   private values: ExecutionEvent[] = []
@@ -203,7 +204,9 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       const server = (path: string, extra: ObjectValue = {}) => ({ type: 'http', url: `http://127.0.0.1:${port}${path}`, headers: { Authorization: `Bearer ${registration.token}` }, ...extra })
       await writeFile(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { kipster: server('/tools', { alwaysLoad: true, timeout: 3600000 }), kipster_permission: server('/permission', { timeout: 3600000 }) } }), { mode: 0o600, flag: 'wx' })
       await writeFile(join(directory, 'instructions.md'), `${context.instructions}\n\n${toolNote}`, { mode: 0o600, flag: 'wx' })
-      const args = [...streamJson, '--include-partial-messages', '--chrome', '--no-session-persistence', '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
+      // A session reopened after a wait keeps its history; one whose transcript is gone starts fresh.
+      const resume = context.resume?.providerStateScope === recoveryScope && sessionIdPattern.test(context.resume.threadId) && (await this.sessionFiles(context.resume.threadId)).length ? context.resume : undefined
+      const args = [...streamJson, '--include-partial-messages', '--chrome', ...(resume ? ['--resume', resume.threadId] : []), '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
         '--mcp-config', join(directory, 'mcp.json'), '--permission-prompt-tool', `mcp__kipster_permission__${permissionTool}`, '--disallowedTools', `mcp__kipster_permission__${permissionTool}`,
         '--append-system-prompt-file', join(directory, 'instructions.md'), '--permission-mode', claudePermissionMode(context.permissionMode),
         ...(readable.length ? ['--allowedTools', ...readable.map(path => `Read(/${path})`)] : [])]
@@ -254,7 +257,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
           })()
         }
       })
-      process.send({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: context.prompt }, ...blocks] }, parent_tool_use_id: null })
+      process.send({ type: 'user', message: { role: 'user', content: resume ? [{ type: 'text', text: resume.prompt }] : [{ type: 'text', text: context.prompt }, ...blocks] }, parent_tool_use_id: null })
     } catch (error) {
       const stopped = child ? await child.stop() : true
       await finish({ kind: 'failed', attemptId, confirmedEnded: stopped, message: String(error) })
@@ -370,9 +373,26 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
     return result('ended', 'Claude process is gone; its process ID was reused')
   }
 
-  /** Conversations run without session persistence, so the CLI keeps no transcript to remove. Maintenance records go with their sessions. */
+  /** Claude Code keeps a conversation's transcript as `<config directory>/projects/<project>/<session ID>.jsonl`. */
+  private async sessionFiles(sessionId: string): Promise<string[]> {
+    const projects = join(launchEnvironment(this.config).CLAUDE_CONFIG_DIR ?? join(homedir(), '.claude'), 'projects')
+    const found = await Promise.all((await readdir(projects, { withFileTypes: true }).catch(() => [])).filter(entry => entry.isDirectory()).map(async entry => {
+      const path = join(projects, entry.name, `${sessionId}.jsonl`)
+      return (await lstat(path).catch(() => undefined))?.isFile() ? path : undefined
+    }))
+    return found.filter((path): path is string => !!path)
+  }
+
+  /** Removes a deleted conversation's Claude transcripts, with any subagent transcripts beside them, and maintenance records. */
   async forgetProviderState(request: { readonly threadIds: readonly string[] }): Promise<void> {
-    for (const id of request.threadIds) if (sessionIdPattern.test(id)) await unlink(this.identityPath(id)).catch(() => undefined)
+    for (const id of request.threadIds) if (sessionIdPattern.test(id)) {
+      for (const path of await this.sessionFiles(id)) {
+        await unlink(path).catch(() => undefined)
+        await rm(path.slice(0, -'.jsonl'.length), { recursive: true, force: true })
+        await rmdir(dirname(path)).catch(() => undefined)
+      }
+      await unlink(this.identityPath(id)).catch(() => undefined)
+    }
   }
 
   async close(): Promise<void> {
