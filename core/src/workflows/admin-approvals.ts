@@ -4,6 +4,8 @@ import type { Jobs } from '../platform/jobs/public.js'
 import { authorizeAdministration, type AgentCaller, type TrustedActor } from '../modules/identity/public.js'
 import { archiveAgent, deleteAgent, deleteOrganization, AgentNotArchivedError } from '../modules/administration/public.js'
 import { askInteraction, type InteractionRecord } from '../modules/work/public.js'
+import { permissionModeFor, savePermissions } from '../modules/settings/public.js'
+import type { PermissionMode } from '../protocol/admin.js'
 
 type Action = 'agent.archive' | 'agent.delete' | 'organization.delete'
 /** A Core version to install, or with a backup, to restore. */
@@ -55,6 +57,26 @@ export async function requestInstallApproval(db: Postgres, caller: AgentCaller, 
   return { status: card.state, interactionId: card.id, operationId }
 }
 
+const modeLabels: Record<PermissionMode, string> = { supervised: 'Supervised', acceptEdits: 'Auto-accept edits', auto: 'Auto', fullAccess: 'Full access' }
+/**
+ * Asks the owner to approve giving kips full access, as the interface asks the person to confirm it. The mode is saved
+ * when the owner approves.
+ */
+export async function requestPermissionsApproval(db: Postgres, caller: AgentCaller, callId: string, mode: PermissionMode): Promise<unknown> {
+  const operationId = `${caller.attemptId}:${callId}`
+  const current = await permissionModeFor(db, caller.installationId)
+  const card = await askInteraction(db, caller.attemptId, callId, {
+    kind: 'approval', prompt: 'Give kips full access?',
+    proposalId: randomUUID(),
+    proposal: `Permission mode: ${modeLabels[current]} → ${modeLabels[mode]}\nEvery kip runs commands and changes files without asking you, starting with its next turn.`,
+  }, async (client, interactionId) => {
+    await authorizeAdministration(client, caller, true)
+    await client.query(`INSERT INTO kipster.admin_approvals(interaction_id,installation_id,action,target_id,target_name,options,operation_id)
+      VALUES ($1,$2,'permissions.set',$2,'Full access',$3::jsonb,$4)`, [interactionId, caller.installationId, JSON.stringify({ mode }), operationId])
+  })
+  return { status: card.state, interactionId: card.id, operationId }
+}
+
 /** The approved install of an answered card that has not started yet, with the operation ID that makes starting it idempotent. */
 export async function approvedInstall(db: Postgres, actor: TrustedActor, interactionId: string): Promise<{ operationId: string; install: InstallRequest } | null> {
   const row = (await db.query<{ options: InstallRequest; operation_id: string }>(`SELECT a.options, a.operation_id FROM kipster.admin_approvals a JOIN kipster.interactions i ON i.id=a.interaction_id
@@ -69,10 +91,15 @@ export async function recordInstall(db: Postgres, interactionId: string, result:
 
 /** The human answer and the bound lifecycle transition commit together, including the cleanup job. */
 export async function applyAdminApproval(client: SqlClient, jobs: Jobs, actor: TrustedActor, card: InteractionRecord): Promise<void> {
-  const binding = (await client.query<{ action: Action; target_id: string; options: { copyFilesToOrganizations: boolean }; operation_id: string; result: unknown }>(
+  const binding = (await client.query<{ action: Action | 'update.install' | 'permissions.set'; target_id: string; options: { copyFilesToOrganizations: boolean; mode?: PermissionMode }; operation_id: string; result: unknown }>(
     'SELECT * FROM kipster.admin_approvals WHERE interaction_id=$1 AND installation_id=$2 FOR UPDATE', [card.id, actor.installationId])).rows[0]
   // An install starts after the answer commits; see `approvedInstall`.
-  if (!binding || binding.result || (binding.action as string) === 'update.install') return
+  if (!binding || binding.result || binding.action === 'update.install') return
+  if (binding.action === 'permissions.set') {
+    const saved = await savePermissions(client, actor, binding.options.mode!)
+    await client.query('UPDATE kipster.admin_approvals SET result=$2::jsonb WHERE interaction_id=$1', [card.id, JSON.stringify({ operationId: binding.operation_id, ...saved })])
+    return
+  }
   const transaction = { transaction: async <T>(work: (client: SqlClient) => Promise<T>): Promise<T> => work(client) }
   const result = binding.action === 'agent.archive' ? await archiveAgent(transaction, jobs, actor, binding.target_id, binding.operation_id)
     : binding.action === 'agent.delete' ? await deleteAgent(transaction, jobs, actor, binding.target_id, binding.operation_id, binding.options)

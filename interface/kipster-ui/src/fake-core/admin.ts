@@ -230,6 +230,7 @@ export function createAdministration(options: Options = {}) {
     revision: 1,
     available: true,
   }
+  const permissions = { revision: 0, mode: 'auto' }
   const interfaceChoices = {
     revision: 0,
     palette: null as string | null,
@@ -373,6 +374,7 @@ export function createAdministration(options: Options = {}) {
       interfacePreferences: true,
       notificationActions: true,
       documents: true,
+      permissionModes: true,
     },
   })
   const adapters = () => ({
@@ -427,6 +429,32 @@ export function createAdministration(options: Options = {}) {
       })
     if (path === '/v1/execution-adapters' && method === 'GET')
       return json(adapters())
+    if (path === '/v1/settings/permissions' && method === 'GET')
+      return json({ version: 1, ...permissions })
+    if (path === '/v1/settings/permissions' && method === 'PUT') {
+      const body = object(await request.json())
+      if (body.version !== 1) invalid()
+      keys(body, ['version', 'mode'])
+      if (
+        !['supervised', 'acceptEdits', 'auto', 'fullAccess'].includes(
+          body.mode as string,
+        )
+      )
+        invalid()
+      if (body.mode !== permissions.mode) {
+        Object.assign(permissions, {
+          mode: body.mode as string,
+          revision: permissions.revision + 1,
+        })
+        emit(
+          'permissions-changed',
+          { ...permissions },
+          DEMO_IDS.installation,
+          permissions.revision,
+        )
+      }
+      return json({ version: 1, ...permissions })
+    }
     if (path === '/v1/settings/interface' && method === 'GET')
       return json({ version: 1, ...interfaceChoices })
     if (path === '/v1/settings/interface' && method === 'PUT') {

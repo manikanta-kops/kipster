@@ -918,6 +918,7 @@ export function Workspace({
                     'settings-changed',
                     'adapters-changed',
                     'learning-changed',
+                    'permissions-changed',
                   ].includes(type) ||
                   directoryEventTypes.has(type)
                 )
@@ -2343,6 +2344,7 @@ export function Workspace({
               softwareUpdates={softwareUpdates}
               initialTab={settingsInitialTab}
               versions={identity}
+              permissionModes={identity.capabilities?.permissionModes === true}
               manage={
                 <Management
                   data={view}

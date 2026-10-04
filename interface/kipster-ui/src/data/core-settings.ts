@@ -53,8 +53,19 @@ export type Directory = {
   agents: Pick<DirectoryAgent, 'id' | 'name' | 'lifecycle' | 'admin'>[]
   memberships: Pick<DirectoryMembership, 'id' | 'organizationId' | 'agentId'>[]
 }
+/** The modes this interface offers, in order; a mode Core reports outside these is shown as unrecognized. */
+export const permissionModes = [
+  'supervised',
+  'acceptEdits',
+  'auto',
+  'fullAccess',
+] as const
+export type PermissionMode = (typeof permissionModes)[number]
+/** The installation's permission mode. `mode` stays a string, since a newer Core may send one this app does not know. */
+export type Permissions = { revision: number; mode: string }
 export type SettingsEvent = { cursor: string } & (
   | { kind: 'settings'; record: SettingsRecord }
+  | { kind: 'permissions'; permissions: Permissions }
   | { kind: 'adapters'; list: AdapterList }
   | {
       kind: 'learning'
@@ -222,6 +233,21 @@ export function parseInterfaceChoices(value: unknown): InterfaceChoices {
     ),
   }
 }
+export function parsePermissions(value: unknown): Permissions {
+  check(
+    record(value) &&
+      typeof value.revision === 'number' &&
+      typeof value.mode === 'string',
+  )
+  return { revision: value.revision, mode: value.mode }
+}
+/** The newer of two permission records by revision. */
+export function mergePermissions(
+  held: Permissions | null,
+  next: Permissions,
+): Permissions {
+  return held && held.revision > next.revision ? held : next
+}
 export function parseLearning(value: unknown): Learning {
   check(
     record(value) &&
@@ -307,6 +333,12 @@ export function parseSettingsEvent(
       },
     }
   }
+  if (value.type === 'permissions-changed')
+    return {
+      cursor,
+      kind: 'permissions',
+      permissions: parsePermissions(value.data),
+    }
   if (value.type === 'learning-changed') {
     check(
       record(value.data) &&
@@ -599,6 +631,19 @@ export class CoreSettingsClient {
     )
     const result = parseAgentLearning(v)
     return result
+  }
+  async permissions(signal: AbortSignal) {
+    return parsePermissions(
+      await this.request('GET', '/v1/settings/permissions', signal),
+    )
+  }
+  async savePermissions(mode: PermissionMode, signal: AbortSignal) {
+    return parsePermissions(
+      await this.request('PUT', '/v1/settings/permissions', signal, {
+        version: 1,
+        mode,
+      }),
+    )
   }
   async directory(signal: AbortSignal) {
     return parseDirectory(await this.request('GET', '/v1/directory', signal))

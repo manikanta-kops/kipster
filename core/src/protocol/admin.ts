@@ -168,3 +168,19 @@ export type InterfacePreferences = Infer<typeof interfacePreferences>
 export const interfacePreferencesWrite = object({ version: literal(1), palette: optional(interfacePalette), theme: optional(interfaceTheme), desktopNotifications: optional(boolean()),
   notifyNeeds: optional(boolean()), notifyFailures: optional(boolean()), notifyReplies: optional(boolean()), inAppBanners: optional(boolean()), dockBadge: optional(boolean()) })
 export type InterfacePreferencesWrite = Infer<typeof interfacePreferencesWrite>
+
+/**
+ * What kips may do without asking the person, for the whole installation. `supervised` asks before commands and file
+ * changes, `acceptEdits` approves edits and asks before other actions, `auto` lets providers that support it approve
+ * routine actions, and `fullAccess` allows commands and edits without prompts. Each adapter maps the mode to its
+ * provider's nearest equivalent. Readers keep an unknown mode as a string and show it as unrecognized.
+ */
+export const permissionMode = union(literal('supervised'), literal('acceptEdits'), literal('auto'), literal('fullAccess'))
+export type PermissionMode = Infer<typeof permissionMode>
+/** The installation's permission mode. The revision counts changes; a mode never saved is `auto` at revision 0. */
+const permissionFields = { revision: integer(), mode: string() }
+export const permissionSettingsRecord = object(permissionFields, false)
+export const permissionSettings = object({ version: literal(1), ...permissionFields }, false)
+export type PermissionSettings = Infer<typeof permissionSettings>
+export const permissionSettingsWrite = object({ version: literal(1), mode: permissionMode })
+export type PermissionSettingsWrite = Infer<typeof permissionSettingsWrite>

@@ -7,12 +7,15 @@ import {
   mergeAdapterList,
   mergeAgentLearning,
   mergeLearning,
+  mergePermissions,
   mergeSettingsRecord,
   mergeSettingsSnapshot,
   type AdapterList,
   type CoreSettingsClient,
   type Directory,
   type Learning,
+  type PermissionMode,
+  type Permissions,
   type SavedSettings,
   type SettingsPatch,
   type SettingsTarget,
@@ -31,18 +34,33 @@ const wait = (signal: AbortSignal, time: number) =>
     )
   })
 
+/** An updater that keeps the newer permission record; a missing one keeps what is held. */
+const newer =
+  (next: Permissions | null) =>
+  (held: Permissions | null): Permissions | null =>
+    next ? mergePermissions(held, next) : held
+
 /**
- * Loads saved settings, adapters, learning and the directory, then follows the application
- * stream while mounted. Every merge checks revisions, so a replayed or late update never
- * replaces newer state.
+ * Loads saved settings, adapters, learning, the permission mode (when Core advertises it) and
+ * the directory, then follows the application stream while mounted. Every merge checks
+ * revisions, so a replayed or late update never replaces newer state.
  */
 export function useCoreSettings(
   client: CoreSettingsClient,
   scope: Scope,
   updates?: ApplicationUpdates,
+  permissionModes = false,
 ) {
   const queries = useQueryClient()
   const [saved, setSaved] = useState<SavedSettings | null>(null)
+  const [permissions, setPermissions] = useState<Permissions | null>(null)
+  const readPermissions = useCallback(
+    (signal: AbortSignal) =>
+      permissionModes ? client.permissions(signal) : Promise.resolve(null),
+    [client, permissionModes],
+  )
+  const keepPermissions = (next: Permissions | null) =>
+    setPermissions(newer(next))
   const [adapters, setAdapters] = useState<AdapterList | null>(null)
   const [adapterError, setAdapterError] = useState('')
   const [learning, setLearning] = useState<Learning | null>(null)
@@ -74,22 +92,29 @@ export function useCoreSettings(
         try {
           while (dirty && !signal.aborted) {
             dirty = false
-            const [snapshot, list, nextLearning, nextDirectory] =
-              await Promise.all([
-                client.settings(signal),
-                client.adapters(signal).catch((error: unknown) => {
-                  if (
-                    error instanceof TextHttpError &&
-                    error.code === 'unavailable'
-                  )
-                    return error.message
-                  throw error
-                }),
-                client.learning(signal),
-                client.directory(signal),
-              ])
+            const [
+              snapshot,
+              list,
+              nextLearning,
+              nextDirectory,
+              nextPermissions,
+            ] = await Promise.all([
+              client.settings(signal),
+              client.adapters(signal).catch((error: unknown) => {
+                if (
+                  error instanceof TextHttpError &&
+                  error.code === 'unavailable'
+                )
+                  return error.message
+                throw error
+              }),
+              client.learning(signal),
+              client.directory(signal),
+              readPermissions(signal),
+            ])
             if (signal.aborted) return
             setSaved((held) => mergeSettingsSnapshot(held, snapshot))
+            setPermissions(newer(nextPermissions))
             if (typeof list === 'string') setAdapterError(list)
             else {
               setAdapterError('')
@@ -150,20 +175,23 @@ export function useCoreSettings(
             // The settings cursor is read first, so following the stream from it cannot miss a
             // change reflected in the reads after it.
             const snapshot = await client.settings(signal)
-            const [list, nextLearning, nextDirectory] = await Promise.all([
-              client.adapters(signal).catch((error: unknown) => {
-                if (
-                  error instanceof TextHttpError &&
-                  error.code === 'unavailable'
-                )
-                  return error.message
-                throw error
-              }),
-              client.learning(signal),
-              client.directory(signal),
-            ])
+            const [list, nextLearning, nextDirectory, nextPermissions] =
+              await Promise.all([
+                client.adapters(signal).catch((error: unknown) => {
+                  if (
+                    error instanceof TextHttpError &&
+                    error.code === 'unavailable'
+                  )
+                    return error.message
+                  throw error
+                }),
+                client.learning(signal),
+                client.directory(signal),
+                readPermissions(signal),
+              ])
             if (signal.aborted) return
             setSaved((held) => mergeSettingsSnapshot(held, snapshot))
+            setPermissions(newer(nextPermissions))
             if (typeof list === 'string') setAdapterError(list)
             else {
               setAdapterError('')
@@ -192,7 +220,9 @@ export function useCoreSettings(
               )
               // Whether each agent learns also depends on the installation switch.
               void reloadLearning()
-            } else if (event.kind === 'directory') void reloadDirectory()
+            } else if (event.kind === 'permissions')
+              setPermissions(newer(event.permissions))
+            else if (event.kind === 'directory') void reloadDirectory()
             cursor = event.cursor
             failures = 0
           })
@@ -222,7 +252,15 @@ export function useCoreSettings(
       }
     })()
     return () => abort.abort()
-  }, [client, installationId, callerId, attempt, effectiveChanged, updates])
+  }, [
+    client,
+    installationId,
+    callerId,
+    attempt,
+    effectiveChanged,
+    updates,
+    readPermissions,
+  ])
 
   const saveSettings = async (
     target: SettingsTarget,
@@ -265,11 +303,18 @@ export function useCoreSettings(
     )
     setLearning((held) => (held ? mergeAgentLearning(held, next) : held))
   }
+  const savePermissions = async (mode: PermissionMode) => {
+    keepPermissions(
+      await client.savePermissions(mode, AbortSignal.timeout(20000)),
+    )
+  }
   return {
     saved,
     adapters,
     adapterError,
     learning,
+    permissions,
+    savePermissions,
     directory,
     connection,
     reconnect: () => setAttempt((n) => n + 1),

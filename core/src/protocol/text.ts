@@ -1,5 +1,5 @@
 import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
-import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange, interfacePreferencesRecord } from './admin.js'
+import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange, interfacePreferencesRecord, permissionSettingsRecord } from './admin.js'
 import { updateStatus } from './updates.js'
 import { documentPart, documentRemoved, documentSummary } from './documents.js'
 
@@ -147,6 +147,7 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('settings-changed'), data: settingsRecord }, false),
   object({ ...eventBase, type: literal('adapters-changed'), data: adaptersChange }, false),
   object({ ...eventBase, type: literal('interface-changed'), data: interfacePreferencesRecord }, false),
+  object({ ...eventBase, type: literal('permissions-changed'), data: permissionSettingsRecord }, false),
   object({ ...eventBase, type: literal('identity-changed'), data: identityChange }, false),
   object({ ...eventBase, type: literal('instructions-changed'), data: instructionsChange }, false),
   object({ ...eventBase, type: literal('document-changed'), data: documentSummary }, false),

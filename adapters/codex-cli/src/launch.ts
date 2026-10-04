@@ -6,26 +6,20 @@ export interface LaunchConfig {
   executable: string
   codexHome: string
   dataDirectory: string
-  sandbox?: 'read-only' | 'workspace-write' | 'danger-full-access'
-  approvalPolicy?: 'never' | 'on-request' | 'untrusted' | 'on-failure'
   environment: Record<string, string>
 }
 /** Only this adapter interprets its installation configuration. Paths refer to the execution host. */
 export function launchConfig(value: Readonly<Record<string, unknown>> = {}, dataDirectory?: string): LaunchConfig {
-  const keys = ['executable', 'codexHome', 'sandbox', 'approvalPolicy', 'environment']
+  const keys = ['executable', 'codexHome', 'environment']
   for (const key of Object.keys(value)) if (!keys.includes(key)) throw new Error(`Unknown Codex CLI configuration: ${key}`)
   if (!dataDirectory || !isAbsolute(dataDirectory)) throw new Error('Core must provide an absolute adapter data directory')
   const executable = value.executable ?? 'codex'
   if (typeof executable !== 'string' || !executable.trim() || (executable !== 'codex' && !isAbsolute(executable))) throw new Error('executable must be codex or an absolute executable path')
   const codexHome = value.codexHome ?? (process.env.CODEX_HOME || join(homedir(), '.codex'))
   if (typeof codexHome !== 'string' || !codexHome.trim() || !isAbsolute(codexHome)) throw new Error('codexHome must be an absolute path')
-  const sandbox = value.sandbox as LaunchConfig['sandbox']
-  if (sandbox !== undefined && !['read-only', 'workspace-write', 'danger-full-access'].includes(sandbox)) throw new Error('Invalid Codex sandbox')
-  const approvalPolicy = value.approvalPolicy as LaunchConfig['approvalPolicy']
-  if (approvalPolicy !== undefined && !['never', 'on-request', 'untrusted', 'on-failure'].includes(approvalPolicy)) throw new Error('Invalid Codex approvalPolicy')
   const environment = value.environment ?? {}
   if (!environment || typeof environment !== 'object' || Array.isArray(environment) || Object.entries(environment).some(([key, entry]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof entry !== 'string' || ['HOME', 'CODEX_HOME'].includes(key))) throw new Error('environment must contain string variables other than HOME and CODEX_HOME')
-  return { executable, codexHome: resolve(codexHome), dataDirectory: resolve(dataDirectory), ...(sandbox ? { sandbox } : {}), ...(approvalPolicy ? { approvalPolicy } : {}), environment: { ...environment } as Record<string, string> }
+  return { executable, codexHome: resolve(codexHome), dataDirectory: resolve(dataDirectory), environment: { ...environment } as Record<string, string> }
 }
 async function codexRoot(config: LaunchConfig): Promise<string> {
   const root = await realpath(config.codexHome)

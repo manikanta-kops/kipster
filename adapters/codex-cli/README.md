@@ -2,7 +2,25 @@
 
 Install this package beside `@kipster/core` and register its resolved entry in Core's adapter registry. The adapter requires a locally authenticated `codex` CLI with App Server support; see [isolation and authentication](#isolation-and-authentication). Readiness discovers the live model catalog; a listed model may still fail when a turn starts, so keep execution failures visible. When Codex lists `gpt-6-luna`, readiness reports it as the default model, with `high` effort when the model supports it; Core uses it for agents that choose no model. Each execution starts an owned App Server process. Conversation execution uses the selected user Codex home; maintenance disables native multi-agent. Cancellation acknowledgement is separate from a terminal turn observation. Steering and native resume are not advertised.
 
-Core supplies the Kipster tools of each execution in `context.tools`: name, description, JSON Schema, and for a tool that leaves the run waiting, what it waits on. The adapter offers them to Codex as dynamic tools unchanged and forwards each call to the Core-bound attempt host under the same name; a call to a tool Core did not offer is refused without reaching Core. Core's instructions, which explain the tools, become the thread's base instructions. A provider turn may make one question or approval call. Native agent messages and tool publications have separate provider identities. The adapter receives no database credentials or embedding provider for these tools. Core's rendered `context.prompt` is the turn's text input, with retrieved memories and file references as untrusted evidence. Each turn uses the persistent Core-owned agent home as its working directory. Conversation execution inherits Codex permissions unless adapter configuration overrides them. Provider options are unsupported; a nonempty `settings.options` is rejected before provider startup.
+Core supplies the Kipster tools of each execution in `context.tools`: name, description, JSON Schema, and for a tool that leaves the run waiting, what it waits on. The adapter offers them to Codex as dynamic tools unchanged and forwards each call to the Core-bound attempt host under the same name; a call to a tool Core did not offer is refused without reaching Core. Core's instructions, which explain the tools, become the thread's base instructions. A provider turn may make one question or approval call. Native agent messages and tool publications have separate provider identities. The adapter receives no database credentials or embedding provider for these tools. Core's rendered `context.prompt` is the turn's text input, with retrieved memories and file references as untrusted evidence. Each turn uses the persistent Core-owned agent home as its working directory. Provider options are unsupported; a nonempty `settings.options` is rejected before provider startup.
+
+## Permission modes
+
+Core sends the installation's permission mode with each conversation execution as `context.permissionMode`. The
+adapter starts the thread with these settings; a missing or unknown mode runs as `supervised`:
+
+| Mode | `sandbox` | `approvalPolicy` | `approvalsReviewer` |
+| --- | --- | --- | --- |
+| `supervised` | `read-only` | `untrusted` | `user` |
+| `acceptEdits` | `workspace-write` | `on-request` | `user` |
+| `auto` | `workspace-write` | `on-request` | `auto_review` |
+| `fullAccess` | `danger-full-access` | `never` | `user` |
+
+The workspace Codex may write in is the agent's Core-owned home, the execution's working directory. With
+`workspace-write`, edits there and sandboxed commands run without asking; leaving the sandbox, for example to write
+elsewhere or use the network, asks. In `auto`, Codex's reviewer subagent decides those requests instead of the person.
+Requests that still reach the person become approval cards. Every execution starts a new thread, so a changed mode
+applies from the next turn. Maintenance stays read-only and never asks.
 
 ## Memory maintenance
 
@@ -18,8 +36,6 @@ Register `@kipster/codex-cli` with adapter ID `codex-cli`. Core passes the optio
 | --- | --- |
 | `executable` | `codex` on the service's `PATH`; alternatively an absolute executable path. |
 | `codexHome` | `CODEX_HOME`, then the operating system user's `~/.codex`. Must be an existing absolute directory. |
-| `sandbox` | Inherit Codex configuration; optional `read-only`, `workspace-write`, or `danger-full-access`. |
-| `approvalPolicy` | Inherit Codex configuration; optional `never`, `on-request`, `untrusted`, or `on-failure`. |
 | `environment` | Additional string environment variables for conversation processes and their plugins. `HOME` and `CODEX_HOME` cannot be overridden here. |
 
 The adapter keeps its own records in the private data directory Core provides (`<Kipster home>/providers/codex-cli`). No developer username or machine path is built into the adapter. The operating system account running the service determines the default home; a service running as another user needs explicit configuration and access to that user's login. launchd does not load shell profiles, so configure its `PATH` or `executable` explicitly.

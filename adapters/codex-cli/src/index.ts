@@ -1,5 +1,6 @@
 import { ImageInputs } from './image-inputs.js'
 import { nativeInteractions } from './native-interactions.js'
+import { codexPermissions } from './permissions.js'
 import { launchConfig, conversationLaunch, maintenanceLaunch, isolationSettings, privateDirectory, errorCode, probe, type LaunchConfig } from './launch.js'
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
@@ -283,7 +284,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
     const clean = async () => { await rpc.stop(); await images.close(); this.owned.delete(context.attemptId) }
     try {
       await initialize(rpc)
-      const thread = await rpc.request('thread/start', { model, cwd: context.workingDirectory, ...(this.config.approvalPolicy ? { approvalPolicy: this.config.approvalPolicy } : {}), ...(this.config.sandbox ? { sandbox: this.config.sandbox } : {}), serviceName: 'kipster', baseInstructions: context.instructions, dynamicTools: tools.map(({ name, description, inputSchema }) => ({ type: 'function', name, description, inputSchema })) })
+      const thread = await rpc.request('thread/start', { model, cwd: context.workingDirectory, ...codexPermissions(context.permissionMode), serviceName: 'kipster', baseInstructions: context.instructions, dynamicTools: tools.map(({ name, description, inputSchema }) => ({ type: 'function', name, description, inputSchema })) })
       owned.threadId = string(object(thread.thread).id)
       if (!owned.threadId) throw new Error('Codex thread ID is missing')
       await this.recordThread(owned.threadId)
