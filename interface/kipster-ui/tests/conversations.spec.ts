@@ -915,7 +915,7 @@ test('a version 2 response with an unknown interaction kind still displays the t
   await expect(
     pane.getByRole('textbox', { name: 'Reply in this thread' }),
   ).toBeVisible()
-  await expect(pane.locator('.work-status')).toContainText('paused')
+  await expect(pane.locator('.work-block-word')).toContainText('paused')
   await expect(page.getByText(/Backend.*incompatible/)).toHaveCount(0)
   expect(errors).toEqual([])
 })

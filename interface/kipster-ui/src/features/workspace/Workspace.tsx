@@ -15,6 +15,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react'
 import { PlatformContext } from '../../platform/context'
 import {
@@ -65,6 +66,8 @@ import {
   type InboxNotification,
 } from '../../data/notifications'
 import { WorkPanel, WorkRecovery } from '../work/WorkPanel'
+import { WorkBlock } from '../work/WorkBlock'
+import { runsByOrigin, type RunWork } from '../work/run-work'
 import { useWorkCommands } from '../work/use-work-commands'
 import {
   createCoreWorkClient,
@@ -130,9 +133,6 @@ const CoreSettingsPanel = lazy(() =>
   import('../settings/CoreSettingsPanel').then((m) => ({
     default: m.CoreSettingsPanel,
   })),
-)
-const LifecyclePanel = lazy(() =>
-  import('./LifecyclePanel').then((m) => ({ default: m.LifecyclePanel })),
 )
 
 const connecting = 'Connecting to Kipster…'
@@ -357,7 +357,6 @@ export function Workspace({
     anchor: HTMLButtonElement
     key: string
   } | null>(null)
-  const [lifecycleOpen, setLifecycleOpen] = useState(false)
   const [settingsOpener, setSettingsOpener] = useState<HTMLElement | null>(null)
   const [settingsInitialTab, setSettingsInitialTab] = useState<
     'workspace' | 'updates'
@@ -1485,8 +1484,12 @@ export function Workspace({
         }}
       />
     ) : null
-  const renderMessage = (message: TextMessage) => (
-    <Message message={preview.messagesById[message.id]} data={preview} />
+  const renderMessage = (message: TextMessage, lead?: ReactNode) => (
+    <Message
+      message={preview.messagesById[message.id]}
+      data={preview}
+      lead={lead}
+    />
   )
   // Earlier runs that ended without an answer stay marked under their message.
   const ended: Record<string, string> = {
@@ -1764,6 +1767,63 @@ export function Workspace({
       }
   const records = selected ? recordsFor(selected) : emptyWork()
   const currentRun = records.workflows[0]?.runId
+  // Each run's work opens the kip's reply that follows the message that started it.
+  const threadMessages = selected ? ordered(selected) : []
+  const threadAgentId = selected ? summaries[selected]?.agentId : undefined
+  const runs = selected
+    ? runsByOrigin(Object.values(works[selected] ?? {}), records)
+    : new Map<string, RunWork>()
+  const workBlock = (run: RunWork, drafting = false) =>
+    selected && (
+      <WorkBlock
+        key={run.runId}
+        run={run}
+        drafting={drafting}
+        data={preview}
+        commands={workCommands}
+        threadId={selected}
+      />
+    )
+  const workTurn = (run: RunWork) =>
+    agent && (
+      <div className="message-content work-turn" key={run.runId}>
+        <Avatar
+          name={agent.name}
+          color={agent.color}
+          kip={preview.agentRoles.some((r) => r.agentId === agent.id)}
+        />
+        <div className="message-body">
+          <div className="message-meta">
+            <strong>{agent.name}</strong>
+          </div>
+          {workBlock(run)}
+        </div>
+      </div>
+    )
+  const replyRun = (message: TextMessage) => {
+    const index = threadMessages.findIndex((m) => m.id === message.id)
+    const before = threadMessages[index - 1]
+    return message.authorId === threadAgentId && before
+      ? runs.get(before.id)
+      : undefined
+  }
+  const waitingRun = (message: TextMessage) => {
+    const run = runs.get(message.id)
+    const index = threadMessages.findIndex((m) => m.id === message.id)
+    return run && threadMessages[index + 1]?.authorId !== threadAgentId
+      ? run
+      : undefined
+  }
+  // Runs whose first message is not loaded still show, after the messages.
+  const unplacedRuns = [...runs].filter(
+    ([origin]) => !threadMessages.some((m) => m.id === origin),
+  )
+  const placed = new Set(
+    [...runs.values()].flatMap((r) => r.interactions.map((i) => i.id)),
+  )
+  const unplacedInteractions = records.interactions.filter(
+    (i) => !placed.has(i.id),
+  )
   const notices_ = (
     <>
       {connection && (
@@ -2202,7 +2262,15 @@ export function Workspace({
                               </time>
                             </div>
                           )}
-                          {renderMessage(message)}
+                          {renderMessage(
+                            message,
+                            replyRun(message) &&
+                              workBlock(
+                                replyRun(message)!,
+                                preview.messagesById[message.id]?.status ===
+                                  'draft',
+                              ),
+                          )}
                           {message.id ===
                             preview.threadsById[selected].rootMessageId && (
                             <div className="date-divider replies-divider">
@@ -2218,6 +2286,7 @@ export function Workspace({
                               (w) =>
                                 w.messageId === message.id &&
                                 w.runId !== currentRun &&
+                                !runs.has(w.messageId) &&
                                 ended[w.state],
                             )
                             .map((w) => (
@@ -2227,17 +2296,23 @@ export function Workspace({
                                   : ended[w.state]}
                               </p>
                             ))}
+                          {waitingRun(message) &&
+                            workTurn(waitingRun(message)!)}
                         </motion.article>
                       )}
                     />
                   }
                   work={
-                    <WorkPanel
-                      work={records}
-                      threadId={selected}
-                      data={preview}
-                      commands={workCommands}
-                    />
+                    <>
+                      {unplacedRuns.map(([, run]) => workTurn(run))}
+                      <WorkPanel
+                        work={records}
+                        interactions={unplacedInteractions}
+                        threadId={selected}
+                        data={preview}
+                        commands={workCommands}
+                      />
+                    </>
                   }
                   recovery={
                     <>
@@ -2268,33 +2343,31 @@ export function Workspace({
               softwareUpdates={softwareUpdates}
               initialTab={settingsInitialTab}
               versions={identity}
-              workspaceControls={
-                <>
-                  <Management
-                    data={view}
-                    organizationId={nav.organizationId}
-                    agents={addable}
-                  />
-                  {changeConnection && (
-                    <button
-                      className="management-trigger"
-                      onClick={changeConnection}
-                    >
-                      <Icon name="connection" />
-                      Change connection
-                    </button>
-                  )}
-                  <button
-                    className="management-trigger"
-                    onClick={() => {
-                      setLifecycleOpen(true)
-                    }}
-                  >
-                    <Icon name="folder" />
-                    Archive &amp; deletion
-                  </button>
-                </>
+              manage={
+                <Management
+                  data={view}
+                  organizationId={nav.organizationId}
+                  agents={addable}
+                />
               }
+              changeConnection={changeConnection}
+              lifecycle={
+                directory
+                  ? {
+                      directory,
+                      scope,
+                      history: (agentId, organizationId) => {
+                        setSettingsOpener(null)
+                        switchChat({
+                          agentId,
+                          organizationId,
+                          target: 'organization',
+                        })
+                      },
+                    }
+                  : undefined
+              }
+              workspace={view}
               appearance={appearance}
               updates={applicationUpdates}
               endpoint={client.endpoint}
@@ -2302,21 +2375,6 @@ export function Workspace({
               organizationId={nav.organizationId ?? identity.organizationId}
               opener={settingsOpener}
               close={() => setSettingsOpener(null)}
-            />
-          </Suspense>
-        )}
-        {lifecycleOpen && directory && (
-          <Suspense>
-            <LifecyclePanel
-              endpoint={client.endpoint}
-              scope={scope}
-              directory={directory}
-              close={() => setLifecycleOpen(false)}
-              history={(agentId, organizationId) => {
-                setSettingsOpener(null)
-                switchChat({ agentId, organizationId, target: 'organization' })
-                setLifecycleOpen(false)
-              }}
             />
           </Suspense>
         )}

@@ -134,14 +134,20 @@ async function exercise(browser, origin, test) {
         )
       }
       await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page
+        .getByRole('button', { name: 'Organization', exact: true })
+        .click()
       await expect(
-        page.getByRole('button', { name: 'Manage workspace', exact: true }),
+        page.getByRole('button', { name: /^Manage kips and groups…/ }),
       ).toBeVisible()
       if (test.demo) {
         await expect(
-          page.getByRole('button', { name: 'Change connection', exact: true }),
+          page.getByRole('button', { name: 'Connection', exact: true }),
         ).toHaveCount(0)
       } else {
+        await page
+          .getByRole('button', { name: 'Connection', exact: true })
+          .click()
         await page
           .getByRole('button', { name: 'Change connection', exact: true })
           .click()
@@ -158,6 +164,9 @@ async function exercise(browser, origin, test) {
       if (!test.demo) {
         await page
           .getByRole('button', { name: 'Settings', exact: true })
+          .click()
+        await page
+          .getByRole('button', { name: 'Connection', exact: true })
           .click()
         await page
           .getByRole('button', { name: 'Change connection', exact: true })

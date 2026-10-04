@@ -30,15 +30,33 @@ function inline(text: string): ReactNode[] {
 export function Markdown({
   text,
   streaming = false,
+  headings = false,
+  className = 'message-text',
 }: {
   text: string
   streaming?: boolean
+  /** Documents such as identity files use `#` headings; chat messages keep them as text. */
+  headings?: boolean
+  className?: string
 }) {
+  const heading = (line: string) => headings && /^#{1,6}\s/.test(line)
   const blocks: ReactNode[] = []
   const lines = text.split('\n')
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-    if (line.startsWith('```')) {
+    if (heading(line)) {
+      const level = Math.min(line.indexOf(' '), 3)
+      const content = inline(line.replace(/^#+\s+/, ''))
+      blocks.push(
+        level === 1 ? (
+          <h1 key={i}>{content}</h1>
+        ) : level === 2 ? (
+          <h2 key={i}>{content}</h2>
+        ) : (
+          <h3 key={i}>{content}</h3>
+        ),
+      )
+    } else if (line.startsWith('```')) {
       if (!lines.slice(i + 1).some((next) => /^```\s*$/.test(next))) {
         blocks.push(<p key={i}>{lines.slice(i).join('\n')}</p>)
         break
@@ -80,6 +98,7 @@ export function Markdown({
       while (
         i + 1 < lines.length &&
         lines[i + 1].trim() &&
+        !heading(lines[i + 1]) &&
         !/^(```|>|\s*([-*]|\d+\.)\s)/.test(lines[i + 1])
       )
         paragraph.push(lines[++i])
@@ -87,7 +106,7 @@ export function Markdown({
     }
   }
   return (
-    <div className={`message-text markdown${streaming ? ' streaming' : ''}`}>
+    <div className={`${className} markdown${streaming ? ' streaming' : ''}`}>
       {blocks}
     </div>
   )

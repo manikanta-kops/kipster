@@ -402,7 +402,7 @@ test('management dialog traps focus, Escape returns it, narrow dark and reduced 
   await page.keyboard.press('Escape')
   await expect(managementDialog(page)).toHaveCount(0)
   await expect(
-    page.getByRole('button', { name: 'Manage workspace', exact: true }),
+    page.getByRole('button', { name: /^Manage kips and groups…/ }),
   ).toBeFocused()
 })
 

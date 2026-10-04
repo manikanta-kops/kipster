@@ -15,9 +15,8 @@ export const managementDialog = (page: Page) =>
     .last()
 export async function openManagement(page: Page) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page
-    .getByRole('button', { name: 'Manage workspace', exact: true })
-    .click()
+  await page.getByRole('button', { name: 'Organization', exact: true }).click()
+  await page.getByRole('button', { name: /^Manage kips and groups…/ }).click()
 }
 export async function manage(page: Page, section = 'Organization') {
   await openManagement(page)

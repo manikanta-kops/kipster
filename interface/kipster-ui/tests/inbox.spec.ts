@@ -307,6 +307,7 @@ test('settings and inbox keyboard focus at desktop and phone widths with reduced
     await page
       .getByRole('button', { name: 'Organization', exact: true })
       .click()
+    await page.getByRole('button', { name: /^Instructions/ }).click()
     const instructions = page.getByRole('textbox', {
       name: 'Organization instructions',
       exact: true,
@@ -396,7 +397,7 @@ test('kinds and the master switch turned off are not sent as system notification
     body: 'All done.',
   })
   await notificationSettings(page)
-  await page.getByRole('switch', { name: /^macOS notifications/ }).uncheck()
+  await page.getByRole('switch', { name: /^Allow notifications/ }).uncheck()
   await page.getByRole('button', { name: 'Close settings' }).click()
   expect(
     await page.evaluate(() =>

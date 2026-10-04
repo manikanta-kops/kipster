@@ -76,6 +76,11 @@ const openNotificationSettings = async (page: Page) => {
     .getByRole('button', { name: 'Notifications', exact: true })
     .click()
 }
+const openGeneralSettings = (page: Page) =>
+  page
+    .getByRole('dialog', { name: 'Settings', exact: true })
+    .getByRole('button', { name: 'General', exact: true })
+    .click()
 
 test('the browser shows only in-app banner settings, off by default', async ({
   page,
@@ -86,9 +91,14 @@ test('the browser shows only in-app banner settings, off by default', async ({
   await expect(banners).not.toBeChecked()
   await expect(page.getByRole('switch')).toHaveCount(1)
   await expect(
-    page.getByRole('button', { name: 'Send test notification' }),
+    page.getByRole('button', { name: 'Send test', exact: true }),
   ).toHaveCount(0)
   await expect(page.getByText('Open at login')).toHaveCount(0)
+  await expect(
+    page
+      .getByRole('dialog', { name: 'Settings', exact: true })
+      .getByRole('button', { name: 'General', exact: true }),
+  ).toHaveCount(0)
   await banners.check()
   await page.reload()
   await openNotificationSettings(page)
@@ -104,7 +114,7 @@ test('desktop settings follow the host: permission, test, keep running and open 
   await openNotificationSettings(page)
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
   await expect(settings.getByText('Allowed in System Settings')).toBeVisible()
-  const master = page.getByRole('switch', { name: /^macOS notifications/ })
+  const master = page.getByRole('switch', { name: /^Allow notifications/ })
   await expect(master).toBeChecked()
   for (const name of ['Needs you', 'Failures', 'Replies', 'Dock badge'])
     await expect(
@@ -113,6 +123,10 @@ test('desktop settings follow the host: permission, test, keep running and open 
   await expect(
     page.getByRole('switch', { name: /^In-app banners/ }),
   ).not.toBeChecked()
+  await expect(page.getByRole('switch', { name: /^Keep running/ })).toHaveCount(
+    0,
+  )
+  await openGeneralSettings(page)
   await expect(
     page.getByRole('switch', { name: /^Keep running/ }),
   ).toBeChecked()
@@ -124,9 +138,12 @@ test('desktop settings follow the host: permission, test, keep running and open 
       page.evaluate(() => (window as any).notificationTest.openAtLogin),
     )
     .toBe(true)
+  await settings
+    .getByRole('button', { name: 'Notifications', exact: true })
+    .click()
   await master.uncheck()
   await expect(page.getByRole('switch', { name: /^Replies/ })).toBeDisabled()
-  await page.getByRole('button', { name: 'Send test notification' }).click()
+  await page.getByRole('button', { name: 'Send test', exact: true }).click()
   await expect(settings.getByText(/^Sent\./)).toBeVisible()
   expect(
     await page.evaluate(() => (window as any).notificationTest.sends.length),
@@ -134,7 +151,7 @@ test('desktop settings follow the host: permission, test, keep running and open 
   await page.evaluate(() => {
     ;(window as any).notificationTest.permission = 'denied'
   })
-  await page.getByRole('button', { name: 'Send test notification' }).click()
+  await page.getByRole('button', { name: 'Send test', exact: true }).click()
   await expect(
     settings.getByText('Turned off for Kipster in System Settings.', {
       exact: true,

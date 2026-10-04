@@ -61,6 +61,7 @@ test('first launch connects to the local fake Core and remembers its address', a
   await page.reload()
   await expect(page.locator('.app-shell')).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Connection', exact: true }).click()
   await page.getByRole('button', { name: 'Change connection' }).click()
   await expect(page.getByLabel('Backend address')).toHaveValue(localBackendURL)
 })
@@ -344,21 +345,24 @@ test('identity restore uses the current hash, shows conflicts and archived read-
       body: JSON.stringify(data),
     })
   })
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  /** Kips → Scout → identity.md → Backups → the backup. */
+  async function openBackup() {
+    await settings.getByRole('button', { name: /^Scout/ }).click()
+    await settings.getByRole('button', { name: /^identity\.md/ }).click()
+    await expect(
+      page.getByText('Current identity', { exact: true }),
+    ).toBeVisible()
+    await settings.getByRole('button', { name: /^Backups/ }).click()
+    await settings.getByRole('button', { name: /bytes$/ }).click()
+    await expect(
+      page.getByText('Previous identity', { exact: true }),
+    ).toBeVisible()
+  }
   await page.goto('/tests/desktop.html?settings')
   await page.getByRole('button', { name: 'Open settings' }).click()
-  await page
-    .getByRole('button', { name: 'Identity files', exact: true })
-    .click()
-  await expect(
-    page.getByText('Current identity', { exact: true }),
-  ).toBeVisible()
-  await page
-    .getByRole('combobox', { name: 'Backups', exact: true })
-    .selectOption('backup')
-  await expect(
-    page.getByText('Previous identity', { exact: true }),
-  ).toBeVisible()
-  await page.getByRole('button', { name: 'Restore this backup' }).click()
+  await openBackup()
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
   await expect(
     page.getByText('The file changed. Refresh it before restoring a backup.'),
   ).toBeVisible()
@@ -372,7 +376,7 @@ test('identity restore uses the current hash, shows conflicts and archived read-
     ),
     page.getByRole('button', { name: 'Refresh files' }).click(),
   ])
-  await page.getByRole('button', { name: 'Restore this backup' }).click()
+  await page.getByRole('button', { name: 'Restore', exact: true }).click()
   await expect
     .poll(() => posts.at(-1))
     .toEqual({ version: 1, expectedSha256: 'current-2' })
@@ -389,20 +393,12 @@ test('identity restore uses the current hash, shows conflicts and archived read-
   expect(reads).toBe(before)
   archived = true
   await page.getByRole('button', { name: 'Open settings' }).click()
-  await page
-    .getByRole('button', { name: 'Identity files', exact: true })
-    .click()
+  await openBackup()
   await expect(
     page.getByText('Archived identities are read-only.'),
   ).toBeVisible()
-  await page
-    .getByRole('combobox', { name: 'Backups', exact: true })
-    .selectOption('backup')
   await expect(
-    page.getByText('Previous identity', { exact: true }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Restore this backup' }),
+    page.getByRole('button', { name: 'Restore', exact: true }),
   ).toHaveCount(0)
   expect(streams).toBe(0)
 })

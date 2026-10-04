@@ -204,7 +204,7 @@ test('an unknown operation state keeps progress checking without an error', asyn
   await expect(progress).toContainText('Moving files')
   await expect.poll(() => reads).toBeGreaterThan(1)
   await expect(
-    page.getByRole('dialog', { name: 'Archive & deletion' }).getByRole('alert'),
+    page.getByRole('dialog', { name: 'Settings' }).getByRole('alert'),
   ).toHaveCount(0)
 })
 

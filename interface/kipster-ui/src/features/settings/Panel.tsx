@@ -67,11 +67,14 @@ export function Panel({
   subtitle,
   variant = 'sheet',
   className = '',
+  header = true,
   opener,
   close,
   children,
 }: {
   title: string
+  /** False when the content draws its own title bar and close button. */
+  header?: boolean
   subtitle?: React.ReactNode
   variant?: 'sheet' | 'popover'
   className?: string
@@ -142,19 +145,21 @@ export function Panel({
         close()
       }}
     >
-      <header className="panel-header">
-        <div className="panel-title">
-          <h2>{title}</h2>
-          {subtitle && <p>{subtitle}</p>}
-        </div>
-        <button
-          className="icon-button"
-          aria-label={`Close ${title.toLowerCase()}`}
-          onClick={close}
-        >
-          <Icon name="close" />
-        </button>
-      </header>
+      {header && (
+        <header className="panel-header">
+          <div className="panel-title">
+            <h2>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+          <button
+            className="icon-button"
+            aria-label={`Close ${title.toLowerCase()}`}
+            onClick={close}
+          >
+            <Icon name="close" />
+          </button>
+        </header>
+      )}
       {children}
     </dialog>
   )

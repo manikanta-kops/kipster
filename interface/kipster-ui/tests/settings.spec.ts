@@ -31,6 +31,36 @@ async function openSettings(page: Page) {
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Organization', exact: true }).click()
 }
+const dialog = (page: Page) =>
+  page.getByRole('dialog', { name: 'Settings', exact: true })
+const instructions = (page: Page) =>
+  page.getByRole('textbox', { name: 'Organization instructions', exact: true })
+/** Shared instructions open from their row on the Organization page. */
+async function openInstructions(page: Page) {
+  await dialog(page)
+    .getByRole('button', { name: /^Instructions/ })
+    .click()
+  await expect(instructions(page)).toBeVisible()
+}
+const back = (page: Page) =>
+  dialog(page)
+    .getByRole('button', { name: /^Back to/ })
+    .click()
+const effort = (page: Page) =>
+  page.getByRole('radiogroup', { name: 'Effort', exact: true })
+/** Effort is a segmented control when a model offers four levels or fewer. */
+const chooseEffort = (page: Page, level: string) =>
+  effort(page)
+    .locator('label')
+    .filter({ hasText: new RegExp(`^${level}$`) })
+    .click()
+const effortIs = (page: Page, level: string) =>
+  expect(
+    effort(page).getByRole('radio', {
+      name: level === 'Default' ? /default/ : level,
+      exact: level !== 'Default',
+    }),
+  ).toBeChecked()
 async function setup(page: Page) {
   const session = await startDemo(page)
   await openSettings(page)
@@ -62,27 +92,22 @@ test('organization edit sends only intentional fields and retains opaque options
       bodies.push(route.request().postDataJSON())
     await route.continue()
   })
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(bodies[0].settings).toEqual({ effort: { set: 'high' } })
   const settings = await core(page, '/v1/settings')
   expect(
     settings.organizations.find((r: any) => r.id === org).settings.options,
   ).toEqual({ preserved: 'opaque' })
-  await page
-    .getByRole('textbox', { name: 'Organization instructions', exact: true })
-    .fill('Use concise answers.')
+  await openInstructions(page)
+  await instructions(page).fill('Use concise answers.')
   await page.getByRole('button', { name: 'Save instructions' }).click()
   await expect(page.getByText('Saved', { exact: true })).toBeVisible()
   await page.reload()
   await openSettings(page)
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).toHaveValue('Use concise answers.')
+  await openInstructions(page)
+  await expect(instructions(page)).toHaveValue('Use concise answers.')
 })
 
 test('global overrides span organizations and each explicit clear reveals local defaults', async ({
@@ -138,6 +163,7 @@ test('root administrator never inherits selected organization and incompatible i
     root.status,
   ]).toEqual(['demo', 'default', 'ready'])
   await page.getByRole('button', { name: 'Kips', exact: true }).click()
+  await dialog(page).getByRole('button', { name: /Admin/ }).click()
   await expect(
     page.getByText(
       'Your main kip works outside organizations. Without its own settings, it uses the default adapter and model.',
@@ -149,9 +175,8 @@ test('catalog refresh keeps dirty input and missing saved selections without fal
   page,
 }) => {
   await setup(page)
-  await page
-    .getByRole('textbox', { name: 'Organization instructions', exact: true })
-    .fill('Retain this draft')
+  await openInstructions(page)
+  await instructions(page).fill('Retain this draft')
   await page.route('**/v1/execution-adapters', async (route) => {
     const response = await route.fetch()
     const data = await response.json()
@@ -164,20 +189,12 @@ test('catalog refresh keeps dirty input and missing saved selections without fal
   await expect(
     page.getByLabel('Adapter', { exact: true }).locator('option:checked'),
   ).toContainText('not offered')
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).toHaveValue('Retain this draft')
+  await openInstructions(page)
+  await expect(instructions(page)).toHaveValue('Retain this draft')
   await page.reload()
   await openSettings(page)
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).toHaveValue('Retain this draft')
+  await openInstructions(page)
+  await expect(instructions(page)).toHaveValue('Retain this draft')
 })
 
 test('latest backend save wins supplied fields and repeated IDs retain acceptance', async ({
@@ -224,7 +241,7 @@ test('lost save acknowledgement remains read-only after reload until explicit ex
     },
     { times: 1 },
   )
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
   await expect(page.getByRole('button', { name: 'Retry save' })).toBeVisible()
   await page.reload()
@@ -236,7 +253,7 @@ test('lost save acknowledgement remains read-only after reload until explicit ex
     await route.continue()
   })
   await page.getByRole('button', { name: 'Retry save' }).click()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(bodies).toHaveLength(2)
   expect(bodies[1]).toEqual(bodies[0])
 })
@@ -251,13 +268,13 @@ test('uncertain save retains immutable retry and dirty input through close', asy
     if (sent.length === 1) await route.abort('failed')
     else await route.continue()
   })
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
   await expect(page.getByRole('button', { name: 'Retry save' })).toBeVisible()
   await reopen(page)
-  await expect(page.getByLabel('Effort', { exact: true })).toHaveValue('high')
+  await effortIs(page, 'High')
   await page.getByRole('button', { name: 'Retry save' }).click()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(sent).toHaveLength(2)
   expect(sent[1]).toEqual(sent[0])
 })
@@ -321,7 +338,7 @@ test('unsupported effort remains selected until deliberate organization effort c
   ).toBe('incompatible')
   await page.getByLabel('Effort', { exact: true }).selectOption('')
   await saveButton(page).click()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(
     (
       await core(
@@ -337,15 +354,15 @@ test('global override selectors use inherited catalog and explicit clear returns
 }) => {
   await setup(page)
   await page.getByRole('button', { name: 'Kips', exact: true }).click()
-  await page
-    .getByRole('combobox', { name: 'Kip', exact: true })
-    .selectOption(DEMO_IDS.researcher)
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await dialog(page)
+    .getByRole('button', { name: /^Atlas/ })
+    .click()
+  await chooseEffort(page, 'High')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByText('Saved.', { exact: true })).toBeVisible()
-  await page.getByLabel('Effort', { exact: true }).selectOption('')
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+  await chooseEffort(page, 'Default')
   await page.getByRole('button', { name: 'Save', exact: true }).click()
-  await expect(page.getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
   expect(
     (
       await core(
@@ -361,7 +378,7 @@ for (const failure of ['read', 'reserve'])
     page,
   }) => {
     await setup(page)
-    await page.getByLabel('Effort', { exact: true }).selectOption('high')
+    await chooseEffort(page, 'High')
     await page.evaluate((failure) => {
       const method = failure === 'read' ? 'get' : 'add'
       const original = IDBObjectStore.prototype[method]
@@ -380,7 +397,7 @@ for (const failure of ['read', 'reserve'])
     await expect(editor(page).getByRole('alert')).toContainText(
       'Nothing was sent',
     )
-    await expect(page.getByLabel('Effort', { exact: true })).toHaveValue('high')
+    await effortIs(page, 'High')
     expect(sent).toBe(0)
   })
 
@@ -388,9 +405,8 @@ test('catalog failure and refresh retain dirty fields and recovery', async ({
   page,
 }) => {
   await setup(page)
-  await page
-    .getByRole('textbox', { name: 'Organization instructions', exact: true })
-    .fill('Keep while refreshing')
+  await openInstructions(page)
+  await instructions(page).fill('Keep while refreshing')
   await page.getByRole('button', { name: 'Adapters', exact: true }).click()
   await page.route('**/v1/execution-adapters/refresh', (route) =>
     route.abort('failed'),
@@ -405,12 +421,8 @@ test('catalog failure and refresh retain dirty fields and recovery', async ({
     page.getByText('1 of 1 available', { exact: true }),
   ).toBeVisible()
   await page.getByRole('button', { name: 'Organization', exact: true }).click()
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).toHaveValue('Keep while refreshing')
+  await openInstructions(page)
+  await expect(instructions(page)).toHaveValue('Keep while refreshing')
 })
 
 test('late save acknowledgement cannot overwrite another client newer canonical fields', async ({
@@ -430,43 +442,38 @@ test('late save acknowledgement cannot overwrite another client newer canonical 
     },
     { times: 1 },
   )
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
   await accepted
   await save(page, 'organizations', org, { effort: { set: 'low' } })
   release()
-  await expect(page.getByLabel('Effort', { exact: true })).toHaveValue('low')
+  await effortIs(page, 'Low')
 })
 
 test('dirty settings survive organization changes without retargeting', async ({
   page,
 }) => {
   await setup(page)
-  await page
-    .getByRole('textbox', { name: 'Organization instructions', exact: true })
-    .fill('Garden draft only')
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
-  const select = page
-    .getByRole('dialog', { name: 'Settings' })
-    .getByRole('combobox', { name: 'Organization', exact: true })
+  await openInstructions(page)
+  await instructions(page).fill('Garden draft only')
+  await back(page)
+  await chooseEffort(page, 'High')
+  const select = dialog(page).getByRole('combobox', {
+    name: 'Organization',
+    exact: true,
+  })
   await select.selectOption(DEMO_IDS.studio)
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).not.toHaveValue('Garden draft only')
+  await openInstructions(page)
+  await expect(instructions(page)).not.toHaveValue('Garden draft only')
+  await back(page)
   await select.selectOption(org)
-  await expect(
-    page.getByRole('textbox', {
-      name: 'Organization instructions',
-      exact: true,
-    }),
-  ).toHaveValue('Garden draft only')
-  await expect(page.getByLabel('Effort', { exact: true })).toHaveValue('high')
+  await openInstructions(page)
+  await expect(instructions(page)).toHaveValue('Garden draft only')
+  await back(page)
+  await effortIs(page, 'High')
   await page.reload()
   await openSettings(page)
-  await expect(page.getByLabel('Effort', { exact: true })).toHaveValue('high')
+  await effortIs(page, 'High')
 })
 
 test('another tab settlement removes explicit retry without automatic replay', async ({
@@ -479,14 +486,14 @@ test('another tab settlement removes explicit retry without automatic replay', a
     commands++
     await route.abort('failed')
   })
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
   await expect(page.getByRole('button', { name: 'Retry save' })).toBeVisible()
   const other = await context.newPage()
   await startDemo(other, { session })
   await openSettings(other)
   await other.getByRole('button', { name: 'Retry save' }).click()
-  await expect(other.getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(other.getByText('Saved', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Retry save' })).toHaveCount(0)
   expect(commands).toBe(1)
 })
@@ -501,7 +508,7 @@ test('explicit retry remains available after an unknown save while settings refr
     if (commands === 1) await route.abort('failed')
     else await route.continue()
   })
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   await saveButton(page).click()
   await expect(page.getByRole('button', { name: 'Retry save' })).toBeVisible()
   let release!: () => void
@@ -518,7 +525,7 @@ test('explicit retry remains available after an unknown save while settings refr
   await save(page, 'agents', DEMO_IDS.researcher, { effort: { set: 'low' } })
   await page.getByRole('button', { name: 'Retry save' }).click()
   release()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(commands).toBe(2)
 })
 
@@ -549,7 +556,7 @@ test('late save acknowledgement preserves another tab’s newer persisted draft'
   context,
 }) => {
   const session = await setup(page)
-  await page.getByLabel('Effort', { exact: true }).selectOption('high')
+  await chooseEffort(page, 'High')
   let release!: () => void
   let received = false
   const gate = new Promise<void>((resolve) => {
@@ -564,12 +571,12 @@ test('late save acknowledgement preserves another tab’s newer persisted draft'
   const other = await context.newPage()
   await startDemo(other, { session })
   await openSettings(other)
-  await other.getByLabel('Effort', { exact: true }).selectOption('low')
+  await chooseEffort(other, 'Low')
   await saveButton(page).click()
   await expect.poll(() => received).toBeTruthy()
   release()
-  await expect(editor(page).getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   await other.reload()
   await openSettings(other)
-  await expect(other.getByLabel('Effort', { exact: true })).toHaveValue('low')
+  await effortIs(other, 'Low')
 })

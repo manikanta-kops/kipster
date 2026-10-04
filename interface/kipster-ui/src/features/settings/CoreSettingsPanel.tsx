@@ -1,123 +1,136 @@
-import { useContext, type ReactNode } from 'react'
+import {
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { PlatformContext } from '../../platform/context'
 import type { Appearance } from '../../app/appearance'
-import { AppearanceSettings } from './AppearanceSettings'
-import { NotificationSettings } from '../notifications/NotificationSettings'
-import { IdentityFiles } from './IdentityFiles'
 import type { ApplicationUpdates } from '../../data/application-updates'
-import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Icon } from '../../components/Icon'
-import { Panel } from './Panel'
-import type { Scope } from '../../data/text'
-import { appProtocol, type ProtocolRange } from '../../data/compatibility'
-import { appVersion } from '../../app/version'
-import {
-  CoreSettingsClient,
-  settingFields,
-  settingsPatch,
-  type AdapterList,
-  type Directory,
-  type ExecutionSettings,
-  type SettingField,
-  type SettingsPatch,
-  type SettingsTarget,
-} from '../../data/core-settings'
-import { useCoreSettings } from '../../data/use-core-settings'
-import { useSettingsDraft } from '../../data/use-settings-draft'
-import { useSettingsSave } from '../../data/use-settings-save'
+import type { ProtocolRange } from '../../data/compatibility'
+import { CoreSettingsClient } from '../../data/core-settings'
+import type {
+  Directory as WorkspaceDirectory,
+  WorkspaceSnapshot,
+} from '../../data/directory'
 import type { SoftwareUpdates } from '../../data/software-updates'
-import { UpdatesPanel } from './UpdatesPanel'
+import type { Scope } from '../../data/text'
+import { useCoreSettings } from '../../data/use-core-settings'
+import { Icon } from '../../components/Icon'
+import { NotificationSettings } from '../notifications/NotificationSettings'
+import { ArchiveSettings } from '../workspace/LifecyclePanel'
+import { AdapterPage, AdaptersPage } from './AdaptersSettings'
+import { AppearanceSettings } from './AppearanceSettings'
+import { ConnectionSettings } from './ConnectionSettings'
+import { GeneralSettings } from './GeneralSettings'
+import { BackupPage, BackupsPage, IdentityFilePage } from './IdentityFiles'
+import type { KipLook } from './KipAvatar'
+import { KipPage, KipsPage } from './KipsSettings'
+import { LearningPage } from './LearningSettings'
+import { InstructionsPage, OrganizationPage } from './OrganizationSettings'
+import { Panel } from './Panel'
+import { Callout, Glyph } from './ui'
+import { SheetContext, type Frame } from './sheet'
+import { TestingPage, UpdatesPage } from './UpdatesPanel'
 
-type Settings = ReturnType<typeof useCoreSettings>
-type Tab =
-  | 'workspace'
+type PageId =
+  | 'appearance'
+  | 'notifications'
+  | 'general'
+  | 'updates'
+  | 'kips'
   | 'organization'
-  | 'agent'
   | 'adapters'
   | 'learning'
-  | 'identity'
-  | 'notifications'
-  | 'appearance'
-  | 'about'
-  | 'updates'
-const tabs: Record<
-  Tab,
+  | 'connection'
+  | 'archive'
+const pages: Record<
+  PageId,
   {
     label: string
-    icon:
-      | 'organization'
-      | 'spark'
-      | 'settings'
-      | 'identity'
-      | 'brain'
-      | 'sun'
-      | 'info'
-      | 'bell'
-    description: string
+    icon: Parameters<typeof Icon>[0]['name']
+    hue: string
+    /** Words people may search for that are not in the label. */
+    words: string
   }
 > = {
-  workspace: {
-    label: 'Workspace',
-    icon: 'organization',
-    description: 'Organization, connection and archive',
-  },
   appearance: {
     label: 'Appearance',
-    icon: 'sun',
-    description: 'Palette and light or dark mode for this device',
+    icon: 'paint',
+    hue: 'var(--hue-amber)',
+    words: 'palette theme light dark mode color',
   },
   notifications: {
     label: 'Notifications',
     icon: 'bell',
-    description: 'How your kips reach you on this device',
+    hue: 'var(--hue-rose)',
+    words: 'alerts banners badge dock test',
   },
-  identity: {
-    label: 'Identity files',
-    icon: 'identity',
-    description: 'Read authored identity files and restore a saved backup',
+  general: {
+    label: 'General',
+    icon: 'settings',
+    hue: 'var(--hue-you)',
+    words: 'login startup start keep running window',
+  },
+  updates: {
+    label: 'Updates',
+    icon: 'download',
+    hue: 'var(--hue-sky)',
+    words: 'version about software channel automatic protocol',
+  },
+  kips: {
+    label: 'Kips',
+    icon: 'users',
+    hue: 'var(--hue-iris)',
+    words: 'agents model effort identity soul files next run',
   },
   organization: {
     label: 'Organization',
     icon: 'organization',
-    description: 'Defaults for member kips and shared instructions',
-  },
-  agent: {
-    label: 'Kips',
-    icon: 'spark',
-    description: 'Each kip’s own settings and what its next run will use',
+    hue: 'var(--hue-ocean)',
+    words: 'defaults instructions groups manage workspace',
   },
   adapters: {
     label: 'Adapters',
-    icon: 'settings',
-    description: 'Execution adapters connected to Kipster',
+    icon: 'plug',
+    hue: 'var(--hue-plum)',
+    words: 'models providers capabilities',
   },
   learning: {
     label: 'Learning',
     icon: 'brain',
-    description: 'Whether kips learn from completed conversations',
+    hue: 'var(--hue-sage)',
+    words: 'sleep memory learn',
   },
-  about: {
-    label: 'About',
-    icon: 'info',
-    description: 'Versions to include in bug reports',
+  connection: {
+    label: 'Connection',
+    icon: 'link',
+    hue: 'var(--hue-mint)',
+    words: 'backend server address',
   },
-  updates: {
-    label: 'Updates',
-    icon: 'settings',
-    description: 'Software updates for this app and the backend',
+  archive: {
+    label: 'Archive & deletion',
+    icon: 'archive',
+    hue: 'var(--hue-you)',
+    words: 'delete restore remove',
   },
 }
-const fieldLabels: Record<SettingField, string> = {
-  adapterId: 'Adapter',
-  modelId: 'Model',
-  effort: 'Effort',
-}
-const errorText = (error: unknown) =>
-  error instanceof Error && error.message ? error.message : 'Not saved.'
+/** Pages that read Core's settings, directory and catalog. */
+const workspacePages: PageId[] = [
+  'kips',
+  'organization',
+  'adapters',
+  'learning',
+]
 
 export function CoreSettingsPanel({
-  workspaceControls,
+  manage,
+  changeConnection,
+  lifecycle,
+  workspace,
   versions,
   updates,
   softwareUpdates,
@@ -129,7 +142,18 @@ export function CoreSettingsPanel({
   opener,
   close,
 }: {
-  workspaceControls?: ReactNode
+  /** The control that opens workspace management, shown under Organization. */
+  manage?: ReactNode
+  /** Present when this window can switch to another backend. */
+  changeConnection?: () => void
+  /** Archive and deletion, when the workspace directory is loaded. */
+  lifecycle?: {
+    directory: WorkspaceDirectory
+    scope: string
+    history: (agentId: string, organizationId: string) => void
+  }
+  /** The open workspace, for kip colors, roles and groups. */
+  workspace?: WorkspaceSnapshot
   /** The connected Core's version and protocol range, from bootstrap. */
   versions?: { coreVersion: string; protocol: ProtocolRange }
   updates?: ApplicationUpdates
@@ -151,948 +175,361 @@ export function CoreSettingsPanel({
     scope.installationId,
     scope.callerId,
   ])
-  const [tab, setTab] = useState<Tab>(
-    initialTab ?? (workspaceControls ? 'workspace' : 'organization'),
+  const ready = !!(settings.saved && settings.learning && settings.directory)
+  const device = platform?.app ? 'Mac' : 'device'
+  const shown: Record<PageId, boolean> = {
+    appearance: true,
+    notifications: !!platform,
+    general: !!platform?.app,
+    updates: !!(softwareUpdates || versions),
+    kips: true,
+    organization: true,
+    adapters: true,
+    learning: true,
+    connection: !!changeConnection,
+    archive: !!lifecycle,
+  }
+  const sections: [string, PageId[]][] = [
+    [
+      platform?.app ? 'This Mac' : 'This device',
+      ['appearance', 'notifications', 'general', 'updates'],
+    ],
+    ['Workspace', ['kips', 'organization', 'adapters', 'learning']],
+    ['Advanced', ['connection', 'archive']],
+  ]
+  const [page, setPage] = useState<PageId>(() =>
+    initialTab === 'updates' && shown.updates ? 'updates' : 'kips',
   )
-  const ready = settings.saved && settings.learning && settings.directory
+  const [stack, setStack] = useState<Frame[]>([])
+  const [query, setQuery] = useState('')
+  const [chosenOrganization, setChosenOrganization] = useState(organizationId)
+  const [source, setSource] = useState(false)
+  const [toast, setToast] = useState<{ text: string; id: number } | null>(null)
+  const [tools, setTools] = useState<HTMLElement | null>(null)
+  const [overlay, setOverlay] = useState<HTMLElement | null>(null)
+  const scroller = useRef<HTMLDivElement>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const scrolls = useRef(new Map<string, number>())
+  const moved = useRef(false)
+  const frame = stack.at(-1)
+  const viewKey = [page, ...stack.map((f) => JSON.stringify(f))].join('/')
+
+  /** Keeps each page's scroll; pages pushed or popped also take focus. */
+  const remember = (focus: boolean) => {
+    if (scroller.current)
+      scrolls.current.set(viewKey, scroller.current.scrollTop)
+    moved.current = focus
+  }
+  const push = (next: Frame) => {
+    remember(true)
+    setStack((old) => [...old, next])
+  }
+  const pop = (count = 1) => {
+    remember(true)
+    setStack((old) => old.slice(0, Math.max(0, old.length - count)))
+  }
+  const go = (next: PageId) => {
+    remember(false)
+    setPage(next)
+    setStack([])
+  }
+  useLayoutEffect(() => {
+    if (!scroller.current) return
+    scroller.current.scrollTop = scrolls.current.get(viewKey) ?? 0
+    // The row that opened a page, or the back button, is gone: focus moves to the new title
+    // so keyboard and screen reader users land where the content changed.
+    if (moved.current) heading.current?.focus({ preventScroll: true })
+    moved.current = false
+  }, [viewKey])
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 2600)
+    return () => clearTimeout(timer)
+  }, [toast])
+  const sheet = {
+    push,
+    pop,
+    toast: (text: string) =>
+      setToast((old) => ({ text, id: (old?.id ?? 0) + 1 })),
+    tools,
+    overlay,
+    source,
+    setSource,
+  }
+
+  const needle = query.trim().toLowerCase()
+  const matches = (id: PageId) =>
+    !needle ||
+    pages[id].label.toLowerCase().includes(needle) ||
+    pages[id].words.includes(needle)
+  const nav = sections
+    .map(
+      ([label, ids]) =>
+        [label, ids.filter((id) => shown[id] && matches(id))] as const,
+    )
+    .filter(([, ids]) => ids.length)
+
+  const directory = settings.directory
+  const look = (agentId: string): KipLook => {
+    const actor = workspace?.actorsById[agentId]
+    const agent = directory?.agents.find((a) => a.id === agentId)
+    const lifecycleAgent = lifecycle?.directory.agents[agentId]
+    return {
+      name: agent?.name ?? actor?.name ?? lifecycleAgent?.name ?? 'Kip',
+      admin: agent?.admin ?? lifecycleAgent?.admin ?? false,
+      color: actor?.kind === 'agent' ? actor.color : undefined,
+      description:
+        actor?.kind === 'agent' && actor.description
+          ? actor.description
+          : undefined,
+    }
+  }
+  const agentName = (agentId: string) =>
+    directory?.agents.find((a) => a.id === agentId)?.name ?? 'Kip'
+  const readOnly = (agentId: string) =>
+    directory?.agents.find((a) => a.id === agentId)?.lifecycle === 'archived'
+  const workspaceView =
+    workspacePages.includes(page) ||
+    (frame && !['testing'].includes(frame.kind))
+
+  function content() {
+    if (frame) {
+      if (frame.kind === 'testing')
+        return softwareUpdates && <TestingPage updates={softwareUpdates} />
+      if (!ready) return null
+      switch (frame.kind) {
+        case 'kip':
+          return (
+            <KipPage
+              key={frame.agentId}
+              client={client}
+              settings={settings}
+              journalScope={journalScope}
+              endpoint={endpoint}
+              agentId={frame.agentId}
+              look={look}
+            />
+          )
+        case 'file':
+          return (
+            <IdentityFilePage
+              endpoint={endpoint}
+              agentId={frame.agentId}
+              agentName={agentName(frame.agentId)}
+              file={frame.file}
+              readOnly={readOnly(frame.agentId)}
+            />
+          )
+        case 'backups':
+          return (
+            <BackupsPage
+              endpoint={endpoint}
+              agentId={frame.agentId}
+              agentName={agentName(frame.agentId)}
+              file={frame.file}
+            />
+          )
+        case 'backup':
+          return (
+            <BackupPage
+              endpoint={endpoint}
+              agentId={frame.agentId}
+              file={frame.file}
+              backupId={frame.backupId}
+              readOnly={readOnly(frame.agentId)}
+            />
+          )
+        case 'adapter':
+          return <AdapterPage settings={settings} adapterId={frame.adapterId} />
+        case 'instructions':
+          return (
+            <InstructionsPage
+              key={`${journalScope}:${frame.organizationId}`}
+              client={client}
+              journalScope={journalScope}
+              organizationId={frame.organizationId}
+              name={
+                directory!.organizations.find(
+                  (o) => o.id === frame.organizationId,
+                )?.name ?? 'this organization'
+              }
+            />
+          )
+      }
+    }
+    switch (page) {
+      case 'appearance':
+        return <AppearanceSettings appearance={appearance} device={device} />
+      case 'notifications':
+        return (
+          platform && (
+            <NotificationSettings platform={platform} scope={journalScope} />
+          )
+        )
+      case 'general':
+        return platform?.app && <GeneralSettings app={platform.app} />
+      case 'updates':
+        return <UpdatesPage updates={softwareUpdates} versions={versions} />
+      case 'connection':
+        return (
+          changeConnection && (
+            <ConnectionSettings
+              endpoint={endpoint}
+              installationId={scope.installationId}
+              versions={versions}
+              problem={settings.connection}
+              reconnect={settings.reconnect}
+              change={changeConnection}
+            />
+          )
+        )
+      case 'archive':
+        return (
+          lifecycle && (
+            <ArchiveSettings
+              endpoint={endpoint}
+              scope={lifecycle.scope}
+              directory={lifecycle.directory}
+              history={lifecycle.history}
+              look={look}
+            />
+          )
+        )
+    }
+    if (!ready) return null
+    switch (page) {
+      case 'kips':
+        return <KipsPage client={client} settings={settings} look={look} />
+      case 'organization':
+        return (
+          <OrganizationPage
+            key={organizationId}
+            client={client}
+            settings={settings}
+            journalScope={journalScope}
+            chosen={chosenOrganization}
+            choose={setChosenOrganization}
+            workspace={workspace}
+            look={look}
+            manage={manage}
+          />
+        )
+      case 'adapters':
+        return <AdaptersPage settings={settings} />
+      case 'learning':
+        return <LearningPage settings={settings} look={look} />
+    }
+  }
+
+  const title = frame ? frame.title : pages[page].label
+  const crumb = frame
+    ? stack.length > 1
+      ? stack.at(-2)!.title
+      : pages[page].label
+    : null
   return (
     <Panel
       title="Settings"
-      className="settings-panel"
+      className="settings-sheet"
+      header={false}
       opener={opener}
       close={close}
     >
-      <div className="settings-layout">
-        <nav className="settings-nav" aria-label="Settings category">
-          {(Object.keys(tabs) as Tab[])
-            .filter(
-              (id) =>
-                (id !== 'workspace' || workspaceControls) &&
-                (id !== 'updates' || softwareUpdates) &&
-                (id !== 'about' || versions),
-            )
-            .map((id) => (
-              <button
-                key={id}
-                aria-pressed={tab === id}
-                onClick={() => setTab(id)}
-              >
-                <span className={`nav-glyph ${id}`} aria-hidden="true">
-                  <Icon name={tabs[id].icon} weight="fill" />
-                </span>
-                {tabs[id].label}
-              </button>
-            ))}
-        </nav>
-        <div className="settings-content">
-          <header className="settings-section-head">
-            <h3>{tabs[tab].label}</h3>
-            <p className="settings-description">{tabs[tab].description}</p>
-          </header>
-          {settings.connection &&
-            tab !== 'workspace' &&
-            tab !== 'appearance' &&
-            tab !== 'notifications' &&
-            tab !== 'about' && (
-              <output className="settings-callout" data-tone="wait">
-                {settings.connection}
-                {!ready && (
-                  <button className="text-button" onClick={settings.reconnect}>
-                    Retry now
-                  </button>
-                )}
-              </output>
-            )}
-          {tab === 'workspace' ? (
-            workspaceControls
-          ) : tab === 'updates' && softwareUpdates ? (
-            <UpdatesPanel updates={softwareUpdates} />
-          ) : tab === 'about' && versions ? (
-            <About {...versions} />
-          ) : tab === 'appearance' ? (
-            <AppearanceSettings appearance={appearance} />
-          ) : tab === 'notifications' ? (
-            platform && (
-              <NotificationSettings platform={platform} scope={journalScope} />
-            )
-          ) : ready ? (
-            tab === 'identity' ? (
-              <IdentityFiles
-                endpoint={endpoint}
-                directory={settings.directory!}
-              />
-            ) : tab === 'organization' ? (
-              <OrganizationSettings
-                key={organizationId}
-                client={client}
-                settings={settings}
-                initial={organizationId}
-                journalScope={journalScope}
-              />
-            ) : tab === 'agent' ? (
-              <AgentSettings
-                client={client}
-                settings={settings}
-                journalScope={journalScope}
-              />
-            ) : tab === 'adapters' ? (
-              <Adapters settings={settings} />
+      <SheetContext.Provider value={sheet}>
+        <aside className="settings-side">
+          <label className="settings-search">
+            <Icon name="search" />
+            <input
+              type="search"
+              placeholder="Search"
+              aria-label="Search settings"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          <nav aria-label="Settings category">
+            {nav.length ? (
+              nav.map(([label, ids]) => (
+                <div className="settings-nav-section" key={label}>
+                  <h3 className="settings-nav-label">{label}</h3>
+                  {ids.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      className="settings-nav-item"
+                      aria-current={page === id ? 'page' : undefined}
+                      onClick={() => go(id)}
+                    >
+                      <Glyph icon={pages[id].icon} hue={pages[id].hue} />
+                      <span>{pages[id].label}</span>
+                    </button>
+                  ))}
+                </div>
+              ))
             ) : (
-              <LearningSettings settings={settings} />
-            )
-          ) : null}
-        </div>
-      </div>
-    </Panel>
-  )
-}
-
-function About({
-  coreVersion,
-  protocol,
-}: {
-  coreVersion: string
-  protocol: ProtocolRange
-}) {
-  return (
-    <dl className="settings-group about-versions" aria-label="Versions">
-      <div className="setting-row">
-        <dt>Kipster app</dt>
-        <dd>{appVersion}</dd>
-      </div>
-      <div className="setting-row">
-        <dt>Backend</dt>
-        <dd>{coreVersion}</dd>
-      </div>
-      <div className="setting-row">
-        <dt>Protocol</dt>
-        <dd>
-          App {appProtocol} · backend{' '}
-          {protocol.oldest === protocol.current
-            ? protocol.current
-            : `${protocol.oldest}–${protocol.current}`}
-        </dd>
-      </div>
-    </dl>
-  )
-}
-
-function OrganizationSettings({
-  client,
-  settings,
-  initial,
-  journalScope,
-}: {
-  client: CoreSettingsClient
-  settings: Settings
-  initial: string
-  journalScope: string
-}) {
-  const organizations = settings.directory!.organizations.filter(
-    (o) => o.lifecycle === 'active',
-  )
-  const [chosen, setChosen] = useState(initial)
-  const organization =
-    organizations.find((o) => o.id === chosen) ?? organizations[0]
-  if (!organization)
-    return <p className="settings-callout">No organizations yet.</p>
-  return (
-    <>
-      {organizations.length > 1 && (
-        <div className="settings-group">
-          <label className="setting-row">
-            <span className="setting-label">Organization</span>
-            <select
-              value={organization.id}
-              onChange={(e) => setChosen(e.target.value)}
-            >
-              {organizations.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-      <SettingsEditor
-        key={`${journalScope}:${organization.id}`}
-        journalScope={journalScope}
-        title="Default execution settings"
-        note="Members use these unless they have their own setting. Adapter and model can be changed but not removed."
-        target="organization"
-        id={organization.id}
-        saved={settings.saved!.organizations[organization.id]?.settings ?? {}}
-        adapters={settings.adapters}
-        save={settings.saveSettings}
-      />
-      <InstructionsEditor
-        key={`instructions:${journalScope}:${organization.id}`}
-        journalScope={journalScope}
-        client={client}
-        organizationId={organization.id}
-        name={organization.name}
-      />
-    </>
-  )
-}
-
-function agentOrganizations(directory: Directory, agentId: string) {
-  const active = new Set(
-    directory.organizations
-      .filter((o) => o.lifecycle === 'active')
-      .map((o) => o.id),
-  )
-  return directory.memberships
-    .filter((m) => m.agentId === agentId && active.has(m.organizationId))
-    .map((m) => directory.organizations.find((o) => o.id === m.organizationId)!)
-}
-
-function AgentSettings({
-  client,
-  settings,
-  journalScope,
-}: {
-  client: CoreSettingsClient
-  settings: Settings
-  journalScope: string
-}) {
-  const directory = settings.directory!
-  const agents = directory.agents
-    .filter((a) => a.lifecycle !== 'deleted')
-    .sort((a, b) => Number(b.admin) - Number(a.admin))
-  const [chosen, setChosen] = useState<string | null>(null)
-  const agent = agents.find((a) => a.id === chosen) ?? agents[0]
-  const organizations = agent
-    ? agent.admin
-      ? []
-      : agentOrganizations(directory, agent.id)
-    : []
-  const [chosenOrganization, setChosenOrganization] = useState<string | null>(
-    null,
-  )
-  const organization =
-    organizations.find((o) => o.id === chosenOrganization) ?? organizations[0]
-  if (!agent) return <p className="settings-callout">No kips yet.</p>
-  const organizationId = organization?.id ?? null
-  return (
-    <>
-      <div className="settings-group">
-        <label className="setting-row">
-          <span className="setting-label">Kip</span>
-          <select value={agent.id} onChange={(e) => setChosen(e.target.value)}>
-            {agents.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-                {a.admin ? ' (admin)' : ''}
-                {a.lifecycle === 'archived' ? ' (archived)' : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-        {organizations.length > 1 && (
-          <label className="setting-row">
-            <span className="setting-label">
-              Organization
-              <small>Whose defaults to show and check against.</small>
-            </span>
-            <select
-              value={organizationId ?? ''}
-              onChange={(e) => setChosenOrganization(e.target.value)}
-            >
-              {organizations.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-      </div>
-      <SettingsEditor
-        key={`${journalScope}:${agent.id}`}
-        journalScope={journalScope}
-        title="Own settings"
-        note={
-          agent.admin
-            ? 'Your main kip works outside organizations. Without its own settings, it uses the default adapter and model.'
-            : `Choose “Organization default” to follow ${organization?.name ?? 'the organization'} again.`
-        }
-        target="agent"
-        id={agent.id}
-        saved={settings.saved!.agents[agent.id]?.settings ?? {}}
-        inherited={
-          agent.admin
-            ? undefined
-            : organizationId
-              ? (settings.saved!.organizations[organizationId]?.settings ?? {})
-              : {}
-        }
-        adapters={settings.adapters}
-        save={settings.saveSettings}
-      />
-      <Effective
-        client={client}
-        agentId={agent.id}
-        organizationId={organizationId}
-        context={
-          agent.admin
-            ? 'installation work'
-            : (organization?.name ?? 'work outside organizations')
-        }
-      />
-      <AgentLearning
-        key={`learning:${agent.id}`}
-        agentId={agent.id}
-        settings={settings}
-      />
-    </>
-  )
-}
-
-function SettingsEditor({
-  journalScope,
-  title,
-  note,
-  target,
-  id,
-  saved,
-  inherited,
-  adapters,
-  save,
-}: {
-  journalScope: string
-  title: string
-  note: string
-  target: SettingsTarget
-  id: string
-  saved: ExecutionSettings
-  /** The organization default an agent falls back to; undefined when nothing is inherited. */
-  inherited?: ExecutionSettings
-  adapters: AdapterList | null
-  save: Settings['saveSettings']
-}) {
-  const [draft, setDraft] = useSettingsDraft<
-    Partial<Record<SettingField, string>>
-  >(JSON.stringify([journalScope, target, id]), {})
-  const status = useSettingsSave(
-    JSON.stringify([journalScope, target, id]),
-    (operationId, patch) => save(target, id, operationId, patch),
-  )
-  const value = (field: SettingField) => {
-    const held = status.pending?.patch[field]
-    return held
-      ? 'set' in held
-        ? held.set
-        : ''
-      : (draft[field] ?? saved[field] ?? '')
-  }
-  const current = (field: SettingField) => value(field) || inherited?.[field]
-  const adapter = adapters?.adapters.find((a) => a.id === current('adapterId'))
-  const model = adapter?.models.find((m) => m.id === current('modelId'))
-  const patch = settingsPatch(saved, draft)
-  const changed = Object.keys(patch).length > 0
-  const locked = !status.ready || status.busy || !!status.pending
-  async function send(patch: SettingsPatch) {
-    if (await status.send(patch)) setDraft({})
-  }
-  const choices = (field: SettingField) =>
-    field === 'adapterId'
-      ? (adapters?.adapters.map((a) => ({
-          id: a.id,
-          label: a.available ? a.id : `${a.id} (unavailable)`,
-        })) ?? [])
-      : field === 'modelId'
-        ? (adapter?.models.map((m) => ({ id: m.id, label: m.id })) ?? [])
-        : (model?.efforts.map((e) => ({ id: e, label: e })) ?? [])
-  const emptyLabel = (field: SettingField) =>
-    inherited
-      ? `Organization default (${inherited[field] ?? 'adapter default'})`
-      : 'Adapter default'
-  return (
-    <section aria-label={title} className="settings-editor">
-      <h4 className="group-label">{title}</h4>
-      <div className="settings-group">
-        {settingFields.map((field) => {
-          const chosen = value(field)
-          const options = choices(field)
-          return (
-            <label className="setting-row" key={field}>
-              <span className="setting-label">
-                {fieldLabels[field]}
-                {patch[field] && (
-                  <small className="setting-changed">
-                    {'clear' in patch[field]! ? 'Will be removed' : 'Changed'}
-                  </small>
-                )}
-              </span>
-              <select
-                aria-label={fieldLabels[field]}
-                value={chosen}
-                disabled={locked}
-                onChange={(e) =>
-                  setDraft((old) => ({ ...old, [field]: e.target.value }))
-                }
+              <p className="settings-nav-empty">No results</p>
+            )}
+          </nav>
+        </aside>
+        <section className="settings-main">
+          <header className="settings-bar">
+            {frame && (
+              <button
+                type="button"
+                className="set-icon-button settings-back"
+                aria-label={`Back to ${crumb}`}
+                onClick={() => pop()}
               >
-                <option value="">{emptyLabel(field)}</option>
-                {chosen && !options.some((o) => o.id === chosen) && (
-                  <option value={chosen}>{chosen} (not offered)</option>
-                )}
-                {options.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )
-        })}
-      </div>
-      <p className="group-note">{note}</p>
-      {status.storageError && (
-        <p role="alert">
-          Saved requests could not be read. Nothing will be sent until storage
-          recovers.
-          <button onClick={status.retryStorage}>Retry request storage</button>
-        </p>
-      )}
-      {status.error && <p role="alert">{status.error}</p>}
-      {status.pending && !status.busy ? (
-        <output className="settings-callout" data-tone="wait">
-          Kipster did not confirm this save. Retrying sends the original
-          request, including after closing Settings or reloading this page.
-          <button
-            className="text-button"
-            disabled={!status.ready}
-            onClick={() => void send(status.pending!.patch)}
-          >
-            Retry save
-          </button>
-        </output>
-      ) : status.saved && !changed ? (
-        <output className="settings-callout" data-tone="run">
-          Saved.
-        </output>
-      ) : null}
-      {!status.pending && (
-        <div className="settings-actions">
-          <button
-            className="secondary-button"
-            disabled={locked || !changed}
-            onClick={() => {
-              setDraft({})
-            }}
-          >
-            Discard changes
-          </button>
-          <button
-            className="primary-button"
-            disabled={locked || !changed}
-            onClick={() => void send(patch)}
-          >
-            {status.busy ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      )}
-    </section>
-  )
-}
-
-const statusText: Record<string, string> = {
-  ready: 'Ready to run',
-  'unknown-catalog': 'Adapter list unavailable',
-  missing: 'Not fully configured',
-  incompatible: 'Cannot run',
-}
-const sourceText: Record<string, string> = {
-  agent: 'Own setting',
-  organization: 'Organization default',
-  default: 'Adapter default',
-}
-
-function Effective({
-  client,
-  agentId,
-  organizationId,
-  context,
-}: {
-  client: CoreSettingsClient
-  agentId: string
-  organizationId: string | null
-  context: string
-}) {
-  const query = useQuery({
-    queryKey: ['core-effective', client.endpoint, agentId, organizationId],
-    queryFn: ({ signal }) => client.effective(agentId, organizationId, signal),
-    retry: false,
-  })
-  const effective = query.data
-  return (
-    <section
-      className="effective-settings"
-      aria-label="Effective execution settings"
-    >
-      <h4 className="group-label">Next run in {context}</h4>
-      {query.isError && !effective ? (
-        <p role="alert">
-          {errorText(query.error)}{' '}
-          <button className="text-button" onClick={() => void query.refetch()}>
-            Retry
-          </button>
-        </p>
-      ) : !effective ? (
-        <output className="settings-callout">Checking…</output>
-      ) : (
-        <>
-          <dl className="settings-group">
-            {settingFields.map((field) => (
-              <div className="setting-row" key={field}>
-                <dt>{fieldLabels[field]}</dt>
-                <dd>
-                  {effective.settings[field] ??
-                    (field === 'effort' ? 'Adapter default' : 'Not set')}
-                  <small>
-                    {effective.sources[field]
-                      ? (sourceText[effective.sources[field]] ??
-                        effective.sources[field])
-                      : 'No setting'}
-                  </small>
-                </dd>
-              </div>
-            ))}
-          </dl>
-          {effective.status === 'ready' ? (
-            <p className="settings-ready">
-              <Icon name="check" size={15} weight="bold" />
-              {statusText.ready}
-            </p>
-          ) : (
-            <output className="settings-callout" data-tone="wait">
-              <strong>
-                {statusText[effective.status] ?? effective.status}.
-              </strong>
-              {effective.reason}
+                <Icon name="back" />
+              </button>
+            )}
+            <div className="settings-title">
+              {crumb && <span className="settings-crumb">{crumb}</span>}
+              <h2 ref={heading} tabIndex={-1}>
+                {title}
+              </h2>
+            </div>
+            <div className="settings-tools" ref={setTools} />
+            <button
+              type="button"
+              className="set-icon-button"
+              aria-label="Close settings"
+              onClick={close}
+            >
+              <Icon name="close" />
+            </button>
+          </header>
+          <div className="settings-scroll" ref={scroller}>
+            <div className="settings-page" key={viewKey}>
+              {workspaceView && settings.connection && (
+                <Callout
+                  tone="wait"
+                  actions={
+                    !ready && (
+                      <button
+                        className="set-button"
+                        onClick={settings.reconnect}
+                      >
+                        Retry now
+                      </button>
+                    )
+                  }
+                >
+                  {settings.connection}
+                </Callout>
+              )}
+              {content()}
+            </div>
+          </div>
+          {toast && (
+            <output className="settings-toast" key={toast.id}>
+              <Icon name="check" weight="bold" />
+              {toast.text}
             </output>
           )}
-        </>
-      )}
-    </section>
-  )
-}
-
-const instructionLimit = 64 * 1024
-
-function InstructionsEditor({
-  journalScope,
-  client,
-  organizationId,
-  name,
-}: {
-  client: CoreSettingsClient
-  organizationId: string
-  name: string
-  journalScope: string
-}) {
-  const queries = useQueryClient()
-  const key = ['core-instructions', client.endpoint, organizationId]
-  const query = useQuery({
-    queryKey: key,
-    queryFn: ({ signal }) => client.instructions(organizationId, signal),
-    retry: false,
-  })
-  const [draft, setDraft] = useSettingsDraft<string | null>(
-    JSON.stringify([journalScope, 'instructions', organizationId]),
-    null,
-  )
-  const [status, setStatus] = useState<
-    'idle' | 'saving' | 'saved' | { error: string }
-  >('idle')
-  const text = draft ?? query.data ?? ''
-  const tooLarge = new TextEncoder().encode(text).length > instructionLimit
-  const changed = draft !== null && draft !== query.data
-  async function save() {
-    const content = text
-    setStatus('saving')
-    try {
-      const saved = await client.saveInstructions(
-        organizationId,
-        content,
-        AbortSignal.timeout(20000),
-      )
-      queries.setQueryData(key, saved)
-      setDraft((current) => (current === content ? null : current))
-      setStatus('saved')
-    } catch (error) {
-      setStatus({ error: errorText(error) })
-    }
-  }
-  return (
-    <section aria-label="Organization instructions">
-      <h4 className="group-label">Instructions</h4>
-      <div className="settings-group">
-        <label className="setting-row stacked">
-          <span className="setting-label">
-            Instructions for {name}
-            <small>
-              Every kip working in this organization reads these on its next
-              run. The latest save wins.
-            </small>
-          </span>
-          <textarea
-            aria-label="Organization instructions"
-            rows={8}
-            value={text}
-            disabled={query.isPending}
-            aria-invalid={tooLarge}
-            onChange={(e) => {
-              setDraft(e.target.value)
-              if (status !== 'saving') setStatus('idle')
-            }}
-          />
-        </label>
-      </div>
-      {query.isError && (
-        <p role="alert">
-          Instructions could not be loaded.{' '}
-          <button className="text-button" onClick={() => void query.refetch()}>
-            Retry
-          </button>
-        </p>
-      )}
-      {tooLarge && (
-        <p role="alert">
-          Instructions are limited to 64 KB. Shorten them to save.
-        </p>
-      )}
-      {typeof status === 'object' && (
-        <p role="alert">Not saved: {status.error} Your text is kept here.</p>
-      )}
-      <div className="settings-actions">
-        <output className="save-state" aria-live="polite">
-          {status === 'saving'
-            ? 'Saving…'
-            : changed
-              ? 'Unsaved changes'
-              : status === 'saved'
-                ? 'Saved'
-                : ''}
-        </output>
-        <button
-          className="secondary-button"
-          disabled={!changed || status === 'saving'}
-          onClick={() => {
-            setDraft(null)
-            setStatus('idle')
-          }}
-        >
-          Discard changes
-        </button>
-        <button
-          className="primary-button"
-          disabled={!changed || tooLarge || status === 'saving'}
-          onClick={() => void save()}
-        >
-          Save instructions
-        </button>
-      </div>
-    </section>
-  )
-}
-
-function Adapters({ settings }: { settings: Settings }) {
-  const [state, setState] = useState<'idle' | 'refreshing' | { error: string }>(
-    'idle',
-  )
-  const list = settings.adapters?.adapters ?? []
-  const available = list.filter((a) => a.available).length
-  return (
-    <>
-      <div className="settings-group">
-        <div className="setting-row catalog-status">
-          <span className="setting-label">
-            <span
-              className="status-dot"
-              data-state={
-                state === 'refreshing'
-                  ? 'loading'
-                  : settings.adapterError || (list.length && !available)
-                    ? 'error'
-                    : available < list.length
-                      ? 'stale'
-                      : 'ready'
-              }
-              aria-hidden="true"
-            />
-            {settings.adapterError
-              ? settings.adapterError
-              : `${available} of ${list.length} available`}
-          </span>
-          <button
-            className="secondary-button"
-            disabled={state === 'refreshing' || !!settings.adapterError}
-            onClick={async () => {
-              setState('refreshing')
-              try {
-                await settings.refreshAdapters()
-                setState('idle')
-              } catch (error) {
-                setState({ error: errorText(error) })
-              }
-            }}
-          >
-            <Icon name="refresh" size={15} />
-            {state === 'refreshing' ? 'Checking…' : 'Check again'}
-          </button>
-        </div>
-      </div>
-      {typeof state === 'object' && (
-        <p role="alert">Could not check adapters: {state.error}</p>
-      )}
-      {list.map((adapter) => (
-        <section
-          key={adapter.id}
-          aria-label={`Adapter ${adapter.id}`}
-          className="adapter-card"
-        >
-          <h4 className="group-label">{adapter.id}</h4>
-          <dl className="settings-group">
-            <div className="setting-row">
-              <dt>Status</dt>
-              <dd>
-                <span
-                  className="status-dot"
-                  data-state={adapter.available ? 'ready' : 'error'}
-                  aria-hidden="true"
-                />
-                {adapter.available ? 'Available' : 'Unavailable'}
-                {adapter.reason && <small>{adapter.reason}</small>}
-              </dd>
-            </div>
-            <div className="setting-row">
-              <dt>Version</dt>
-              <dd>{adapter.version || 'Not reported'}</dd>
-            </div>
-            <div className="setting-row">
-              <dt>Models</dt>
-              <dd>
-                {adapter.models.length
-                  ? adapter.models.map((m) => (
-                      <span className="adapter-model" key={m.id}>
-                        {m.id}
-                        {m.efforts.length > 0 && (
-                          <small>{m.efforts.join(', ')}</small>
-                        )}
-                      </span>
-                    ))
-                  : 'None reported'}
-              </dd>
-            </div>
-            <div className="setting-row">
-              <dt>Supports</dt>
-              <dd>
-                {adapter.capabilities
-                  ? Object.entries(adapter.capabilities)
-                      .filter(([, on]) => on)
-                      .map(([name]) => capabilityText[name] ?? name)
-                      .join(', ') || 'Nothing reported'
-                  : 'Not reported'}
-              </dd>
-            </div>
-          </dl>
+          <div className="settings-overlay" ref={setOverlay} />
         </section>
-      ))}
-    </>
-  )
-}
-const capabilityText: Record<string, string> = {
-  text: 'Text',
-  publication: 'Publishing files',
-  cancellation: 'Stop',
-  steering: 'Steering',
-  nativeResume: 'Resume',
-  maintenance: 'Learning',
-} as const
-
-function LearningSettings({ settings }: { settings: Settings }) {
-  const learning = settings.learning!
-  const [time, setTime] = useState<string | null>(null)
-  const [state, setState] = useState<'idle' | 'saving' | { error: string }>(
-    'idle',
-  )
-  const run = async (update: { enabled?: boolean; sleepTime?: string }) => {
-    setState('saving')
-    try {
-      await settings.saveLearning(update)
-      if (update.sleepTime) setTime(null)
-      setState('idle')
-    } catch (error) {
-      setState({ error: errorText(error) })
-    }
-  }
-  const chosenTime = time ?? learning.sleepTime
-  return (
-    <>
-      <div className="settings-group">
-        <div className="setting-row">
-          <span className="setting-label" id="learning-switch">
-            Learning
-            <small>
-              {learning.available
-                ? 'Kips learn from completed conversations and tidy what they learned while they sleep. Off by default.'
-                : 'Learning needs an embedding profile configured in Kipster Core.'}
-            </small>
-          </span>
-          <span className="management-checkbox setting-switch">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-labelledby="learning-switch"
-              checked={learning.enabled}
-              aria-checked={learning.enabled}
-              disabled={
-                state === 'saving' || (!learning.available && !learning.enabled)
-              }
-              onChange={(e) => void run({ enabled: e.target.checked })}
-            />
-          </span>
-        </div>
-        <label className="setting-row">
-          <span className="setting-label">
-            Sleep time
-            <small>
-              Daily, in this computer’s local time. Kips can use their own.
-            </small>
-          </span>
-          <span className="setting-inline">
-            <input
-              type="time"
-              aria-label="Default sleep time"
-              value={chosenTime}
-              disabled={state === 'saving'}
-              onChange={(e) => setTime(e.target.value)}
-            />
-            <button
-              className="secondary-button"
-              disabled={
-                state === 'saving' || !time || time === learning.sleepTime
-              }
-              onClick={() => void run({ sleepTime: time! })}
-            >
-              Save
-            </button>
-          </span>
-        </label>
-      </div>
-      {typeof state === 'object' && (
-        <p role="alert">Not saved: {state.error}</p>
-      )}
-      <p className="group-note">
-        Each kip can also be switched off or given its own sleep time under
-        Agents.
-      </p>
-    </>
-  )
-}
-
-function AgentLearning({
-  agentId,
-  settings,
-}: {
-  agentId: string
-  settings: Settings
-}) {
-  const learning = settings.learning!
-  const agent = learning.agents[agentId]
-  const [time, setTime] = useState<string | null>(null)
-  const [state, setState] = useState<'idle' | 'saving' | { error: string }>(
-    'idle',
-  )
-  if (!agent) return null
-  const run = async (update: {
-    enabled?: boolean
-    sleepTime?: string | null
-  }) => {
-    setState('saving')
-    try {
-      await settings.saveAgentLearning(agentId, update)
-      if (update.sleepTime !== undefined) setTime(null)
-      setState('idle')
-    } catch (error) {
-      setState({ error: errorText(error) })
-    }
-  }
-  const chosenTime = time ?? agent.sleepTime ?? learning.sleepTime
-  return (
-    <section aria-label="Kip learning">
-      <h4 className="group-label">Learning</h4>
-      <div className="settings-group">
-        <div className="setting-row">
-          <span className="setting-label" id={`learning-${agentId}`}>
-            Learn from conversations
-            <small>
-              {agent.effective
-                ? 'Learning now.'
-                : !learning.enabled
-                  ? 'Learning is off for all kips.'
-                  : agent.enabled
-                    ? 'Not learning right now.'
-                    : 'Off for this kip.'}
-            </small>
-          </span>
-          <span className="management-checkbox setting-switch">
-            <input
-              type="checkbox"
-              role="switch"
-              aria-labelledby={`learning-${agentId}`}
-              checked={agent.enabled}
-              aria-checked={agent.enabled}
-              disabled={state === 'saving'}
-              onChange={(e) => void run({ enabled: e.target.checked })}
-            />
-          </span>
-        </div>
-        <label className="setting-row">
-          <span className="setting-label">
-            Sleep time
-            <small>
-              {agent.sleepTime
-                ? 'Own sleep time.'
-                : `Uses the default, ${learning.sleepTime}.`}
-            </small>
-          </span>
-          <span className="setting-inline">
-            <input
-              type="time"
-              aria-label="Kip sleep time"
-              value={chosenTime}
-              disabled={state === 'saving'}
-              onChange={(e) => setTime(e.target.value)}
-            />
-            {time && time !== (agent.sleepTime ?? learning.sleepTime) ? (
-              <button
-                className="secondary-button"
-                disabled={state === 'saving'}
-                onClick={() => void run({ sleepTime: time })}
-              >
-                Save
-              </button>
-            ) : (
-              agent.sleepTime && (
-                <button
-                  className="secondary-button"
-                  disabled={state === 'saving'}
-                  onClick={() => void run({ sleepTime: null })}
-                >
-                  Use default
-                </button>
-              )
-            )}
-          </span>
-        </label>
-      </div>
-      {typeof state === 'object' && (
-        <p role="alert">Not saved: {state.error}</p>
-      )}
-    </section>
+      </SheetContext.Provider>
+    </Panel>
   )
 }

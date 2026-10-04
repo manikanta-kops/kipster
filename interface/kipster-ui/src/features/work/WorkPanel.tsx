@@ -1,16 +1,14 @@
 import { useState } from 'react'
 import type {
   AvailableAction,
+  Interaction,
   WorkRecords,
   WorkAction,
   WorkOperation,
-  Workflow,
 } from '../../data/work'
-import { formatTime, type WorkspaceData } from '../chat/model'
-import { WorkSummary } from './WorkSummary'
-import { ActivityTimeline } from './ActivityTimeline'
-import { InteractionCard } from './InteractionCard'
+import type { WorkspaceData } from '../chat/model'
 import { answerText } from './answer-text'
+import { InteractionCard } from './InteractionCard'
 import { Avatar } from '../chat/Message'
 import { PauseIcon } from '@phosphor-icons/react/dist/csr/Pause'
 import type { useWorkCommands } from './use-work-commands'
@@ -23,8 +21,6 @@ const labels: Record<WorkAction, string> = {
   steer: 'Steer current attempt',
   respond: 'Respond',
 }
-/** States where the workflow's reason is needed to decide what to do next. */
-const attention = new Set<Workflow['state']>(['failed', 'recovery-needed'])
 
 /** Why an action is or is not available, announced with its button and shown as its tooltip. */
 function ActionReasons({
@@ -109,11 +105,14 @@ export function WorkRecovery({
 }
 export function WorkPanel({
   work,
+  interactions,
   threadId,
   data,
   commands,
 }: {
   work: WorkRecords
+  /** Questions and approvals not shown in any run's work block. */
+  interactions: Interaction[]
   threadId: string
   data: WorkspaceData
   commands: WorkCommands
@@ -144,75 +143,15 @@ export function WorkPanel({
   }
   return (
     <div className="work-panel">
-      {current &&
-        (current.state !== 'completed' ||
-          current.held ||
-          current.actions.some((action) => action.allowed) ||
-          work.attempts.some(
-            (attempt) => attempt.target.threadId === threadId,
-          )) && (
-          <section aria-label="Thread work" className="work-controls">
-            <div className="work-heading">
-              <WorkSummary work={current} />
-              {work.attempts
-                .filter((a) => a.target.threadId === threadId)
-                .map((a) => (
-                  <p
-                    id={`resource-${a.id}`}
-                    tabIndex={-1}
-                    className="work-meta"
-                    key={a.id}
-                  >
-                    Attempt {a.number} · {formatTime(a.startedAt)}
-                  </p>
-                ))}
-            </div>
-            {attention.has(current.state) && current.reason && (
-              <p className="work-explanation">{current.reason}</p>
-            )}
-            <div className="work-actions">
-              {current.actions
-                .filter(
-                  (a) =>
-                    a.allowed && ['stop', 'resume', 'retry'].includes(a.action),
-                )
-                .map((a) => (
-                  <button
-                    key={a.action}
-                    disabled={unresolved.length > 0}
-                    title={a.reason || undefined}
-                    aria-describedby={
-                      a.reason ? `${current.id}-${a.action}-reason` : undefined
-                    }
-                    onClick={() =>
-                      void send({
-                        operationId: crypto.randomUUID(),
-                        target: current.target,
-                        action: a.action,
-                        runId: current.runId,
-                        attemptId: current.attemptId,
-                      })
-                    }
-                  >
-                    {labels[a.action]}
-                  </button>
-                ))}
-            </div>
-            <ActionReasons id={current.id} actions={current.actions} />
-          </section>
-        )}
-      <ActivityTimeline work={work} threadId={threadId} data={data} />
-      {work.interactions
-        .filter((i) => i.target.threadId === threadId)
-        .map((i) => (
-          <InteractionCard
-            key={i.id}
-            interaction={i}
-            data={data}
-            blocked={unresolved.some((e) => e.operation.interactionId === i.id)}
-            send={commands.send}
-          />
-        ))}
+      {interactions.map((i) => (
+        <InteractionCard
+          key={i.id}
+          interaction={i}
+          data={data}
+          blocked={unresolved.some((e) => e.operation.interactionId === i.id)}
+          send={commands.send}
+        />
+      ))}
       {queue.length > 0 && (
         <section className="work-queue" aria-label="Accepted follow-ups">
           <h3>
