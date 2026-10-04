@@ -349,6 +349,9 @@
 .thread-reply {
   padding: 8px 0;
 }
+.thread-reply.continued {
+  padding-top: 0;
+}
 .queue-message-status {
   display: flex;
   align-items: center;

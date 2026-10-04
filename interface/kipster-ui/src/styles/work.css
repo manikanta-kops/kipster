@@ -49,7 +49,7 @@
   color: var(--danger);
 }
 
-/* A run's work, opening the kip's reply: status, steps, what waits on you. */
+/* A run's work, closing the kip's reply: status, steps, what waits on you. */
 .work-turn {
   padding: 8px 0;
 }

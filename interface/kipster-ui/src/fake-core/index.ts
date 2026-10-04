@@ -568,8 +568,14 @@ export function createFakeCore(
     final = true,
     messageId = id(),
   ): TextMessage {
+    const runId =
+      authorId === scope.callerId
+        ? undefined
+        : thread.work.find((w) => active.has(w.state) && w.state !== 'queued')
+            ?.runId
     const message: TextMessage = {
       id: messageId,
+      ...(runId ? { runId } : {}),
       threadId: thread.summary.threadId,
       authorId,
       parts: clone(parts),

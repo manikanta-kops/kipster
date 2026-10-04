@@ -70,7 +70,8 @@ export const notificationsRead = object({ version: literal(1), status: literal('
 export const notificationsCleared = object({ version: literal(1), status: literal('cleared'), cleared: array(id), kept: array(id) }, false)
 export const appSnapshot = object({ version: literal(1), scope: object({ kind: literal('application'), installationId: id, callerId: id }), cursor: id, threads: array(appThreadSummary), notifications: array(notification), next: nullable(object({ afterThreadId: nullable(id), afterNotificationId: nullable(id) })) }, false)
 export const voicePreparation = object({id,artifactId:id,partIndex:integer(),revision:integer(),status:union(literal('preparing'),literal('succeeded'),literal('no-speech'),literal('unavailable')),provider:string(),transcript:optional(string()),error:optional(string())},false)
-export const threadMessage = object({ preparation: optional(array(voicePreparation)), id, threadId: id, authorId: id, parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
+/** `runId` names the run whose attempt wrote a kip's message; people's messages have none. */
+export const threadMessage = object({ preparation: optional(array(voicePreparation)), runId: optional(id), id, threadId: id, authorId: id, parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
 export const threadWork = object({ runId: id, attemptId: nullable(id), state: workState, queueHold: boolean(), cancelDelivery, revision: integer(), queuePosition: integer(), messageId: id, failure: nullable(string()) }, false)
 /**
  * How far an approval reaches beyond its card: the rest of the conversation, or every kip until removed in Settings.
