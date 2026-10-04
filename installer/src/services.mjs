@@ -1,4 +1,4 @@
-import { access, chmod, copyFile, mkdir, readFile, realpath } from 'node:fs/promises'
+import { readFile, realpath, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { homedir, userInfo } from 'node:os'
@@ -7,8 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { atomic, exists, json, privateDirectory } from './files.mjs'
 import { run } from './process.mjs'
 import { safeError } from './diagnostics.mjs'
+import { bundleIdentifier, installApp, launcher, packagedApp, writeLaunchers, writeRuntime } from './backend.mjs'
 
-const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export const hostCLI = release => join(release, 'node_modules/@kipster/core/dist/host.js')
 export const runtimeEnvironment = config => ({ ...process.env, ...config.environment, PATH: `${dirname(process.execPath)}:${config.environment?.PATH ?? process.env.PATH ?? '/usr/bin:/bin'}` })
 export async function hostCommand(release, action, home, env, onSpawn) {
@@ -51,16 +51,22 @@ export async function health(config, expected, timeout) {
   throw new Error(`Core health check did not report ${expected} within ${timeout / 1000} seconds.`)
 }
 const xml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;')
-export function templates(home, env, node = process.execPath, user = userInfo().username) {
+export const installedPlist = label => '/Library/LaunchDaemons/' + label + '.plist'
+/**
+ * System jobs start the Kipster app in a role, so macOS attributes Core, the
+ * updater and every child to Kipster. The app reads the Node from runtime.json.
+ */
+export function templates(home, env, user = userInfo().username) {
   const suffix = createHash('sha256').update(home).digest('hex').slice(0, 12)
-  const make = (kind, arguments_, supervision) => {
+  const make = (kind, supervision) => {
     const label = `app.kipster.${kind}.${suffix}`
     return { label, contents: `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${label}</string>
 <key>UserName</key><string>${xml(user)}</string>
-<key>ProgramArguments</key><array>${[node, ...arguments_].map(item => `<string>${xml(item)}</string>`).join('')}</array>
+<key>ProgramArguments</key><array>${[launcher(home), '--role', kind, '--home', home].map(item => `<string>${xml(item)}</string>`).join('')}</array>
+<key>AssociatedBundleIdentifiers</key><array><string>${bundleIdentifier}</string></array>
 <key>WorkingDirectory</key><string>${xml(home)}</string>
 <key>EnvironmentVariables</key><dict><key>HOME</key><string>${xml(homedir())}</string><key>PATH</key><string>${xml(env.PATH)}</string></dict>
 <key>RunAtLoad</key><true/>
@@ -71,24 +77,32 @@ ${supervision}
 </dict></plist>\n` }
   }
   return [
-    make('host', [join(home, 'bin/core.mjs')], `<key>KeepAlive</key><dict><key>PathState</key><dict><key>${xml(join(home, 'updates/hold'))}</key><false/></dict></dict>`),
-    make('updater', [join(home, 'bin/kipster'), 'apply'], `<key>WatchPaths</key><array><string>${xml(join(home, 'updates/request.json'))}</string></array><key>StartInterval</key><integer>60</integer>`),
+    make('host', `<key>KeepAlive</key><dict><key>PathState</key><dict><key>${xml(join(home, 'updates/hold'))}</key><false/></dict></dict>`),
+    make('updater', `<key>WatchPaths</key><array><string>${xml(join(home, 'updates/request.json'))}</string></array><key>StartInterval</key><integer>60</integer>`),
   ]
 }
-export async function writeServices(home, env) {
+/**
+ * Writes everything the system jobs start: the Kipster app, the runtime
+ * manifest naming the Node, the stable entry points and the plists. launchd
+ * installations need a stably signed app; manual ones use it when packaged.
+ */
+export async function writeServices(home, env, { services = 'launchd', node = process.execPath, source = packagedApp(), requireTeam = true } = {}) {
   await privateDirectory(join(home, 'bin')); await privateDirectory(join(home, 'services')); await privateDirectory(join(home, 'logs'))
-  await copyFile(join(packageRoot, 'launchers/core.mjs'), join(home, 'bin/core.mjs'))
-  const source = await readFile(join(packageRoot, 'launchers/kipster.mjs'), 'utf8')
-  await atomic(join(home, 'bin/kipster'), source.replace('#!/usr/bin/env node', `#!${process.execPath}`))
-  await chmod(join(home, 'bin/kipster'), 0o700)
+  if (services === 'launchd' || await exists(source)) {
+    if (!await exists(source)) throw new Error('This installer package has no Kipster app. Install a released @kipster/installer.')
+    const { previous } = await installApp(home, source, { requireTeam: services === 'launchd' && requireTeam })
+    if (previous) await rm(previous, { recursive: true, force: true })
+  }
+  await writeRuntime(home, node)
+  await writeLaunchers(home)
   const jobs = templates(home, env)
   for (const job of jobs) await atomic(join(home, 'services', job.label + '.plist'), job.contents)
   return jobs
 }
 export function sudoSteps(home, jobs) {
   return describeSteps(jobs.flatMap(job => [
-    { why: 'root ownership and mode 0644 are required in /Library/LaunchDaemons', program: '/usr/bin/install', args: ['-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), '/Library/LaunchDaemons/' + job.label + '.plist'] },
-    { why: 'register a system LaunchDaemon that starts before login', program: '/bin/launchctl', args: ['bootstrap', 'system', '/Library/LaunchDaemons/' + job.label + '.plist'] },
+    { why: 'root ownership and mode 0644 are required in /Library/LaunchDaemons', program: '/usr/bin/install', args: ['-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), installedPlist(job.label)] },
+    { why: 'register a system LaunchDaemon that starts before login', program: '/bin/launchctl', args: ['bootstrap', 'system', installedPlist(job.label)] },
   ]))
 }
 function describeSteps(steps) {
@@ -98,15 +112,17 @@ function describeSteps(steps) {
 export function removalSteps(jobs) {
   return describeSteps(jobs.flatMap(job => [
     { why: 'stop and unregister the system LaunchDaemon', program: '/bin/launchctl', args: ['bootout', `system/${job.label}`] },
-    { why: 'remove the root-owned system LaunchDaemon plist', program: '/bin/rm', args: ['-f', '/Library/LaunchDaemons/' + job.label + '.plist'] },
+    { why: 'remove the root-owned system LaunchDaemon plist', program: '/bin/rm', args: ['-f', installedPlist(job.label)] },
   ]))
 }
-export async function unregister(home, jobs, { runCommand = run, readInstalled = path => readFile(path, 'utf8') } = {}) {
+const readPlist = path => readFile(path, 'utf8')
+const absent = error => { if (error.code === 'ENOENT') return null; throw error }
+export async function unregister(home, jobs, { runCommand = run, readInstalled = readPlist } = {}) {
   const steps = []
   // Verify both jobs before changing either; never remove a differing job.
   for (const job of jobs) {
     const loaded = await runCommand('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
-    const installed = await readInstalled('/Library/LaunchDaemons/' + job.label + '.plist').catch(error => { if (error.code === 'ENOENT') return null; throw error })
+    const installed = await readInstalled(installedPlist(job.label)).catch(absent)
     if ((loaded || installed !== null) && installed !== job.contents) throw new Error(`Existing system job ${job.label} differs from this installation. Inspect it before uninstalling.`)
     const [bootout, remove] = removalSteps([job])
     if (loaded) steps.push(bootout)
@@ -119,10 +135,59 @@ export async function register(home, jobs) {
   for (const job of jobs) {
     const loaded = await run('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
     if (loaded) {
-      const existing = await readFile('/Library/LaunchDaemons/' + job.label + '.plist', 'utf8').catch(() => '')
+      const existing = await readFile(installedPlist(job.label), 'utf8').catch(() => '')
       if (existing !== job.contents) throw new Error(`Existing system job ${job.label} differs from the generated service. Inspect it before retrying installation.`)
       continue // Resume registration after a partially completed first install.
     }
     for (const step of sudoSteps(home, [job])) await run('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service registration' })
+  }
+}
+
+/**
+ * Replaces this home's system jobs with `jobs`, written to <home>/services.
+ * Each installed job must be the one this home recorded (`recorded`, by label)
+ * or already the replacement; anything else is refused before any change.
+ * `prepare` installs what the new jobs start, `stopCore` holds Core, and
+ * `startCore` releases it and checks health. On failure the backed-up plists
+ * are reinstalled, `restoreFiles` puts back the home's files and Core restarts.
+ */
+export async function replaceServices({ home, jobs, recorded, backup, prepare, stopCore, startCore, restoreFiles, runCommand = run, readInstalled = readPlist, log = console.log }) {
+  const state = []
+  for (const job of jobs) {
+    const path = installedPlist(job.label)
+    const installed = await readInstalled(path).catch(absent)
+    const loaded = await runCommand('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
+    if (installed !== null && installed !== job.contents && installed !== recorded.get(job.label)) throw new Error(`System job ${job.label} does not match the service this installation recorded. Inspect ${path}; nothing was changed.`)
+    if (installed === null && loaded) throw new Error(`System job ${job.label} is loaded without ${path}. Inspect it with launchctl print system/${job.label}; nothing was changed.`)
+    state.push({ job, installed, loaded })
+  }
+  try { await prepare() } catch (error) { await restoreFiles(); throw error }
+  const pending = state.filter(item => item.installed !== item.job.contents || !item.loaded)
+  if (!pending.length) return { changed: false }
+  await privateDirectory(backup)
+  for (const item of pending) if (item.installed !== null) await atomic(join(backup, item.job.label + '.plist'), item.installed)
+  const steps = pending.flatMap(item => [...(item.loaded ? removalSteps([item.job]).slice(0, 1) : []), ...(item.installed === item.job.contents ? sudoSteps(home, [item.job]).slice(1) : sudoSteps(home, [item.job]))])
+  for (const step of steps) log(`${step.command}\n  Requires sudo: ${step.why}.`)
+  await stopCore()
+  try {
+    for (const step of steps) await runCommand('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service replacement' })
+    await startCore()
+    return { changed: true, backup }
+  } catch (error) {
+    log(`Restoring the previous system services from ${backup}.`)
+    const failures = []
+    const sudo = async (program, args) => { try { await runCommand('/usr/bin/sudo', [program, ...args], { inherit: true, label: 'System service restore' }) } catch { failures.push([program, ...args].join(' ')) } }
+    for (const item of pending) {
+      await runCommand('/usr/bin/sudo', ['/bin/launchctl', 'bootout', `system/${item.job.label}`], { inherit: true, label: 'System service restore' }).catch(() => {})
+      if (item.installed === null) { await sudo('/bin/rm', ['-f', installedPlist(item.job.label)]); continue }
+      await sudo('/usr/bin/install', ['-o', 'root', '-g', 'wheel', '-m', '644', join(backup, item.job.label + '.plist'), installedPlist(item.job.label)])
+      if (item.loaded) await sudo('/bin/launchctl', ['bootstrap', 'system', installedPlist(item.job.label)])
+    }
+    await restoreFiles()
+    await startCore().catch(failure => failures.push(failure instanceof Error ? failure.message : 'Core did not restart'))
+    const detail = error instanceof Error ? error.message : 'Service replacement failed.'
+    throw new Error(failures.length
+      ? `${detail} Restoring the previous services was incomplete (${failures.join('; ')}); their plists are saved in ${backup}.`
+      : `${detail} The previous services were restored from ${backup}.`)
   }
 }

@@ -83,6 +83,19 @@ unsigned.
 | `APPLE_API_KEY_ID` | App Store Connect API key ID |
 | `APPLE_API_PRIVATE_KEY` | Contents of that key's `.p8` file |
 
+### Installer backend app
+
+The installer tarball contains `launchers/macos/Kipster.app`
+(`app.kipster.backend`), which runs Core and the updater so macOS privacy shows
+them as Kipster. The installer builds on macOS. Its release job requires the
+same secrets: it signs the app with Developer ID, the hardened runtime and a
+secure timestamp in a temporary keychain, notarizes it with `notarytool`,
+staples it and checks it with Gatekeeper before packing. `scripts/release.mjs`
+checks the packed app again after extracting the tarball. Missing secrets or any
+failed check fail the release; an unsigned app is never published. Keep the
+team (4VU397N56A) and bundle ID unchanged: they are the identity owners grant
+Full Disk Access to. Pull request CI compiles the app ad hoc without secrets.
+
 ### Updater signing
 
 Updater signing is independent of Apple signing. Set these two secrets in the

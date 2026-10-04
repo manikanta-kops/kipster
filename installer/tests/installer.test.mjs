@@ -1,17 +1,18 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { install, Installer, managedConfiguration, request } from '../src/installer.mjs'
 import { channelFor, version } from '../src/catalog.mjs'
 import { locked, json, save } from '../src/files.mjs'
-import { hostCommand, removalSteps, templates, unregister } from '../src/services.mjs'
-import { main as cliMain } from '../src/cli.mjs'
+import { hostCommand, installedPlist, removalSteps, replaceServices, templates, unregister, writeServices } from '../src/services.mjs'
+import { commandScript, readRuntime, validateNode, writeLaunchers, writeRuntime } from '../src/backend.mjs'
+import { main as cliMain, fullDiskAccess, permissions } from '../src/cli.mjs'
 import { run } from '../src/process.mjs'
 import { Database, databaseEndpoint } from '../src/database.mjs'
-import { database, directory, configuration, catalogs, hooks, noDatabase, cli, repository } from './support.mjs'
+import { database, directory, configuration, catalogs, hooks, noDatabase, cli, repository, testApp } from './support.mjs'
 
 test('request validation trusts only version strings and preserves the shared shape', () => {
   const input = { version: 1, id: 'request/opaque-id', action: 'install', target: '0.2.0-next.1', reason: 'automatic', requestedAt: new Date().toISOString(), settings: { channel: 'next', mode: 'notify', pinned: null }, future: { field: true }, url: 'https://untrusted.invalid', root: '/etc' }
@@ -23,12 +24,124 @@ test('request validation trusts only version strings and preserves the shared sh
   assert.equal(channelFor('1.0.0+build'), 'stable'); assert.equal(channelFor('1.0.0-next.1'), 'next')
 })
 test('system templates fence startup, run as the owner and exclude credentials', () => {
-  const jobs = templates('/tmp/kipster&home', { PATH: '/runtime/bin', PASSWORD: 'secret' }, '/runtime/node', 'owner')
+  const jobs = templates('/tmp/kipster&home', { PATH: '/runtime/bin', PASSWORD: 'secret' }, 'owner')
   assert.match(jobs[0].contents, /<key>UserName<\/key><string>owner/)
   assert.match(jobs[0].contents, /PathState/); assert.match(jobs[0].contents, /kipster&amp;home\/updates\/hold/)
   assert.doesNotMatch(jobs[0].contents, /SuccessfulExit|secret|PASSWORD/)
   assert.match(jobs[1].contents, /StartInterval<\/key><integer>60/)
   assert.match(jobs[1].contents, /updates\/request.json/)
+})
+test('system jobs start the Kipster app in their role and name it as their app', () => {
+  const [host, updater] = templates('/tmp/kipster&home', { PATH: '/runtime/bin' }, 'owner')
+  const program = '<string>/tmp/kipster&amp;home/backend/Kipster.app/Contents/MacOS/Kipster</string>'
+  assert.ok(host.contents.includes(`<key>ProgramArguments</key><array>${program}<string>--role</string><string>host</string><string>--home</string><string>/tmp/kipster&amp;home</string></array>`))
+  assert.ok(updater.contents.includes(`<key>ProgramArguments</key><array>${program}<string>--role</string><string>updater</string><string>--home</string><string>/tmp/kipster&amp;home</string></array>`))
+  for (const job of [host, updater]) {
+    assert.match(job.contents, /<key>AssociatedBundleIdentifiers<\/key><array><string>app\.kipster\.backend<\/string><\/array>/)
+    assert.doesNotMatch(job.contents, /node|core\.mjs|bin\/kipster/)
+  }
+})
+const legacy = label => `<plist><dict><key>Label</key><string>${label}</string><string>/old/node</string></dict></plist>\n`
+function system(jobs, installed, { loaded = true, failSudo } = {}) {
+  const calls = [], files = new Map(jobs.map(job => [installedPlist(job.label), installed(job)]))
+  return { calls, files,
+    readInstalled: async path => { if (files.get(path) == null) throw Object.assign(new Error('absent'), { code: 'ENOENT' }); return files.get(path) },
+    runCommand: async (program, args) => {
+      calls.push([program, ...args])
+      if (program === '/bin/launchctl') { if (!loaded) throw new Error('not loaded'); return '' }
+      if (failSudo?.(args)) throw new Error('sudo failed')
+      return ''
+    } }
+}
+test('repair-services replaces only this home\'s recorded jobs and restores them when Core fails to start', async t => {
+  const home = await directory(t), jobs = templates(home, { PATH: '/usr/bin:/bin' }, 'owner')
+  const recorded = new Map(jobs.map(job => [job.label, legacy(job.label)]))
+  const events = []
+  const hooks = { home, jobs, recorded, backup: join(home, 'backups/services-test'), log: () => {},
+    prepare: async () => events.push('prepare'), stopCore: async () => events.push('stop'), restoreFiles: async () => events.push('restore files') }
+  // A job this home did not record is never touched.
+  const foreign = system(jobs, job => job.label.includes('host') ? 'someone else\'s job' : legacy(job.label))
+  await assert.rejects(replaceServices({ ...hooks, ...foreign, startCore: async () => {} }), /does not match the service this installation recorded.*nothing was changed/)
+  assert.deepEqual(events, []); assert.equal(foreign.calls.some(call => call[0] === '/usr/bin/sudo'), false)
+  // Legacy jobs: hold Core, then bootout, install and bootstrap each one.
+  const migrating = system(jobs, job => legacy(job.label))
+  assert.deepEqual(await replaceServices({ ...hooks, ...migrating, startCore: async () => events.push('start') }), { changed: true, backup: hooks.backup })
+  assert.deepEqual(events, ['prepare', 'stop', 'start'])
+  assert.deepEqual(migrating.calls.filter(call => call[0] === '/usr/bin/sudo').map(call => call.slice(1)), jobs.flatMap(job => [
+    ['/bin/launchctl', 'bootout', `system/${job.label}`],
+    ['/usr/bin/install', '-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), installedPlist(job.label)],
+    ['/bin/launchctl', 'bootstrap', 'system', installedPlist(job.label)],
+  ]))
+  for (const job of jobs) assert.equal(await readFile(join(hooks.backup, job.label + '.plist'), 'utf8'), legacy(job.label))
+  // A failed health check reinstalls the saved plists and restarts the old Core.
+  events.length = 0
+  const failing = system(jobs, job => legacy(job.label))
+  let starts = 0
+  await assert.rejects(replaceServices({ ...hooks, ...failing, startCore: async () => { events.push('start'); if (starts++ === 0) throw new Error('Core health check did not report 0.1.0.') } }),
+    /Core health check did not report 0\.1\.0\. The previous services were restored from .*services-test/)
+  assert.deepEqual(events, ['prepare', 'stop', 'start', 'restore files', 'start'])
+  const restore = failing.calls.filter(call => call[0] === '/usr/bin/sudo').slice(6).map(call => call.slice(1))
+  assert.deepEqual(restore, jobs.flatMap(job => [
+    ['/bin/launchctl', 'bootout', `system/${job.label}`],
+    ['/usr/bin/install', '-o', 'root', '-g', 'wheel', '-m', '644', join(hooks.backup, job.label + '.plist'), installedPlist(job.label)],
+    ['/bin/launchctl', 'bootstrap', 'system', installedPlist(job.label)],
+  ]))
+  // A failed sudo step restores too, and an incomplete restore says so.
+  const refused = system(jobs, job => legacy(job.label), { failSudo: args => args[0] === '/usr/bin/install' })
+  await assert.rejects(replaceServices({ ...hooks, ...refused, startCore: async () => {} }), /sudo failed Restoring the previous services was incomplete .*saved in/)
+  // Jobs already running the Kipster app need no sudo.
+  const current = system(jobs, job => job.contents)
+  assert.deepEqual(await replaceServices({ ...hooks, ...current, startCore: async () => {} }), { changed: false })
+  assert.equal(current.calls.some(call => call[0] === '/usr/bin/sudo'), false)
+  // A failed preparation puts the home's files back before anything stops.
+  events.length = 0
+  await assert.rejects(replaceServices({ ...hooks, ...system(jobs, job => legacy(job.label)), prepare: async () => { throw new Error('unsigned app') }, startCore: async () => {} }), /unsigned app/)
+  assert.deepEqual(events, ['restore files'])
+})
+test('the runtime manifest records an absolute supported Node', async t => {
+  const home = await directory(t)
+  await writeRuntime(home, process.execPath)
+  assert.equal(await readRuntime(home), process.execPath)
+  assert.equal((await stat(join(home, 'runtime.json'))).mode & 0o777, 0o600)
+  await writeFile(join(home, 'runtime.json'), JSON.stringify({ version: 2, node: process.execPath }))
+  await assert.rejects(readRuntime(home), /not a version 1 runtime manifest/)
+  const platform = { platform: process.platform, arch: process.arch }
+  assert.equal(await validateNode(process.execPath, platform), process.execPath)
+  await assert.rejects(validateNode('node', platform), /absolute path/)
+  const old = join(home, 'old-node')
+  await writeFile(join(home, 'old-node'), '#!/bin/sh\necho \'["22.20.0","darwin","arm64"]\'\n', { mode: 0o700 })
+  await assert.rejects(validateNode(old), /is Node\.js 22\.20\.0/)
+  await assert.rejects(validateNode(join(home, 'runtime.json'), platform), /did not run as Node\.js/)
+  await assert.rejects(validateNode(process.execPath, { platform: 'plan9', arch: process.arch }), /needs plan9/)
+})
+test('the kipster command runs through the Kipster app and quotes its home', async t => {
+  const home = join(await directory(t), "it's home")
+  await mkdir(join(home, 'bin'), { recursive: true, mode: 0o700 })
+  await writeLaunchers(home)
+  assert.match(commandScript(home), /^home='.*it'\\''s home'$/m)
+  assert.match(commandScript(home), /exec "\$app" --role cli --home "\$home" -- "\$@"/)
+  // Without an installed app (manual installs), it falls back to Node on PATH.
+  await writeFile(join(home, 'bin/kipster.mjs'), 'console.log(JSON.stringify(process.argv.slice(2)))\n')
+  const output = await run(join(home, 'bin/kipster'), ['status', 'two words'], { env: { ...process.env, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` } })
+  assert.deepEqual(JSON.parse(output), ['status', 'two words'])
+})
+test('writeServices needs the Kipster app for system jobs and records the runtime either way', async t => {
+  const home = await directory(t), missing = join(home, 'missing/Kipster.app')
+  await assert.rejects(writeServices(home, { PATH: '/usr/bin' }, { services: 'launchd', source: missing }), /no Kipster app/)
+  const jobs = await writeServices(home, { PATH: '/usr/bin' }, { services: 'manual', source: missing })
+  assert.equal(await readRuntime(home), process.execPath)
+  for (const name of ['bin/core.mjs', 'bin/kipster.mjs', 'bin/kipster', ...jobs.map(job => `services/${job.label}.plist`)]) assert.ok(await stat(join(home, name)))
+  await assert.rejects(stat(join(home, 'backend')), { code: 'ENOENT' })
+})
+test('permissions reveals the installed app and opens Full Disk Access', async t => {
+  const home = await directory(t), calls = [], lines = []
+  const options = { runCommand: async (...call) => { calls.push(call.slice(0, 2)) }, log: line => lines.push(line) }
+  await assert.rejects(permissions(home, options), /repair-services/)
+  await mkdir(join(home, 'backend/Kipster.app'), { recursive: true })
+  await permissions(home, options)
+  assert.deepEqual(calls, [['/usr/bin/open', ['-R', join(home, 'backend/Kipster.app')]], ['/usr/bin/open', [fullDiskAccess]]])
+  assert.equal(fullDiskAccess, 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
+  assert.match(lines[0], /In Full Disk Access, drag Kipster .* then turn Kipster on\./)
 })
 test('uninstall removes both owned system jobs with exact sudo commands and accepts already removed jobs', async () => {
   const jobs = templates('/tmp/test-home', { PATH: '/runtime/bin' }), calls = []
@@ -168,7 +281,7 @@ test('success, verification failure, migration/health rollback, restore and rete
   assert.equal((await json(join(home, 'updater/current/package.json'))).version, '0.2.0')
   // A broken current import falls back to the preserved previous updater.
   await writeFile(join(home, 'updater/current/src/cli.mjs'), 'invalid javascript {')
-  assert.match(await run(process.execPath, [join(home, 'bin/kipster'), '--help']), /Usage:/)
+  assert.match(await run(process.execPath, [join(home, 'bin/kipster.mjs'), '--help']), /Usage:/)
 })
 test('failed restore keeps the hold and journal until recovery succeeds', { skip: noDatabase, timeout: 120000 }, async t => {
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0', '0.2.0'] })
@@ -262,7 +375,7 @@ test('restore can download a pruned release and honors pinned provider versions'
   assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
 })
 test('failed first installations restore the database and home so the same command can be retried', { skip: noDatabase, timeout: 180000 }, async t => {
-  const catalog = await catalogs(t, { versions: ['0.1.0'] })
+  const catalog = await catalogs(t, { versions: ['0.1.0'] }), app = { source: await testApp(t), requireTeam: false }
   for (const stage of ['download', 'sudo registration', 'Core setup', 'health check']) await t.test(stage, async t => {
     const home = await directory(t), { database: db, databaseUrl } = await database(t)
     const { path, maintenancePath } = await configuration(t, home, databaseUrl)
@@ -271,7 +384,7 @@ test('failed first installations restore the database and home so the same comma
     await writeFile(join(home, 'system/authored.md'), 'Retain these instructions', { mode: 0o600 })
     const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'sudo registration', healthTimeout: 500 }
     let failing = true
-    const retryHooks = { ...hooks,
+    const retryHooks = { ...hooks, app,
       registerServices: async () => { if (failing) throw new Error('System service registration timed out.') },
       onStep: async step => {
         if (step === 'checking' && stage === 'sudo registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
@@ -342,4 +455,60 @@ test('install is repeatable, uninstall preserves data, reinstall works, and dele
   await save(maintenancePath, { databaseUrl: maintenanceURL.href })
   await install(options, hooks)
   assert.notEqual(await readFile(join(home, 'installation.json'), 'utf8'), marker)
+})
+
+const mac = process.platform === 'darwin' && process.arch === 'arm64'
+test('runtime selection restarts Core on the chosen Node and keeps the previous one when it fails', { skip: noDatabase || !mac, timeout: 120000 }, async t => {
+  const home = await directory(t), { databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0'] })
+  const { path, maintenancePath } = await configuration(t, home, databaseUrl)
+  await install({ home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 5000 }, hooks)
+  assert.equal(await readRuntime(home), process.execPath)
+  const serving = async () => {
+    const { pid } = JSON.parse(await hostCommand(join(home, 'current'), 'status', home, process.env))
+    return (await run('/bin/ps', ['-o', 'args=', '-p', String(pid)])).split(' ')[0]
+  }
+  // A Node at another absolute path, as after an nvm or Homebrew upgrade.
+  const other = join(home, 'node-copy')
+  await cp(process.execPath, other)
+  const installer = await Installer.open(home, hooks)
+  assert.deepEqual(await installer.selectRuntime(other), { node: other, previous: process.execPath, coreVersion: '0.1.0' })
+  assert.equal(await readRuntime(home), other)
+  assert.equal(await serving(), other)
+  // A Node that passes the version check but cannot run Core leaves the previous one running.
+  const broken = join(home, 'broken-node')
+  await writeFile(broken, `#!/bin/sh\nif [ "$1" = "-p" ]; then exec ${JSON.stringify(other)} "$@"; fi\nexit 3\n`, { mode: 0o700 })
+  await assert.rejects(installer.selectRuntime(broken), /Core did not start with .*broken-node; .*node-copy is selected again and running/)
+  assert.equal(await readRuntime(home), other)
+  assert.equal(await serving(), other)
+  await assert.rejects(installer.selectRuntime(join(home, 'host.json')), /did not run as Node/)
+  assert.equal(await readRuntime(home), other)
+})
+test('updates replace a changed Kipster app while Core is held, and rollback restores it', { skip: noDatabase || !mac, timeout: 240000 }, async t => {
+  const { build } = await import('../native/build.mjs')
+  const home = await directory(t), { databaseUrl } = await database(t), catalog = await catalogs(t, { versions: ['0.1.0', '0.2.0', '0.3.0'] })
+  const { path, maintenancePath } = await configuration(t, home, databaseUrl)
+  await install({ home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 5000 }, hooks)
+  const installed = join(home, 'backend/Kipster.app'), version = async () => /<key>CFBundleVersion<\/key><string>([^<]+)/.exec(await readFile(join(installed, 'Contents/Info.plist'), 'utf8'))[1]
+  const { installApp } = await import('../src/backend.mjs')
+  const apps = await directory(t, 'kpi-apps-')
+  const first = await installApp(home, build({ out: join(apps, 'first'), version: '1.0.0' }))
+  if (first.previous) await rm(first.previous, { recursive: true, force: true })
+  build({ out: join(catalog.installerSource, 'launchers/macos'), version: '2.0.0' })
+  await catalog.pack('installer', '0.2.0', catalog.installerSource)
+  catalog.select('0.2.0')
+  const installer = await Installer.open(home, hooks)
+  await installer.update()
+  assert.equal(await version(), '2.0.0')
+  assert.deepEqual(await readdir(join(home, 'backend')), ['Kipster.app'])
+  build({ out: join(catalog.installerSource, 'launchers/macos'), version: '3.0.0' })
+  await catalog.pack('installer', '0.3.0', catalog.installerSource)
+  catalog.select('0.3.0')
+  let during
+  installer.onStep = async step => { if (step === 'migrating') during = await version() }
+  await save(join(home, 'fixture.json'), { migrationFailure: '0.3.0' })
+  await assert.rejects(installer.update(), /Core setup failed/)
+  assert.equal(during, '3.0.0')
+  assert.equal(await version(), '2.0.0')
+  assert.deepEqual(await readdir(join(home, 'backend')), ['Kipster.app'])
+  assert.equal((await installer.status()).coreVersion, '0.2.0')
 })

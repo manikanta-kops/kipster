@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { appBuildArgs, copyAppArtifacts, notes, packages, plan, writeReleaseMetadata } from '../release.mjs'
+import { appBuildArgs, backendRequirement, copyAppArtifacts, notes, packages, plan, verifyBackendApp, writeReleaseMetadata } from '../release.mjs'
 
 const list = [
   { name: '@kipster/core', version: '0.2.0', tag: 'core-v0.2.0' },
@@ -13,10 +13,27 @@ const list = [
   { name: '@kipster/embedding-ollama', version: '0.0.0', tag: 'embedding-ollama-v0.0.0' },
 ]
 
-test('release plan covers every workspace package, and only the app builds on macOS', () => {
+test('release plan covers every workspace package; the app and the installer build on macOS', () => {
   const found = packages()
   assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/claude-cli', '@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
-  assert.deepEqual(found.filter(pkg => pkg.runner === 'macos-latest').map(pkg => pkg.name), ['@kipster/ui'])
+  assert.deepEqual(found.filter(pkg => pkg.runner === 'macos-latest').map(pkg => pkg.name).sort(), ['@kipster/installer', '@kipster/ui'])
+  assert.deepEqual(found.filter(pkg => pkg.backend).map(pkg => pkg.name), ['@kipster/installer'])
+})
+
+test('installer releases require a Developer ID signed, notarized and stapled backend app', t => {
+  assert.throws(() => verifyBackendApp(join(directory(t), 'Kipster.app'), () => assert.fail('nothing runs')), /Build and sign the Kipster backend app first/)
+  const app = join(directory(t), 'Kipster.app'), calls = []
+  mkdirSync(join(app, 'Contents/MacOS'), { recursive: true })
+  writeFileSync(join(app, 'Contents/MacOS/Kipster'), '')
+  verifyBackendApp(app, (program, args) => calls.push([program, ...args]))
+  assert.deepEqual(calls, [
+    ['/usr/bin/codesign', '--verify', '--strict', '--verbose=2', `-R=${backendRequirement}`, app],
+    ['xcrun', 'stapler', 'validate', app],
+    ['/usr/sbin/spctl', '--assess', '--type', 'execute', '--verbose=2', app],
+  ])
+  assert.match(backendRequirement, /identifier "app\.kipster\.backend"/)
+  assert.match(backendRequirement, /certificate leaf\[subject\.OU\] = "4VU397N56A"/)
+  assert.throws(() => verifyBackendApp(app, () => { throw new Error('code object is not signed at all') }), /not signed/)
 })
 
 test('installer releases use their independent tag and need no protocol metadata', t => {

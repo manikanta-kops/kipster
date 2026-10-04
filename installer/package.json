@@ -9,6 +9,7 @@
   "bin": { "kipster": "./src/cli.mjs" },
   "scripts": {
     "build": "node --check src/cli.mjs",
+    "build:macos": "node native/build.mjs",
     "test": "node --test --test-concurrency=1 tests/*.test.mjs",
     "test:postgres": "node tests/with-postgres.mjs",
     "test:e2e:macos": "node --test tests/e2e.mjs",

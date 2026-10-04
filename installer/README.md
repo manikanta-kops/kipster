@@ -27,6 +27,8 @@ kipster install --home /absolute/path/kipster --config /absolute/path/host-input
 /absolute/path/kipster/bin/kipster update
 /absolute/path/kipster/bin/kipster update --to 0.2.0
 /absolute/path/kipster/bin/kipster rollback
+/absolute/path/kipster/bin/kipster permissions
+/absolute/path/kipster/bin/kipster runtime --node /absolute/path/to/node
 kipster uninstall --home /absolute/path/kipster
 ```
 
@@ -59,6 +61,38 @@ The macOS installer runs as the backend owner. Core and the updater are system
 LaunchDaemons with `UserName`, so they can start before login without running as
 root. Service registration and removal need sudo; updates use the private host-control
 socket and a launchd hold file.
+
+Both jobs start `<home>/backend/Kipster.app` (bundle ID `app.kipster.backend`),
+a small signed launcher, in its `host` or `updater` role. It starts the Node
+recorded in `<home>/runtime.json`, stays its parent, forwards termination
+signals and exits with Node's status. macOS therefore shows Core, the updater
+and everything kips run (Codex, shell commands, MCP servers) as **Kipster**, and
+one grant survives Node, Core and installer updates. The jobs name the app with
+`AssociatedBundleIdentifiers`.
+
+A background job cannot ask for access, so give Kipster Full Disk Access once:
+run `<home>/bin/kipster permissions`. It shows the app in Finder and opens
+System Settings → Privacy & Security → Full Disk Access; drag Kipster into the
+list (or click + and press Command-Shift-G for the path) and turn it on. Core
+gets the access when it next starts. The installer never changes privacy
+settings itself.
+
+`<home>/bin/kipster` runs commands through the app with the recorded Node. After
+installing another Node, select it with `kipster runtime --node <absolute path>`;
+it checks the version, restarts Core and selects the previous Node again if Core
+does not start. It works even when the recorded Node has been removed. No system
+job changes.
+
+Installations made before the Kipster app run Node directly. Move them once
+with `<home>/bin/kipster repair-services` (optionally `--node <path>`). It checks
+that both installed jobs are the ones this home recorded, installs the app,
+runtime and entry points, saves the old plists under `<home>/backups/services-*`,
+stops Core, prints and runs `sudo launchctl bootout`, `sudo install` and
+`sudo launchctl bootstrap` for each job, and checks Core's health. On failure it
+restores the saved plists and files and restarts Core. Then run `permissions`.
+
+Updates replace the app at the same path, while Core is held, when a new
+installer ships a different build; rollback restores the previous app.
 
 Installation's sudo steps are `/usr/bin/install -o root -g wheel -m 644` for each plist
 under `/Library/LaunchDaemons`, followed by `launchctl bootstrap system` for each
@@ -126,6 +160,12 @@ in place. This is not a PostgreSQL server/role backup or a cross-machine export.
 Restore requires the same database endpoint and keeps its current login credentials.
 Preserve required database roles and provider authentication separately. New
 runtime dependencies are installed by npm with lifecycle scripts disabled.
+
+`npm run build:macos -w installer` compiles the app into `launchers/macos`, where
+`npm pack` includes it. Without `--identity` it is signed ad hoc, which suits tests
+but gives no lasting privacy identity; system-job installations refuse an app
+without a signing team. Releases are Developer ID signed, notarized and stapled
+(see [releasing](../docs/releasing.md)).
 
 Validation: `npm run test:postgres -w installer` starts a disposable PostgreSQL 18
 cluster and tests local catalogs, fake Core processes, backup/restore, crashes and
