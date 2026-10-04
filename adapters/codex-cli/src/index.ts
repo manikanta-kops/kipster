@@ -325,7 +325,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
               let response: ObjectValue = {}
               for (const interaction of interactions) {
                 if (interaction.saved) {
-                  if (interaction.kind === 'approval') {
+                  if (interaction.kind === 'approval' && !interaction.granted) {
                     const id = interaction.arguments.proposalId
                     if (consumedApprovals.has(id)) throw new Error('Codex repeated an already consumed native approval')
                     consumedApprovals.add(id)

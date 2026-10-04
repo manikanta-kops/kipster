@@ -177,10 +177,17 @@ export type InterfacePreferencesWrite = Infer<typeof interfacePreferencesWrite>
  */
 export const permissionMode = union(literal('supervised'), literal('acceptEdits'), literal('auto'), literal('fullAccess'))
 export type PermissionMode = Infer<typeof permissionMode>
-/** The installation's permission mode. The revision counts changes; a mode never saved is `auto` at revision 0. */
-const permissionFields = { revision: integer(), mode: string() }
+/** An action the person chose to always allow from an approval card. It applies to every kip until removed. */
+export const alwaysAllowed = object({ id, label: string(), createdAt: utcTimestamp() }, false)
+export type AlwaysAllowed = Infer<typeof alwaysAllowed>
+/**
+ * The installation's permission mode and the actions always allowed, oldest first. The revision counts changes to
+ * either; a mode never saved is `auto` at revision 0.
+ */
+const permissionFields = { revision: integer(), mode: string(), alwaysAllowed: array(alwaysAllowed) }
 export const permissionSettingsRecord = object(permissionFields, false)
 export const permissionSettings = object({ version: literal(1), ...permissionFields }, false)
 export type PermissionSettings = Infer<typeof permissionSettings>
-export const permissionSettingsWrite = object({ version: literal(1), mode: permissionMode })
+/** Changes the mode, removes always-allowed actions by ID, or both. Unknown IDs are already removed. */
+export const permissionSettingsWrite = object({ version: literal(1), mode: optional(permissionMode), removeAlwaysAllowed: optional(array(id)) })
 export type PermissionSettingsWrite = Infer<typeof permissionSettingsWrite>

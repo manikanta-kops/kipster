@@ -695,14 +695,15 @@ test('the permission mode is saved in Core, published, and given to the next exe
   const ctx = await setup(t)
   const cursor = (await ctx.ok('GET', '/v1/directory')).cursor
   assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.permissionModes, true)
-  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto' })
+  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] })
 
   const first = await ctx.start()
   assert.equal(first.context.permissionMode, 'auto', 'a new installation runs in auto')
-  assert.deepEqual(await first.tool('read', 'admin.permissions.get'), { version: 1, revision: 0, mode: 'auto' })
-  assert.deepEqual(await first.tool('edits', 'admin.permissions.set', { mode: 'acceptEdits' }), { version: 1, revision: 1, mode: 'acceptEdits' })
-  assert.deepEqual(await ctx.ok('PUT', '/v1/settings/permissions', { version: 1, mode: 'supervised' }), { version: 1, revision: 2, mode: 'supervised' })
-  assert.deepEqual(await ctx.ok('PUT', '/v1/settings/permissions', { version: 1, mode: 'supervised' }), { version: 1, revision: 2, mode: 'supervised' }, 'saving the current mode changes nothing')
+  assert.deepEqual(await first.tool('read', 'admin.permissions.get'), { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] })
+  assert.deepEqual(await first.tool('edits', 'admin.permissions.set', { mode: 'acceptEdits' }), { version: 1, revision: 1, mode: 'acceptEdits', alwaysAllowed: [] })
+  assert.deepEqual(await ctx.ok('PUT', '/v1/settings/permissions', { version: 1, mode: 'supervised' }), { version: 1, revision: 2, mode: 'supervised', alwaysAllowed: [] })
+  assert.deepEqual(await ctx.ok('PUT', '/v1/settings/permissions', { version: 1, mode: 'supervised' }), { version: 1, revision: 2, mode: 'supervised', alwaysAllowed: [] }, 'saving the current mode changes nothing')
+  assert.deepEqual(await first.tool('forget', 'admin.permissions.set', { removeAlwaysAllowed: ['00000000-0000-4000-8000-000000000000'] }), { version: 1, revision: 2, mode: 'supervised', alwaysAllowed: [] }, 'Kip can remove always-allowed actions; an unknown one changes nothing')
   assert.equal((await ctx.call('PUT', '/v1/settings/permissions', { version: 1, mode: 'yolo' })).status, 400)
   assert.equal((await ctx.call('PUT', '/v1/settings/permissions', { version: 1 })).status, 400)
   await assert.rejects(first.tool('bad', 'admin.permissions.set', { mode: 'everything' }), /Invalid wire value/)
@@ -720,7 +721,7 @@ test('the permission mode is saved in Core, published, and given to the next exe
   assert.equal((await ctx.ok('GET', '/v1/settings/permissions')).mode, 'supervised', 'nothing changes before the owner answers')
   const answer = kind => ctx.call('POST', '/v1/work/interactions/answer', { version: 1, operationId: randomUUID(), interactionId: card.id, threadId: second.threadId, runId: second.runId, attemptId: second.context.attemptId, proposalId: card.proposal_id, answer: { kind } })
   assert.equal((await answer('approve')).data.outcome, 'accepted')
-  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 3, mode: 'fullAccess' })
+  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 3, mode: 'fullAccess', alwaysAllowed: [] })
   assert.equal((await ctx.db.query('SELECT result FROM kipster.admin_approvals WHERE interaction_id=$1', [card.id])).rows[0].result.mode, 'fullAccess')
   second.handle.release({ kind: 'ended', attemptId: second.context.attemptId, confirmed: true })
   const third = await ctx.start()
@@ -729,9 +730,9 @@ test('the permission mode is saved in Core, published, and given to the next exe
 
   const changes = (await ctx.events(cursor)).filter(event => event.type === 'permissions-changed')
   assert.deepEqual(changes.map(event => [event.resourceId, event.revision, event.data]), [
-    [ctx.installationId, 1, { revision: 1, mode: 'acceptEdits' }],
-    [ctx.installationId, 2, { revision: 2, mode: 'supervised' }],
-    [ctx.installationId, 3, { revision: 3, mode: 'fullAccess' }],
+    [ctx.installationId, 1, { revision: 1, mode: 'acceptEdits', alwaysAllowed: [] }],
+    [ctx.installationId, 2, { revision: 2, mode: 'supervised', alwaysAllowed: [] }],
+    [ctx.installationId, 3, { revision: 3, mode: 'fullAccess', alwaysAllowed: [] }],
   ])
 })
 
@@ -742,7 +743,7 @@ test('a declined full access request leaves the permission mode unchanged', { sk
   const card = (await ctx.db.query('SELECT * FROM kipster.interactions WHERE id=$1', [requested.interactionId])).rows[0]
   const answer = await ctx.call('POST', '/v1/work/interactions/answer', { version: 1, operationId: randomUUID(), interactionId: card.id, threadId: run.threadId, runId: run.runId, attemptId: run.context.attemptId, proposalId: card.proposal_id, answer: { kind: 'decline' } })
   assert.equal(answer.data.outcome, 'accepted')
-  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto' })
+  assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] })
   run.handle.release({ kind: 'ended', attemptId: run.context.attemptId, confirmed: true })
 })
 

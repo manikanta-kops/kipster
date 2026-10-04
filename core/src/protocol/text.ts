@@ -72,14 +72,21 @@ export const appSnapshot = object({ version: literal(1), scope: object({ kind: l
 export const voicePreparation = object({id,artifactId:id,partIndex:integer(),revision:integer(),status:union(literal('preparing'),literal('succeeded'),literal('no-speech'),literal('unavailable')),provider:string(),transcript:optional(string()),error:optional(string())},false)
 export const threadMessage = object({ preparation: optional(array(voicePreparation)), id, threadId: id, authorId: id, parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
 export const threadWork = object({ runId: id, attemptId: nullable(id), state: workState, queueHold: boolean(), cancelDelivery, revision: integer(), queuePosition: integer(), messageId: id, failure: nullable(string()) }, false)
+/**
+ * How far an approval reaches beyond its card: the rest of the conversation, or every kip until removed in Settings.
+ * An approval without a scope allows this one request.
+ */
+export const approvalScope = union(literal('conversation'),literal('always'))
+/** The broader approval a card offers: a person-readable label for the action and the scopes that may be chosen. */
+export const approvalGrant = object({label:nonempty(),scopes:array(approvalScope)},false)
 export const interactionAnswer = union(
   object({kind:literal('choice'),optionId:id,text:optional(string())}),
   object({kind:literal('text'),text:nonempty()}),
   object({kind:literal('dismiss')}),
-  object({kind:literal('approve'),comment:optional(string())}),
+  object({kind:literal('approve'),comment:optional(string()),scope:optional(approvalScope)}),
   object({kind:literal('decline'),comment:optional(string())}),
 )
-export const threadInteraction = object({ id, version:literal(1), runId:id, attemptId:id, kind:union(literal('question'),literal('approval')), proposalId:optional(id), proposal:optional(nonempty()), prompt:string(), options:array(object({id,label:nonempty()})), freeText:boolean(), state:interactionState, revision:integer(), sourceAgentId:optional(id), response:optional(object({operationId:id,actorId:id,answer:interactionAnswer,acceptedAt:utcTimestamp()})) }, false)
+export const threadInteraction = object({ id, version:literal(1), runId:id, attemptId:id, kind:union(literal('question'),literal('approval')), proposalId:optional(id), proposal:optional(nonempty()), prompt:string(), options:array(object({id,label:nonempty()})), freeText:boolean(), grant:optional(approvalGrant), state:interactionState, revision:integer(), sourceAgentId:optional(id), response:optional(object({operationId:id,actorId:id,answer:interactionAnswer,acceptedAt:utcTimestamp()})) }, false)
 /** `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted. */
 export const threadDelegation = object({id,parentRunId:nullable(id),childRunId:nullable(id),senderAgentId:id,recipientAgentId:id,originThreadId:id,depth:integer(),ordinal:integer(),request:string(),state:union(literal('queued'),literal('running'),literal('waiting'),literal('completed'),literal('failed'),literal('cancelled'),literal('recovery-needed')),failure:optional(string()),revision:integer()},false)
 export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:array(threadDelegation), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)

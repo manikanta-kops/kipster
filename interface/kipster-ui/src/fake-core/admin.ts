@@ -230,7 +230,20 @@ export function createAdministration(options: Options = {}) {
     revision: 1,
     available: true,
   }
-  const permissions = { revision: 0, mode: 'auto' }
+  const permissions = {
+    revision: 0,
+    mode: 'auto',
+    alwaysAllowed: [] as { id: string; label: string; createdAt: string }[],
+  }
+  const permissionsChanged = () => {
+    permissions.revision++
+    emit(
+      'permissions-changed',
+      structuredClone(permissions),
+      DEMO_IDS.installation,
+      permissions.revision,
+    )
+  }
   const interfaceChoices = {
     revision: 0,
     palette: null as string | null,
@@ -434,24 +447,29 @@ export function createAdministration(options: Options = {}) {
     if (path === '/v1/settings/permissions' && method === 'PUT') {
       const body = object(await request.json())
       if (body.version !== 1) invalid()
-      keys(body, ['version', 'mode'])
+      keys(body, ['version', 'mode', 'removeAlwaysAllowed'])
+      const remove = body.removeAlwaysAllowed
       if (
-        !['supervised', 'acceptEdits', 'auto', 'fullAccess'].includes(
-          body.mode as string,
-        )
+        (body.mode === undefined && remove === undefined) ||
+        (body.mode !== undefined &&
+          !['supervised', 'acceptEdits', 'auto', 'fullAccess'].includes(
+            body.mode as string,
+          )) ||
+        (remove !== undefined &&
+          (!Array.isArray(remove) ||
+            remove.some((id) => typeof id !== 'string')))
       )
         invalid()
-      if (body.mode !== permissions.mode) {
-        Object.assign(permissions, {
-          mode: body.mode as string,
-          revision: permissions.revision + 1,
-        })
-        emit(
-          'permissions-changed',
-          { ...permissions },
-          DEMO_IDS.installation,
-          permissions.revision,
-        )
+      if (body.mode !== undefined && body.mode !== permissions.mode) {
+        permissions.mode = body.mode as string
+        permissionsChanged()
+      }
+      const kept = permissions.alwaysAllowed.filter(
+        (item) => !(remove as string[] | undefined)?.includes(item.id),
+      )
+      if (kept.length !== permissions.alwaysAllowed.length) {
+        permissions.alwaysAllowed = kept
+        permissionsChanged()
       }
       return json({ version: 1, ...permissions })
     }
@@ -1200,6 +1218,16 @@ export function createAdministration(options: Options = {}) {
   return {
     directory,
     bootstrap,
+    /** An approval answered with Always allow. */
+    allowAlways(label: string) {
+      if (permissions.alwaysAllowed.some((item) => item.label === label)) return
+      permissions.alwaysAllowed.push({
+        id: crypto.randomUUID(),
+        label,
+        createdAt: new Date().toISOString(),
+      })
+      permissionsChanged()
+    },
     setOperationWaiting(operationId: string, waiting: boolean) {
       const operation = operations.get(operationId) ?? missing('Operation')
       if (!operation.finish) conflict('Operation is already settled')

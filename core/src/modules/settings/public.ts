@@ -4,7 +4,7 @@ import { authorizeAdministration, requireOrganizationMember, type AdminCaller, t
 import { applicationCursor, publishAppEvent } from '../synchronization/public.js'
 import type { EffectiveSettings, ExecutionAdapter, ExecutionAdapters, SettingsRecord, SettingsSnapshot } from '../../protocol/admin.js'
 export { readInterfacePreferences, writeInterfacePreferences } from './interface.js'
-export { DEFAULT_PERMISSION_MODE, permissionModeFor, readPermissions, savePermissions, writePermissions } from './permissions.js'
+export { DEFAULT_PERMISSION_MODE, approvalGrantKeys, permissionModeFor, readPermissions, saveApprovalGrant, savePermissions, writePermissions } from './permissions.js'
 
 export type Field = 'adapterId' | 'modelId' | 'effort' | 'options'
 export type SettingsTarget = 'agent' | 'organization'

@@ -334,8 +334,22 @@ export function parseInteraction(value: unknown): TextInteraction {
       (value.response === undefined ||
         (record(value.response) && typeof value.response.actorId === 'string')),
   )
+  // A scope this app does not know is not offered; without a label there is no grant to show.
+  const { grant, ...rest } = value
+  const scopes =
+    record(grant) &&
+    typeof grant.label === 'string' &&
+    Array.isArray(grant.scopes)
+      ? grant.scopes.filter(
+          (scope): scope is 'conversation' | 'always' =>
+            scope === 'conversation' || scope === 'always',
+        )
+      : []
   return {
-    ...value,
+    ...rest,
+    ...(record(grant) && typeof grant.label === 'string' && scopes.length
+      ? { grant: { label: grant.label, scopes } }
+      : {}),
     options: list(value.options, (option) => {
       check(
         record(option) &&

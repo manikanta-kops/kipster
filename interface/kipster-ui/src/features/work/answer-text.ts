@@ -9,7 +9,17 @@ export function answerText(answer: unknown, interaction?: Interaction): string {
     return `${interaction?.options.find((o) => o.id === answer.optionId)?.label ?? answer.optionId}${typeof answer.text === 'string' && answer.text ? ` — ${answer.text}` : ''}`
   if (kind === 'text' && typeof answer.text === 'string') return answer.text
   if (kind === 'dismiss') return 'Dismissed without an answer'
-  if (kind === 'approve' || kind === 'decline')
-    return `${kind === 'approve' ? 'Approved' : 'Declined'}${typeof answer.comment === 'string' && answer.comment ? ` — ${answer.comment}` : ''}`
+  if (kind === 'approve' || kind === 'decline') {
+    const action = interaction?.grant?.label
+    const said =
+      kind === 'decline'
+        ? 'Declined'
+        : answer.scope === 'always' && action
+          ? `Always allowed ${action}`
+          : answer.scope === 'conversation' && action
+            ? `Allowed ${action} in this conversation`
+            : 'Approved'
+    return `${said}${typeof answer.comment === 'string' && answer.comment ? ` — ${answer.comment}` : ''}`
+  }
   return kind
 }

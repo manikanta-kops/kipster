@@ -33,7 +33,7 @@ const areas = {
   groups: 'The sidebar groups of a workspace and the kips shown in each.',
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
   adapters: 'Execution adapters and the models they offer.',
-  permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access.',
+  permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access, and the actions the person always allows.',
   learning: 'Learning from conversations and the nightly sleep time, for the installation and each kip.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
@@ -288,13 +288,17 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'permissions.get': operation({
     area: 'permissions', kind: 'read', input: none,
-    description: 'Read the permission mode every kip runs with: supervised (asks before commands and file changes), acceptEdits (approves edits, asks before other actions), auto (the default: supported providers approve routine actions, others still ask) or fullAccess (commands and edits without prompts).',
+    description: 'Read the permission mode every kip runs with: supervised (asks before commands and file changes), acceptEdits (approves edits, asks before other actions), auto (the default: supported providers approve routine actions, others still ask) or fullAccess (commands and edits without prompts). alwaysAllowed lists the actions the person chose to always allow from approval cards; they apply to every kip.',
     run: ({ host, caller }) => readPermissions(host.db, caller),
   }),
   'permissions.set': operation({
     area: 'permissions', kind: 'write', input: fields({}, permissionSettingsWrite),
-    description: "Change the permission mode of every kip; each kip's next turn uses it. supervised, acceptEdits and auto are saved at once. fullAccess asks the owner with an approval card and ends the turn; it is saved only when the owner approves.",
-    run: ({ host, caller, callId, args }) => args.mode === 'fullAccess' ? requestPermissionsApproval(host.db, caller, callId, args.mode) : writePermissions(host.db, caller, { version: 1, mode: args.mode }),
+    description: "Change the permission mode of every kip, remove always-allowed actions by ID, or both; each kip's next turn uses the result. supervised, acceptEdits, auto and removals are saved at once. fullAccess asks the owner with an approval card and ends the turn; it is saved only when the owner approves. Only the person can add always-allowed actions, from an approval card.",
+    async run({ host, caller, callId, args }) {
+      if (args.mode !== 'fullAccess') return writePermissions(host.db, caller, { version: 1, ...(args.mode ? { mode: args.mode } : {}), ...(args.removeAlwaysAllowed ? { removeAlwaysAllowed: args.removeAlwaysAllowed } : {}) })
+      if (args.removeAlwaysAllowed) await writePermissions(host.db, caller, { version: 1, removeAlwaysAllowed: args.removeAlwaysAllowed })
+      return requestPermissionsApproval(host.db, caller, callId, args.mode)
+    },
   }),
   'learning.get': operation({
     area: 'learning', kind: 'read', input: none,

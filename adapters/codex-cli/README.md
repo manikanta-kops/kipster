@@ -14,7 +14,7 @@ adapter starts the thread with these settings; a missing or unknown mode runs as
 | `supervised` | `workspace-write` | `untrusted` | `user` |
 | `acceptEdits` | `workspace-write` | `granular`, every prompt kind on | `user` |
 | `auto` | `workspace-write` | `granular`, every prompt kind on | `auto_review` |
-| `fullAccess` | `danger-full-access` | `never` | `user` |
+| `fullAccess` | `danger-full-access` | `granular`, every prompt kind on | `user` |
 
 The workspace Codex may write in is the agent's Core-owned home, the execution's working directory, plus the
 temporary directories Codex's `workspace-write` sandbox always allows. Edits there and sandboxed commands run without
@@ -22,8 +22,9 @@ asking. The granular policy behaves like `on-request` and also asks when the san
 elsewhere; plain `on-request` lets that command fail without asking. Supervised, `acceptEdits` and `auto` turn on network access for sandboxed
 commands (`sandbox_workspace_write.network_access`), because a blocked network call fails rather than asks. In `auto`, Codex's reviewer
 subagent decides approval requests instead of the person.
-Requests that still reach the person become approval cards. Every execution starts a new thread, so a changed mode
-applies from the next turn. Maintenance stays read-only and never asks.
+Requests that still reach the person become approval cards. In `fullAccess` the adapter allows every approval Codex
+still raises, such as Computer Use; with `never`, Codex would decline MCP tool approvals itself. Every execution starts
+a new thread, so a changed mode applies from the next turn. Maintenance stays read-only and never asks.
 
 ## Memory maintenance
 
@@ -55,7 +56,9 @@ CLI updates may change supported strict settings; recheck readiness after updati
 
 ## Human interactions and cleanup
 
-Native command and file approvals, permission requests, user questions, and supported MCP form requests become Core interaction cards. The adapter stops the waiting process and reconstructs the next attempt with the saved answer. Approval answers are bound to the exact requested action, including file changes. Unsupported requests fail visibly instead of waiting indefinitely; secret inputs, URL elicitations and nested MCP forms are unsupported.
+Native command and file approvals, permission requests, user questions, and supported MCP form requests become Core interaction cards. Each approval card opens with a one-line question, such as `Allow Computer Use to use "Arc"?`, then plain detail; the exact request is kept as the proposal. The adapter stops the waiting process and reconstructs the next attempt with the saved answer. Approval answers are bound to the exact requested action, including file changes, ignoring the IDs and timestamps Codex changes on every attempt.
+
+Cards also offer a grant the person may choose instead of a single approval: a command for the conversation or always, the same files for the conversation, extra permissions for the conversation or always, and an MCP tool approval with the reach Codex allows for it (`_meta.persist`). Computer Use is granted per app, so one grant covers every action in that app. Grants are kept by Core, not in the Codex home; the adapter answers a request whose grant is in `approvalGrants` without a card. Unsupported requests fail visibly instead of waiting indefinitely; secret inputs, URL elicitations and nested MCP forms are unsupported.
 
 Each conversation thread has an adapter-owned record under `conversation-sessions` in `dataDirectory`, including its Codex home. When Core forgets provider state, only recorded shared-home thread rollouts and matching maintenance records are removed. Changing `codexHome` does not lose the recorded location. Personal shared-home sessions without an ownership record are preserved. Codex's own SQLite metadata is not edited, so cleanup does not guarantee immediate removal from the desktop sidebar.
 

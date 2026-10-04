@@ -5,6 +5,7 @@ import type { TrustedActor } from '../identity/public.js'
 import { publishThreadChange, createInteractionNotification, interactionNotificationChanged, chatPresent } from '../synchronization/public.js'
 import { RefusedError } from '../../platform/errors/public.js'
 import { workRecord } from '../conversations/public.js'
+import { saveApprovalGrant } from '../settings/public.js'
 
 export interface InteractionInput {
   kind: 'question' | 'approval'
@@ -13,11 +14,17 @@ export interface InteractionInput {
   freeText?: boolean
   proposalId?: string
   proposal?: string
+  /** Only provider approvals raised through an adapter may offer one; see `AdapterHost.invokeTool`. */
+  grant?: ApprovalGrantOffer
 }
-export type InteractionAnswer = { kind: 'choice'; optionId: string; text?: string } | { kind: 'text'; text: string } | { kind: 'dismiss' } | { kind: 'approve' | 'decline'; comment?: string }
+export type ApprovalScope = 'conversation' | 'always'
+/** `key` is the adapter's own match for the action; it stays in Core and is never shown. */
+export interface ApprovalGrantOffer { key: string; label: string; scopes: ApprovalScope[] }
+export type InteractionAnswer = { kind: 'choice'; optionId: string; text?: string } | { kind: 'text'; text: string } | { kind: 'dismiss' } | { kind: 'approve'; comment?: string; scope?: ApprovalScope } | { kind: 'decline'; comment?: string }
 export interface InteractionRecord {
   id: string; version: 1; kind: 'question' | 'approval'; runId: string; attemptId: string; proposalId?: string; proposal?: string
   prompt: string; options: { id: string; label: string }[]; freeText: boolean; state: string
+  grant?: { label: string; scopes: ApprovalScope[] }
   response?: { operationId: string; actorId: string; answer: InteractionAnswer; acceptedAt: string }
   revision: number
   sourceAgentId?: string
@@ -36,9 +43,9 @@ async function event(client: SqlClient, row: ScopeRow, record: InteractionRecord
   if(origin)await publishThreadChange(client,row.installation_id,row.caller_id,origin.origin_thread_id,row.chat_id,'interaction-changed',record.id,record.revision,record,row.state,null)
 }
 export async function interactionRecord(client: SqlClient, id: string): Promise<InteractionRecord> {
-  const row = (await client.query<{ id:string; run_id:string; attempt_id:string; kind:'question'|'approval'; proposal_id:string|null; proposal:string|null; prompt:string; options:{id:string;label:string}[]; free_text:boolean; state:string; answer:InteractionAnswer|null; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string; source_agent_id:string|null }>('SELECT x.*,d.recipient_agent_id AS source_agent_id FROM kipster.interactions x LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE x.id=$1', [id])).rows[0]
+  const row = (await client.query<{ id:string; run_id:string; attempt_id:string; kind:'question'|'approval'; proposal_id:string|null; proposal:string|null; prompt:string; options:{id:string;label:string}[]; free_text:boolean; grant_offer:ApprovalGrantOffer|null; state:string; answer:InteractionAnswer|null; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string; source_agent_id:string|null }>('SELECT x.*,d.recipient_agent_id AS source_agent_id FROM kipster.interactions x LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE x.id=$1', [id])).rows[0]
   if (!row) throw new Error('Interaction not found')
-  return { id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? {proposal:row.proposal}:{}), prompt: row.prompt, options: row.options, freeText: row.free_text, state: row.state, ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}), revision: Number(row.revision),...(row.source_agent_id?{sourceAgentId:row.source_agent_id}:{}) }
+  return { id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? {proposal:row.proposal}:{}), prompt: row.prompt, options: row.options, freeText: row.free_text, ...(row.grant_offer ? { grant: { label: row.grant_offer.label, scopes: row.grant_offer.scopes } } : {}), state: row.state, ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}), revision: Number(row.revision),...(row.source_agent_id?{sourceAgentId:row.source_agent_id}:{}) }
 }
 /** The thread the card appears on must still be present. */
 async function presentThread(client: SqlClient, threadId: string): Promise<void> {
@@ -46,14 +53,21 @@ async function presentThread(client: SqlClient, threadId: string): Promise<void>
   if (!chat || !await chatPresent(client, chat.chat_id)) throw new RefusedError('gone', 'Thread is gone')
 }
 function checkInput(input: InteractionInput): void {
-  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key=>!['kind','prompt','options','freeText','proposalId','proposal'].includes(key))) throw new Error('Invalid interaction fields')
+  if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key=>!['kind','prompt','options','freeText','proposalId','proposal','grant'].includes(key))) throw new Error('Invalid interaction fields')
   if (input.kind !== 'question' && input.kind !== 'approval') throw new Error('Invalid interaction kind')
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 8000) throw new Error('Invalid interaction prompt')
   if (input.freeText !== undefined && typeof input.freeText !== 'boolean') throw new Error('Invalid free-text flag')
   const options = input.options ?? []
   if (!Array.isArray(options) || options.length > 5 || options.some(x => !x || typeof x !== 'object' || Array.isArray(x) || Object.keys(x).some(key=>!['id','label'].includes(key)) || typeof x.id !== 'string' || typeof x.label !== 'string' || !x.id || !x.label || x.id.length > 100 || x.label.length > 200) || new Set(options.map(x => x.id)).size !== options.length) throw new Error('Invalid interaction options')
   if (input.kind === 'approval' && (typeof input.proposalId !== 'string' || !input.proposalId || input.proposalId.length > 200 || typeof input.proposal !== 'string' || !input.proposal.trim() || input.proposal.length > 8000 || options.length || input.freeText)) throw new Error('Invalid approval proposal')
-  if (input.kind === 'question' && (input.proposalId!==undefined || input.proposal!==undefined)) throw new Error('Invalid question proposal')
+  if (input.kind === 'question' && (input.proposalId!==undefined || input.proposal!==undefined || input.grant!==undefined)) throw new Error('Invalid question proposal')
+  if (input.grant !== undefined) {
+    const grant = input.grant as unknown as Record<string, unknown>
+    const scopes = grant?.scopes
+    if (!grant || typeof grant !== 'object' || Array.isArray(grant) || Object.keys(grant).some(key => !['key','label','scopes'].includes(key))
+      || typeof grant.key !== 'string' || !grant.key || grant.key.length > 500 || typeof grant.label !== 'string' || !grant.label.trim() || grant.label.length > 200
+      || !Array.isArray(scopes) || !scopes.length || scopes.some(scope => scope !== 'conversation' && scope !== 'always') || new Set(scopes).size !== scopes.length) throw new Error('Invalid approval grant')
+  }
   if (input.kind === 'question' && !options.length && !input.freeText) throw new Error('Question needs a choice or free text')
 }
 /** Tool identity is bound to an admitted attempt. Duplicate call IDs return the original card. */
@@ -76,7 +90,7 @@ export async function askInteraction(db: Postgres, attemptId: string, callId: st
     const count = await client.query('SELECT 1 FROM kipster.interactions WHERE run_id=$1 AND state=$2', [owner.intent_id, 'pending'])
     if (count.rows.length) throw new Error('An interaction is already pending')
     const id = randomUUID()
-    await client.query(`INSERT INTO kipster.interactions(id,run_id,attempt_id,call_id,kind,proposal_id,proposal,prompt,options,free_text,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,'pending')`, [id, owner.intent_id, attemptId, callId, input.kind, input.proposalId ?? null, input.proposal ?? null, input.prompt, JSON.stringify(input.options ?? []), !!input.freeText])
+    await client.query(`INSERT INTO kipster.interactions(id,run_id,attempt_id,call_id,kind,proposal_id,proposal,prompt,options,free_text,grant_offer,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11::jsonb,'pending')`, [id, owner.intent_id, attemptId, callId, input.kind, input.proposalId ?? null, input.proposal ?? null, input.prompt, JSON.stringify(input.options ?? []), !!input.freeText, input.grant ? JSON.stringify(input.grant) : null])
     await bind?.(client, id)
     await client.query('UPDATE kipster.text_runs SET state=$2,continuation_interaction_id=$3,revision=revision+1 WHERE id=$1', [owner.intent_id, 'waiting', id])
     const record = await interactionRecord(client, id)
@@ -89,6 +103,7 @@ export async function askInteraction(db: Postgres, attemptId: string, callId: st
 function validAnswer(record: InteractionRecord, answer: InteractionAnswer, proposalId?: string): boolean {
   if (!answer || typeof answer !== 'object' || Array.isArray(answer)) return false
   if (record.kind === 'approval') return proposalId === record.proposalId && (answer.kind === 'approve' || answer.kind === 'decline') && (answer.comment === undefined || typeof answer.comment === 'string' && answer.comment.length <= 2000)
+    && (answer.kind === 'decline' || answer.scope === undefined || !!record.grant?.scopes.includes(answer.scope))
   if (answer.kind === 'dismiss') return true
   if (answer.kind === 'text') return record.freeText && typeof answer.text === 'string' && !!answer.text.trim() && answer.text.length <= 8000
   if (answer.kind === 'choice') return typeof answer.optionId === 'string' && record.options.some(x => x.id === answer.optionId) && (answer.text === undefined || record.freeText && typeof answer.text === 'string' && answer.text.length <= 8000)
@@ -120,6 +135,10 @@ export async function answerInteraction(db: Postgres, jobs: Jobs, actor: Trusted
     }
     await client.query('UPDATE kipster.interactions SET state=$2,answer=$3::jsonb,answer_operation_id=$4,answer_actor_id=$5,answered_at=now(),revision=revision+1 WHERE id=$1 AND state=$6',[record.id,'settled',JSON.stringify(request.answer),request.operationId,actor.personId,'pending'])
     if (request.answer.kind === 'approve') await applyApproval?.(client, record)
+    if (request.answer.kind === 'approve' && request.answer.scope) {
+      const offer = (await client.query<{ grant_offer: ApprovalGrantOffer }>('SELECT grant_offer FROM kipster.interactions WHERE id=$1', [record.id])).rows[0]!.grant_offer
+      await saveApprovalGrant(client, actor.installationId, request.answer.scope === 'always' ? null : row.thread_id, offer.key, offer.label)
+    }
     const updated = await interactionRecord(client,record.id)
     await event(client,row,updated)
     await interactionNotificationChanged(client,record.id)

@@ -25,7 +25,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | model, effort, provider | execution settings | `settings`, `adapters` |
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
-| permissions, asking first, approvals, full access | permission mode | `permissions` |
+| permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
 | memory, learning, sleep | learning and sleep time | `learning` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
@@ -68,6 +68,10 @@ changes it. `supervised` asks before commands and file changes, `acceptEdits` ap
 actions, `auto` (the default) lets providers that support it approve routine actions while others still ask, and
 `fullAccess` allows commands and edits without prompts. Each kip's next turn uses the new mode. `fullAccess` needs the
 person's approval; say plainly that it removes every prompt.
+
+**Always-allowed actions.** When the person picks "Always allow" on an approval card, that action joins
+`alwaysAllowed` in `permissions.get` and no kip asks for it again. Remove one with `permissions.set`
+`removeAlwaysAllowed: [id]`. Only the person adds them, from a card.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call

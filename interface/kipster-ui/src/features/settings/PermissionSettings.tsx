@@ -5,7 +5,7 @@ import {
   type Permissions,
 } from '../../data/core-settings'
 import { errorText } from './format'
-import { Block, Callout, Confirm } from './ui'
+import { Block, Callout, Confirm, Row } from './ui'
 
 const options: Record<PermissionMode, { label: string; description: string }> =
   {
@@ -28,17 +28,38 @@ const options: Record<PermissionMode, { label: string; description: string }> =
     },
   }
 
-/** The installation's permission mode as four choices. Full access asks for a confirmation first. */
+const added = (createdAt: string) =>
+  `Added ${new Date(createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`
+
+/**
+ * The installation's permission mode as four choices, and the actions always allowed from approval cards. Full
+ * access asks for a confirmation first.
+ */
 export function PermissionSettings({
   permissions,
   save,
+  remove,
 }: {
   permissions: Permissions
   save: (mode: PermissionMode) => Promise<void>
+  remove: (id: string) => Promise<void>
 }) {
   const [state, setState] = useState<
     'idle' | 'confirm' | { saving: PermissionMode } | { error: string }
   >('idle')
+  const [removing, setRemoving] = useState('')
+  const [removeError, setRemoveError] = useState('')
+  const forget = async (id: string) => {
+    setRemoving(id)
+    setRemoveError('')
+    try {
+      await remove(id)
+    } catch (error) {
+      setRemoveError(errorText(error))
+    } finally {
+      setRemoving('')
+    }
+  }
   const known = (permissionModes as readonly string[]).includes(
     permissions.mode,
   )
@@ -102,6 +123,37 @@ export function PermissionSettings({
       {typeof state === 'object' && 'error' in state && (
         <p role="alert" className="set-alert">
           Not saved: {state.error}
+        </p>
+      )}
+      <Block
+        label="Always allowed"
+        foot="Every kip does these without asking. Add one with Always allow on an approval."
+      >
+        {permissions.alwaysAllowed.length === 0 ? (
+          <Row label="Nothing yet" dim />
+        ) : (
+          permissions.alwaysAllowed.map((item) => (
+            <Row
+              key={item.id}
+              label={item.label}
+              sub={added(item.createdAt)}
+              control={
+                <button
+                  className="set-button"
+                  aria-label={`Remove ${item.label}`}
+                  disabled={removing !== ''}
+                  onClick={() => void forget(item.id)}
+                >
+                  {removing === item.id ? 'Removing…' : 'Remove'}
+                </button>
+              }
+            />
+          ))
+        )}
+      </Block>
+      {removeError && (
+        <p role="alert" className="set-alert">
+          Not removed: {removeError}
         </p>
       )}
       {state === 'confirm' && (

@@ -3,6 +3,19 @@ import type { Answer, Interaction, WorkOperation } from '../../data/work'
 import type { WorkspaceData } from '../chat/model'
 import { answerText } from './answer-text'
 import { Icon } from '../../components/Icon'
+
+/** A provider's exact request is JSON; it folds away under Details. Other proposals are written for people. */
+function exactRequest(proposal: string): string | undefined {
+  try {
+    const value: unknown = JSON.parse(proposal)
+    return value && typeof value === 'object'
+      ? JSON.stringify(value, null, 2)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export function InteractionCard({
   interaction: item,
   data,
@@ -23,6 +36,9 @@ export function InteractionCard({
   const knownKind = item.kind === 'question' || item.kind === 'approval'
   const ended = ['settled', 'cancelled', 'superseded'].includes(item.state)
   const disabled = item.state !== 'pending' || blocked || pending
+  const [title, ...detail] = item.prompt.split('\n')
+  const request = item.proposal ? exactRequest(item.proposal) : undefined
+  const scopes = item.kind === 'approval' ? (item.grant?.scopes ?? []) : []
   async function respond(answer: Answer) {
     setError('')
     setPending(true)
@@ -68,10 +84,20 @@ export function InteractionCard({
             : item.kind}
         {item.delegationId ? ' · Consulting kip' : ''}
       </p>
-      <h3 id={heading}>{item.prompt}</h3>
-      {item.kind === 'approval' && item.proposal && (
-        <p className="interaction-proposal">{item.proposal}</p>
+      <h3 id={heading}>{title}</h3>
+      {detail.some((line) => line.trim()) && (
+        <p className="interaction-detail">{detail.join('\n').trim()}</p>
       )}
+      {item.kind === 'approval' &&
+        item.proposal &&
+        (request ? (
+          <details className="interaction-request">
+            <summary>Details</summary>
+            <pre>{request}</pre>
+          </details>
+        ) : (
+          <p className="interaction-proposal">{item.proposal}</p>
+        ))}
       {!knownKind && item.options.length > 0 && (
         <ul>
           {item.options.map((option) => (
@@ -131,16 +157,53 @@ export function InteractionCard({
           <div className="work-actions interaction-actions">
             {item.kind === 'approval' ? (
               <>
-                <button
-                  tabIndex={0}
-                  className="primary-button"
-                  disabled={disabled}
-                  onClick={() =>
-                    void respond({ kind: 'approve', comment: text })
-                  }
-                >
-                  Approve
-                </button>
+                {scopes.length === 0 && (
+                  <button
+                    tabIndex={0}
+                    className="primary-button"
+                    disabled={disabled}
+                    onClick={() =>
+                      void respond({ kind: 'approve', comment: text })
+                    }
+                  >
+                    Approve
+                  </button>
+                )}
+                {scopes.includes('conversation') && (
+                  <button
+                    tabIndex={0}
+                    className="primary-button"
+                    disabled={disabled}
+                    onClick={() =>
+                      void respond({
+                        kind: 'approve',
+                        scope: 'conversation',
+                        comment: text,
+                      })
+                    }
+                  >
+                    Allow in this conversation
+                  </button>
+                )}
+                {scopes.includes('always') && (
+                  <button
+                    tabIndex={0}
+                    className={
+                      scopes.includes('conversation') ? '' : 'primary-button'
+                    }
+                    title="Every kip may do this without asking. Remove it in Settings › Permissions."
+                    disabled={disabled}
+                    onClick={() =>
+                      void respond({
+                        kind: 'approve',
+                        scope: 'always',
+                        comment: text,
+                      })
+                    }
+                  >
+                    Always allow
+                  </button>
+                )}
                 <button
                   tabIndex={0}
                   disabled={disabled}

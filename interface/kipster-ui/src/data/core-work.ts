@@ -166,6 +166,7 @@ export function threadWork(input: {
         prompt: x.prompt,
         options: x.options,
         freeText: x.freeText,
+        ...(x.grant ? { grant: x.grant } : {}),
         state,
         ...(x.response ? { response: x.response } : {}),
         continuation:
@@ -315,11 +316,10 @@ const rejected = (op: WorkOperation, message: string): WorkReceipt => ({
 })
 /** Core takes comments only when given; an empty one is left out. */
 function coreAnswer(answer: Answer): Answer {
-  if (
-    (answer.kind === 'approve' || answer.kind === 'decline') &&
-    !answer.comment?.trim()
-  )
-    return { kind: answer.kind }
+  if (answer.kind === 'approve' && !answer.comment?.trim())
+    return { kind: 'approve', ...(answer.scope ? { scope: answer.scope } : {}) }
+  if (answer.kind === 'decline' && !answer.comment?.trim())
+    return { kind: 'decline' }
   if (answer.kind === 'choice' && !answer.text?.trim())
     return { kind: 'choice', optionId: answer.optionId }
   return answer

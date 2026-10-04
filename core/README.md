@@ -198,7 +198,15 @@ Administration is owner-only:
 | `POST /v1/execution-adapters/refresh` | Probe every adapter's readiness again (`{ "version": 1 }`) and return the list. |
 | `GET /v1/operations/{operationId}` | An operation recorded under the owner's operation ID: `state`, current `step`, `waitingFor`, `result` and `error`. |
 | `GET`/`PUT /v1/settings/interface` | The installation's interface choices: `palette`, `theme` (`light`, `dark` or `system`) and `desktopNotifications`; null leaves the interface default. A `PUT` (`{ "version": 1, "palette"?, "theme"?, "desktopNotifications"? }`) changes the given ones and publishes `interface-changed` when one differs. Bootstrap advertises `capabilities.interfacePreferences`. |
-| `GET`/`PUT /v1/settings/permissions` | The installation's permission mode, `{ "version": 1, "revision", "mode" }`: what kips may do without asking. `supervised` asks before commands and file changes, `acceptEdits` approves edits and asks before other actions, `auto` (the default) lets providers that support it approve routine actions, and `fullAccess` allows commands and edits without prompts. A `PUT` (`{ "version": 1, "mode" }`) publishes `permissions-changed` when the mode differs. Every text execution receives the mode as `permissionMode`; maintenance executions are unaffected. Bootstrap advertises `capabilities.permissionModes`. |
+| `GET`/`PUT /v1/settings/permissions` | The installation's permission mode and always-allowed actions, `{ "version": 1, "revision", "mode", "alwaysAllowed": [{ "id", "label", "createdAt" }] }`: what kips may do without asking. `supervised` asks before commands and file changes, `acceptEdits` approves edits and asks before other actions, `auto` (the default) lets providers that support it approve routine actions, and `fullAccess` allows commands and edits without prompts. A `PUT` (`{ "version": 1, "mode"?, "removeAlwaysAllowed"?: [id] }`) publishes `permissions-changed` when anything changes. Every text execution receives the mode as `permissionMode`; maintenance executions are unaffected. Bootstrap advertises `capabilities.permissionModes`. |
+
+An approval card raised by an adapter for a provider's own request may carry a
+`grant`: a label for the action and the `scopes` the person may choose,
+`conversation` or `always`. Answering `{ "kind": "approve", "scope": … }` allows
+the action beyond that card: for the rest of the conversation, or for every kip
+until the person removes it from `alwaysAllowed`. Core passes the grants that
+apply to each execution as `approvalGrants`, and the adapter answers matching
+requests without asking. An approval without a scope allows one request.
 
 Each write except an instructions save or an adapter refresh carries an
 `operationId`. A repeated ID returns the result recorded the first time, with

@@ -61,8 +61,19 @@ export const permissionModes = [
   'fullAccess',
 ] as const
 export type PermissionMode = (typeof permissionModes)[number]
+/** An action the person always allows, for every kip, until they remove it. */
+export type AlwaysAllowed = { id: string; label: string; createdAt: string }
 /** The installation's permission mode. `mode` stays a string, since a newer Core may send one this app does not know. */
-export type Permissions = { revision: number; mode: string }
+export type Permissions = {
+  revision: number
+  mode: string
+  alwaysAllowed: AlwaysAllowed[]
+}
+/** A mode to save, always-allowed actions to remove, or both. */
+export type PermissionChange = {
+  mode?: PermissionMode
+  removeAlwaysAllowed?: string[]
+}
 export type SettingsEvent = { cursor: string } & (
   | { kind: 'settings'; record: SettingsRecord }
   | { kind: 'permissions'; permissions: Permissions }
@@ -237,9 +248,22 @@ export function parsePermissions(value: unknown): Permissions {
   check(
     record(value) &&
       typeof value.revision === 'number' &&
-      typeof value.mode === 'string',
+      typeof value.mode === 'string' &&
+      Array.isArray(value.alwaysAllowed),
   )
-  return { revision: value.revision, mode: value.mode }
+  return {
+    revision: value.revision,
+    mode: value.mode,
+    alwaysAllowed: (value.alwaysAllowed as unknown[]).map((item) => {
+      check(
+        record(item) &&
+          typeof item.id === 'string' &&
+          typeof item.label === 'string' &&
+          typeof item.createdAt === 'string',
+      )
+      return { id: item.id, label: item.label, createdAt: item.createdAt }
+    }),
+  }
 }
 /** The newer of two permission records by revision. */
 export function mergePermissions(
@@ -637,11 +661,11 @@ export class CoreSettingsClient {
       await this.request('GET', '/v1/settings/permissions', signal),
     )
   }
-  async savePermissions(mode: PermissionMode, signal: AbortSignal) {
+  async savePermissions(change: PermissionChange, signal: AbortSignal) {
     return parsePermissions(
       await this.request('PUT', '/v1/settings/permissions', signal, {
         version: 1,
-        mode,
+        ...change,
       }),
     )
   }

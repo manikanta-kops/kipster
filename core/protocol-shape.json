@@ -248,7 +248,8 @@
           "exact": true,
           "fields": {
             "kind": {"type":"literal","value":"approve"},
-            "comment": {"type":"optional","of":{"type":"string"}}
+            "comment": {"type":"optional","of":{"type":"string"}},
+            "scope": {"type":"optional","of":{"ref":"approvalScope"}}
           }
         },
         {
@@ -351,7 +352,11 @@
     "permissionSettingsWrite": {
       "type": "object",
       "exact": true,
-      "fields": {"version":{"type":"literal","value":1},"mode":{"ref":"permissionMode"}}
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "mode": {"type":"optional","of":{"ref":"permissionMode"}},
+        "removeAlwaysAllowed": {"type":"optional","of":{"type":"array","items":{"type":"string","min":1}}}
+      }
     },
     "receiptLookup": {
       "type": "object",
@@ -602,6 +607,15 @@
         "agent": {"ref":"directoryAgent"}
       }
     },
+    "alwaysAllowed": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "label": {"type":"string"},
+        "createdAt": {"type":"string","format":"utc-timestamp"}
+      }
+    },
     "appSnapshot": {
       "type": "object",
       "exact": false,
@@ -649,6 +663,11 @@
         "lastMessageId": {"type":"string","min":1},
         "createdAt": {"type":"string","format":"utc-timestamp"}
       }
+    },
+    "approvalGrant": {
+      "type": "object",
+      "exact": false,
+      "fields": {"label":{"type":"string","min":1},"scopes":{"type":"array","items":{"ref":"approvalScope"}}}
     },
     "channelEntry": {
       "type": "object",
@@ -1599,13 +1618,18 @@
       "fields": {
         "version": {"type":"literal","value":1},
         "revision": {"type":"integer","min":0},
-        "mode": {"type":"string"}
+        "mode": {"type":"string"},
+        "alwaysAllowed": {"type":"array","items":{"ref":"alwaysAllowed"}}
       }
     },
     "permissionSettingsRecord": {
       "type": "object",
       "exact": false,
-      "fields": {"revision":{"type":"integer","min":0},"mode":{"type":"string"}}
+      "fields": {
+        "revision": {"type":"integer","min":0},
+        "mode": {"type":"string"},
+        "alwaysAllowed": {"type":"array","items":{"ref":"alwaysAllowed"}}
+      }
     },
     "queueEntry": {
       "type": "object",
@@ -2179,6 +2203,7 @@
           }
         },
         "freeText": {"type":"boolean"},
+        "grant": {"type":"optional","of":{"ref":"approvalGrant"}},
         "state": {"ref":"interactionState"},
         "revision": {"type":"integer","min":0},
         "sourceAgentId": {"type":"optional","of":{"type":"string","min":1}},
@@ -2450,6 +2475,10 @@
         {"type":"literal","value":"deleting"},
         {"type":"literal","value":"deleted"}
       ]
+    },
+    "approvalScope": {
+      "type": "union",
+      "of": [{"type":"literal","value":"conversation"},{"type":"literal","value":"always"}]
     },
     "cancelDelivery": {
       "type": "union",

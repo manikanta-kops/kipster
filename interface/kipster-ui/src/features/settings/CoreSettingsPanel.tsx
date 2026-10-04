@@ -438,6 +438,7 @@ export function CoreSettingsPanel({
             <PermissionSettings
               permissions={settings.permissions}
               save={settings.savePermissions}
+              remove={settings.removeAlwaysAllowed}
             />
           )
         )
