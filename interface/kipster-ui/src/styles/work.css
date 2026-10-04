@@ -1,5 +1,5 @@
-/* Agent work inside a thread: status and controls, the "Work so far" receipt,
-   questions and approvals, queued follow-ups and command recovery. */
+/* Agent work inside a thread: each run's work block, questions and
+   approvals, queued follow-ups and command recovery. */
 .work-panel {
   display: grid;
   gap: 10px;
@@ -9,46 +9,6 @@
   display: none;
 }
 
-/* Status row and controls */
-.work-controls {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 16px;
-  background: var(--sheen), var(--glass-thin);
-  box-shadow:
-    var(--edge),
-    0 4px 14px rgba(20, 30, 50, 0.07);
-}
-.work-heading {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  min-width: 0;
-}
-.work-meta {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--label-3);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.work-meta + .work-meta {
-  margin-left: 0;
-}
-.work-meta + .work-meta::before {
-  content: '·';
-  margin-right: 8px;
-}
-.work-meta:focus {
-  outline: none;
-}
-.work-meta:focus-visible {
-  border-radius: 4px;
-  outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
-  outline-offset: 2px;
-}
 .work-actions {
   display: flex;
   flex-wrap: wrap;
@@ -89,155 +49,253 @@
   color: var(--danger);
 }
 
-/* Work so far */
-.work-activity {
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--sheen), var(--glass-thin);
-  box-shadow:
-    var(--edge),
-    0 4px 14px rgba(20, 30, 50, 0.07);
+/* A run's work, opening the kip's reply: status, steps, what waits on you. */
+.work-turn {
+  padding: 8px 0;
 }
-.work-activity summary {
+.work-block {
+  display: grid;
+  margin: 6px 0 8px;
+  border-radius: 14px;
+  background: color-mix(in oklab, var(--label) 3.5%, transparent);
+  box-shadow: inset 0 0 0 0.5px var(--hairline-2);
+}
+.work-block.folded {
+  justify-self: start;
+  margin: 0 0 4px;
+  background: none;
+  box-shadow: none;
+}
+.work-block.wait {
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in oklab, var(--wait) 45%, transparent);
+}
+.work-block.danger:not(.folded) {
+  box-shadow: inset 0 0 0 0.5px
+    color-mix(in oklab, var(--danger) 45%, transparent);
+}
+.work-block-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 6px 6px 4px;
+}
+.work-block.folded .work-block-head {
+  padding: 0;
+}
+.work-block-title {
+  flex: 1 1 auto;
+  min-width: min(100%, 180px);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  list-style: none;
-  cursor: pointer;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
-  border-radius: inherit;
+  text-align: left;
+  color: var(--label);
 }
-.work-activity summary::-webkit-details-marker {
-  display: none;
-}
-.work-activity summary:hover {
-  background: var(--fill);
-}
-/* Full when the work completed; a turning arc while it runs. */
-.work-ring {
-  --ring: var(--run);
-  --ring-track: var(--fill-2);
-  width: 18px;
-  height: 18px;
+.work-block.folded .work-block-title {
   flex: none;
-  border-radius: 50%;
-  background: var(--ring);
-  -webkit-mask: radial-gradient(circle, transparent 5.5px, #000 6px);
-  mask: radial-gradient(circle, transparent 5.5px, #000 6px);
+  padding: 0;
+  font-weight: 550;
+  color: var(--label-3);
 }
-.work-ring.running {
-  background: conic-gradient(var(--ring) 0.3turn, var(--ring-track) 0);
-  animation: spin 1.2s linear infinite;
+.work-block.folded .work-block-title:hover {
+  color: var(--label-2);
 }
-.work-activity-sum {
-  margin-left: auto;
+.work-block-word {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-block.wait .work-block-word {
+  color: var(--wait-ink);
+}
+.work-block.danger .work-block-word {
+  color: var(--danger);
+}
+.work-block-sum {
+  flex: none;
   font-weight: 500;
   color: var(--label-3);
-  font-variant-numeric: tabular-nums;
 }
-.work-activity-chevron {
-  width: 14px;
-  height: 14px;
+.work-block-mark {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--label-3);
+}
+.work-block.run .work-block-mark {
+  background: var(--run);
+  animation: mark-breathe 2.8s ease-in-out infinite;
+}
+.work-block.wait .work-block-mark {
+  background: var(--wait);
+}
+.work-block.danger .work-block-mark {
+  background: var(--danger);
+}
+.work-block.quiet .work-block-mark {
+  display: none;
+}
+.work-block-caret {
   flex: none;
   color: var(--label-3);
+  transition: transform 0.2s var(--ease);
+}
+.work-block-title[aria-expanded='false'] .work-block-caret {
   transform: rotate(-90deg);
-  transition: transform 0.25s var(--ease);
 }
-.work-activity[open] .work-activity-chevron {
-  transform: none;
+.work-block-actions {
+  display: flex;
+  flex: none;
+  gap: 6px;
+  margin-left: auto;
 }
-.work-activity ol {
-  margin: 0;
-  padding: 0 12px 10px;
-  list-style: none;
+.work-block-action {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label-2);
+  background: var(--fill-2);
+  transition: background-color 0.15s;
+}
+.work-block-action:not(:disabled):hover {
+  color: var(--label);
+  background: color-mix(in oklab, var(--label) 14%, transparent);
+}
+.work-block-body {
+  display: grid;
+  padding: 6px 12px 8px 14px;
+  border-top: 0.5px solid var(--hairline);
+}
+.work-block.folded .work-block-body {
+  padding: 0;
+  border-top: 0;
+}
+.work-block-body > .work-explanation {
+  margin: 8px 0 4px;
+  font-size: 13px;
+  color: var(--label-2);
 }
 .work-step {
-  position: relative;
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr);
   gap: 10px;
-  padding: 6px 0;
+  align-items: start;
+  padding: 5px 0;
   font-size: 13px;
-  line-height: 1.4;
+  line-height: 18px;
+  color: var(--label-2);
 }
-.work-step:not(:last-child)::after {
-  content: '';
-  position: absolute;
-  top: 26px;
-  bottom: -4px;
-  left: 8.5px;
-  width: 1px;
-  background: var(--sep);
+.work-step.live {
+  color: var(--label);
 }
-.work-step small {
-  display: block;
-  margin-top: 1px;
-  font-size: 12px;
-  color: var(--label-3);
+.work-step.failed {
+  color: var(--danger);
 }
-.work-step > time {
-  font-size: 11.5px;
-  color: var(--label-3);
-  font-variant-numeric: tabular-nums;
-}
-.step-dot {
+.step-mark {
   width: 18px;
   height: 18px;
   display: grid;
   place-items: center;
-  border-radius: 50%;
-  color: #fff;
-  background: var(--label-3);
+  color: var(--run-ink);
 }
-.step-dot svg {
-  width: 11px;
-  height: 11px;
-}
-.work-step.done .step-dot {
-  background: var(--run);
-  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.4);
-}
-.work-step.active .step-dot {
-  background: none;
-  border: 2px solid var(--run);
-  border-right-color: transparent;
-  animation: spin 0.9s linear infinite;
-}
-.work-step.paused .step-dot {
-  background: color-mix(in oklab, var(--wait) 16%, transparent);
-  box-shadow: inset 0 0 0 1.5px var(--wait);
-}
-.work-step.paused .step-dot::before {
+.work-step.live .step-mark::before,
+.work-step.failed .step-mark::before,
+.work-step.idle .step-mark::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--wait);
+  background: var(--run);
 }
-.work-step.failed .step-dot {
+.work-step.live .step-mark::before {
+  animation: mark-breathe 2.8s ease-in-out infinite;
+}
+.work-step.failed .step-mark::before {
   background: var(--danger);
 }
-.work-step.idle .step-dot {
+.work-step.idle .step-mark::before {
   background: none;
   box-shadow: inset 0 0 0 1.5px var(--label-3);
 }
-.handoff {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
-  padding: 2px 10px 2px 2px;
-  border-radius: 999px;
-  font-size: 12.5px;
-  color: var(--label-2);
-  background: var(--fill);
+.step-text {
+  min-width: 0;
+}
+.step-text small {
+  display: block;
+  font-size: 12px;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
 }
 .handoff .avatar {
-  width: 20px;
-  height: 20px;
-  font-size: 9.5px;
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  font-size: 8.5px;
+  vertical-align: -3px;
+}
+/* An answered question or approval is a step; the card shrinks to a line. */
+.work-step.answered {
+  grid-template-columns: minmax(0, 1fr);
+}
+.work-step.answered .interaction-card {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.work-step.answered .interaction-eyebrow {
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.work-step.answered .interaction-eyebrow svg {
+  width: 18px;
+  height: 12px;
+}
+.work-step.answered .interaction-card h3 {
+  display: -webkit-box;
+  margin: 2px 0 0 28px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--label-3);
+  overflow-wrap: anywhere;
+}
+.work-step.answered .interaction-proposal {
+  display: none;
+}
+.work-step.answered .interaction-result {
+  margin: 4px 0 0 28px;
+}
+/* What waits on you sits inside the block, under the steps. */
+.work-ask .interaction-card {
+  margin: 6px -4px 2px;
+  border-radius: 14px;
+}
+.work-block.folded .work-ask .interaction-card {
+  margin: 6px 0 0;
+}
+.work-block > .work-error {
+  margin: 0 14px 10px;
 }
 
 /* Question and approval */
@@ -586,7 +644,7 @@
 
 /* Outline surfaces */
 :root[data-surface='outline']
-  :is(.work-activity, .work-controls, .interaction-card:not(.pending)) {
+  :is(.work-block:not(.folded), .interaction-card:not(.pending)) {
   background: var(--layer-1);
   box-shadow: inset 0 0 0 1px var(--hairline);
 }
@@ -640,44 +698,10 @@
   background: none;
   color: var(--label);
 }
-:root[data-surface='outline'] .handoff {
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--hairline);
-}
-/* Steps become LEDs: small lit dots, the waiting one breathing gently. */
-:root[data-surface='outline'] .step-dot {
+:root[data-surface='outline'] .work-step.answered .interaction-card {
   background: none;
   box-shadow: none;
 }
-:root[data-surface='outline'] .step-dot svg {
-  display: none;
-}
-:root[data-surface='outline'] .work-step:not(.active) .step-dot::before {
-  content: '';
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--label-3);
-}
-:root[data-surface='outline'] .work-step.done .step-dot::before {
-  background: var(--run);
-  box-shadow: 0 0 var(--led) color-mix(in oklab, var(--run) 60%, transparent);
-}
-:root[data-surface='outline'] .work-step.paused .step-dot::before {
-  background: var(--wait);
-  box-shadow: 0 0 var(--led) var(--wait);
-}
-:root[data-surface='outline'] .work-step.failed .step-dot::before {
-  background: var(--danger);
-  box-shadow: 0 0 var(--led) var(--danger);
-}
-:root[data-surface='outline'] .work-step.active .step-dot {
-  border-width: 1.5px;
-}
 :root[data-surface='outline'] .queued-text {
   border-color: var(--hairline-2);
-}
-:root[data-surface='outline'] .work-ring {
-  --ring: var(--label);
-  --ring-track: var(--sep);
 }

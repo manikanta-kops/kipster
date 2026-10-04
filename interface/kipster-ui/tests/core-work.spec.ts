@@ -32,6 +32,7 @@ import {
   needsYou,
 } from '../src/data/notifications.js'
 import type { WorkOperation } from '../src/data/work.js'
+import { runsByOrigin } from '../src/features/work/run-work.js'
 
 const scope = { installationId: 'installation', callerId: 'caller' }
 const createdAt = '2026-09-27T10:00:00.000Z'
@@ -503,6 +504,54 @@ test('thread work projects current work, held follow-ups and a delegated child q
   })
 })
 
+test('work blocks group each run’s steps under the message that started it', () => {
+  const target = summaryTarget(scope, summary)
+  const delegation: TextDelegation = {
+    id: 'delegation',
+    parentRunId: 'first',
+    childRunId: 'child',
+    senderAgentId: 'scout',
+    recipientAgentId: 'ledger',
+    originThreadId: 'thread',
+    depth: 1,
+    ordinal: 1,
+    request: 'Check the figures',
+    state: 'completed',
+    revision: 2,
+  }
+  const works = [
+    run({ runId: 'first', state: 'completed', messageId: 'm1' }),
+    run({ runId: 'quiet', state: 'completed', messageId: 'm2' }),
+    run({ runId: 'now', state: 'waiting', messageId: 'm3', queuePosition: 3 }),
+  ]
+  const records = threadWork({
+    target,
+    agentId: 'scout',
+    works,
+    interactions: [
+      // A delegated kip's question belongs to the run that asked it.
+      { ...card, id: 'child-card', runId: 'child', state: 'settled' },
+      // A question from a run that is not loaded stays with current work.
+      { ...card, id: 'stray', runId: 'unloaded' },
+    ],
+    delegations: [delegation],
+    messages: {},
+    notices: {},
+  })
+  const runs = runsByOrigin(works, records)
+  expect([...runs.keys()]).toEqual(['m1', 'm3'])
+  expect(runs.get('m1')).toMatchObject({
+    state: 'completed',
+    current: undefined,
+  })
+  expect(runs.get('m1')!.interactions.map((i) => i.id)).toEqual(['child-card'])
+  expect(runs.get('m1')!.delegations.map((d) => d.id)).toEqual(['delegation'])
+  expect(runs.get('m3')!.current).toMatchObject({
+    runId: 'now',
+    actions: [{ action: 'stop' }],
+  })
+  expect(runs.get('m3')!.interactions.map((i) => i.id)).toEqual(['stray'])
+})
 test('work commands use Core routes; refusals and gone threads are final', async () => {
   const target = summaryTarget(scope, summary)
   const bodies: { url: string; body: Record<string, unknown> }[] = []

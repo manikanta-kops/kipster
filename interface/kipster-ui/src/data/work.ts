@@ -38,12 +38,6 @@ export interface Run extends WorkResource {
   currentAttemptId: string
   state: WorkState
 }
-export interface Attempt extends WorkResource {
-  runId: string
-  state: WorkState
-  number: number
-  startedAt: string
-}
 export interface QueueEntry extends WorkResource {
   readiness?: 'preparing' | 'ready'
   messageId: string
@@ -51,15 +45,6 @@ export interface QueueEntry extends WorkResource {
   acceptanceOrder: number
   state: 'queued' | 'held' | 'consumed' | 'cancelled'
   actions: AvailableAction[]
-}
-export interface PublicActivity extends WorkResource {
-  runId: string
-  attemptId: string
-  order: number
-  createdAt: string
-  actorId: string
-  text: string
-  state: WorkState
 }
 export interface Delegation extends WorkResource {
   runId: string
@@ -84,18 +69,14 @@ export interface Interaction extends WorkResource, TextInteraction {
 export interface WorkRecords {
   workflows: Workflow[]
   runs: Run[]
-  attempts: Attempt[]
   queue: QueueEntry[]
-  activity: PublicActivity[]
   delegations: Delegation[]
   interactions: Interaction[]
 }
 export const emptyWork = (): WorkRecords => ({
   workflows: [],
   runs: [],
-  attempts: [],
   queue: [],
-  activity: [],
   delegations: [],
   interactions: [],
 })

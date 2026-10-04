@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { KipHead } from '../../components/Kip'
 import { ArtifactCard } from '../media/ArtifactCard'
@@ -34,9 +35,12 @@ export function Avatar({
 export function Message({
   message,
   data,
+  lead,
 }: {
   message: MessageModel
   data: WorkspaceData
+  /** Shown above the content, such as the work that led to this reply. */
+  lead?: ReactNode
 }) {
   const thread = data.threadsById[message.threadId]
   const chat = thread && data.chatsById[thread.chatId]
@@ -62,10 +66,11 @@ export function Message({
               {formatTime(message.createdAt)}
             </time>
           )}
-          {message.status === 'draft' && (
+          {message.status === 'draft' && !lead && (
             <span className="message-state">Writing</span>
           )}
         </div>
+        {lead}
         {message.parts.map((part, index) => {
           if (part.type === 'text')
             return (

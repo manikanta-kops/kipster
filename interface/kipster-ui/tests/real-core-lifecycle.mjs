@@ -1002,7 +1002,7 @@ try {
     A.getByRole('heading', { name: 'Which delegated color?' }),
   ).toBeVisible()
   await expect(A.locator('.interaction-eyebrow')).toContainText('Helper')
-  await expect(A.locator('.work-activity')).toContainText('Helper')
+  await expect(A.locator('.work-block')).toContainText('Helper')
   let childAnswer
   await A.route(
     '**/v1/work/interactions/answer',

@@ -55,6 +55,8 @@ import { PaperclipIcon } from '@phosphor-icons/react/dist/csr/Paperclip'
 import { ArticleIcon } from '@phosphor-icons/react/dist/csr/Article'
 import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple'
 import { LightbulbIcon } from '@phosphor-icons/react/dist/csr/Lightbulb'
+import { StopIcon } from '@phosphor-icons/react/dist/csr/Stop'
+import { PlayIcon } from '@phosphor-icons/react/dist/csr/Play'
 
 const icons = {
   bell: BellIcon,
@@ -113,6 +115,8 @@ const icons = {
   doc: ArticleIcon,
   pencil: PencilSimpleIcon,
   lightbulb: LightbulbIcon,
+  stop: StopIcon,
+  play: PlayIcon,
 } as const
 
 /** Direct imports keep unused icons out of the development module graph too. */
