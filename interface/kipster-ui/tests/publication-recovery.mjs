@@ -107,6 +107,9 @@ try {
     await page
       .getByRole('button', { name: 'Open settings', exact: true })
       .click()
+    await page
+      .getByRole('button', { name: 'Organization', exact: true })
+      .click()
     await expect(
       page.getByRole('combobox', { name: 'Model', exact: true }),
     ).toBeVisible()
@@ -116,9 +119,12 @@ try {
   await page
     .getByRole('combobox', { name: 'Model', exact: true })
     .selectOption('new')
+  // Effort is a segmented control; Default clears the saved level.
   await page
-    .getByRole('combobox', { name: 'Effort', exact: true })
-    .selectOption('')
+    .getByRole('radiogroup', { name: 'Effort', exact: true })
+    .locator('label')
+    .filter({ hasText: /^Default$/ })
+    .click()
   await page.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(
     page.getByRole('button', { name: 'Retry save', exact: true }),
@@ -165,7 +171,7 @@ try {
   await open()
   outcome = 'accepted'
   await page.getByRole('button', { name: 'Retry save', exact: true }).click()
-  await expect(page.getByText('Saved.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved', { exact: true })).toBeVisible()
   assert.deepEqual(saves[2], original)
   await page.reload()
   await open()

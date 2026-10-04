@@ -5,8 +5,10 @@ import { PlatformContext } from './platform/context'
 import { MotionConfig } from 'motion/react'
 import { paneSpring } from './app/motion'
 import { ConnectedApp } from './features/workspace/ConnectionSetup'
+import { trackInputModality } from './app/input-modality'
 import './styles/app.css'
 
+trackInputModality()
 if (usesOverlayTitleBar())
   document.documentElement.classList.add('titlebar-overlay')
 

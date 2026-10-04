@@ -62,6 +62,11 @@ button:disabled {
   outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
   outline-offset: 2px;
 }
+/* After a click, focus moves quietly; keyboard use shows the ring again. */
+:root[data-input='pointer']
+  :focus-visible:not(input, textarea, [contenteditable]) {
+  outline: none;
+}
 ::selection {
   background: var(--selection);
 }

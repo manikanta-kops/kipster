@@ -262,18 +262,21 @@ try {
   await A.getByRole('combobox', { name: 'Organization' }).selectOption(
     second.id,
   )
-  await A.getByRole('button', { name: /Notifications, 1 unread/ }).click()
+  await A.getByRole('button', { name: 'Notifications, 1 needs you' }).click()
+  const scoutNote = A.locator('.note').filter({
+    hasText: /Scout needs your answer/,
+  })
+  await expect(scoutNote).toBeVisible()
+  await A.getByRole('button', { name: 'Mark all read', exact: true }).click()
+  await expect(scoutNote.locator('.udot')).toHaveCount(0)
+  // Reading converges in the other tab; the question still needs an answer.
+  await B.getByRole('button', { name: 'Notifications, 1 needs you' }).click()
   await expect(
-    A.getByRole('heading', { name: /Scout needs your answer/ }),
+    B.locator('.note').filter({ hasText: /Scout needs your answer/ }),
   ).toBeVisible()
-  await A.getByRole('button', { name: 'Mark read', exact: true }).click()
-  await expect(
-    B.getByRole('button', { name: /Notifications, 0 unread/ }),
-  ).toBeVisible()
-  await A.getByRole('button', {
-    name: 'Open original context',
-    exact: true,
-  }).click()
+  await expect(B.locator('.note .udot')).toHaveCount(0)
+  await B.keyboard.press('Escape')
+  await scoutNote.getByRole('button', { name: 'Answer', exact: true }).click()
   await expect(
     A.getByRole('heading', { name: 'Choose a garden color' }),
   ).toBeVisible()
@@ -993,9 +996,9 @@ try {
     confirmed: true,
   })
   await A.getByRole('button', { name: /^Notifications,/ }).click()
-  await A.locator('.inbox-list li')
+  await A.locator('.note')
     .filter({ hasText: /Delegate a color decision|Which delegated color/ })
-    .getByRole('button', { name: 'Open original context' })
+    .getByRole('button', { name: 'Answer', exact: true })
     .click()
   await expect(
     A.getByRole('heading', { name: 'Which delegated color?' }),

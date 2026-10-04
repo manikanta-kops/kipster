@@ -996,7 +996,10 @@
   cursor: pointer;
 }
 
-.feed-message:focus-within {
-  outline: 2px solid currentColor;
+:root:not([data-input='pointer']) .feed-message:has(:focus-visible) {
+  outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
   outline-offset: 2px;
+}
+.feed-message .reply-link:focus-visible {
+  outline: none;
 }
