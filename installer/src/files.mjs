@@ -35,7 +35,7 @@ export async function digest(path) {
   return { size, sha256: hash.digest('hex') }
 }
 export async function canonicalHome(path) {
-  if (process.getuid?.() === 0) throw new Error('Run kipster as the backend owner, without sudo. It requests sudo only to register system services.')
+  if (process.getuid?.() === 0) throw new Error('Run kipster as the backend owner, without sudo.')
   await privateDirectory(resolve(path))
   const home = await realpath(path)
   if (Buffer.byteLength(join(home, '.host-control/control.sock')) > 103) throw new Error('Choose a shorter --home path for the macOS host-control socket (at most 103 bytes).')

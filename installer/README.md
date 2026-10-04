@@ -43,8 +43,7 @@ changes made since the backup. A restore takes a fresh backup of the current
 database first.
 
 Repeating `install` on an installed home safely reports its current version.
-`uninstall` stops Core, unregisters both system jobs with printed sudo commands,
-and removes installed releases, updater versions and launchers. It preserves the
+`uninstall` stops Core, unloads and removes both login jobs, and removes installed releases, updater versions and launchers. It preserves the
 database, home data and backups. Run `install` again with the same configuration
 to reinstall. `uninstall --delete-data` also clears the dedicated database and
 deletes home files, including backups and private configuration. It asks for
@@ -57,10 +56,13 @@ plists without registering them. `--catalog <URL>` uses an alternate HTTPS catal
 loopback HTTP is supported for local tests. `--health-timeout <milliseconds>`
 sets a bounded health deadline (default 60000, maximum 300000).
 
-The macOS installer runs as the backend owner. Core and the updater are system
-LaunchDaemons with `UserName`, so they can start before login without running as
-root. Service registration and removal need sudo; updates use the private host-control
-socket and a launchd hold file.
+The macOS installer runs as the backend owner, without sudo. Core and the updater
+are per-user login jobs in `~/Library/LaunchAgents`, loaded into the owner's login
+session (`launchctl bootstrap gui/<uid>`). They start when the owner logs in and
+keep running while the screen is locked, until logout. Running in the login session
+gives kips the owner's login keychain (where the Claude CLI keeps its sign-in), the
+GUI for browsers, and macOS consent dialogs. After a restart, nothing runs until the
+owner logs in. Updates use the private host-control socket and a launchd hold file.
 
 Both jobs start `<home>/backend/Kipster.app` (bundle ID `app.kipster.backend`),
 a small signed launcher, in its `host` or `updater` role. It starts the Node
@@ -70,8 +72,8 @@ and everything kips run (Codex, shell commands, MCP servers) as **Kipster**, and
 one grant survives Node, Core and installer updates. The jobs name the app with
 `AssociatedBundleIdentifiers`.
 
-A background job cannot ask for access, so give Kipster Full Disk Access once:
-run `<home>/bin/kipster permissions`. It shows the app in Finder and opens
+Give Kipster Full Disk Access once, so kips' file access does not depend on
+per-folder prompts: run `<home>/bin/kipster permissions`. It shows the app in Finder and opens
 System Settings → Privacy & Security → Full Disk Access; drag Kipster into the
 list (or click + and press Command-Shift-G for the path) and turn it on. Core
 gets the access when it next starts. The installer never changes privacy
@@ -80,29 +82,17 @@ settings itself.
 `<home>/bin/kipster` runs commands through the app with the recorded Node. After
 installing another Node, select it with `kipster runtime --node <absolute path>`;
 it checks the version, restarts Core and selects the previous Node again if Core
-does not start. It works even when the recorded Node has been removed. No system
+does not start. It works even when the recorded Node has been removed. No login
 job changes.
-
-Installations made before the Kipster app run Node directly. Move them once
-with `<home>/bin/kipster repair-services` (optionally `--node <path>`). It checks
-that both installed jobs are the ones this home recorded, installs the app,
-runtime and entry points, saves the old plists under `<home>/backups/services-*`,
-stops Core, prints and runs `sudo launchctl bootout`, `sudo install` and
-`sudo launchctl bootstrap` for each job, and checks Core's health. On failure it
-restores the saved plists and files and restarts Core. Then run `permissions`.
 
 Updates replace the app at the same path, while Core is held, when a new
 installer ships a different build; rollback restores the previous app.
 
-Installation's sudo steps are `/usr/bin/install -o root -g wheel -m 644` for each plist
-under `/Library/LaunchDaemons`, followed by `launchctl bootstrap system` for each
-job. The command prints the exact arguments and reasons before registration.
-Do not run the installer itself as root. Generated plists contain runtime paths,
-the owner and log paths; Core/provider credentials stay in mode-0600 `host.json`
-and maintenance credentials in mode-0600 `updater.json`. launchd receives an
-explicit runtime PATH and the owner's HOME. Uninstall prints and runs
-`sudo launchctl bootout system/<label>` and `sudo rm -f <plist>` for each
-registered job; it refuses to remove a job whose plist differs from this home.
+Do not run the installer as root. Generated plists contain runtime paths and log
+paths; Core/provider credentials stay in mode-0600 `host.json` and maintenance
+credentials in mode-0600 `updater.json`. launchd receives an explicit runtime PATH
+and the owner's HOME. Installation and uninstall refuse to replace or remove a
+login job whose plist differs from this home's.
 
 Core releases live in `<home>/releases/<version>`, behind `<home>/current`.
 The updater has independent versions under `<home>/updater` and a stable launcher
@@ -172,5 +162,5 @@ cluster and tests local catalogs, fake Core processes, backup/restore, crashes a
 retention. With `KIPSTER_TEST_DATABASE_URL` pointing to a disposable admin database,
 `npm run test:e2e:macos -w installer` tests real packed Core/adapters on macOS,
 including CLI rollback and plist linting. Build Core first. These tests generate
-service files; they do not register system jobs. Boot-before-login and live
-launchd restart behavior need an explicitly deployed host test.
+service files; they do not register login jobs. Live launchd behavior after
+login needs an explicitly deployed host test.

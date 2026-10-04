@@ -23,13 +23,12 @@ const usage = `Usage:
   kipster uninstall [--home DIR] [--delete-data] [--yes]
   kipster permissions [--home DIR]
   kipster runtime --node FILE [--home DIR]
-  kipster repair-services [--home DIR] [--node FILE]
 
-Run as the backend owner. System service registration and removal use sudo.
-Core and the updater run through the Kipster app at <home>/backend/Kipster.app,
-so macOS shows their access as Kipster. permissions opens Full Disk Access for it.
-runtime selects the Node it starts. repair-services moves older installations
-to the Kipster app.
+Run as the backend owner, without sudo. Core and the updater are login services
+in ~/Library/LaunchAgents: they start when the owner logs in and keep running
+while the screen is locked. They run through the Kipster app at
+<home>/backend/Kipster.app, so macOS shows their access as Kipster. permissions
+opens Full Disk Access for it. runtime selects the Node it starts.
 --no-launchd starts Core without registering jobs and prints the generated plists.
 Use a private host JSON for database credentials, or KIPSTER_DATABASE_URL.
 Core owns automatic update scheduling and idle-work policy.`
@@ -39,7 +38,7 @@ function options(args) {
   const allowed = {
     install: ['channel', 'version', 'home', 'config', 'maintenance-config', 'pg-bin', 'catalog', 'no-launchd', 'health-timeout'],
     apply: ['home'], update: ['to', 'home'], status: ['home'], rollback: ['home', 'yes'], uninstall: ['home', 'delete-data', 'yes'], 'self-check': [],
-    permissions: ['home'], runtime: ['node', 'home'], 'repair-services': ['home', 'node'],
+    permissions: ['home'], runtime: ['node', 'home'],
   }
   if (!allowed[command]) throw new Error(usage)
   for (let i = 0; i < args.length; i++) {
@@ -60,11 +59,11 @@ export const fullDiskAccess = 'x-apple.systempreferences:com.apple.preference.se
 /** Shows the installed Kipster app and opens Full Disk Access so the owner can enable it. */
 export async function permissions(home, { runCommand = run, log = console.log } = {}) {
   const app = installedApp(home)
-  if (!await exists(app)) throw new Error(`${app} is missing. Run ${join(home, 'bin/kipster')} repair-services first.`)
+  if (!await exists(app)) throw new Error(`${app} is missing. Reinstall Kipster.`)
   await runCommand('/usr/bin/open', ['-R', app], { label: 'Finder' })
   await runCommand('/usr/bin/open', [fullDiskAccess], { label: 'System Settings' })
   log(`In Full Disk Access, drag Kipster from the Finder window into the list (or click + and press Command-Shift-G for ${app}), then turn Kipster on.`)
-  log(`Kips get the access when Core next starts; to restart it now: sudo launchctl kickstart -k system/${templates(home, {})[0].label}`)
+  log(`Kips get the access when Core next starts; to restart it now: launchctl kickstart -k gui/${process.getuid()}/${templates(home, {})[0].label}`)
 }
 export async function main(args = process.argv.slice(2)) {
   if (!args.length || args[0] === '--help' || args[0] === '-h') { console.log(usage); return }
@@ -99,10 +98,6 @@ export async function main(args = process.argv.slice(2)) {
   else if (parsed.command === 'apply') result = await installer.apply()
   else if (parsed.command === 'update') result = await installer.update(parsed.to)
   else if (parsed.command === 'runtime') result = await installer.selectRuntime(resolve(parsed.node))
-  else if (parsed.command === 'repair-services') {
-    result = await installer.repairServices(parsed.node ? { node: resolve(parsed.node) } : {})
-    if (result.servicesReplaced) console.log(`Core and the updater now run as Kipster. Next, run ${join(installer.home, 'bin/kipster')} permissions.`)
-  }
   else if (parsed.command === 'uninstall') {
     if (parsed.deleteData && !parsed.yes) {
       if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error('Uninstall --delete-data deletes the dedicated database contents and home files. Use --yes only to confirm this deletion in a script.')

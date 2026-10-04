@@ -1,7 +1,7 @@
-import { readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join } from 'node:path'
-import { homedir, userInfo } from 'node:os'
+import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { atomic, exists, json, privateDirectory } from './files.mjs'
@@ -51,12 +51,15 @@ export async function health(config, expected, timeout) {
   throw new Error(`Core health check did not report ${expected} within ${timeout / 1000} seconds.`)
 }
 const xml = value => String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&apos;')
-export const installedPlist = label => '/Library/LaunchDaemons/' + label + '.plist'
+export const installedPlist = label => join(homedir(), 'Library/LaunchAgents', label + '.plist')
+const domain = () => `gui/${process.getuid()}`
 /**
- * System jobs start the Kipster app in a role, so macOS attributes Core, the
- * updater and every child to Kipster. The app reads the Node from runtime.json.
+ * Per-user login jobs start the Kipster app in a role, so macOS attributes Core,
+ * the updater and every child to Kipster. They run in the owner's login session,
+ * where the login keychain, consent dialogs and the GUI are available, from login
+ * to logout, including while the screen is locked. The app reads the Node from runtime.json.
  */
-export function templates(home, env, user = userInfo().username) {
+export function templates(home, env) {
   const suffix = createHash('sha256').update(home).digest('hex').slice(0, 12)
   const make = (kind, supervision) => {
     const label = `app.kipster.${kind}.${suffix}`
@@ -64,7 +67,6 @@ export function templates(home, env, user = userInfo().username) {
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>${label}</string>
-<key>UserName</key><string>${xml(user)}</string>
 <key>ProgramArguments</key><array>${[launcher(home), '--role', kind, '--home', home].map(item => `<string>${xml(item)}</string>`).join('')}</array>
 <key>AssociatedBundleIdentifiers</key><array><string>${bundleIdentifier}</string></array>
 <key>WorkingDirectory</key><string>${xml(home)}</string>
@@ -82,7 +84,7 @@ ${supervision}
   ]
 }
 /**
- * Writes everything the system jobs start: the Kipster app, the runtime
+ * Writes everything the login jobs start: the Kipster app, the runtime
  * manifest naming the Node, the stable entry points and the plists. launchd
  * installations need a stably signed app; manual ones use it when packaged.
  */
@@ -99,95 +101,29 @@ export async function writeServices(home, env, { services = 'launchd', node = pr
   for (const job of jobs) await atomic(join(home, 'services', job.label + '.plist'), job.contents)
   return jobs
 }
-export function sudoSteps(home, jobs) {
-  return describeSteps(jobs.flatMap(job => [
-    { why: 'root ownership and mode 0644 are required in /Library/LaunchDaemons', program: '/usr/bin/install', args: ['-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), installedPlist(job.label)] },
-    { why: 'register a system LaunchDaemon that starts before login', program: '/bin/launchctl', args: ['bootstrap', 'system', installedPlist(job.label)] },
-  ]))
-}
-function describeSteps(steps) {
-  const quote = value => "'" + value.replaceAll("'", "'\\''") + "'"
-  return steps.map(step => ({ ...step, command: ['sudo', step.program, ...step.args].map(quote).join(' ') }))
-}
-export function removalSteps(jobs) {
-  return describeSteps(jobs.flatMap(job => [
-    { why: 'stop and unregister the system LaunchDaemon', program: '/bin/launchctl', args: ['bootout', `system/${job.label}`] },
-    { why: 'remove the root-owned system LaunchDaemon plist', program: '/bin/rm', args: ['-f', installedPlist(job.label)] },
-  ]))
-}
 const readPlist = path => readFile(path, 'utf8')
 const absent = error => { if (error.code === 'ENOENT') return null; throw error }
-export async function unregister(home, jobs, { runCommand = run, readInstalled = readPlist } = {}) {
-  const steps = []
-  // Verify both jobs before changing either; never remove a differing job.
+const isLoaded = (runCommand, label) => runCommand('/bin/launchctl', ['print', `${domain()}/${label}`], { timeout: 5000 }).then(() => true, () => false)
+/** Installs each job in ~/Library/LaunchAgents and loads it into the owner's login session. A differing job with the same label is refused. */
+export async function register(home, jobs, { runCommand = run, readInstalled = readPlist, writeInstalled = async (path, contents) => { await mkdir(dirname(path), { recursive: true }); await atomic(path, contents) } } = {}) {
   for (const job of jobs) {
-    const loaded = await runCommand('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
-    const installed = await readInstalled(installedPlist(job.label)).catch(absent)
-    if ((loaded || installed !== null) && installed !== job.contents) throw new Error(`Existing system job ${job.label} differs from this installation. Inspect it before uninstalling.`)
-    const [bootout, remove] = removalSteps([job])
-    if (loaded) steps.push(bootout)
-    if (installed !== null) steps.push(remove)
-  }
-  for (const step of steps) console.log(`${step.command}\n  Requires sudo: ${step.why}.`)
-  for (const step of steps) await runCommand('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service removal' })
-}
-export async function register(home, jobs) {
-  for (const job of jobs) {
-    const loaded = await run('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
-    if (loaded) {
-      const existing = await readFile(installedPlist(job.label), 'utf8').catch(() => '')
-      if (existing !== job.contents) throw new Error(`Existing system job ${job.label} differs from the generated service. Inspect it before retrying installation.`)
-      continue // Resume registration after a partially completed first install.
-    }
-    for (const step of sudoSteps(home, [job])) await run('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service registration' })
+    const path = installedPlist(job.label), installed = await readInstalled(path).catch(absent)
+    if (installed !== null && installed !== job.contents) throw new Error(`Existing login job ${path} differs from the generated service. Inspect it before retrying installation.`)
+    if (await isLoaded(runCommand, job.label)) continue // Resume registration after a partially completed first install.
+    if (installed === null) await writeInstalled(path, job.contents)
+    await runCommand('/bin/launchctl', ['bootstrap', domain(), path], { timeout: 30000, label: 'Login service registration' })
   }
 }
-
-/**
- * Replaces this home's system jobs with `jobs`, written to <home>/services.
- * Each installed job must be the one this home recorded (`recorded`, by label)
- * or already the replacement; anything else is refused before any change.
- * `prepare` installs what the new jobs start, `stopCore` holds Core, and
- * `startCore` releases it and checks health. On failure the backed-up plists
- * are reinstalled, `restoreFiles` puts back the home's files and Core restarts.
- */
-export async function replaceServices({ home, jobs, recorded, backup, prepare, stopCore, startCore, restoreFiles, runCommand = run, readInstalled = readPlist, log = console.log }) {
-  const state = []
+/** Unloads and removes this home's login jobs. Both are verified before either changes; a differing job is never removed. */
+export async function unregister(home, jobs, { runCommand = run, readInstalled = readPlist, removeInstalled = path => rm(path, { force: true }) } = {}) {
+  const found = []
   for (const job of jobs) {
-    const path = installedPlist(job.label)
-    const installed = await readInstalled(path).catch(absent)
-    const loaded = await runCommand('/bin/launchctl', ['print', `system/${job.label}`], { timeout: 5000 }).then(() => true, () => false)
-    if (installed !== null && installed !== job.contents && installed !== recorded.get(job.label)) throw new Error(`System job ${job.label} does not match the service this installation recorded. Inspect ${path}; nothing was changed.`)
-    if (installed === null && loaded) throw new Error(`System job ${job.label} is loaded without ${path}. Inspect it with launchctl print system/${job.label}; nothing was changed.`)
-    state.push({ job, installed, loaded })
+    const path = installedPlist(job.label), installed = await readInstalled(path).catch(absent)
+    if (installed !== null && installed !== job.contents) throw new Error(`Existing login job ${path} differs from this installation. Inspect it before uninstalling.`)
+    found.push({ job, path, installed, loaded: await isLoaded(runCommand, job.label) })
   }
-  try { await prepare() } catch (error) { await restoreFiles(); throw error }
-  const pending = state.filter(item => item.installed !== item.job.contents || !item.loaded)
-  if (!pending.length) return { changed: false }
-  await privateDirectory(backup)
-  for (const item of pending) if (item.installed !== null) await atomic(join(backup, item.job.label + '.plist'), item.installed)
-  const steps = pending.flatMap(item => [...(item.loaded ? removalSteps([item.job]).slice(0, 1) : []), ...(item.installed === item.job.contents ? sudoSteps(home, [item.job]).slice(1) : sudoSteps(home, [item.job]))])
-  for (const step of steps) log(`${step.command}\n  Requires sudo: ${step.why}.`)
-  await stopCore()
-  try {
-    for (const step of steps) await runCommand('/usr/bin/sudo', [step.program, ...step.args], { inherit: true, label: 'System service replacement' })
-    await startCore()
-    return { changed: true, backup }
-  } catch (error) {
-    log(`Restoring the previous system services from ${backup}.`)
-    const failures = []
-    const sudo = async (program, args) => { try { await runCommand('/usr/bin/sudo', [program, ...args], { inherit: true, label: 'System service restore' }) } catch { failures.push([program, ...args].join(' ')) } }
-    for (const item of pending) {
-      await runCommand('/usr/bin/sudo', ['/bin/launchctl', 'bootout', `system/${item.job.label}`], { inherit: true, label: 'System service restore' }).catch(() => {})
-      if (item.installed === null) { await sudo('/bin/rm', ['-f', installedPlist(item.job.label)]); continue }
-      await sudo('/usr/bin/install', ['-o', 'root', '-g', 'wheel', '-m', '644', join(backup, item.job.label + '.plist'), installedPlist(item.job.label)])
-      if (item.loaded) await sudo('/bin/launchctl', ['bootstrap', 'system', installedPlist(item.job.label)])
-    }
-    await restoreFiles()
-    await startCore().catch(failure => failures.push(failure instanceof Error ? failure.message : 'Core did not restart'))
-    const detail = error instanceof Error ? error.message : 'Service replacement failed.'
-    throw new Error(failures.length
-      ? `${detail} Restoring the previous services was incomplete (${failures.join('; ')}); their plists are saved in ${backup}.`
-      : `${detail} The previous services were restored from ${backup}.`)
+  for (const { job, path, installed, loaded } of found) {
+    if (loaded) await runCommand('/bin/launchctl', ['bootout', `${domain()}/${job.label}`], { timeout: 30000, label: 'Login service removal' })
+    if (installed !== null) await removeInstalled(path)
   }
 }

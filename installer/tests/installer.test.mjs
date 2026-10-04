@@ -3,11 +3,12 @@ import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { cp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
+import { homedir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { install, Installer, managedConfiguration, request } from '../src/installer.mjs'
 import { channelFor, version } from '../src/catalog.mjs'
 import { locked, json, save } from '../src/files.mjs'
-import { hostCommand, installedPlist, removalSteps, replaceServices, templates, unregister, writeServices } from '../src/services.mjs'
+import { hostCommand, installedPlist, register, templates, unregister, writeServices } from '../src/services.mjs'
 import { commandScript, readRuntime, validateNode, writeLaunchers, writeRuntime } from '../src/backend.mjs'
 import { main as cliMain, fullDiskAccess, permissions } from '../src/cli.mjs'
 import { run } from '../src/process.mjs'
@@ -23,16 +24,17 @@ test('request validation trusts only version strings and preserves the shared sh
   for (const value of ['../x', '01.0.0', '1.0.0-next.01', '1.0']) assert.throws(() => version(value), /semver/)
   assert.equal(channelFor('1.0.0+build'), 'stable'); assert.equal(channelFor('1.0.0-next.1'), 'next')
 })
-test('system templates fence startup, run as the owner and exclude credentials', () => {
-  const jobs = templates('/tmp/kipster&home', { PATH: '/runtime/bin', PASSWORD: 'secret' }, 'owner')
-  assert.match(jobs[0].contents, /<key>UserName<\/key><string>owner/)
+test('login job templates fence startup, run in the login session and exclude credentials', () => {
+  const jobs = templates('/tmp/kipster&home', { PATH: '/runtime/bin', PASSWORD: 'secret' })
+  for (const job of jobs) assert.doesNotMatch(job.contents, /UserName|LimitLoadToSessionType/)
+  assert.equal(installedPlist(jobs[0].label), join(homedir(), 'Library/LaunchAgents', jobs[0].label + '.plist'))
   assert.match(jobs[0].contents, /PathState/); assert.match(jobs[0].contents, /kipster&amp;home\/updates\/hold/)
   assert.doesNotMatch(jobs[0].contents, /SuccessfulExit|secret|PASSWORD/)
   assert.match(jobs[1].contents, /StartInterval<\/key><integer>60/)
   assert.match(jobs[1].contents, /updates\/request.json/)
 })
-test('system jobs start the Kipster app in their role and name it as their app', () => {
-  const [host, updater] = templates('/tmp/kipster&home', { PATH: '/runtime/bin' }, 'owner')
+test('login jobs start the Kipster app in their role and name it as their app', () => {
+  const [host, updater] = templates('/tmp/kipster&home', { PATH: '/runtime/bin' })
   const program = '<string>/tmp/kipster&amp;home/backend/Kipster.app/Contents/MacOS/Kipster</string>'
   assert.ok(host.contents.includes(`<key>ProgramArguments</key><array>${program}<string>--role</string><string>host</string><string>--home</string><string>/tmp/kipster&amp;home</string></array>`))
   assert.ok(updater.contents.includes(`<key>ProgramArguments</key><array>${program}<string>--role</string><string>updater</string><string>--home</string><string>/tmp/kipster&amp;home</string></array>`))
@@ -41,62 +43,31 @@ test('system jobs start the Kipster app in their role and name it as their app',
     assert.doesNotMatch(job.contents, /node|core\.mjs|bin\/kipster/)
   }
 })
-const legacy = label => `<plist><dict><key>Label</key><string>${label}</string><string>/old/node</string></dict></plist>\n`
-function system(jobs, installed, { loaded = true, failSudo } = {}) {
+function launchd(jobs, installed, { loaded = () => false } = {}) {
   const calls = [], files = new Map(jobs.map(job => [installedPlist(job.label), installed(job)]))
   return { calls, files,
     readInstalled: async path => { if (files.get(path) == null) throw Object.assign(new Error('absent'), { code: 'ENOENT' }); return files.get(path) },
+    writeInstalled: async (path, contents) => { calls.push(['write', path]); files.set(path, contents) },
+    removeInstalled: async path => { calls.push(['remove', path]); files.delete(path) },
     runCommand: async (program, args) => {
-      calls.push([program, ...args])
-      if (program === '/bin/launchctl') { if (!loaded) throw new Error('not loaded'); return '' }
-      if (failSudo?.(args)) throw new Error('sudo failed')
-      return ''
+      if (args[0] === 'print') { if (!loaded(args[1])) throw new Error('not loaded'); return '' }
+      calls.push([program, ...args]); return ''
     } }
 }
-test('repair-services replaces only this home\'s recorded jobs and restores them when Core fails to start', async t => {
-  const home = await directory(t), jobs = templates(home, { PATH: '/usr/bin:/bin' }, 'owner')
-  const recorded = new Map(jobs.map(job => [job.label, legacy(job.label)]))
-  const events = []
-  const hooks = { home, jobs, recorded, backup: join(home, 'backups/services-test'), log: () => {},
-    prepare: async () => events.push('prepare'), stopCore: async () => events.push('stop'), restoreFiles: async () => events.push('restore files') }
-  // A job this home did not record is never touched.
-  const foreign = system(jobs, job => job.label.includes('host') ? 'someone else\'s job' : legacy(job.label))
-  await assert.rejects(replaceServices({ ...hooks, ...foreign, startCore: async () => {} }), /does not match the service this installation recorded.*nothing was changed/)
-  assert.deepEqual(events, []); assert.equal(foreign.calls.some(call => call[0] === '/usr/bin/sudo'), false)
-  // Legacy jobs: hold Core, then bootout, install and bootstrap each one.
-  const migrating = system(jobs, job => legacy(job.label))
-  assert.deepEqual(await replaceServices({ ...hooks, ...migrating, startCore: async () => events.push('start') }), { changed: true, backup: hooks.backup })
-  assert.deepEqual(events, ['prepare', 'stop', 'start'])
-  assert.deepEqual(migrating.calls.filter(call => call[0] === '/usr/bin/sudo').map(call => call.slice(1)), jobs.flatMap(job => [
-    ['/bin/launchctl', 'bootout', `system/${job.label}`],
-    ['/usr/bin/install', '-o', 'root', '-g', 'wheel', '-m', '644', join(home, 'services', job.label + '.plist'), installedPlist(job.label)],
-    ['/bin/launchctl', 'bootstrap', 'system', installedPlist(job.label)],
-  ]))
-  for (const job of jobs) assert.equal(await readFile(join(hooks.backup, job.label + '.plist'), 'utf8'), legacy(job.label))
-  // A failed health check reinstalls the saved plists and restarts the old Core.
-  events.length = 0
-  const failing = system(jobs, job => legacy(job.label))
-  let starts = 0
-  await assert.rejects(replaceServices({ ...hooks, ...failing, startCore: async () => { events.push('start'); if (starts++ === 0) throw new Error('Core health check did not report 0.1.0.') } }),
-    /Core health check did not report 0\.1\.0\. The previous services were restored from .*services-test/)
-  assert.deepEqual(events, ['prepare', 'stop', 'start', 'restore files', 'start'])
-  const restore = failing.calls.filter(call => call[0] === '/usr/bin/sudo').slice(6).map(call => call.slice(1))
-  assert.deepEqual(restore, jobs.flatMap(job => [
-    ['/bin/launchctl', 'bootout', `system/${job.label}`],
-    ['/usr/bin/install', '-o', 'root', '-g', 'wheel', '-m', '644', join(hooks.backup, job.label + '.plist'), installedPlist(job.label)],
-    ['/bin/launchctl', 'bootstrap', 'system', installedPlist(job.label)],
-  ]))
-  // A failed sudo step restores too, and an incomplete restore says so.
-  const refused = system(jobs, job => legacy(job.label), { failSudo: args => args[0] === '/usr/bin/install' })
-  await assert.rejects(replaceServices({ ...hooks, ...refused, startCore: async () => {} }), /sudo failed Restoring the previous services was incomplete .*saved in/)
-  // Jobs already running the Kipster app need no sudo.
-  const current = system(jobs, job => job.contents)
-  assert.deepEqual(await replaceServices({ ...hooks, ...current, startCore: async () => {} }), { changed: false })
-  assert.equal(current.calls.some(call => call[0] === '/usr/bin/sudo'), false)
-  // A failed preparation puts the home's files back before anything stops.
-  events.length = 0
-  await assert.rejects(replaceServices({ ...hooks, ...system(jobs, job => legacy(job.label)), prepare: async () => { throw new Error('unsigned app') }, startCore: async () => {} }), /unsigned app/)
-  assert.deepEqual(events, ['restore files'])
+test('registration installs login jobs in LaunchAgents and loads them into the owner session without sudo', async () => {
+  const jobs = templates('/tmp/test-home', { PATH: '/runtime/bin' }), session = `gui/${process.getuid()}`
+  const fresh = launchd(jobs, () => null)
+  await register('/tmp/test-home', jobs, fresh)
+  assert.deepEqual(fresh.calls, jobs.flatMap(job => [['write', installedPlist(job.label)], ['/bin/launchctl', 'bootstrap', session, installedPlist(job.label)]]))
+  for (const job of jobs) assert.equal(fresh.files.get(installedPlist(job.label)), job.contents)
+  // A retried install skips jobs that are already loaded.
+  const resumed = launchd(jobs, job => job.contents, { loaded: target => target.endsWith(jobs[0].label) })
+  await register('/tmp/test-home', jobs, resumed)
+  assert.deepEqual(resumed.calls, [['/bin/launchctl', 'bootstrap', session, installedPlist(jobs[1].label)]])
+  // Another job with the same label is never replaced.
+  const foreign = launchd(jobs, () => 'someone else\'s job')
+  await assert.rejects(register('/tmp/test-home', jobs, foreign), /differs from the generated service/)
+  assert.deepEqual(foreign.calls, [])
 })
 test('the runtime manifest records an absolute supported Node', async t => {
   const home = await directory(t)
@@ -125,7 +96,7 @@ test('the kipster command runs through the Kipster app and quotes its home', asy
   const output = await run(join(home, 'bin/kipster'), ['status', 'two words'], { env: { ...process.env, PATH: `${dirname(process.execPath)}:/usr/bin:/bin` } })
   assert.deepEqual(JSON.parse(output), ['status', 'two words'])
 })
-test('writeServices needs the Kipster app for system jobs and records the runtime either way', async t => {
+test('writeServices needs the Kipster app for login jobs and records the runtime either way', async t => {
   const home = await directory(t), missing = join(home, 'missing/Kipster.app')
   await assert.rejects(writeServices(home, { PATH: '/usr/bin' }, { services: 'launchd', source: missing }), /no Kipster app/)
   const jobs = await writeServices(home, { PATH: '/usr/bin' }, { services: 'manual', source: missing })
@@ -136,23 +107,24 @@ test('writeServices needs the Kipster app for system jobs and records the runtim
 test('permissions reveals the installed app and opens Full Disk Access', async t => {
   const home = await directory(t), calls = [], lines = []
   const options = { runCommand: async (...call) => { calls.push(call.slice(0, 2)) }, log: line => lines.push(line) }
-  await assert.rejects(permissions(home, options), /repair-services/)
+  await assert.rejects(permissions(home, options), /Reinstall Kipster/)
   await mkdir(join(home, 'backend/Kipster.app'), { recursive: true })
   await permissions(home, options)
   assert.deepEqual(calls, [['/usr/bin/open', ['-R', join(home, 'backend/Kipster.app')]], ['/usr/bin/open', [fullDiskAccess]]])
   assert.equal(fullDiskAccess, 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles')
   assert.match(lines[0], /In Full Disk Access, drag Kipster .* then turn Kipster on\./)
 })
-test('uninstall removes both owned system jobs with exact sudo commands and accepts already removed jobs', async () => {
-  const jobs = templates('/tmp/test-home', { PATH: '/runtime/bin' }), calls = []
-  const command = async (program, args) => { calls.push([program, args]); return '' }
-  await unregister('/tmp/test-home', jobs, { runCommand: command, readInstalled: async path => jobs.find(job => path.endsWith(job.label + '.plist')).contents })
-  assert.deepEqual(calls.slice(2), removalSteps(jobs).map(step => ['/usr/bin/sudo', [step.program, ...step.args]]))
-  for (const step of removalSteps(jobs)) assert.match(step.command, /^'sudo' /)
-  let changed = false
-  await assert.rejects(unregister('/tmp/test-home', jobs, { runCommand: async program => { if (program === '/usr/bin/sudo') changed = true }, readInstalled: async () => 'different job' }), /differs/)
-  assert.equal(changed, false)
-  await unregister('/tmp/test-home', jobs, { runCommand: async () => { throw new Error('not loaded') }, readInstalled: async () => { throw Object.assign(new Error('absent'), { code: 'ENOENT' }) } })
+test('uninstall unloads and removes both owned login jobs and accepts already removed jobs', async () => {
+  const jobs = templates('/tmp/test-home', { PATH: '/runtime/bin' }), session = `gui/${process.getuid()}`
+  const installed = launchd(jobs, job => job.contents, { loaded: () => true })
+  await unregister('/tmp/test-home', jobs, installed)
+  assert.deepEqual(installed.calls, jobs.flatMap(job => [['/bin/launchctl', 'bootout', `${session}/${job.label}`], ['remove', installedPlist(job.label)]]))
+  const differing = launchd(jobs, job => job === jobs[1] ? 'different job' : job.contents, { loaded: () => true })
+  await assert.rejects(unregister('/tmp/test-home', jobs, differing), /differs/)
+  assert.deepEqual(differing.calls, [])
+  const removed = launchd(jobs, () => null)
+  await unregister('/tmp/test-home', jobs, removed)
+  assert.deepEqual(removed.calls, [])
 })
 test('provider roots move with current while retaining provider options', () => {
   const result = managedConfiguration({ adapters: [{ id: 'custom', entry: 'node_modules/@kipster/codex-cli/dist/index.js', root: '/old', config: { model: 'chosen' } }], embedding: { module: '/old/embedding-ollama/dist/index.js', options: { model: 'chosen' } } }, '/tmp/home')
@@ -376,24 +348,24 @@ test('restore can download a pruned release and honors pinned provider versions'
 })
 test('failed first installations restore the database and home so the same command can be retried', { skip: noDatabase, timeout: 180000 }, async t => {
   const catalog = await catalogs(t, { versions: ['0.1.0'] }), app = { source: await testApp(t), requireTeam: false }
-  for (const stage of ['download', 'sudo registration', 'Core setup', 'health check']) await t.test(stage, async t => {
+  for (const stage of ['download', 'service registration', 'Core setup', 'health check']) await t.test(stage, async t => {
     const home = await directory(t), { database: db, databaseUrl } = await database(t)
     const { path, maintenancePath } = await configuration(t, home, databaseUrl)
     await db.query("CREATE TABLE public.existing_data(note text); INSERT INTO public.existing_data VALUES('retained')")
     await mkdir(join(home, 'system'), { mode: 0o700 })
     await writeFile(join(home, 'system/authored.md'), 'Retain these instructions', { mode: 0o600 })
-    const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'sudo registration', healthTimeout: 500 }
+    const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'service registration', healthTimeout: 500 }
     let failing = true
     const retryHooks = { ...hooks, app,
-      registerServices: async () => { if (failing) throw new Error('System service registration timed out.') },
+      registerServices: async () => { if (failing) throw new Error('Login service registration timed out.') },
       onStep: async step => {
-        if (step === 'checking' && stage === 'sudo registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
+        if (step === 'checking' && stage === 'service registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
       },
     }
     const file = catalog.packages['@kipster/core'][0].files[0], originalURL = file.url
     if (stage === 'download') file.url = new URL('/missing.tgz', catalog.base).href
     await save(join(home, 'fixture.json'), stage === 'Core setup' ? { migrationFailure: '0.1.0' } : stage === 'health check' ? { healthFailure: '0.1.0' } : {})
-    await assert.rejects(install(options, retryHooks), /Download.*404|System service registration timed out|Core setup failed.*Injected failed migration|health check/)
+    await assert.rejects(install(options, retryHooks), /Download.*404|Login service registration timed out|Core setup failed.*Injected failed migration|health check/)
     assert.equal(await db.query('SELECT note FROM public.existing_data'), 'retained')
     assert.equal(await db.query("SELECT count(*) FROM pg_namespace WHERE nspname='fixture'"), '0')
     await assert.rejects(stat(join(home, 'current')), { code: 'ENOENT' })

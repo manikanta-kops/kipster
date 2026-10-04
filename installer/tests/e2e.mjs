@@ -53,7 +53,7 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   await mkdir(join(home, 'fixture-codex'), { mode: 0o700 })
   const { config, path, maintenancePath } = await configuration(t, home, databaseUrl, { adapters: [{ id: 'codex-cli', root: home, entry: 'node_modules/@kipster/codex-cli/dist/index.js', config: { executable, codexHome: join(home, 'fixture-codex') } }] })
   const installed = await run(process.execPath, [cli, 'install', '--home', home, '--config', path, '--maintenance-config', maintenancePath, '--catalog', catalog.base, '--no-launchd'], { timeout: 120000 })
-  assert.match(installed, /<key>UserName<\/key>/)
+  assert.doesNotMatch(installed, /<key>UserName<\/key>/)
   assert.match(installed, /backend\/Kipster\.app\/Contents\/MacOS\/Kipster<\/string><string>--role<\/string><string>host/)
   assert.equal((await json(join(home, 'runtime.json'))).node, process.execPath)
   // bin/kipster runs through the Kipster app when this checkout has built it.
@@ -97,7 +97,7 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   if (output) {
     await mkdir(output, { recursive: true, mode: 0o700 })
     for (const file of plists) await cp(join(home, 'services', file), join(output, file))
-    await save(join(output, 'result.json'), { tested: ['CLI install', 'verified local catalogs and locally built tarballs', 'Core setup and migrations', 'exact bootstrap versions', 'CLI update', 'confirmed CLI rollback', 'authored database data and installation identity preserved', 'plutil lint'], services: 'generated only; /Library/LaunchDaemons untouched', versions: [before.coreVersion, upgraded.coreVersion, restored.coreVersion], plists })
+    await save(join(output, 'result.json'), { tested: ['CLI install', 'verified local catalogs and locally built tarballs', 'Core setup and migrations', 'exact bootstrap versions', 'CLI update', 'confirmed CLI rollback', 'authored database data and installation identity preserved', 'plutil lint'], services: 'generated only; ~/Library/LaunchAgents untouched', versions: [before.coreVersion, upgraded.coreVersion, restored.coreVersion], plists })
     console.log(`Generated plists and verification result: ${output}`)
   }
   await run(process.execPath, [cli, 'uninstall', '--home', home], { timeout: 120000 })
@@ -116,26 +116,26 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
 
 test('real macOS Core first-install failures restore home and database and then retry successfully', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' || noDatabase, timeout: 240000 }, async t => {
   const catalog = await catalogs(t, { real: true, versions: ['0.0.0'] }), executable = await codex(t), app = { source: await testApp(t), requireTeam: false }
-  for (const stage of ['download', 'sudo registration', 'Core setup', 'health check']) await t.test(stage, async t => {
+  for (const stage of ['download', 'service registration', 'Core setup', 'health check']) await t.test(stage, async t => {
     const home = await directory(t, 'kpi-e2e-retry-'), { database: db, databaseUrl } = await database(t)
     await mkdir(join(home, 'fixture-codex'), { mode: 0o700 })
     const { config, path, maintenancePath } = await configuration(t, home, databaseUrl, { adapters: [{ id: 'codex-cli', root: home, entry: 'node_modules/@kipster/codex-cli/dist/index.js', config: { executable, codexHome: join(home, 'fixture-codex') } }] })
     await db.query("CREATE TABLE public.before_install(note text); INSERT INTO public.before_install VALUES('retained')")
     await mkdir(join(home, 'system'), { mode: 0o700 })
     await writeFile(join(home, 'system/instructions.md'), 'Authored system instructions', { mode: 0o600 })
-    const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'sudo registration', healthTimeout: 1000 }
-    const legacy = stage === 'sudo registration' ? await directory(t, 'kpi-legacy-home-') : null
+    const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'service registration', healthTimeout: 1000 }
+    const legacy = stage === 'service registration' ? await directory(t, 'kpi-legacy-home-') : null
     let failing = true
     const hooks = { app,
       registerServices: async () => {
         if (failing) {
           for (const name of ['installation.json', 'agents', 'organizations', 'system']) await cp(join(home, name), join(legacy, name), { recursive: true })
-          throw new Error('System service registration timed out.')
+          throw new Error('Login service registration timed out.')
         }
       },
       onStep: async step => {
         if (step === 'migrating' && stage === 'Core setup' && failing) { await rm(join(home, 'system/instructions.md')); await symlink('/dev/null', join(home, 'system/instructions.md')) }
-        if (step === 'checking' && stage === 'sudo registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
+        if (step === 'checking' && stage === 'service registration') await hostCommand(join(home, 'current'), 'start', home, process.env)
         if (step === 'checking' && stage === 'health check' && failing) await hostCommand(join(home, 'current'), 'stop', home, process.env)
       },
     }
