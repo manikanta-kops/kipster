@@ -37,6 +37,14 @@ export async function directory(t, prefix = 'kpi-') {
   })
   return path
 }
+/** An ad hoc signed Kipster app on macOS, or a stand-in bundle elsewhere. */
+export async function testApp(t) {
+  const root = await directory(t, 'kpi-app-')
+  if (process.platform === 'darwin') { const { build } = await import('../native/build.mjs'); return build({ out: root }) }
+  await mkdir(join(root, 'Kipster.app/Contents/MacOS'), { recursive: true })
+  await writeFile(join(root, 'Kipster.app/Contents/MacOS/Kipster'), '#!/bin/sh\n', { mode: 0o755 })
+  return join(root, 'Kipster.app')
+}
 export async function port() {
   const server = netServer()
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))

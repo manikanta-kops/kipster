@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>Kipster</string>
+  <key>CFBundleExecutable</key><string>Kipster</string>
+  <key>CFBundleIconFile</key><string>Kipster</string>
+  <key>CFBundleIdentifier</key><string>app.kipster.backend</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>Kipster</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>@VERSION@</string>
+  <key>CFBundleVersion</key><string>@VERSION@</string>
+  <key>LSMinimumSystemVersion</key><string>13.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHumanReadableCopyright</key><string>Runs Kipster Core and the work of your kips.</string>
+  <key>NSDesktopFolderUsageDescription</key><string>Your kips can work with files on your Desktop.</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>Your kips can work with files in your Documents folder.</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>Your kips can work with files in your Downloads folder.</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>Your kips can work with files on removable drives.</string>
+  <key>NSNetworkVolumesUsageDescription</key><string>Your kips can work with files on network volumes.</string>
+</dict>
+</plist>

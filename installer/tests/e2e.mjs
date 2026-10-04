@@ -4,7 +4,7 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, rm, symlink, writeFile } fr
 import { join } from 'node:path'
 import { run } from '../src/process.mjs'
 import { save, json } from '../src/files.mjs'
-import { cli, database, directory, configuration, catalogs, noDatabase, repository } from './support.mjs'
+import { cli, database, directory, configuration, catalogs, noDatabase, repository, testApp } from './support.mjs'
 import { install, Installer } from '../src/installer.mjs'
 import { hostCommand } from '../src/services.mjs'
 import { updaterStatusFile, updateStatus } from '../../core/dist/protocol/index.js'
@@ -54,7 +54,11 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   const { config, path, maintenancePath } = await configuration(t, home, databaseUrl, { adapters: [{ id: 'codex-cli', root: home, entry: 'node_modules/@kipster/codex-cli/dist/index.js', config: { executable, codexHome: join(home, 'fixture-codex') } }] })
   const installed = await run(process.execPath, [cli, 'install', '--home', home, '--config', path, '--maintenance-config', maintenancePath, '--catalog', catalog.base, '--no-launchd'], { timeout: 120000 })
   assert.match(installed, /<key>UserName<\/key>/)
+  assert.match(installed, /backend\/Kipster\.app\/Contents\/MacOS\/Kipster<\/string><string>--role<\/string><string>host/)
+  assert.equal((await json(join(home, 'runtime.json'))).node, process.execPath)
+  // bin/kipster runs through the Kipster app when this checkout has built it.
   const launcher = join(home, 'bin/kipster')
+  if (await lstat(join(repository, 'installer/launchers/macos/Kipster.app')).then(() => true, () => false)) assert.ok(await lstat(join(home, 'backend/Kipster.app/Contents/MacOS/Kipster')))
   const before = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(before.coreVersion, '0.0.0')
   assert.equal((await json(join(home, 'host.json'))).updates.managed, true)
@@ -67,14 +71,14 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   legacyConfig.updates = { channelUrl: catalog.base }
   await save(join(home, 'host.json'), legacyConfig)
   catalog.select('0.0.1')
-  await run(process.execPath, [launcher, 'update', '--to', '0.0.1'], { timeout: 120000 })
+  await run(launcher, ['update', '--to', '0.0.1'], { timeout: 120000 })
   const upgraded = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(upgraded.coreVersion, '0.0.1'); assert.equal(upgraded.installationId, before.installationId)
   await available(config)
   assert.deepEqual((await json(join(home, 'host.json'))).updates, { channelUrl: catalog.base, managed: true })
   assert.equal(await db.query('SELECT note FROM public.installer_e2e_marker'), 'authored data')
-  await assert.rejects(run(process.execPath, [launcher, 'rollback']), /failed/)
-  await run(process.execPath, [launcher, 'rollback', '--yes'], { timeout: 120000 })
+  await assert.rejects(run(launcher, ['rollback']), /failed/)
+  await run(launcher, ['rollback', '--yes'], { timeout: 120000 })
   const restored = await (await fetch(`http://127.0.0.1:${config.listen.port}/v1/bootstrap`)).json()
   assert.equal(restored.coreVersion, '0.0.0'); assert.equal(restored.installationId, before.installationId)
   await available(config)
@@ -82,11 +86,11 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
   assert.equal((await json(join(home, 'host.json'))).updates.managed, true)
   const requestPath = join(home, 'updates/request.json'), requestBytes = await readFile(requestPath, 'utf8')
   assert.equal(JSON.parse(requestBytes).action, 'restore')
-  const status = JSON.parse(await run(process.execPath, [launcher, 'status']))
+  const status = JSON.parse(await run(launcher, ['status']))
   assert.equal(status.update.state, 'done')
-  await run(process.execPath, [launcher, 'apply'], { timeout: 120000 })
+  await run(launcher, ['apply'], { timeout: 120000 })
   assert.equal(await readFile(requestPath, 'utf8'), requestBytes)
-  assert.deepEqual(JSON.parse(await run(process.execPath, [launcher, 'status'])).backups, status.backups)
+  assert.deepEqual(JSON.parse(await run(launcher, ['status'])).backups, status.backups)
   const plists = await readdir(join(home, 'services'))
   for (const file of plists) await run('/usr/bin/plutil', ['-lint', join(home, 'services', file)])
   const output = process.env.KIPSTER_INSTALLER_E2E_OUTPUT
@@ -111,7 +115,7 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
 })
 
 test('real macOS Core first-install failures restore home and database and then retry successfully', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' || noDatabase, timeout: 240000 }, async t => {
-  const catalog = await catalogs(t, { real: true, versions: ['0.0.0'] }), executable = await codex(t)
+  const catalog = await catalogs(t, { real: true, versions: ['0.0.0'] }), executable = await codex(t), app = { source: await testApp(t), requireTeam: false }
   for (const stage of ['download', 'sudo registration', 'Core setup', 'health check']) await t.test(stage, async t => {
     const home = await directory(t, 'kpi-e2e-retry-'), { database: db, databaseUrl } = await database(t)
     await mkdir(join(home, 'fixture-codex'), { mode: 0o700 })
@@ -122,7 +126,7 @@ test('real macOS Core first-install failures restore home and database and then 
     const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'sudo registration', healthTimeout: 1000 }
     const legacy = stage === 'sudo registration' ? await directory(t, 'kpi-legacy-home-') : null
     let failing = true
-    const hooks = {
+    const hooks = { app,
       registerServices: async () => {
         if (failing) {
           for (const name of ['installation.json', 'agents', 'organizations', 'system']) await cp(join(home, name), join(legacy, name), { recursive: true })

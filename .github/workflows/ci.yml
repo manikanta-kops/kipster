@@ -100,6 +100,21 @@ jobs:
           echo /usr/lib/postgresql/18/bin >> "$GITHUB_PATH"
       - run: npm run test:postgres -w installer
 
+  installer-macos:
+    name: Installer macOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      # Compiles and ad hoc signs the Kipster app; release signing needs the
+      # release environment, which pull requests cannot use.
+      - run: npm run build:macos -w installer
+      - run: node --test installer/tests/launcher.test.mjs
+
   ui:
     name: UI
     if: github.event_name == 'pull_request'

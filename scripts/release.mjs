@@ -6,7 +6,8 @@
 //   node scripts/release.mjs notes <name>       that version's changelog section
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -22,7 +23,9 @@ export function packages() {
     .map(dir => {
       const { name, version } = read(join(root, dir, 'package.json'))
       const app = existsSync(join(root, dir, 'src-tauri'))
-      return { name, dir, version, app, tag: `${name.replace(/^@kipster\//, '')}-v${version}`, runner: app ? 'macos-latest' : 'ubuntu-latest' }
+      // The installer ships the signed Kipster backend app, built on macOS.
+      const backend = existsSync(join(root, dir, 'native/Kipster.m'))
+      return { name, dir, version, app, backend, tag: `${name.replace(/^@kipster\//, '')}-v${version}`, runner: app || backend ? 'macos-latest' : 'ubuntu-latest' }
     })
 }
 
@@ -87,6 +90,17 @@ export function writeReleaseMetadata(pkg, out, range) {
   return metadata
 }
 
+const backendApp = 'launchers/macos/Kipster.app'
+/** Developer ID Application certificates of the Kipster team, as the backend app's privacy identity. */
+export const backendRequirement = 'identifier "app.kipster.backend" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13] and certificate leaf[subject.OU] = "4VU397N56A"'
+/** Fails unless the app is Developer ID signed, notarized and stapled; never publish an unsigned identity. */
+export function verifyBackendApp(app, exec = run) {
+  if (!existsSync(join(app, 'Contents/MacOS/Kipster'))) throw new Error(`Build and sign the Kipster backend app first: ${app} is missing.`)
+  exec('/usr/bin/codesign', ['--verify', '--strict', '--verbose=2', `-R=${backendRequirement}`, app])
+  exec('xcrun', ['stapler', 'validate', app])
+  exec('/usr/sbin/spctl', ['--assess', '--type', 'execute', '--verbose=2', app])
+}
+
 async function metadata(pkg, out) {
   if (pkg.name !== '@kipster/core' && !pkg.app) {
     writeReleaseMetadata(pkg, out)
@@ -102,9 +116,18 @@ async function build(pkg, out) {
   if (readdirSync(out).length) throw new Error('Use an empty output directory for release files.')
   if (pkg.name !== '@kipster/core' && pkg.name !== '@kipster/installer') run('npm', ['run', 'build', '-w', 'core'])
   if (!pkg.app) {
+    if (pkg.backend) verifyBackendApp(join(root, pkg.dir, backendApp))
     run('npm', ['pack', '-w', pkg.dir, '--pack-destination', out])
     const tarball = join(out, `${pkg.name.slice(1).replace('/', '-')}-${pkg.version}.tgz`)
     if (!existsSync(tarball)) throw new Error(`No release tarball was produced for ${pkg.name}.`)
+    if (pkg.backend) {
+      // Verify the app exactly as installations will extract it.
+      const extracted = mkdtempSync(join(tmpdir(), 'kipster-installer-release-'))
+      try {
+        run('tar', ['-xzf', tarball, '-C', extracted])
+        verifyBackendApp(join(extracted, 'package', backendApp))
+      } finally { rmSync(extracted, { recursive: true, force: true }) }
+    }
     return [tarball, await metadata(pkg, out)]
   }
   const signed = Boolean(process.env.TAURI_SIGNING_PRIVATE_KEY?.trim())

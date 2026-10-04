@@ -51,6 +51,50 @@ jobs:
       - name: Apply the next version
         if: inputs.snapshot != ''
         run: npx changeset version --snapshot "$SNAPSHOT"
+      # The installer ships Kipster.app, the identity macOS privacy uses for Core
+      # and its children. Publishing fails rather than ship it unsigned.
+      - name: Sign and notarize the Kipster backend app
+        if: matrix.package.backend
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARY_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set -euo pipefail
+          for name in CERTIFICATE CERTIFICATE_PASSWORD SIGNING_IDENTITY NOTARY_KEY NOTARY_KEY_ID NOTARY_ISSUER; do
+            if [ -z "${!name}" ]; then echo "::error::$name is required to sign the installer's Kipster backend app."; exit 1; fi
+          done
+          keychain="$RUNNER_TEMP/kipster-backend.keychain-db"
+          password="$(uuidgen)"
+          cleanup() {
+            security delete-keychain "$keychain" 2>/dev/null || true
+            rm -f "$RUNNER_TEMP/backend.p12" "$RUNNER_TEMP/backend-notary.p8" "$RUNNER_TEMP/Kipster.zip"
+          }
+          trap cleanup EXIT
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/backend.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/backend.p12" -k "$keychain" -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          node installer/native/build.mjs --identity "$SIGNING_IDENTITY" --keychain "$keychain"
+          app=installer/launchers/macos/Kipster.app
+          codesign --verify --strict --verbose=2 "$app"
+          codesign -d -r- "$app"
+          ditto -c -k --keepParent "$app" "$RUNNER_TEMP/Kipster.zip"
+          printf '%s' "$NOTARY_KEY" > "$RUNNER_TEMP/backend-notary.p8"
+          xcrun notarytool submit "$RUNNER_TEMP/Kipster.zip" --key "$RUNNER_TEMP/backend-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" --wait --output-format json > "$RUNNER_TEMP/notary.json"
+          cat "$RUNNER_TEMP/notary.json"
+          submission="$(jq -r .id "$RUNNER_TEMP/notary.json")"
+          xcrun notarytool log "$submission" --key "$RUNNER_TEMP/backend-notary.p8" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER" || true
+          if [ "$(jq -r .status "$RUNNER_TEMP/notary.json")" != Accepted ]; then echo "::error::Notarization of the Kipster backend app was not accepted."; exit 1; fi
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$app"
+          spctl --assess --type execute --verbose=2 "$app"
       - name: Build
         env:
           CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
