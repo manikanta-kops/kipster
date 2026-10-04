@@ -980,3 +980,43 @@ test('a provider approval reads plainly and Always allow lists the action in Set
   await expect(row).toHaveCount(0)
   await expect(page.getByText('Nothing yet')).toBeVisible()
 })
+test('a kip turn reads as one reply and what waits on you follows its latest message', async ({
+  page,
+}) => {
+  const s = await setup(page)
+  const thread = await threadState(page, s.threadId)
+  const run = thread.work[0]
+  const add = (position: number, parts: object[]) =>
+    demo(page, '/message', {
+      threadId: s.threadId,
+      message: {
+        id: crypto.randomUUID(),
+        runId: run.runId,
+        threadId: s.threadId,
+        authorId: thread.summary.agentId,
+        parts,
+        final: true,
+        revision: 1,
+        position,
+      },
+    })
+  await add(10, [])
+  await add(11, [{ kind: 'text', text: 'The lunch slot is free.' }])
+  const pane = page.locator('.thread-pane')
+  const latest = pane
+    .locator('.thread-reply')
+    .filter({ hasText: 'The lunch slot is free.' })
+  await expect(latest).toHaveClass(/continued/)
+  await expect(
+    latest.getByRole('region', { name: 'Thread work' }),
+  ).toBeVisible()
+  await expect(
+    latest.getByRole('button', { name: 'Send answer' }),
+  ).toBeVisible()
+  await expect(pane.locator('.thread-reply')).toHaveCount(3)
+  await expect(pane.getByText('2 replies', { exact: true })).toBeVisible()
+  await expect(pane.locator('.thread-reply .message-meta strong')).toHaveText([
+    'You',
+    'Atlas',
+  ])
+})

@@ -334,6 +334,7 @@ export function Workspace({
     Record<string, Record<string, TextDelegation>>
   >({})
   const [hydrated, setHydrated] = useState<Record<string, number>>({})
+  const [workOpen, setWorkOpen] = useState<Record<string, boolean>>({})
   const [hydrationErrors, setHydrationErrors] = useState<
     Record<string, string>
   >({})
@@ -1224,8 +1225,11 @@ export function Workspace({
         a.createdAt.localeCompare(b.createdAt) ||
         a.threadId.localeCompare(b.threadId),
     )
+  // A kip segment that never wrote anything has no content to show.
   const ordered = (id: string) =>
-    Object.values(messages[id] ?? {}).sort((a, b) => a.position - b.position)
+    Object.values(messages[id] ?? {})
+      .filter((m) => m.parts.length > 0)
+      .sort((a, b) => a.position - b.position)
   const recordsFor = (threadId: string) => {
     const summary = summaries[threadId]
     return summary && identity
@@ -1485,11 +1489,16 @@ export function Workspace({
         }}
       />
     ) : null
-  const renderMessage = (message: TextMessage, lead?: ReactNode) => (
+  const renderMessage = (
+    message: TextMessage,
+    trail?: ReactNode,
+    continued?: boolean,
+  ) => (
     <Message
       message={preview.messagesById[message.id]}
       data={preview}
-      lead={lead}
+      trail={trail}
+      continued={continued}
     />
   )
   // Earlier runs that ended without an answer stay marked under their message.
@@ -1768,17 +1777,23 @@ export function Workspace({
       }
   const records = selected ? recordsFor(selected) : emptyWork()
   const currentRun = records.workflows[0]?.runId
-  // Each run's work opens the kip's reply that follows the message that started it.
+  // Each run's work closes the kip's latest reply from that run, so what waits on you comes last.
   const threadMessages = selected ? ordered(selected) : []
-  const threadAgentId = selected ? summaries[selected]?.agentId : undefined
   const runs = selected
     ? runsByOrigin(Object.values(works[selected] ?? {}), records)
     : new Map<string, RunWork>()
+  const runsById = new Map([...runs.values()].map((run) => [run.runId, run]))
+  const lastReply = new Map<string, string>()
+  for (const message of threadMessages)
+    if (message.runId) lastReply.set(message.runId, message.id)
+  const position = new Map(threadMessages.map((m, index) => [m.id, index]))
   const workBlock = (run: RunWork, drafting = false) =>
     selected && (
       <WorkBlock
         key={run.runId}
         run={run}
+        folding={workOpen[run.runId]}
+        fold={(open) => setWorkOpen((old) => ({ ...old, [run.runId]: open }))}
         drafting={drafting}
         data={preview}
         commands={workCommands}
@@ -1801,19 +1816,22 @@ export function Workspace({
         </div>
       </div>
     )
-  const replyRun = (message: TextMessage) => {
-    const index = threadMessages.findIndex((m) => m.id === message.id)
-    const before = threadMessages[index - 1]
-    return message.authorId === threadAgentId && before
-      ? runs.get(before.id)
+  const replyRun = (message: TextMessage) =>
+    message.runId && lastReply.get(message.runId) === message.id
+      ? runsById.get(message.runId)
       : undefined
-  }
+  // A run with no reply yet shows its work under the message that started it.
   const waitingRun = (message: TextMessage) => {
     const run = runs.get(message.id)
-    const index = threadMessages.findIndex((m) => m.id === message.id)
-    return run && threadMessages[index + 1]?.authorId !== threadAgentId
-      ? run
-      : undefined
+    return run && !lastReply.has(run.runId) ? run : undefined
+  }
+  // One author's consecutive replies read as one turn under one name.
+  const continues = (message: TextMessage) => {
+    const index = position.get(message.id) ?? 0
+    const before = threadMessages[index - 1]
+    return (
+      index > 1 && before.authorId === message.authorId && !waitingRun(before)
+    )
   }
   // Runs whose first message is not loaded still show, after the messages.
   const unplacedRuns = [...runs].filter(
@@ -2243,7 +2261,7 @@ export function Workspace({
                       items={ordered(selected)}
                       render={(message) => (
                         <motion.article
-                          className="thread-reply"
+                          className={`thread-reply${continues(message) ? ' continued' : ''}`}
                           key={message.id}
                           initial={{ opacity: 0, y: reduceMotion ? 0 : 8 }}
                           animate={{ opacity: 1, y: 0 }}
@@ -2271,6 +2289,7 @@ export function Workspace({
                                 preview.messagesById[message.id]?.status ===
                                   'draft',
                               ),
+                            continues(message),
                           )}
                           {message.id ===
                             preview.threadsById[selected].rootMessageId && (

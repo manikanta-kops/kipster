@@ -35,12 +35,15 @@ export function Avatar({
 export function Message({
   message,
   data,
-  lead,
+  trail,
+  continued = false,
 }: {
   message: MessageModel
   data: WorkspaceData
-  /** Shown above the content, such as the work that led to this reply. */
-  lead?: ReactNode
+  /** Shown after the content, such as the work behind this reply. */
+  trail?: ReactNode
+  /** Follows the same author's message, so the name is not repeated. */
+  continued?: boolean
 }) {
   const thread = data.threadsById[message.threadId]
   const chat = thread && data.chatsById[thread.chatId]
@@ -51,26 +54,31 @@ export function Message({
     (part) => part.type === 'text',
   )
   return (
-    <div className="message-content">
-      <Avatar
-        name={name}
-        color={author?.kind === 'agent' ? author.color : undefined}
-        isSelf={isSelf}
-        kip={data.agentRoles.some((role) => role.agentId === message.authorId)}
-      />
+    <div className={`message-content${continued ? ' continued' : ''}`}>
+      {continued ? (
+        <span aria-hidden="true" />
+      ) : (
+        <Avatar
+          name={name}
+          color={author?.kind === 'agent' ? author.color : undefined}
+          isSelf={isSelf}
+          kip={data.agentRoles.some(
+            (role) => role.agentId === message.authorId,
+          )}
+        />
+      )}
       <div className="message-body">
-        <div className="message-meta">
+        <div className={continued ? 'sr-only' : 'message-meta'}>
           <strong>{name}</strong>
           {message.timestampKnown !== false && (
             <time dateTime={message.createdAt}>
               {formatTime(message.createdAt)}
             </time>
           )}
-          {message.status === 'draft' && !lead && (
+          {message.status === 'draft' && !trail && (
             <span className="message-state">Writing</span>
           )}
         </div>
-        {lead}
         {message.parts.map((part, index) => {
           if (part.type === 'text')
             return (
@@ -173,6 +181,7 @@ export function Message({
             </details>
           </section>
         ))}
+        {trail}
       </div>
     </div>
   )

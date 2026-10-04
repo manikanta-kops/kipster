@@ -60,7 +60,7 @@ const delegationDone: Record<string, string> = {
 }
 
 /**
- * The work block that opens a kip's reply: what it is doing, its steps,
+ * The work block that closes a kip's reply: what it is doing, its steps,
  * questions and approvals waiting on you, and the controls for the run.
  * Finished runs fold to a single line.
  */
@@ -70,18 +70,23 @@ export function WorkBlock({
   data,
   commands,
   threadId,
+  folding,
+  fold,
 }: {
   run: RunWork
   drafting: boolean
   data: WorkspaceData
   commands: WorkCommands
   threadId: string
+  /** The person's own choice; until they make one, live work is open and settled work is folded. */
+  folding?: boolean
+  fold: (open: boolean) => void
 }) {
   const settled =
     ended.has(run.state) &&
     !run.held &&
     !run.interactions.some((i) => i.state === 'pending')
-  const [open, setOpen] = useState(!settled)
+  const open = folding ?? !settled
   const [error, setError] = useState('')
   const name = (id: string) => data.actorsById[id]?.name ?? 'a kip'
   const color = (id: string) => {
@@ -126,7 +131,7 @@ export function WorkBlock({
         <button
           className="work-block-title"
           aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
+          onClick={() => fold(!open)}
         >
           <span className="work-block-mark" aria-hidden="true" />
           <span className="work-block-word">{word}</span>

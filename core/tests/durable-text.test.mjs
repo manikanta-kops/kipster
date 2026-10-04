@@ -339,6 +339,54 @@ test('prequeued replies stay out of earlier execution context', { skip: noDataba
   }
 })
 
+test('a kip segment with no content publishes no message, and replies name their run', { skip: noDatabase }, async () => {
+  const database = `kipster_textempty_${randomUUID().replaceAll('-', '')}`
+  const admin = new Postgres(adminUrl)
+  await admin.query(`CREATE DATABASE "${database}"`)
+  const isolated = new URL(adminUrl); isolated.pathname = `/${database}`
+  const home = await mkdtemp(join(tmpdir(), 'kipster_text-empty-'))
+  let runtime, dispatcher, server, adapter
+  try {
+    runtime = await openRuntime({ connectionString: isolated.href, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' } })
+    const ids = runtime.bootstrap
+    await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [ids.rootAgentId, JSON.stringify({ adapterId: 'test-adapter', modelId: 'test-model' })])
+    adapter = fixture()
+    dispatcher = new TextDispatcher(runtime, adapter)
+    server = await startTextServer(runtime, { installationId: ids.installationId, personId: ids.ownerId }, { host: '127.0.0.1', port: 0 })
+    const post = async (path, data) => { const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) }); assert.ok(response.ok); return response.json() }
+    const get = async path => (await fetch(server.url + path)).json()
+    const context = { kind: 'installation', installationId: ids.installationId }
+    const chat = await post('/v1/direct-chats', { version: 1, context, agentId: ids.rootAgentId })
+    const root = await post('/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId: ids.installationId, callerId: ids.ownerId }, target: { context, chatId: chat.chatId }, mode: 'root', parts: [{ kind: 'text', text: 'book a table' }] })
+    const before = await get(`/v1/threads/${root.threadId}/snapshot`)
+    await dispatcher.start()
+    await waitFor(() => Promise.resolve(adapter.handles.length), n => n === 1, 'dispatch')
+    const handle = adapter.handles[0], attemptId = handle.context.attemptId
+    handle.release({ kind: 'text', attemptId, messageId: 'found', text: 'I found the restaurant.', final: true })
+    handle.release({ kind: 'text', attemptId, messageId: 'silent', text: '', final: true })
+    handle.release({ kind: 'ended', attemptId, confirmed: true })
+    await waitFor(() => runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [root.runId]).then(x => x.rows[0].state), state => state === 'completed', 'run completed')
+    const snapshot = await get(`/v1/threads/${root.threadId}/snapshot`)
+    assert.deepEqual(snapshot.messages.map(m => [m.authorId, m.runId, m.parts]), [
+      [ids.ownerId, undefined, [{ kind: 'text', text: 'book a table' }]],
+      [ids.rootAgentId, root.runId, [{ kind: 'text', text: 'I found the restaurant.' }]],
+    ])
+    const { events } = await readEvents(runtime.db, { kind: 'thread', installationId: ids.installationId, callerId: ids.ownerId, threadId: root.threadId }, before.cursor)
+    const published = events.filter(e => e.type === 'message-final' && e.data.authorId === ids.rootAgentId)
+    assert.equal(published.length, 1)
+    assert.equal(published[0].data.runId, root.runId)
+    assert.equal(textEvent.parse(published[0]).data.runId, root.runId)
+  } finally {
+    if (adapter) await adapter.close()
+    if (dispatcher) await dispatcher.close()
+    if (server) await server.close()
+    if (runtime) await runtime.close()
+    await rm(home, { recursive: true, force: true })
+    await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`)
+    await admin.close()
+  }
+})
+
 test('bounded shutdown fences silent provider and releases coordinator', { skip: noDatabase }, async () => {
   const database = `kipster_textclose_${randomUUID().replaceAll('-', '')}`
   const admin = new Postgres(adminUrl)

@@ -1445,6 +1445,8 @@ export class TextDispatcher {
       if (!owner.rows.length) return null
       const parts: MessagePart[]=[...(event.text?[{kind:'text' as const,text:event.text}]:[]),...artifactIds.map(artifactId=>({kind:'file' as const,artifactId,purpose:'attachment' as const}))]
       const prior = (await client.query<{ id: string; revision: string; final: boolean; parts: unknown[] }>('SELECT id,revision,final,parts FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source=$2 AND publication_id=$3', [attempt.id, source, event.messageId])).rows[0]
+      // A segment that never wrote anything is not a message.
+      if (!prior && !parts.length && !coreParts) return null
       if (prior?.final) {
         if (!event.final || coreParts) return prior.id
         if (publicationPartsKey(prior.parts)!==publicationPartsKey(parts)) throw new Error('Publication identity conflict')
