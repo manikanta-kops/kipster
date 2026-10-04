@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { appendFile, chmod, cp, lstat, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { appendFile, cp, lstat, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -9,8 +9,8 @@ import { Database, databaseEndpoint } from './database.mjs'
 import { run } from './process.mjs'
 import { safeError } from './diagnostics.mjs'
 import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
-import { health, hostCLI, hostCommand, recoverOwnership, register, replaceServices, runtimeEnvironment, stop, sudoSteps, templates, unregister, writeServices } from './services.mjs'
-import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeLaunchers, writeRuntime } from './backend.mjs'
+import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, templates, unregister, writeServices } from './services.mjs'
+import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeRuntime } from './backend.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export async function prerequisites() {
@@ -67,7 +67,7 @@ export class Installer {
     this.home = home; this.settings = settings; this.config = withManagedUpdates(config); this.onStep = onStep; this.platformCheck = platformCheck
     this.env = runtimeEnvironment(config)
     this.registerServices = registerServices
-    // System jobs need a stably signed Kipster app; tests substitute their own build.
+    // Login jobs need a stably signed Kipster app; tests substitute their own build.
     this.app = { source: app.source ?? packagedApp(), requireTeam: app.requireTeam ?? true }
     this.unregisterServices = unregisterServices
     if (settings.pgBin) this.env.PATH = settings.pgBin + ':' + this.env.PATH
@@ -337,7 +337,6 @@ export class Installer {
       await this.publish(journal, 'running', 'installing')
       await this.stage(journal, files); await this.stageUpdater(journal, files)
       const jobs = initial ? await writeServices(this.home, this.env, { services: this.settings.services, source: this.app.source, requireTeam: this.app.requireTeam }) : null
-      if (initial) for (const step of sudoSteps(this.home, jobs)) console.log(`${step.command}\n  Requires sudo: ${step.why}.`)
       await atomic(this.hold, wanted.id + '\n')
       journal.stopped = true; await this.persist(journal)
       if (current) await stop(current.path, this.home, this.env)
@@ -437,12 +436,11 @@ export class Installer {
     await health(this.config, current.metadata.coreVersion, this.settings.healthTimeout)
     return current.metadata.coreVersion
   }
-  /** Selects the Node that the Kipster app starts, without changing system jobs. */
+  /** Selects the Node that the Kipster app starts, without changing login jobs. */
   async selectRuntime(node) {
     await this.directories()
     return locked(this.home, async () => {
       if (await this.recover() === 'failed') throw new Error('Finish update recovery before changing the runtime.')
-      if (this.settings.services === 'launchd' && !await exists(installedApp(this.home))) throw new Error(`This installation's system jobs still start Node directly. Run ${join(this.home, 'bin/kipster')} repair-services first.`)
       const selected = await validateNode(node)
       const previous = await readRuntime(this.home).catch(() => null)
       await writeRuntime(this.home, selected)
@@ -454,60 +452,6 @@ export class Installer {
         try { await this.restart(previous) } catch { throw new Error(`${error} Core did not start with ${selected}; ${previous} is selected again but Core did not restart. Inspect logs/host-error.log.`) }
         throw new Error(`${error} Core did not start with ${selected}; ${previous} is selected again and running.`)
       }
-    })
-  }
-  /**
-   * Moves this home's system jobs to the Kipster app, or repairs them. Requires
-   * sudo for the system jobs; restores the previous services on failure.
-   */
-  async repairServices({ node = process.execPath, system } = {}) {
-    if (this.settings.services !== 'launchd') throw new Error('This installation runs without system services (--no-launchd); there is nothing to repair.')
-    await this.platformCheck(); await this.directories()
-    return locked(this.home, async () => {
-      if (await this.recover() === 'failed') throw new Error('Finish update recovery before repairing services.')
-      const current = await this.current()
-      if (!current) throw new Error('No Core release is installed in this home. Run kipster install first.')
-      const selected = await validateNode(node)
-      const jobs = templates(this.home, this.env), recorded = new Map()
-      for (const job of jobs) {
-        const file = join(this.home, 'services', job.label + '.plist')
-        if (await exists(file)) recorded.set(job.label, await readFile(file, 'utf8'))
-      }
-      const backup = join(this.home, 'backups', 'services-' + new Date().toISOString().replace(/[:.]/g, '-'))
-      const saved = new Map()
-      const result = await replaceServices({
-        home: this.home, jobs, recorded, backup, ...system,
-        prepare: async () => {
-          for (const name of ['bin/kipster', 'bin/kipster.mjs', 'bin/core.mjs', 'runtime.json', ...jobs.map(job => `services/${job.label}.plist`)]) {
-            saved.set(name, await exists(join(this.home, name)) ? await readFile(join(this.home, name)) : null)
-          }
-          const { previous } = await installApp(this.home, this.app.source, { requireTeam: this.app.requireTeam })
-          if (previous) await rm(previous, { recursive: true, force: true })
-          await writeRuntime(this.home, selected)
-          await writeLaunchers(this.home)
-          for (const job of jobs) await atomic(join(this.home, 'services', job.label + '.plist'), job.contents)
-        },
-        stopCore: async () => {
-          await atomic(this.hold, 'repair-services\n')
-          await stop(current.path, this.home, this.env)
-        },
-        startCore: async () => {
-          await rm(this.hold, { force: true }); await syncDirectory(this.directory)
-          await health(this.config, current.metadata.coreVersion, this.settings.healthTimeout)
-        },
-        restoreFiles: async () => {
-          for (const [name, bytes] of saved) {
-            if (bytes === null) await rm(join(this.home, name), { force: true })
-            else await atomic(join(this.home, name), bytes)
-          }
-          if (saved.get('bin/kipster')) await chmod(join(this.home, 'bin/kipster'), 0o700)
-        },
-      })
-      if (result.changed) {
-        // Keep the old plists and entry points with the backup for reference.
-        for (const [name, bytes] of saved) if (bytes !== null && name.startsWith('bin/')) await atomic(join(backup, name.replace('/', '-')), bytes)
-      }
-      return { home: this.home, app: installedApp(this.home), node: selected, coreVersion: current.metadata.coreVersion, servicesReplaced: result.changed, ...(result.changed ? { backup } : {}) }
     })
   }
   async uninstall({ deleteData = false } = {}) {

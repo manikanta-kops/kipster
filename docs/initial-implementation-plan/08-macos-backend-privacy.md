@@ -3,6 +3,10 @@
 Status: accepted and implemented, 2026-10-04. Release signing and the owner's
 Full Disk Access grant are verified on a real Mac before 0.1.0.
 
+The system LaunchDaemons and `repair-services` described here are superseded by
+[decision block 9](09-macos-login-services.md): Core and the updater are now
+per-user login jobs.
+
 ## Outcome
 
 macOS privacy (TCC) names installer-managed Core, the updater and everything

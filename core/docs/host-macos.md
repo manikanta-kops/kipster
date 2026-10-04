@@ -2,7 +2,7 @@
 
 For released packages, use the [macOS installer](../../installer/README.md).
 It assembles Core and configured adapters, keeps database backups, and registers
-Core and its updater as system LaunchDaemons running as the backend owner.
+Core and its updater as per-user login jobs (LaunchAgents) of the backend owner.
 The lower-level host commands and login-service template below remain available
 for manually managed installations; do not register both supervisors.
 
