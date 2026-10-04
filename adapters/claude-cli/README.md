@@ -12,7 +12,7 @@ Core's tools reach Claude through a loopback MCP server the adapter hosts: `mcp_
 
 Available JPEG, PNG, GIF and WebP images and PDF documents are attached as native content, labeled with their message, part and artifact identity, newest first within a bounded total. Every available attachment is also readable at its path through an exact `Read` permission for that file; a path containing whitespace, commas or parentheses gets no grant and is read only with permission.
 
-Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come from the user's Claude configuration. Claude Code's auto memory is switched off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), because Core owns kip memory. Passing Kipster's MCP server makes the CLI wait for the user's MCP servers before a turn starts, so `MCP_TIMEOUT` defaults to 5000 milliseconds; an unreachable server would otherwise delay every turn. Both defaults can be changed through `environment`.
+Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come from the user's Claude configuration. Turns run with `--chrome`, so kips get Claude in Chrome's browser tools when the extension is installed; headless Claude Code leaves them off otherwise. Claude Code's auto memory is switched off (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`), because Core owns kip memory. Passing Kipster's MCP server makes the CLI wait for the user's MCP servers before a turn starts, so `MCP_TIMEOUT` defaults to 5000 milliseconds; an unreachable server would otherwise delay every turn. Both defaults can be changed through `environment`.
 
 ## Human interactions
 

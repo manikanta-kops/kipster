@@ -84,7 +84,7 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   const launch = records.findLast(record => record.launch).launch
   assert.equal(launch.cwd.endsWith('/agent'), true)
   for (const [flag, value] of [['--model', 'opus'], ['--effort', 'high'], ['--permission-mode', 'default'], ['--permission-prompt-tool', 'mcp__kipster_permission__prompt'], ['--disallowedTools', 'mcp__kipster_permission__prompt'], ['--allowedTools', `Read(/${attachment})`]]) assert.equal(launch.argv[launch.argv.indexOf(flag) + 1], value, flag)
-  for (const flag of ['--no-session-persistence', '--include-partial-messages']) assert.ok(launch.argv.includes(flag), flag)
+  for (const flag of ['--no-session-persistence', '--include-partial-messages', '--chrome']) assert.ok(launch.argv.includes(flag), flag)
   assert.match(launch.instructions, /^You are Kip\.\n\nKipster tools are available to you as MCP tools named mcp__kipster__/)
   assert.equal(launch.mcp.mcpServers.kipster.alwaysLoad, true)
   assert.equal(launch.env.KIPSTER_DATABASE_URL, undefined, 'Core credentials are not inherited')

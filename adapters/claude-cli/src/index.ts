@@ -203,7 +203,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       const server = (path: string, extra: ObjectValue = {}) => ({ type: 'http', url: `http://127.0.0.1:${port}${path}`, headers: { Authorization: `Bearer ${registration.token}` }, ...extra })
       await writeFile(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { kipster: server('/tools', { alwaysLoad: true, timeout: 3600000 }), kipster_permission: server('/permission', { timeout: 3600000 }) } }), { mode: 0o600, flag: 'wx' })
       await writeFile(join(directory, 'instructions.md'), `${context.instructions}\n\n${toolNote}`, { mode: 0o600, flag: 'wx' })
-      const args = [...streamJson, '--include-partial-messages', '--no-session-persistence', '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
+      const args = [...streamJson, '--include-partial-messages', '--chrome', '--no-session-persistence', '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
         '--mcp-config', join(directory, 'mcp.json'), '--permission-prompt-tool', `mcp__kipster_permission__${permissionTool}`, '--disallowedTools', `mcp__kipster_permission__${permissionTool}`,
         '--append-system-prompt-file', join(directory, 'instructions.md'), '--permission-mode', claudePermissionMode(context.permissionMode),
         ...(readable.length ? ['--allowedTools', ...readable.map(path => `Read(/${path})`)] : [])]
