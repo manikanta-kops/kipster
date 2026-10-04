@@ -25,9 +25,12 @@ export function launchConfig(value: Readonly<Record<string, unknown>> = {}, data
 }
 const inherited = ['PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ', 'TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'all_proxy', 'SSH_AUTH_SOCK', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
   'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'AWS_PROFILE', 'AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'CLOUD_ML_REGION', 'GOOGLE_APPLICATION_CREDENTIALS']
+/** Kipster owns kip memory, so Claude Code's auto memory stays off. Passing --mcp-config makes the CLI wait for the
+ * user's MCP servers before the turn starts; MCP_TIMEOUT bounds that wait for an unreachable server. */
+const defaults = { CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', MCP_TIMEOUT: '5000' }
 /** A bounded environment: the user's home, shell basics, proxies, certificates and Claude authentication, without Core credentials. */
 export function launchEnvironment(config: LaunchConfig): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { HOME: homedir() }
+  const env: NodeJS.ProcessEnv = { HOME: homedir(), ...defaults }
   for (const name of inherited) if (process.env[name] !== undefined) env[name] = process.env[name]
   for (const [name, value] of Object.entries(process.env)) if (name.startsWith('ANTHROPIC_') && value !== undefined) env[name] = value
   return Object.assign(env, config.environment)

@@ -77,6 +77,8 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   assert.equal(launch.mcp.mcpServers.kipster.alwaysLoad, true)
   assert.equal(launch.env.KIPSTER_DATABASE_URL, undefined, 'Core credentials are not inherited')
   assert.equal(launch.env.FAKE_CLAUDE_LOG.endsWith('log.jsonl'), true, 'configured environment is passed')
+  assert.equal(launch.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', 'Claude Code auto memory stays off')
+  assert.equal(launch.env.MCP_TIMEOUT, '5000', 'MCP server startup is bounded')
   const user = records.find(record => record.user).user
   assert.deepEqual(user[0], { type: 'text', text: 'Core prompt' })
   assert.match(user[1].text, /^Visual input for message "m1", part 2, artifact "photo"/)
