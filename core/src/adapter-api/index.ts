@@ -63,6 +63,11 @@ export interface TextExecutionContext {
    * unknown value as the safest mode the provider supports.
    */
   readonly permissionMode?: PermissionMode
+  /**
+   * Keys of the approvals the person granted beyond one card, for this conversation or always. Answer a provider
+   * approval whose key is listed without asking; the adapter defines the keys when it offers a grant.
+   */
+  readonly approvalGrants?: readonly string[]
   readonly triggerMessageId?: string
   readonly input: readonly { readonly messageId: string; readonly text: string; readonly parts?: readonly ({readonly kind:'text';readonly text:string}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'available';readonly readablePath:string;readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'unavailable';readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}})[] }[]
   /** Settled interactions in durable order, including all earlier attempts of this run. */
@@ -190,7 +195,12 @@ export interface AdapterHost {
   /** Private directory Core reserves for this adapter's own state. It persists across restarts; the adapter creates it when needed. */
   readonly dataDirectory?: string
   now(): string
-  /** Authenticated by Core and correlated to the originating attempt. */
+  /**
+   * Authenticated by Core and correlated to the originating attempt. To show a provider's own approval or question,
+   * call `interactions_request_approval` or `interactions_ask` with a call ID starting `native:`. Such an approval may
+   * add `grant: { key, label, scopes }`: the person can then allow the action for the conversation or always, and
+   * later executions receive `key` in `approvalGrants`. Keys are the adapter's own; prefix them with its ID.
+   */
   invokeTool(request: { readonly attemptId: string; readonly callId: string; readonly name: string; readonly arguments: unknown }): Promise<unknown>
 }
 export interface AdapterCatalog {

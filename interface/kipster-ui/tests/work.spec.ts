@@ -265,11 +265,15 @@ test('lost acknowledgement is read-reconciled after reload without another write
     await route.fetch()
     await route.abort()
   })
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Allow in this conversation', exact: true })
+    .click()
   await expect.poll(async () => (await inspect(page)).answers.length).toBe(1)
   await page.reload()
   await openWork(page)
-  await expect(answer(page)).toContainText('Approved')
+  await expect(answer(page)).toContainText(
+    'Allowed Publish to the team workspace in this conversation',
+  )
   await expect(recovery(page)).toBeHidden()
   expect(posts).toBe(1)
 })
@@ -316,8 +320,12 @@ test('superseded card cannot authorize new work and disconnected thread stream d
   await page.route('**/v1/threads/*/events?*', (route) => route.abort())
   await page.reload()
   await openWork(page)
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
-  await expect(answer(page)).toContainText('Approved')
+  await page
+    .getByRole('button', { name: 'Allow in this conversation', exact: true })
+    .click()
+  await expect(answer(page)).toContainText(
+    'Allowed Publish to the team workspace in this conversation',
+  )
   await expect.poll(async () => (await inspect(page)).answers.length).toBe(1)
 })
 test('storage reservation failure preserves answer and prevents dispatch', async ({
@@ -440,7 +448,10 @@ test('expired cursor resnapshot restores work and pending interaction without re
     })
     .toBeGreaterThan(0)
   await expect(
-    page.getByRole('button', { name: 'Approve', exact: true }),
+    page.getByRole('button', {
+      name: 'Allow in this conversation',
+      exact: true,
+    }),
   ).toBeEnabled()
   expect((await inspect(page)).answers).toHaveLength(0)
 })
@@ -575,15 +586,21 @@ test('failed journal observation can be restored without remount or unsafe dispa
   await expect(recovery(page)).toContainText(
     'Local work recovery is unavailable',
   )
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Allow in this conversation', exact: true })
+    .click()
   expect((await inspect(page)).answers).toHaveLength(0)
   await storageFault(page, 'work-read', 'allow')
   await page
     .getByRole('button', { name: 'Retry loading work recovery' })
     .click()
   await expect(recovery(page)).toBeHidden()
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
-  await expect(answer(page)).toContainText('Approved')
+  await page
+    .getByRole('button', { name: 'Allow in this conversation', exact: true })
+    .click()
+  await expect(answer(page)).toContainText(
+    'Allowed Publish to the team workspace in this conversation',
+  )
 })
 test('late command receipt cannot regress newer settlement or move the history scroll', async ({
   page,
@@ -676,11 +693,15 @@ for (const field of ['id', 'runId', 'attemptId', 'proposalId'])
       responses++
       await route.fulfill({ response, json: body })
     })
-    await page.getByRole('button', { name: 'Approve', exact: true }).click()
+    await page
+      .getByRole('button', { name: 'Allow in this conversation', exact: true })
+      .click()
     await expect.poll(async () => (await inspect(page)).answers.length).toBe(1)
     await expect.poll(() => responses).toBe(1)
     await expect(recovery(page)).toBeHidden()
-    await expect(answer(page).first()).toContainText('Approved')
+    await expect(answer(page).first()).toContainText(
+      'Allowed Publish to the team workspace in this conversation',
+    )
   })
 for (const outcome of ['unknown', 'accepted', 'rejected'])
   test(`pending explicit retries coalesce after automatic receipt is ${outcome}`, async ({
@@ -786,12 +807,16 @@ test('late cross-tab acknowledgement cannot resurrect settled journal evidence',
     await held
     await route.fulfill({ response })
   })
-  await page.getByRole('button', { name: 'Approve', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Allow in this conversation', exact: true })
+    .click()
   await expect.poll(() => committed).toBe(true)
   const second = await context.newPage()
   await second.goto(s.url)
   await openWork(second)
-  await expect(answer(second)).toContainText('Approved')
+  await expect(answer(second)).toContainText(
+    'Allowed Publish to the team workspace in this conversation',
+  )
   await expect(recovery(second)).toBeHidden()
   release()
   await expect(recovery(page)).toBeHidden()
@@ -892,7 +917,10 @@ test('Stop cancels the exact approval and recovery-needed work never offers a ne
   await page.getByRole('button', { name: 'Stop work', exact: true }).click()
   await expect(page.getByText('Question or approval cancelled')).toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Approve', exact: true }),
+    page.getByRole('button', {
+      name: 'Allow in this conversation',
+      exact: true,
+    }),
   ).toHaveCount(0)
   expect((await threadState(page, s.threadId)).interactions[0].state).toBe(
     'cancelled',
@@ -904,7 +932,51 @@ test('Stop cancels the exact approval and recovery-needed work never offers a ne
   })
   await expect(work(page)).toContainText('Recovery needed')
   await expect(
-    page.getByRole('button', { name: 'Approve', exact: true }),
+    page.getByRole('button', {
+      name: 'Allow in this conversation',
+      exact: true,
+    }),
   ).toHaveCount(0)
   expect((await inspect(page)).answers).toHaveLength(0)
+})
+test('a provider approval reads plainly and Always allow lists the action in Settings until removed', async ({
+  page,
+}) => {
+  await setup(page, 'approval')
+  const card = page.locator('.interaction-card.pending')
+  await expect(card.getByRole('heading')).toHaveText(
+    'Publish the reviewed proposal?',
+  )
+  await expect(card.locator('.interaction-detail')).toHaveText(
+    'The team workspace will see it.',
+  )
+  const details = card.locator('.interaction-request')
+  await expect(details.locator('pre')).toBeHidden()
+  await details.getByText('Details').click()
+  await expect(details.locator('pre')).toContainText('"action": "publish"')
+  await expect(
+    card.getByRole('button', { name: 'Approve', exact: true }),
+  ).toHaveCount(0)
+  await expect(
+    card.getByRole('button', { name: 'Allow in this conversation' }),
+  ).toBeVisible()
+  await card.getByRole('button', { name: 'Always allow', exact: true }).click()
+  await expect(answer(page)).toContainText(
+    'Always allowed Publish to the team workspace',
+  )
+  expect(
+    (await inspect(page)).answers.at(-1).interaction.response.answer,
+  ).toMatchObject({ kind: 'approve', scope: 'always' })
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Permissions', exact: true }).click()
+  const row = page.locator('.set-row', {
+    hasText: 'Publish to the team workspace',
+  })
+  await expect(row).toContainText('Added')
+  await row
+    .getByRole('button', { name: 'Remove Publish to the team workspace' })
+    .click()
+  await expect(row).toHaveCount(0)
+  await expect(page.getByText('Nothing yet')).toBeVisible()
 })

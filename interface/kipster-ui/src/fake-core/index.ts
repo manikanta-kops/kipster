@@ -650,7 +650,7 @@ export function createFakeCore(
       prompt:
         kind === 'question'
           ? 'Which direction would you like me to develop?'
-          : 'May I publish the reviewed proposal?',
+          : 'Publish the reviewed proposal?\nThe team workspace will see it.',
       options:
         kind === 'question'
           ? [
@@ -664,7 +664,14 @@ export function createFakeCore(
       ...(kind === 'approval'
         ? {
             proposalId: id(),
-            proposal: 'Publish the reviewed proposal to the team workspace.',
+            proposal: JSON.stringify({
+              action: 'publish',
+              target: 'team workspace',
+            }),
+            grant: {
+              label: 'Publish to the team workspace',
+              scopes: ['conversation', 'always'],
+            },
           }
         : {}),
     }
@@ -1633,7 +1640,7 @@ export function createFakeCore(
         choice: ['kind', 'optionId', 'text'],
         text: ['kind', 'text'],
         dismiss: ['kind'],
-        approve: ['kind', 'comment'],
+        approve: ['kind', 'comment', 'scope'],
         decline: ['kind', 'comment'],
       }
       if (!allowed[kind]) throw new Error('Invalid answer kind')
@@ -1653,6 +1660,11 @@ export function createFakeCore(
         card.kind === 'approval'
           ? row.proposalId === card.proposalId &&
             ['approve', 'decline'].includes(kind) &&
+            (response.scope === undefined ||
+              (kind === 'approve' &&
+                !!card.grant?.scopes.includes(
+                  response.scope as 'conversation' | 'always',
+                ))) &&
             (response.comment === undefined ||
               String(response.comment).length <= 2000)
           : kind === 'dismiss' ||
@@ -1680,6 +1692,8 @@ export function createFakeCore(
           acceptedAt: now(),
         }
         changeInteraction(thread, card)
+        if (response.scope === 'always' && card.grant)
+          administration.allowAlways(card.grant.label)
         run.state = 'running'
         run.revision++
         changeWork(thread, run)

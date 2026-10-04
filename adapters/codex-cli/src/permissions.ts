@@ -6,7 +6,7 @@ type Granular = { readonly granular: { readonly sandbox_approval: true; readonly
 /** The Codex App Server thread settings that carry out one Kipster permission mode. */
 export interface CodexPermissions {
   readonly sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'
-  readonly approvalPolicy: 'untrusted' | 'never' | Granular
+  readonly approvalPolicy: 'untrusted' | Granular
   /** `auto_review` routes approval requests to Codex's reviewer subagent instead of the person. */
   readonly approvalsReviewer: 'user' | 'auto_review'
   readonly config?: { readonly 'sandbox_workspace_write.network_access': true }
@@ -31,7 +31,9 @@ const modes: Readonly<Record<PermissionMode, CodexPermissions>> = {
   supervised: { sandbox: 'workspace-write', approvalPolicy: 'untrusted', approvalsReviewer: 'user', config: network },
   acceptEdits: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user', config: network },
   auto: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'auto_review', config: network },
-  fullAccess: { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' },
+  // Not `never`: Codex then declines every MCP tool approval itself, so Computer Use could never run. The adapter
+  // allows whatever full access still asks.
+  fullAccess: { sandbox: 'danger-full-access', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user' },
 }
 
 /** The thread settings for a permission mode. A missing or unknown mode is supervised, the safest. */

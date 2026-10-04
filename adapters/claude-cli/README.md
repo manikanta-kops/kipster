@@ -16,7 +16,7 @@ Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come f
 
 ## Human interactions
 
-Claude Code's permission prompts reach the adapter through `--permission-prompt-tool`. A prompt for a Kipster tool is allowed, since Core decides those. Any other prompt becomes a Core approval card bound to the exact tool and input, leaving out labels Claude regenerates (a command's `description`, WebFetch's `prompt`). AskUserQuestion questions become Core question cards with free text. The adapter stops the waiting process and the next attempt continues with the saved answer: an approval allows that action once, and a decline is returned to Claude with the person's comment.
+Claude Code's permission prompts reach the adapter through `--permission-prompt-tool`. A prompt for a Kipster tool is allowed, since Core decides those. Any other prompt becomes a Core approval card bound to the exact tool and input, leaving out labels Claude regenerates (a command's `description`, WebFetch's `prompt`). The card opens with a one-line question, such as ``Run `npm test`?``, and offers a grant: a command, a web domain, web search or an MCP tool for the conversation or always, and a file edit or any other tool use for the conversation. AskUserQuestion questions become Core question cards with free text. The adapter stops the waiting process and the next attempt continues with the saved answer: an approval allows that action once, a grant allows every matching prompt without a card, and a decline is returned to Claude with the person's comment. Grants are kept by Core, not in Claude's settings. In `fullAccess` every prompt is allowed.
 
 ## Permission modes
 

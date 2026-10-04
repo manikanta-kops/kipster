@@ -148,7 +148,7 @@ test('each permission mode starts the thread with its sandbox, approval policy, 
     supervised: ['workspace-write', 'untrusted', 'user', network],
     acceptEdits: ['workspace-write', askOutsideSandbox, 'user', network],
     auto: ['workspace-write', askOutsideSandbox, 'auto_review', network],
-    fullAccess: ['danger-full-access', 'never', 'user', undefined],
+    fullAccess: ['danger-full-access', askOutsideSandbox, 'user', undefined],
     future: ['workspace-write', 'untrusted', 'user', network],
   }
   for (const [permissionMode, settings] of Object.entries(expected)) {

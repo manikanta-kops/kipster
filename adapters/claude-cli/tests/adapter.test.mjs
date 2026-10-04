@@ -121,7 +121,8 @@ test('a native approval becomes a Core card bound to the exact action, then resu
   assert.equal(card.name, 'interactions_request_approval')
   assert.equal(card.callId, 'native:toolu_bash')
   assert.equal(card.arguments.proposal, '{"input":{"command":"touch approved.txt"},"tool":"Bash"}', 'regenerated labels are not part of the approved action')
-  assert.match(card.arguments.prompt, /^Claude requests approval to use Bash/)
+  assert.match(card.arguments.prompt, /^Run `touch approved.txt`\?\nlabel \d+$/)
+  assert.deepEqual(card.arguments.grant, { key: 'claude-cli:Bash:touch approved.txt', label: 'Run touch approved.txt', scopes: ['conversation', 'always'] })
   const saved = answer => ({ id: 'i1', kind: 'approval', prompt: card.arguments.prompt, options: [], freeText: false, proposalId: card.arguments.proposalId, proposal: card.arguments.proposal, response: { actorId: 'human', answer, acceptedAt: '2026-10-03T00:00:00Z' } })
   const approved = await collect(await f.adapter.execute(context(f, { attemptId: 'attempt-2', interactions: [saved({ kind: 'approve' })] })))
   const records = await f.records()
@@ -132,6 +133,11 @@ test('a native approval becomes a Core card bound to the exact action, then resu
   await collect(await f.adapter.execute(context(f, { attemptId: 'attempt-3', interactions: [saved({ kind: 'decline', comment: 'Not now' })] })))
   assert.deepEqual((await f.records()).findLast(record => record.decision).decision, { behavior: 'deny', message: 'The person declined this action: Not now. Do not retry it.' })
   assert.equal(f.calls.length, 1, 'saved answers create no new cards')
+  await collect(await f.adapter.execute(context(f, { attemptId: 'attempt-4', approvalGrants: [card.arguments.grant.key] })))
+  const granted = await f.records()
+  assert.equal(granted.findLast(record => record.decision).decision.behavior, 'allow')
+  assert.equal(granted.findLast(record => record.again).again.behavior, 'allow', 'a grant covers every repeat')
+  assert.equal(f.calls.length, 1, 'a granted action asks nobody')
 })
 
 test('AskUserQuestion becomes a Core question whose saved answer reaches Claude', async t => {

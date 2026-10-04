@@ -305,7 +305,15 @@ export function useCoreSettings(
   }
   const savePermissions = async (mode: PermissionMode) => {
     keepPermissions(
-      await client.savePermissions(mode, AbortSignal.timeout(20000)),
+      await client.savePermissions({ mode }, AbortSignal.timeout(20000)),
+    )
+  }
+  const removeAlwaysAllowed = async (id: string) => {
+    keepPermissions(
+      await client.savePermissions(
+        { removeAlwaysAllowed: [id] },
+        AbortSignal.timeout(20000),
+      ),
     )
   }
   return {
@@ -315,6 +323,7 @@ export function useCoreSettings(
     learning,
     permissions,
     savePermissions,
+    removeAlwaysAllowed,
     directory,
     connection,
     reconnect: () => setAttempt((n) => n + 1),
