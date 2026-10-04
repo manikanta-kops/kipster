@@ -1470,6 +1470,9 @@ export function Workspace({
           ...(threadId ? { threadId } : {}),
         }}
         label={threadId ? 'Reply in this thread' : 'Start a new thread'}
+        dropHint={
+          threadId ? 'Files join your reply' : 'Files join a new thread'
+        }
         voiceEnabled={identity?.capabilities?.voiceRecording === true}
         disabled={!!connection || !!outbox.error}
         recordingContext={JSON.stringify([
@@ -2021,7 +2024,12 @@ export function Workspace({
               onClick={() => setDrawer(false)}
             />
           )}
-          <main id="conversation" className="conversation" tabIndex={-1}>
+          <main
+            id="conversation"
+            className="conversation"
+            tabIndex={-1}
+            data-file-drop
+          >
             <header className="toolbar" data-tauri-drag-region>
               <button
                 className="icon-button mat thin toolbar-menu"

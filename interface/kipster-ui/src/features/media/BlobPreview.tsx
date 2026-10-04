@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { previewKind } from './preview-kind'
 export function BlobPreview({
   blob,
@@ -8,7 +8,7 @@ export function BlobPreview({
   blob: Blob
   name: string
   /** Shown when the format cannot be previewed; `null` shows nothing. */
-  fallback?: string | null
+  fallback?: ReactNode
 }) {
   const [url, setUrl] = useState('')
   const [failed, setFailed] = useState(false)
@@ -22,7 +22,7 @@ export function BlobPreview({
   }, [blob])
   const kind = previewKind(blob.type)
   if (!kind || failed)
-    return fallback === null ? null : <small>{fallback}</small>
+    return typeof fallback === 'string' ? <small>{fallback}</small> : fallback
   if (!url) return <small>Loading preview…</small>
   return kind === 'image' ? (
     <img

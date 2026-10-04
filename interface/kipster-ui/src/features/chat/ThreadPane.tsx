@@ -62,6 +62,7 @@ export function ThreadPane({
       transition={inspectorArrive}
       style={{ originX: 1, originY: 0.5 }}
       className="thread-pane"
+      data-file-drop
       aria-label={`Thread: ${thread.title}`}
     >
       <header className="pane-header">
