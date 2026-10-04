@@ -6,7 +6,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow, WindowEvent};
-use tauri_plugin_autostart::ManagerExt;
 
 /// Passed by the login item; the app starts without showing its window.
 pub const HIDDEN_ARG: &str = "--hidden";
@@ -17,17 +16,11 @@ pub const HIDDEN_ARG: &str = "--hidden";
 #[serde(rename_all = "camelCase", default)]
 struct Settings {
     keep_running: bool,
-    /// Set once open at login has been turned on by default or chosen by the
-    /// user, so the default never overrides the user's choice.
-    open_at_login_configured: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self {
-            keep_running: true,
-            open_at_login_configured: false,
-        }
+        Self { keep_running: true }
     }
 }
 
@@ -68,17 +61,11 @@ pub fn setup(app: &AppHandle) {
         keep_running: AtomicBool::new(settings.keep_running),
         settings: Mutex::new(settings),
     };
-    let configure_login = !state
-        .settings
-        .lock()
-        .map(|settings| settings.open_at_login_configured)
-        .unwrap_or(true);
     app.manage(state);
 
-    if configure_login && login_item_supported(app) && app.autolaunch().enable().is_ok() {
-        let _ = app
-            .state::<ShellState>()
-            .save(|settings| settings.open_at_login_configured = true);
+    // Keeps an existing login item pointing at this copy of the app.
+    if login_item_supported(app) && login_job_path(app).is_ok_and(|path| path.exists()) {
+        let _ = write_login_job(app);
     }
 
     if !std::env::args().any(|arg| arg == HIDDEN_ARG) {
@@ -110,8 +97,8 @@ pub fn started_hidden_as_duplicate(identifier: &str) -> bool {
     }
 }
 
-/// Only an installed macOS app registers itself: not `tauri dev`, the demo, or
-/// a quarantined copy that macOS runs from a temporary translocated path.
+/// Only an installed macOS app refreshes its login item: not `tauri dev`, the
+/// demo, or a quarantined copy that macOS runs from a temporary translocated path.
 fn login_item_supported(app: &AppHandle) -> bool {
     if !cfg!(target_os = "macos") || app.config().identifier == "app.kipster.demo" {
         return false;
@@ -123,6 +110,55 @@ fn login_item_supported(app: &AppHandle) -> bool {
         .is_some_and(|exe| {
             exe.contains(".app/Contents/MacOS/") && !exe.contains("/AppTranslocation/")
         })
+}
+
+fn login_job_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let home = app.path().home_dir().map_err(|error| error.to_string())?;
+    Ok(home
+        .join("Library/LaunchAgents")
+        .join(format!("{}.plist", app.config().identifier)))
+}
+
+/// `AssociatedBundleIdentifiers` makes macOS name the login item after the app
+/// instead of the developer who signed it.
+fn login_job(identifier: &str, executable: &str) -> String {
+    let identifier = xml(identifier);
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>Label</key><string>{identifier}</string>
+<key>ProgramArguments</key><array><string>{}</string><string>{HIDDEN_ARG}</string></array>
+<key>RunAtLoad</key><true/>
+<key>AssociatedBundleIdentifiers</key><array><string>{identifier}</string></array>
+</dict></plist>
+"#,
+        xml(executable)
+    )
+}
+
+fn xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn write_login_job(app: &AppHandle) -> Result<(), String> {
+    let path = login_job_path(app)?;
+    let executable = std::env::current_exe().map_err(|error| error.to_string())?;
+    let job = login_job(&app.config().identifier, &executable.to_string_lossy());
+    if std::fs::read_to_string(&path).is_ok_and(|current| current == job) {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+    }
+    let temporary = path.with_extension("plist.tmp");
+    std::fs::write(&temporary, job).map_err(|error| error.to_string())?;
+    std::fs::rename(&temporary, path).map_err(|error| error.to_string())
 }
 
 pub fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
@@ -197,20 +233,31 @@ pub fn set_keep_running(state: tauri::State<ShellState>, on: bool) -> Result<(),
 
 #[tauri::command]
 pub fn open_at_login_enabled(app: AppHandle) -> Result<bool, String> {
-    app.autolaunch()
-        .is_enabled()
-        .map_err(|error| error.to_string())
+    Ok(login_job_path(&app)?.exists())
 }
 
 #[tauri::command]
 pub fn set_open_at_login(app: AppHandle, on: bool) -> Result<(), String> {
-    let autolaunch = app.autolaunch();
     if on {
-        autolaunch.enable()
-    } else {
-        autolaunch.disable()
+        return write_login_job(&app);
     }
-    .map_err(|error| error.to_string())?;
-    app.state::<ShellState>()
-        .save(|settings| settings.open_at_login_configured = true)
+    match std::fs::remove_file(login_job_path(&app)?) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+        _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn login_job_names_the_app_and_starts_hidden() {
+        let job = login_job(
+            "app.kipster.desktop",
+            "/Applications/K & K.app/Contents/MacOS/kipster-ui",
+        );
+        assert!(job.contains("<key>AssociatedBundleIdentifiers</key><array><string>app.kipster.desktop</string></array>"));
+        assert!(job.contains("<string>/Applications/K &amp; K.app/Contents/MacOS/kipster-ui</string><string>--hidden</string>"));
+    }
 }

@@ -89,7 +89,7 @@ Clicking a notification shows and focuses the main window, stores the target and
 ## App lifecycle on macOS
 
 - **Keep running** (default on): closing the main window hides it; clicking the Dock icon shows it again. When off, closing the window quits. The setting is stored in `desktop-shell.json` in the app configuration directory, so it applies before the interface loads.
-- **Open at login** (default on): the first launch of an installed app adds a LaunchAgent (`~/Library/LaunchAgents/<identifier>.plist`) that starts Kipster with `--hidden`, without a window. The default is applied once; it never overrides the user's later choice. Development, demo and translocated (quarantined, not yet moved) copies do not register. A hidden copy that finds Kipster already running exits.
+- **Open at login** (default off): turning it on adds a LaunchAgent (`~/Library/LaunchAgents/<identifier>.plist`) that starts Kipster with `--hidden`, without a window. Its `AssociatedBundleIdentifiers` names the app, so macOS shows the login item as Kipster rather than the signing developer. Each launch of an installed app rewrites an existing job to point at that copy; development, demo and translocated (quarantined, not yet moved) copies leave it alone. A hidden copy that finds Kipster already running exits. Core runs on its own login jobs, so it starts after login either way; desktop notifications start once the app is open.
 - **Quit** (⌘Q) is a custom menu item that requests exit, so an update downloaded for install-on-quit is installed first. Quitting from the Dock menu or logging out ends the app directly and skips that step.
 - **Badge**: `badge.set(count)` sets the Dock badge; `0` clears it.
 

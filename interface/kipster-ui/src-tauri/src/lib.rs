@@ -99,17 +99,11 @@ pub fn run() {
     if shell::started_hidden_as_duplicate(&context.config().identifier) {
         return;
     }
-    let login_item = tauri_plugin_autostart::Builder::new()
-        .app_name(context.config().identifier.clone())
-        .arg(shell::HIDDEN_ARG);
-    #[cfg(target_os = "macos")]
-    let login_item = login_item.macos_launcher(tauri_plugin_autostart::MacosLauncher::LaunchAgent);
     let builder = tauri::Builder::default()
         // Fallback for notifications where the native macOS center is unavailable.
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
-        .plugin(login_item.build())
         .manage(SoftwareUpdateExit::default())
         .setup(|app| {
             notifications::setup(app.handle());
