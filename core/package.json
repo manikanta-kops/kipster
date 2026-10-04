@@ -12,7 +12,8 @@
     "dist",
     "README.md",
     "docs",
-    "templates"
+    "templates",
+    "NOTICE"
   ],
   "sideEffects": false,
   "exports": {

@@ -5,7 +5,7 @@
   "description": "macOS installer and recoverable updater for Kipster Core",
   "type": "module",
   "engines": { "node": ">=26.10.0 <27" },
-  "files": ["src", "launchers", "README.md"],
+  "files": ["src", "launchers", "README.md", "NOTICE"],
   "bin": { "kipster": "./src/cli.mjs" },
   "scripts": {
     "build": "node --check src/cli.mjs",
