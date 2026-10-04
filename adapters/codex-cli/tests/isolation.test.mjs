@@ -106,7 +106,7 @@ test('conversations share user config; maintenance uses the user login with inte
     assert.equal(reader.argv.includes('mcp_servers.ambient.enabled=false'), false)
     assert.ok(maintenance.argv.includes('mcp_servers.ambient.enabled=false'))
     const thread = (await f.records()).find(row => row.method === 'thread/start').params
-    assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer], ['read-only', 'untrusted', 'user'], 'a context without a permission mode runs supervised')
+    assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer], ['workspace-write', 'untrusted', 'user'], 'a context without a permission mode runs supervised')
     const ledger = JSON.parse(await readFile(join(f.data, 'conversation-sessions/thread-1.json'), 'utf8'))
     assert.equal(ledger.home, await realpath(f.userHome))
   } finally { await f.cleanup() }
@@ -145,11 +145,11 @@ test('each permission mode starts the thread with its sandbox, approval policy, 
   const network = { 'sandbox_workspace_write.network_access': true }
   const askOutsideSandbox = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
   const expected = {
-    supervised: ['read-only', 'untrusted', 'user', undefined],
+    supervised: ['workspace-write', 'untrusted', 'user', network],
     acceptEdits: ['workspace-write', askOutsideSandbox, 'user', network],
     auto: ['workspace-write', askOutsideSandbox, 'auto_review', network],
     fullAccess: ['danger-full-access', 'never', 'user', undefined],
-    future: ['read-only', 'untrusted', 'user', undefined],
+    future: ['workspace-write', 'untrusted', 'user', network],
   }
   for (const [permissionMode, settings] of Object.entries(expected)) {
     const f = await fixture()

@@ -22,12 +22,13 @@ const askOutsideSandbox: Granular = { granular: { sandbox_approval: true, rules:
 const network = { 'sandbox_workspace_write.network_access': true } as const
 
 /**
- * `untrusted` asks before every file change and every command Codex does not know to be read-only. With a
- * workspace-write sandbox, edits inside the writable roots and sandboxed commands run without asking. The reviewer is
+ * `untrusted` asks before every file change and every command Codex does not know to be read-only, so supervised can
+ * use the workspace-write sandbox: an approved command then runs with network, which a read-only sandbox blocks. With
+ * the granular policy, edits inside the writable roots and sandboxed commands run without asking. The reviewer is
  * always set, so a reviewer chosen in the user's Codex configuration does not change what a mode means.
  */
 const modes: Readonly<Record<PermissionMode, CodexPermissions>> = {
-  supervised: { sandbox: 'read-only', approvalPolicy: 'untrusted', approvalsReviewer: 'user' },
+  supervised: { sandbox: 'workspace-write', approvalPolicy: 'untrusted', approvalsReviewer: 'user', config: network },
   acceptEdits: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user', config: network },
   auto: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'auto_review', config: network },
   fullAccess: { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' },
