@@ -75,7 +75,7 @@ test('Core works as a packed package outside repository resolution', { timeout: 
       }
     }
     for (const filename of installedFiles) {
-      assert.match(path.relative(installedRoot, filename).split(path.sep).join('/'), /^(dist\/|docs\/|templates\/|README\.md$|package\.json$)/)
+      assert.match(path.relative(installedRoot, filename).split(path.sep).join('/'), /^(dist\/|docs\/|templates\/|README\.md$|LICENSE$|NOTICE$|package\.json$)/)
     }
     await run(process.execPath, ['--input-type=module', '-e', `
       import assert from 'node:assert/strict';
