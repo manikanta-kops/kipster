@@ -35,7 +35,8 @@ test('a backend that still serves this protocol opens normally and shows both ve
   await page.reload()
   await expect(composer(page)).toBeVisible()
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await page.getByRole('button', { name: 'About' }).click()
+  await page.getByRole('button', { name: 'Updates', exact: true }).click()
+  await page.getByRole('button', { name: /^Version details/ }).click()
   const versions = page.getByRole('definition')
   await expect(page.getByLabel('Versions')).toContainText(
     `Kipster app${appVersion}`,

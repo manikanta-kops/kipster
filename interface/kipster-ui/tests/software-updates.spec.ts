@@ -28,6 +28,21 @@ async function openUpdates(page: Page) {
 }
 const summary = (page: Page) =>
   updates(page).getByLabel('Update', { exact: true })
+/** Next builds keep channel and version controls one level down, under Testing. */
+async function openTesting(page: Page) {
+  await updates(page)
+    .getByRole('button', { name: /^Testing/ })
+    .click()
+  await expect(
+    updates(page).getByRole('heading', { name: 'Testing', exact: true }),
+  ).toBeVisible()
+}
+async function backToUpdates(page: Page) {
+  await updates(page).getByRole('button', { name: 'Back to Updates' }).click()
+  await expect(
+    updates(page).getByRole('heading', { name: 'Updates', exact: true }),
+  ).toBeVisible()
+}
 const nextVersion = '0.8.1-next.20261002120000'
 /** The fake app reports a Release next build version. */
 async function nextBuild(page: Page, extra: Record<string, unknown> = {}) {
@@ -196,6 +211,7 @@ test('the update pill and settings remain usable in a dark phone layout', async 
   await expect(summary(page)).toContainText(
     'Restart Kipster to finish updating',
   )
+  await openTesting(page)
   await expect(updates(page).getByLabel('Update channel')).toBeVisible()
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
@@ -264,6 +280,7 @@ test('next builds add channel, versions and status under Testing', async ({
   await startDemo(page)
   await nextBuild(page)
   await openUpdates(page)
+  await openTesting(page)
   const testing = updates(page).getByLabel('Testing', { exact: true })
   await expect(testing).toBeVisible()
   await expect(testing.getByLabel('Update status')).toContainText('idle')
@@ -314,6 +331,7 @@ test('older backends are offered only with backups and explicit data-loss confir
   await demo(page, '/updates', { state: 'backups' })
   await nextBuild(page)
   await openUpdates(page)
+  await openTesting(page)
   const picker = page.getByLabel('Backend version', { exact: true })
   await expect(picker.locator('option[value="0.5.0"]')).toHaveCount(0)
   await expect(picker.locator('option[value="0.6.0"]')).toHaveCount(1)
@@ -349,6 +367,7 @@ test('a backend protocol warning must be accepted before installing', async ({
   await demo(page, '/updates', { state: 'available', channel: 'next' })
   await nextBuild(page)
   await openUpdates(page)
+  await openTesting(page)
   await page
     .getByLabel('Backend version', { exact: true })
     .selectOption('0.9.0-next.1')
@@ -379,6 +398,7 @@ test('app version pinning warns about protocol, permits downgrades and persists 
   await startDemo(page)
   await nextBuild(page, { state: 'idle' })
   await openUpdates(page)
+  await openTesting(page)
   await expect(
     page.getByLabel('App version').locator('option[value="0.6.0"]'),
   ).toHaveAttribute('disabled', '')
@@ -401,6 +421,7 @@ test('app version pinning warns about protocol, permits downgrades and persists 
   expect(
     await page.evaluate(() => localStorage.getItem('kipster-app-update-pin')),
   ).toBeNull()
+  await backToUpdates(page)
   await expect(summary(page)).not.toContainText('→ app 0.7.0')
   await expect(page.locator('.software-update-pill')).toHaveCount(0)
 })
@@ -527,9 +548,11 @@ test('unknown backend update states remain neutral and unsupported backends rema
   await nextBuild(page)
   await openUpdates(page)
   await demo(page, '/updates', { core: { state: 'future-state' } })
+  await openTesting(page)
   await expect(updates(page).getByLabel('Update status')).toContainText(
     'Backend update status not recognized',
   )
+  await backToUpdates(page)
   await expect(summary(page)).toContainText('Up to date')
   await updates(page).getByRole('button', { name: 'Close settings' }).click()
   await page.route('**/__test-core/*/v1/updates', (route) =>
@@ -562,10 +585,12 @@ test('unmanaged backends offer manual instructions while app updates stay availa
   await expect(
     summary(page).getByRole('button', { name: 'Update', exact: true }),
   ).toHaveCount(0)
+  await openTesting(page)
   await expect(page.getByLabel('Backend version', { exact: true })).toHaveCount(
     0,
   )
   await expect(page.getByLabel('App version', { exact: true })).toBeVisible()
+  await backToUpdates(page)
   for (const state of ['scheduled', 'installing', 'failed']) {
     await demo(page, '/updates', { core: { state } })
     await expect(page.locator('.software-update-pill')).toHaveCount(0)

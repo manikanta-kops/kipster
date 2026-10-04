@@ -421,7 +421,7 @@ try {
     name: 'Archive & deletion',
     exact: true,
   }).click()
-  await A.getByRole('button', { name: 'Delete Scout', exact: true }).click()
+  await A.getByRole('button', { name: 'Archive Scout', exact: true }).click()
   await A.getByRole('button', { name: 'Confirm archive', exact: true }).click()
   await expect(B.getByText(/Scout is archived/).first()).toBeVisible()
   await expect(
@@ -479,7 +479,7 @@ try {
     executions.find((e) => e.context.runId === uncertainRun.runId),
   )
 
-  await A.getByRole('button', { name: 'Delete Scout', exact: true }).click()
+  await A.getByRole('button', { name: 'Archive Scout', exact: true }).click()
   await A.getByRole('button', { name: 'Confirm archive', exact: true }).click()
   await A.getByRole('button', {
     name: 'Delete Scout permanently',
@@ -547,7 +547,7 @@ try {
     executions.find((e) => e.context.runId === peerRun.runId),
   )
   await A.getByRole('button', {
-    name: 'Delete Polling peer',
+    name: 'Archive Polling peer',
     exact: true,
   }).click()
   await A.getByRole('button', { name: 'Confirm archive', exact: true }).click()
@@ -587,7 +587,8 @@ try {
       )
   }
   console.log('Polling observations:', JSON.stringify(polls))
-  await A.getByRole('button', { name: 'Close archive & deletion' }).click()
+  // Leaving the page closes it, like closing the old panel did.
+  await A.getByRole('button', { name: 'Kips', exact: true }).click()
   const closedCount = polls.length
   await A.waitForTimeout(1800)
   assert.equal(polls.length, closedCount, 'closing cancels scheduled polling')
@@ -689,10 +690,10 @@ try {
     exact: true,
   }).click()
   await expect(
-    B.getByRole('button', { name: 'Close archive & deletion' }),
+    B.getByRole('button', { name: 'Close settings' }),
   ).toBeInViewport()
   const closeColor = await B.getByRole('button', {
-    name: 'Close archive & deletion',
+    name: 'Close settings',
   }).evaluate((e) => getComputedStyle(e).color)
   assert.notEqual(closeColor, 'rgb(42, 22, 32)')
   await B.screenshot({
@@ -700,7 +701,6 @@ try {
     fullPage: true,
     animations: 'disabled',
   })
-  await B.getByRole('button', { name: 'Close archive & deletion' }).click()
   await B.getByRole('button', { name: 'Close settings' }).click()
   await B.locator('#workspace-sidebar .collapse-button').click()
   console.log(
@@ -795,7 +795,6 @@ try {
     animations: 'disabled',
   })
 
-  await A.getByRole('button', { name: 'Close archive & deletion' }).click()
   await A.getByRole('button', { name: 'Close settings' }).click()
   await A.setViewportSize({ width: 1440, height: 900 })
   const maple = (

@@ -1,5 +1,4 @@
 import { lazy, Suspense, useRef, useState } from 'react'
-import { Icon } from '../../components/Icon'
 import { useManagement } from '../../data/use-management'
 import type { WorkspaceSnapshot } from '../../data/directory'
 import type { Agent } from '../chat/model'
@@ -26,13 +25,11 @@ export function Management({
     <>
       <button
         ref={trigger}
-        className="management-trigger"
+        type="button"
+        className="set-row set-action"
         onClick={() => setTarget({ organizationId })}
-        aria-label="Manage workspace"
-        data-tip="Manage workspace"
       >
-        <Icon name="plus" />
-        <span className="sidebar-label">Manage workspace</span>
+        Manage kips and groups…
         {management.pending && (
           <span className="recovery-dot" aria-label="Request needs attention" />
         )}

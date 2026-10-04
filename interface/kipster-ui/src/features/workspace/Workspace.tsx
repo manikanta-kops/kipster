@@ -134,9 +134,6 @@ const CoreSettingsPanel = lazy(() =>
     default: m.CoreSettingsPanel,
   })),
 )
-const LifecyclePanel = lazy(() =>
-  import('./LifecyclePanel').then((m) => ({ default: m.LifecyclePanel })),
-)
 
 const connecting = 'Connecting to Kipster…'
 const delay = (signal: AbortSignal, time: number) =>
@@ -360,7 +357,6 @@ export function Workspace({
     anchor: HTMLButtonElement
     key: string
   } | null>(null)
-  const [lifecycleOpen, setLifecycleOpen] = useState(false)
   const [settingsOpener, setSettingsOpener] = useState<HTMLElement | null>(null)
   const [settingsInitialTab, setSettingsInitialTab] = useState<
     'workspace' | 'updates'
@@ -2347,33 +2343,31 @@ export function Workspace({
               softwareUpdates={softwareUpdates}
               initialTab={settingsInitialTab}
               versions={identity}
-              workspaceControls={
-                <>
-                  <Management
-                    data={view}
-                    organizationId={nav.organizationId}
-                    agents={addable}
-                  />
-                  {changeConnection && (
-                    <button
-                      className="management-trigger"
-                      onClick={changeConnection}
-                    >
-                      <Icon name="connection" />
-                      Change connection
-                    </button>
-                  )}
-                  <button
-                    className="management-trigger"
-                    onClick={() => {
-                      setLifecycleOpen(true)
-                    }}
-                  >
-                    <Icon name="folder" />
-                    Archive &amp; deletion
-                  </button>
-                </>
+              manage={
+                <Management
+                  data={view}
+                  organizationId={nav.organizationId}
+                  agents={addable}
+                />
               }
+              changeConnection={changeConnection}
+              lifecycle={
+                directory
+                  ? {
+                      directory,
+                      scope,
+                      history: (agentId, organizationId) => {
+                        setSettingsOpener(null)
+                        switchChat({
+                          agentId,
+                          organizationId,
+                          target: 'organization',
+                        })
+                      },
+                    }
+                  : undefined
+              }
+              workspace={view}
               appearance={appearance}
               updates={applicationUpdates}
               endpoint={client.endpoint}
@@ -2381,21 +2375,6 @@ export function Workspace({
               organizationId={nav.organizationId ?? identity.organizationId}
               opener={settingsOpener}
               close={() => setSettingsOpener(null)}
-            />
-          </Suspense>
-        )}
-        {lifecycleOpen && directory && (
-          <Suspense>
-            <LifecyclePanel
-              endpoint={client.endpoint}
-              scope={scope}
-              directory={directory}
-              close={() => setLifecycleOpen(false)}
-              history={(agentId, organizationId) => {
-                setSettingsOpener(null)
-                switchChat({ agentId, organizationId, target: 'organization' })
-                setLifecycleOpen(false)
-              }}
             />
           </Suspense>
         )}

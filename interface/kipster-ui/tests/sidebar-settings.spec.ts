@@ -14,7 +14,7 @@ for (const width of [1440, 390]) {
     ).toBeVisible()
     await expect(
       sidebar.getByRole('button', {
-        name: /Manage workspace|Archive|Change connection/,
+        name: /Manage workspace|Manage kips|Archive|Change connection/,
       }),
     ).toHaveCount(0)
     const organization = sidebar.getByRole('combobox', { name: 'Organization' })
@@ -35,16 +35,23 @@ for (const width of [1440, 390]) {
     await expect(
       settings.getByRole('combobox', { name: 'Organization' }),
     ).toHaveCount(0)
-    await settings.getByRole('button', { name: 'Manage workspace' }).click()
+    await settings
+      .getByRole('button', { name: 'Organization', exact: true })
+      .click()
+    await settings
+      .getByRole('button', { name: 'Manage kips and groups…' })
+      .click()
     await expect(
       page.getByRole('button', { name: 'Close management' }),
     ).toBeVisible()
     await page.getByRole('button', { name: 'Close management' }).click()
     await settings.getByRole('button', { name: 'Archive & deletion' }).click()
     await expect(
-      page.getByRole('dialog', { name: 'Archive & deletion' }),
+      settings.getByRole('heading', { name: 'Archive & deletion' }),
     ).toBeVisible()
-    await page.getByRole('button', { name: 'Close archive & deletion' }).click()
+    await expect(
+      settings.getByRole('heading', { name: 'Archived kips' }),
+    ).toBeVisible()
     await expect(
       settings.getByRole('button', { name: /^Notifications,/ }),
     ).toHaveCount(0)

@@ -360,14 +360,6 @@
     opacity: 1;
   }
 }
-
-/* Settings */
-.setting-row.sub {
-  padding-left: 30px;
-}
-.setting-row.sub.off .setting-label {
-  opacity: 0.45;
-}
 .permission {
   display: inline-flex;
   align-items: center;

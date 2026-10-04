@@ -57,6 +57,14 @@ import { PencilSimpleIcon } from '@phosphor-icons/react/dist/csr/PencilSimple'
 import { LightbulbIcon } from '@phosphor-icons/react/dist/csr/Lightbulb'
 import { StopIcon } from '@phosphor-icons/react/dist/csr/Stop'
 import { PlayIcon } from '@phosphor-icons/react/dist/csr/Play'
+import { PaintBrushIcon } from '@phosphor-icons/react/dist/csr/PaintBrush'
+import { UsersIcon } from '@phosphor-icons/react/dist/csr/Users'
+import { PlugIcon } from '@phosphor-icons/react/dist/csr/Plug'
+import { ArchiveIcon } from '@phosphor-icons/react/dist/csr/Archive'
+import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/csr/MagnifyingGlass'
+import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft'
+import { TerminalIcon } from '@phosphor-icons/react/dist/csr/Terminal'
+import { ShieldCheckIcon } from '@phosphor-icons/react/dist/csr/ShieldCheck'
 
 const icons = {
   bell: BellIcon,
@@ -117,6 +125,14 @@ const icons = {
   lightbulb: LightbulbIcon,
   stop: StopIcon,
   play: PlayIcon,
+  paint: PaintBrushIcon,
+  users: UsersIcon,
+  plug: PlugIcon,
+  archive: ArchiveIcon,
+  search: MagnifyingGlassIcon,
+  back: CaretLeftIcon,
+  terminal: TerminalIcon,
+  shield: ShieldCheckIcon,
 } as const
 
 /** Direct imports keep unused icons out of the development module graph too. */

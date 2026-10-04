@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { Directory } from '../../data/directory'
-import { Panel } from '../settings/Panel'
+import { Icon } from '../../components/Icon'
+import { KipAvatar, type KipLook } from '../settings/KipAvatar'
+import { Block, Callout, Confirm, Glyph, Row } from '../settings/ui'
 
 type Action = 'archive' | 'restore' | 'delete-agent' | 'delete-organization'
 const actionLabels: Record<Action, string> = {
@@ -21,21 +23,22 @@ type Request = {
 const terminal = (r: Request) =>
   ['succeeded', 'failed', 'rejected'].includes(r.state)
 
-/** Receipts track progress only. Directory state always comes from Core's snapshot/stream. */
-export function LifecyclePanel({
+/**
+ * Archive, restore and permanent deletion, as a Settings page. Receipts track progress only;
+ * directory state always comes from Core's snapshot and stream.
+ */
+export function ArchiveSettings({
   endpoint,
   scope,
   directory,
-  close,
   history,
-  archiveAgentId,
+  look,
 }: {
-  archiveAgentId?: string
   endpoint: string
   scope: string
   directory: Directory
-  close: () => void
   history: (agentId: string, organizationId: string) => void
+  look: (agentId: string) => KipLook
 }) {
   const storageKey = `kipster-lifecycle:${scope}`
   const [requests, setRequests] = useState<Request[]>(() => {
@@ -49,12 +52,7 @@ export function LifecyclePanel({
     action: Action
     id: string
     name: string
-  } | null>(() => {
-    const a = archiveAgentId ? directory.agents[archiveAgentId] : undefined
-    return a && !a.admin && a.lifecycle === 'active'
-      ? { action: 'archive', id: a.id, name: a.name }
-      : null
-  })
+  } | null>(null)
   const [typed, setTyped] = useState('')
   const [copy, setCopy] = useState(false)
   const [error, setError] = useState('')
@@ -199,31 +197,172 @@ export function LifecyclePanel({
     setError('')
   }
   const busy = (id: string) => requests.some((r) => r.id === id && !terminal(r))
+  const agents = Object.values(directory.agents)
+  const organizations = Object.values(directory.organizations).filter(
+    (o) => o.lifecycle === 'active',
+  )
+  const archived = agents.filter((a) => a.lifecycle === 'archived' && !a.admin)
+  const active = agents
+    .filter((a) => a.lifecycle === 'active')
+    .sort((a, b) => Number(b.admin) - Number(a.admin))
+  const deleting = confirmation?.action.startsWith('delete')
   return (
-    <Panel
-      className="settings-panel lifecycle-panel"
-      title="Archive & deletion"
-      subtitle="Manage kips and organizations"
-      close={close}
-    >
-      <div className="settings-content lifecycle-content">
-        {error && <p role="alert">{error}</p>}
-        {confirmation && (
+    <>
+      {error && (
+        <Callout tone="danger" alert>
+          {error}
+        </Callout>
+      )}
+      <Block
+        label="Archived kips"
+        foot="Archived kips stop working and learning. Their chats stay readable."
+      >
+        {!archived.length ? (
+          <Row label={<span className="set-muted">No archived kips</span>} />
+        ) : (
+          archived.map((a) => (
+            <Row
+              key={a.id}
+              lead={<KipAvatar look={look(a.id)} />}
+              label={a.name}
+              sub={
+                <>
+                  <span className="set-line">
+                    Archived · History is read only
+                  </span>
+                  {organizations.length > 0 && (
+                    <span className="set-line set-links">
+                      {organizations.map((o) => (
+                        <button
+                          key={o.id}
+                          className="set-link"
+                          onClick={() => history(a.id, o.id)}
+                        >
+                          History in {o.name}
+                        </button>
+                      ))}
+                    </span>
+                  )}
+                </>
+              }
+              control={
+                <>
+                  <button
+                    className="set-button"
+                    aria-label={`Restore ${a.name}`}
+                    disabled={busy(a.id)}
+                    onClick={() => confirm('restore', a.id, a.name)}
+                  >
+                    Restore
+                  </button>
+                  <button
+                    className="set-button danger"
+                    aria-label={`Delete ${a.name} permanently`}
+                    disabled={busy(a.id)}
+                    onClick={() => confirm('delete-agent', a.id, a.name)}
+                  >
+                    Delete…
+                  </button>
+                </>
+              }
+            />
+          ))
+        )}
+      </Block>
+      <Block
+        label="Active kips"
+        foot="Archive first, then delete from the archive if you need to."
+      >
+        {active.map((a) => (
+          <Row
+            key={a.id}
+            lead={<KipAvatar look={look(a.id)} />}
+            label={a.name}
+            sub={
+              a.admin ? 'Your main kip is protected' : look(a.id).description
+            }
+            control={
+              a.admin ? (
+                <span className="set-protected" title="Protected">
+                  <Icon name="shield" />
+                </span>
+              ) : (
+                <button
+                  className="set-button"
+                  aria-label={`Archive ${a.name}`}
+                  disabled={busy(a.id)}
+                  onClick={() => confirm('archive', a.id, a.name)}
+                >
+                  Archive…
+                </button>
+              )
+            }
+          />
+        ))}
+      </Block>
+      {organizations.length > 0 && (
+        <Block label="Organizations">
+          {organizations.map((o) => (
+            <Row
+              key={o.id}
+              lead={
+                <Glyph icon="organization" hue="var(--hue-ocean)" size={30} />
+              }
+              label={o.name}
+              sub="Removes its chats and owned data. Global kips stay."
+              control={
+                <button
+                  className="set-button danger"
+                  aria-label={`Delete ${o.name}`}
+                  disabled={busy(o.id)}
+                  onClick={() => confirm('delete-organization', o.id, o.name)}
+                >
+                  Delete…
+                </button>
+              }
+            />
+          ))}
+        </Block>
+      )}
+      {requests.length > 0 && (
+        <Block label="Progress" region="Operation progress">
+          {requests.map((r) => (
+            <Row
+              key={r.operationId}
+              label={`${r.name} · ${actionLabels[r.action]} · ${r.state}`}
+              sub={
+                <>
+                  <span className="set-line">{r.detail}</span>
+                  {r.state === 'waiting' && (
+                    <span className="set-line">
+                      Cleanup will continue when Core confirms the outstanding
+                      work has ended.
+                    </span>
+                  )}
+                </>
+              }
+            />
+          ))}
+        </Block>
+      )}
+      {confirmation && (
+        <Confirm
+          title={
+            confirmation.action === 'archive'
+              ? `Archive ${confirmation.name}?`
+              : confirmation.action === 'restore'
+                ? `Restore ${confirmation.name}?`
+                : `Delete ${confirmation.name} permanently?`
+          }
+          cancel={() => setConfirmation(null)}
+        >
           <form
-            className="management-form"
+            className="set-confirm-form"
             onSubmit={(e) => {
               e.preventDefault()
               submit()
             }}
           >
-            <h3>
-              {confirmation.action === 'archive'
-                ? 'Move to Archive'
-                : confirmation.action === 'restore'
-                  ? 'Restore kip'
-                  : 'Delete permanently'}
-              : {confirmation.name}
-            </h3>
             <p>
               {confirmation.action === 'archive'
                 ? 'Stops work and learning. Chats remain readable, and you can restore this kip.'
@@ -233,9 +372,11 @@ export function LifecyclePanel({
                     ? 'Removes this kip’s chats, memory and files permanently.'
                     : 'Removes this organization’s chats and owned data permanently. Global kips stay.'}
             </p>
-            {confirmation.action.startsWith('delete') && (
-              <label>
-                Type {confirmation.name} to confirm
+            {deleting && (
+              <label className="set-type-name">
+                <span>
+                  Type <b>{confirmation.name}</b> to confirm
+                </span>
                 <input
                   aria-label="Type name to confirm"
                   value={typed}
@@ -245,7 +386,7 @@ export function LifecyclePanel({
               </label>
             )}
             {confirmation.action === 'delete-agent' && (
-              <label>
+              <label className="set-check">
                 <input
                   type="checkbox"
                   checked={copy}
@@ -254,117 +395,29 @@ export function LifecyclePanel({
                 Copy files shared in organization chats into their organizations
               </label>
             )}
-            <button
-              className="secondary-button"
-              disabled={
-                confirmation.action.startsWith('delete') &&
-                typed !== confirmation.name
-              }
-            >
-              Confirm{' '}
-              {confirmation.action === 'archive'
-                ? 'archive'
-                : confirmation.action === 'restore'
-                  ? 'restore'
-                  : 'permanent deletion'}
-            </button>
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => setConfirmation(null)}
-            >
-              Cancel
-            </button>
+            <div className="set-confirm-actions">
+              <button
+                type="button"
+                className="set-button"
+                onClick={() => setConfirmation(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={`set-button ${deleting ? 'danger solid' : 'primary'}`}
+                disabled={deleting && typed !== confirmation.name}
+              >
+                Confirm{' '}
+                {confirmation.action === 'archive'
+                  ? 'archive'
+                  : confirmation.action === 'restore'
+                    ? 'restore'
+                    : 'permanent deletion'}
+              </button>
+            </div>
           </form>
-        )}
-        <h3>Archive</h3>
-        {!Object.values(directory.agents).some(
-          (a) => a.lifecycle === 'archived',
-        ) && <p>No archived kips.</p>}
-        {Object.values(directory.agents)
-          .filter((a) => a.lifecycle === 'archived' && !a.admin)
-          .map((a) => (
-            <section className="management-row" key={a.id}>
-              <div>
-                <strong>{a.name}</strong>
-                <p>Archived · History is read only</p>
-                {Object.values(directory.organizations)
-                  .filter((o) => o.lifecycle === 'active')
-                  .map((o) => (
-                    <button
-                      key={o.id}
-                      className="text-button"
-                      onClick={() => history(a.id, o.id)}
-                    >
-                      History in {o.name}
-                    </button>
-                  ))}
-              </div>
-              <button
-                disabled={busy(a.id)}
-                className="secondary-button"
-                onClick={() => confirm('restore', a.id, a.name)}
-              >
-                Restore {a.name}
-              </button>
-              <button
-                disabled={busy(a.id)}
-                className="text-button danger"
-                onClick={() => confirm('delete-agent', a.id, a.name)}
-              >
-                Delete {a.name} permanently
-              </button>
-            </section>
-          ))}
-        <h3>Active kips</h3>
-        {Object.values(directory.agents)
-          .filter((a) => a.lifecycle === 'active' && !a.admin)
-          .map((a) => (
-            <div className="management-row" key={a.id}>
-              <strong>{a.name}</strong>
-              <button
-                disabled={busy(a.id)}
-                className="text-button danger"
-                onClick={() => confirm('archive', a.id, a.name)}
-              >
-                Delete {a.name}
-              </button>
-            </div>
-          ))}
-        <p>Delete moves a kip to Archive. Your main kip is protected.</p>
-        <h3>Organizations</h3>
-        {Object.values(directory.organizations)
-          .filter((o) => o.lifecycle === 'active')
-          .map((o) => (
-            <div className="management-row" key={o.id}>
-              <strong>{o.name}</strong>
-              <button
-                disabled={busy(o.id)}
-                className="text-button danger"
-                onClick={() => confirm('delete-organization', o.id, o.name)}
-              >
-                Delete {o.name}
-              </button>
-            </div>
-          ))}
-        <section aria-label="Operation progress">
-          <h3>Operation progress</h3>
-          {requests.map((r) => (
-            <div className="management-callout" key={r.operationId}>
-              <strong>
-                {r.name} · {actionLabels[r.action]} · {r.state}
-              </strong>
-              <p>{r.detail}</p>
-              {r.state === 'waiting' && (
-                <p>
-                  Cleanup will continue when Core confirms the outstanding work
-                  has ended.
-                </p>
-              )}
-            </div>
-          ))}
-        </section>
-      </div>
-    </Panel>
+        </Confirm>
+      )}
+    </>
   )
 }

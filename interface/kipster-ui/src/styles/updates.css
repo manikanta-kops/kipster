@@ -31,66 +31,6 @@
   display: grid;
   gap: 16px;
 }
-.update-summary .setting-label {
-  font-size: 15px;
-  font-weight: 600;
-}
-.update-summary .setting-row {
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-.update-summary .update-check {
-  padding: 0 14px 12px;
-}
-.update-summary .primary-button {
-  color: var(--on-tint);
-}
-.update-testing .group-label {
-  margin-top: 8px;
-}
-.update-testing {
-  display: grid;
-  gap: 12px;
-}
-.update-release {
-  overflow: hidden;
-}
-.update-detail,
-.update-notes,
-.update-pin {
-  margin: 0;
-  padding: 0 14px 12px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--label-2);
-}
-.update-detail:empty {
-  display: none;
-}
-.update-pin {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.update-notes summary {
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 550;
-}
-.update-notes p {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  margin: 8px 0 0;
-}
-.update-check {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 11px;
-  line-height: 1.6;
-  color: var(--label-3);
-}
 .update-confirmation {
   max-width: 480px;
 }
@@ -104,11 +44,4 @@
 }
 .update-confirmation .primary-button {
   color: var(--on-tint);
-}
-@media (max-width: 640px) {
-  .update-check,
-  .update-pin {
-    align-items: start;
-    flex-wrap: wrap;
-  }
 }

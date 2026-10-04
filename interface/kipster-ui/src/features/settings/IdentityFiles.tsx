@@ -5,9 +5,18 @@ import type {
 import { check, incompatible, list, record } from '../../data/response.ts'
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Directory } from '../../data/core-settings'
+import { Icon } from '../../components/Icon'
+import { Markdown } from '../chat/Markdown'
+import { BarTools, Block, Callout, Row, Segmented } from './ui'
+import { useSheet } from './sheet'
 
-const files = ['AGENTS.md', 'soul.md', 'identity.md']
+const identityFiles = [
+  { name: 'AGENTS.md', what: 'How it works' },
+  { name: 'soul.md', what: 'Values and voice' },
+  { name: 'identity.md', what: 'Who it is' },
+]
+type Backup = IdentityBackups['backups'][number]
+
 async function request(
   endpoint: string,
   path: string,
@@ -39,80 +48,30 @@ function fileRecord(value: Record<string, unknown>): FileRecord {
   check(typeof value.content === 'string' && typeof value.sha256 === 'string')
   return value as FileRecord
 }
-export function IdentityFiles({
-  endpoint,
-  directory,
-}: {
-  endpoint: string
-  directory: Directory
-}) {
-  const agents = directory.agents.filter((agent) =>
-    ['active', 'archived'].includes(agent.lifecycle),
-  )
-  const [chosen, setChosen] = useState('')
-  const [file, setFile] = useState('identity.md')
-  const agent = agents.find((agent) => agent.id === chosen) ?? agents[0]
-  if (!agent) return <p>No kip identities are available.</p>
-  return (
-    <>
-      <label className="setting-row">
-        <span>Kip</span>
-        <select
-          value={agent.id}
-          onChange={(event) => setChosen(event.target.value)}
-        >
-          {agents.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-              {item.lifecycle === 'archived' ? ' (archived)' : ''}
-              {agents.filter((other) => other.name === item.name).length > 1
-                ? ` · ${item.id.slice(0, 8)}`
-                : ''}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="setting-row">
-        <span>Identity file</span>
-        <select value={file} onChange={(event) => setFile(event.target.value)}>
-          {files.map((name) => (
-            <option key={name}>{name}</option>
-          ))}
-        </select>
-      </label>
-      <IdentityFile
-        key={`${endpoint}:${agent.id}:${file}`}
-        endpoint={endpoint}
-        agentId={agent.id}
-        file={file}
-        readOnly={agent.lifecycle === 'archived'}
-      />
-    </>
-  )
-}
-function IdentityFile({
+const filePath = (agentId: string, file: string) =>
+  `/v1/agents/${encodeURIComponent(agentId)}/identity/${encodeURIComponent(file)}`
+const fileKey = (endpoint: string, agentId: string, file: string) => [
+  'identity-file',
   endpoint,
   agentId,
   file,
-  readOnly,
-}: {
-  endpoint: string
-  agentId: string
-  file: string
-  readOnly: boolean
-}) {
-  const queries = useQueryClient()
-  const path = `/v1/agents/${encodeURIComponent(agentId)}/identity/${encodeURIComponent(file)}`
-  const key = ['identity-file', endpoint, agentId, file]
-  const current = useQuery({
-    queryKey: key,
+]
+function useFile(endpoint: string, agentId: string, file: string) {
+  return useQuery({
+    queryKey: fileKey(endpoint, agentId, file),
     queryFn: async ({ signal }) =>
-      fileRecord(await request(endpoint, path, signal)),
+      fileRecord(await request(endpoint, filePath(agentId, file), signal)),
   })
-  const backups = useQuery({
-    queryKey: [...key, 'backups'],
+}
+function useBackups(endpoint: string, agentId: string, file: string) {
+  return useQuery({
+    queryKey: [...fileKey(endpoint, agentId, file), 'backups'],
     queryFn: async ({ signal }) => {
-      const value = await request(endpoint, path + '/backups', signal)
+      const value = await request(
+        endpoint,
+        filePath(agentId, file) + '/backups',
+        signal,
+      )
       return list(value.backups, (backup) => {
         check(
           record(backup) &&
@@ -120,103 +79,379 @@ function IdentityFile({
             typeof backup.createdAt === 'string' &&
             typeof backup.size === 'number',
         )
-        return backup as IdentityBackups['backups'][number]
+        return backup as Backup
       })
     },
   })
-  const [backupId, setBackupId] = useState('')
+}
+const byteSize = (size: number) =>
+  size < 1024 ? `${size} bytes` : `${(size / 1024).toFixed(1)} KB`
+const textSize = (text: string) =>
+  byteSize(new TextEncoder().encode(text).length)
+const backupTime = (value: string) =>
+  new Date(value).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  })
+
+/** The three files that make up a kip, each opening a viewer. */
+export function IdentityGroup({
+  endpoint,
+  agentId,
+  name,
+  admin,
+  readOnly,
+}: {
+  endpoint: string
+  agentId: string
+  name: string
+  /** The main kip, which can change any kip's files. */
+  admin?: string
+  readOnly: boolean
+}) {
+  return (
+    <Block
+      label="Identity"
+      foot={
+        readOnly
+          ? 'Archived identities are read-only.'
+          : admin && admin !== name
+            ? `${name} maintains these files. To change one, ask ${name} or ${admin}.`
+            : `${name} maintains these files. To change one, ask ${name}.`
+      }
+    >
+      {identityFiles.map((file) => (
+        <IdentityRow
+          key={file.name}
+          endpoint={endpoint}
+          agentId={agentId}
+          file={file.name}
+          what={file.what}
+        />
+      ))}
+    </Block>
+  )
+}
+function IdentityRow({
+  endpoint,
+  agentId,
+  file,
+  what,
+}: {
+  endpoint: string
+  agentId: string
+  file: string
+  what: string
+}) {
+  const { push } = useSheet()
+  const current = useFile(endpoint, agentId, file)
+  return (
+    <Row
+      lead={
+        <span className="set-tile" aria-hidden="true">
+          <Icon name="file" />
+        </span>
+      }
+      label={file}
+      sub={
+        current.data
+          ? `${what} · ${textSize(current.data.content)}`
+          : current.isError
+            ? `${what} · Unavailable`
+            : what
+      }
+      chevron
+      onClick={() => push({ kind: 'file', agentId, file, title: file })}
+    />
+  )
+}
+
+function ViewToggle() {
+  const { source, setSource } = useSheet()
+  return (
+    <Segmented
+      label="View"
+      value={source ? 'source' : 'preview'}
+      options={[
+        { value: 'preview', label: 'Preview' },
+        { value: 'source', label: 'Source' },
+      ]}
+      change={(next) => setSource(next === 'source')}
+      className="compact"
+    />
+  )
+}
+function RefreshFiles({
+  endpoint,
+  agentId,
+  file,
+  done,
+}: {
+  endpoint: string
+  agentId: string
+  file: string
+  done?: () => void
+}) {
+  const queries = useQueryClient()
+  return (
+    <button
+      type="button"
+      className="set-icon-button"
+      aria-label="Refresh files"
+      title="Refresh files"
+      onClick={() => {
+        done?.()
+        void queries.invalidateQueries({
+          queryKey: fileKey(endpoint, agentId, file),
+        })
+      }}
+    >
+      <Icon name="refresh" />
+    </button>
+  )
+}
+function Document({ text }: { text: string }) {
+  const { source } = useSheet()
+  if (!text) return <p className="set-empty">Empty file</p>
+  return source ? (
+    <pre className="set-source">{text}</pre>
+  ) : (
+    <Markdown text={text} headings className="set-markdown" />
+  )
+}
+
+export function IdentityFilePage({
+  endpoint,
+  agentId,
+  agentName,
+  file,
+  readOnly,
+}: {
+  endpoint: string
+  agentId: string
+  agentName: string
+  file: string
+  readOnly: boolean
+}) {
+  const { push } = useSheet()
+  const current = useFile(endpoint, agentId, file)
+  const backups = useBackups(endpoint, agentId, file)
+  const error = current.error || backups.error
+  return (
+    <>
+      <BarTools>
+        <ViewToggle />
+        <RefreshFiles endpoint={endpoint} agentId={agentId} file={file} />
+      </BarTools>
+      {readOnly && <Callout>Archived identities are read-only.</Callout>}
+      {error && (
+        <Callout tone="danger" alert>
+          {error.message}
+        </Callout>
+      )}
+      <Block
+        foot={
+          current.data
+            ? `${agentName} · ${textSize(current.data.content)}`
+            : undefined
+        }
+      >
+        <div className="set-document" aria-label={`Current ${file}`}>
+          {current.data ? (
+            <Document text={current.data.content} />
+          ) : (
+            <p className="set-empty">Loading file…</p>
+          )}
+        </div>
+      </Block>
+      <Block>
+        <Row
+          label="Backups"
+          sub={
+            readOnly
+              ? 'Saved before each change.'
+              : 'Saved before each change. Preview one to restore it.'
+          }
+          control={
+            backups.data && (
+              <span className="set-summary">{backups.data.length}</span>
+            )
+          }
+          chevron
+          onClick={() =>
+            push({ kind: 'backups', agentId, file, title: 'Backups' })
+          }
+        />
+      </Block>
+    </>
+  )
+}
+
+export function BackupsPage({
+  endpoint,
+  agentId,
+  agentName,
+  file,
+}: {
+  endpoint: string
+  agentId: string
+  agentName: string
+  file: string
+}) {
+  const { push } = useSheet()
+  const backups = useBackups(endpoint, agentId, file)
+  return (
+    <>
+      <BarTools>
+        <RefreshFiles endpoint={endpoint} agentId={agentId} file={file} />
+      </BarTools>
+      {backups.error && (
+        <Callout tone="danger" alert>
+          {backups.error.message}
+        </Callout>
+      )}
+      <Block
+        label={`${file} · ${agentName}`}
+        foot="Restoring replaces the file. The current version is kept as a backup."
+      >
+        {!backups.data ? (
+          <Row label={<span className="set-muted">Loading backups…</span>} />
+        ) : !backups.data.length ? (
+          <Row label={<span className="set-muted">No backups yet</span>} />
+        ) : (
+          backups.data.map((backup) => (
+            <Row
+              key={backup.id}
+              lead={
+                <span className="set-tile" aria-hidden="true">
+                  <Icon name="history" />
+                </span>
+              }
+              label={backupTime(backup.createdAt)}
+              sub={byteSize(backup.size)}
+              chevron
+              onClick={() =>
+                push({
+                  kind: 'backup',
+                  agentId,
+                  file,
+                  backupId: backup.id,
+                  title: backupTime(backup.createdAt),
+                })
+              }
+            />
+          ))
+        )}
+      </Block>
+    </>
+  )
+}
+
+export function BackupPage({
+  endpoint,
+  agentId,
+  file,
+  backupId,
+  readOnly,
+}: {
+  endpoint: string
+  agentId: string
+  file: string
+  backupId: string
+  readOnly: boolean
+}) {
+  const queries = useQueryClient()
+  const { pop, toast } = useSheet()
+  const key = fileKey(endpoint, agentId, file)
+  const current = useFile(endpoint, agentId, file)
   const preview = useQuery({
     queryKey: [...key, 'backup', backupId],
-    enabled: !!backupId,
     queryFn: async ({ signal }) =>
       fileRecord(
         await request(
           endpoint,
-          `${path}/backups/${encodeURIComponent(backupId)}`,
+          `${filePath(agentId, file)}/backups/${encodeURIComponent(backupId)}`,
           signal,
         ),
       ),
   })
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const error = current.error || backups.error || preview.error
+  const error = current.error || preview.error
+  async function restore() {
+    if (!current.data) return
+    setBusy(true)
+    setNotice('')
+    try {
+      await request(
+        endpoint,
+        `${filePath(agentId, file)}/backups/${encodeURIComponent(backupId)}/restore`,
+        AbortSignal.timeout(20000),
+        current.data.sha256,
+      )
+      await queries.invalidateQueries({ queryKey: key })
+      toast('Backup restored.')
+      pop(2)
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Restore failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
   return (
-    <section className="identity-files" aria-label="Identity file contents">
-      {readOnly && <p>Archived identities are read-only.</p>}
-      {error && <p role="alert">{error.message}</p>}
-      <button
-        onClick={() => {
-          setNotice('')
-          void queries.invalidateQueries({ queryKey: key })
-        }}
+    <>
+      <BarTools>
+        <ViewToggle />
+        <RefreshFiles
+          endpoint={endpoint}
+          agentId={agentId}
+          file={file}
+          done={() => setNotice('')}
+        />
+      </BarTools>
+      {readOnly && <Callout>Archived identities are read-only.</Callout>}
+      {error && (
+        <Callout tone="danger" alert>
+          {error.message}
+        </Callout>
+      )}
+      <Block
+        foot={
+          preview.data
+            ? `Backup of ${file} · ${textSize(preview.data.content)}`
+            : undefined
+        }
       >
-        Refresh files
-      </button>
-      <h4>Current {file}</h4>
-      {current.data ? (
-        <pre>{current.data.content || '(empty file)'}</pre>
-      ) : (
-        <p>Loading file…</p>
-      )}
-      <label className="setting-row">
-        <span>Backups</span>
-        <select
-          value={backupId}
-          onChange={(event) => {
-            setBackupId(event.target.value)
-            setNotice('')
-          }}
-        >
-          <option value="">Choose a backup</option>
-          {backups.data?.map((backup) => (
-            <option key={backup.id} value={backup.id}>
-              {new Date(backup.createdAt).toLocaleString()} · {backup.size}{' '}
-              bytes
-            </option>
-          ))}
-        </select>
-      </label>
-      {preview.data && backupId && (
-        <>
-          <h4>Backup preview</h4>
-          <pre>{preview.data.content || '(empty file)'}</pre>
-          <p>
-            Restoring replaces this file with the selected backup. The current
-            file is kept as a backup. Restoring does not regenerate its Learned
-            section.
-          </p>
-          {!readOnly && (
-            <button
-              disabled={busy || !current.data}
-              onClick={async () => {
-                if (!current.data) return
-                setBusy(true)
-                setNotice('')
-                try {
-                  await request(
-                    endpoint,
-                    `${path}/backups/${encodeURIComponent(backupId)}/restore`,
-                    AbortSignal.timeout(20000),
-                    current.data.sha256,
-                  )
-                  setNotice('Backup restored.')
-                  setBackupId('')
-                  await queries.invalidateQueries({ queryKey: key })
-                } catch (error) {
-                  setNotice(
-                    error instanceof Error ? error.message : 'Restore failed.',
-                  )
-                } finally {
-                  setBusy(false)
-                }
-              }}
-            >
-              {busy ? 'Restoring…' : 'Restore this backup'}
-            </button>
+        <div className="set-document" aria-label="Backup preview">
+          {preview.data ? (
+            <Document text={preview.data.content} />
+          ) : (
+            <p className="set-empty">Loading backup…</p>
           )}
-        </>
+        </div>
+      </Block>
+      {!readOnly && preview.data && (
+        <Block>
+          <Row
+            label="Restore this backup"
+            sub="Replaces the current file and keeps the current version as a backup. Restoring does not regenerate its Learned section."
+            control={
+              <button
+                className="set-button primary"
+                disabled={busy || !current.data}
+                onClick={() => void restore()}
+              >
+                {busy ? 'Restoring…' : 'Restore'}
+              </button>
+            }
+          />
+        </Block>
       )}
-      {notice && <output>{notice}</output>}
-    </section>
+      {notice && (
+        <Callout tone="danger" alert>
+          {notice}
+        </Callout>
+      )}
+    </>
   )
 }
