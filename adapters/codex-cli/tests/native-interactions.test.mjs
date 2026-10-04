@@ -137,3 +137,46 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   assert.equal(allowed.some(x => x.kind === 'waiting'), false)
   assert.deepEqual(JSON.parse(await readFile(receipt, 'utf8')), { decision: 'accept' })
 })
+
+test('a continuation reopens the thread this adapter started, and starts fresh when it cannot', { timeout: 20000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'kipster-resume-'))
+  const home = join(directory, 'user'), executable = join(directory, 'codex'), log = join(directory, 'log'), failResume = join(directory, 'fail-resume')
+  await mkdir(home)
+  await writeFile(executable, `#!/usr/bin/env node
+const readline=require('node:readline'),fs=require('node:fs');
+const send=x=>process.stdout.write(JSON.stringify(x)+'\\n');
+const record=x=>fs.appendFileSync(${JSON.stringify(log)},JSON.stringify(x)+'\\n');
+readline.createInterface({input:process.stdin}).on('line',line=>{
+ const x=JSON.parse(line);
+ if(x.method==='initialize')send({id:x.id,result:{}});
+ else if(x.method==='model/list')send({id:x.id,result:{data:[{id:'test-model'}]}});
+ else if(x.method==='config/read')send({id:x.id,result:{config:{}}});
+ else if(x.method==='mcpServerStatus/list')send({id:x.id,result:{data:[],nextCursor:null}});
+ else if(x.method==='thread/start'){record({method:'start'});send({id:x.id,result:{thread:{id:'thread-'+process.pid}}})}
+ else if(x.method==='thread/resume'){record({method:'resume',threadId:x.params.threadId,sandbox:x.params.sandbox});if(fs.existsSync(${JSON.stringify(failResume)}))send({id:x.id,error:{code:-32600,message:'no rollout'}});else send({id:x.id,result:{thread:{id:x.params.threadId}}})}
+ else if(x.method==='turn/start'){record({method:'turn',threadId:x.params.threadId,input:x.params.input.map(i=>i.text)});send({id:x.id,result:{turn:{id:'turn'}}});send({method:'turn/completed',params:{threadId:x.params.threadId,turn:{id:'turn',status:'completed'}}})}
+});
+`, { mode: 0o700 })
+  const adapter = createAdapter({ dataDirectory: join(directory, 'state'), now: () => '', async invokeTool() { return {} } }, { executable, codexHome: home })
+  t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
+  assert.equal((await adapter.readiness()).ready, true)
+  const base = { runId: 'run', attemptId: 'one', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '', prompt: 'Full prompt', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello' }], triggerMessageId: 'message', interactions: [], permissionMode: 'auto' }
+  const run = async context => { const events = []; for await (const event of (await adapter.execute(context)).events) events.push(event); return events }
+  const calls = async () => { const rows = (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)); await rm(log); return rows }
+  const first = await run(base)
+  const thread = first.find(x => x.kind === 'provider').threadId
+  assert.deepEqual((await calls()).map(x => x.method), ['start', 'turn'])
+  const resume = prompt => ({ threadId: thread, providerStateScope: 'shared-codex-home', prompt })
+  const second = await run({ ...base, attemptId: 'two', resume: resume('Continue after the answer') })
+  assert.deepEqual(await calls(), [{ method: 'resume', threadId: thread, sandbox: 'workspace-write' }, { method: 'turn', threadId: thread, input: ['Continue after the answer'] }])
+  assert.equal(second.find(x => x.kind === 'provider').threadId, thread)
+  assert.equal(second.at(-1).kind, 'ended')
+  for (const other of [{ ...resume('x'), threadId: 'someone-elses-thread' }, { ...resume('x'), providerStateScope: 'claude-cli-process' }]) {
+    await run({ ...base, attemptId: `other-${other.threadId}`, resume: other })
+    assert.deepEqual((await calls()).map(x => x.method === 'turn' ? x.input[0] : x.method), ['start', 'Full prompt'], 'only an owned Codex thread is reopened')
+  }
+  await writeFile(failResume, '')
+  const fallback = await run({ ...base, attemptId: 'four', resume: resume('Continue') })
+  assert.deepEqual((await calls()).map(x => x.method === 'turn' ? x.input[0] : x.method), ['resume', 'start', 'Full prompt'], 'a thread that cannot be reopened starts fresh with the full prompt')
+  assert.equal(fallback.at(-1).kind, 'ended')
+})

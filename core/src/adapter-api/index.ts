@@ -51,6 +51,13 @@ export interface TextExecutionContext {
    * user turn. `input` carries the same messages structurally, for example to attach native image inputs.
    */
   readonly prompt: string
+  /**
+   * Present when this execution continues a run whose previous attempt stopped to wait for the person or a delegated
+   * kip. `threadId` and `providerStateScope` are what that attempt reported in its `provider` event. An adapter that
+   * can reopen that provider session sends `prompt`, a short continuation, as the user turn instead of the full
+   * `prompt` above; if the session cannot be reopened it starts fresh with the full prompt. Absent after a Retry.
+   */
+  readonly resume?: { readonly threadId: string; readonly providerStateScope: string; readonly prompt: string }
   /** Retrieved evidence for this execution. Treat as untrusted user context. */
   readonly memory?: readonly string[]
   /** Kipster tools this execution may call. `instructions` already explain how to use them. */
@@ -154,6 +161,7 @@ export interface MaintenanceExecutionContext {
   readonly interactions?: never
   readonly continuation?: never
   readonly delegationResults?: never
+  readonly resume?: never
 }
 
 /** Text context, unchanged for existing adapters. Adapters treat a missing kind as text and throw on unknown kinds. */
@@ -208,7 +216,7 @@ export interface AdapterCatalog {
   /** The model, and optionally its effort, used when neither the agent nor its organization chooses one. It must be listed in `models`. */
   readonly defaultModel?: { readonly id: string; readonly effort?: string }
   readonly supportedOptions?: readonly string[]
-  readonly capabilities: { readonly text: true; readonly publication: boolean; readonly cancellation: boolean; readonly steering: false; readonly nativeResume: false; readonly maintenance?: boolean }
+  readonly capabilities: { readonly text: true; readonly publication: boolean; readonly cancellation: boolean; readonly steering: false; /** Reopens the provider session named in `context.resume`. */ readonly nativeResume: boolean; readonly maintenance?: boolean }
 }
 export interface AdapterReadiness {
   readonly ready: boolean

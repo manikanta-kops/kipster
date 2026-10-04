@@ -13,7 +13,7 @@ if (args[0] === 'auth') {
   console.log(JSON.stringify({ loggedIn: mode !== 'signed-out', authMethod: 'claude.ai' }))
   process.exit(0)
 }
-const session = option('--session-id') ?? '11111111-2222-4333-8444-555555555555'
+const session = option('--session-id') ?? option('--resume') ?? '11111111-2222-4333-8444-555555555555'
 log({ launch: { argv: args, cwd: process.cwd(), env: process.env, pid: process.pid, instructions: option('--append-system-prompt-file') ? readFileSync(option('--append-system-prompt-file'), 'utf8') : undefined, mcp: option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')) : undefined } })
 
 const config = option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')).mcpServers : {}

@@ -1,6 +1,6 @@
 import { coalesceDrafts } from './draft-events.js'
 import { administrationReceipts } from '../modules/administration/public.js'
-import { turnPrompt } from './turn-prompt.js'
+import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { randomUUID } from 'node:crypto'
 import { recoveryCompatible } from '../adapter-api/index.js'
@@ -741,7 +741,13 @@ export class TextDispatcher {
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
       const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
-      execution = { ...prepared, prompt: turnPrompt(prepared) }
+      // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
+      // answered. A failed attempt never qualifies, so Retry starts fresh.
+      const previous = (await this.runtime.db.query<{ provider_metadata: { threadId?: unknown; providerStateScope?: unknown } }>(`SELECT a.provider_metadata FROM kipster.attempts a
+        WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
+          AND (EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled') OR EXISTS (SELECT 1 FROM kipster.delegations d WHERE d.parent_attempt_id=a.id))`, [runId, attempt.id])).rows[0]?.provider_metadata
+      const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
+      execution = { ...prepared, prompt: turnPrompt(prepared), ...(resume ? { resume } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)

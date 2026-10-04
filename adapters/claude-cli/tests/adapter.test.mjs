@@ -20,7 +20,7 @@ async function fixture(t) {
   const calls = []
   let answer = request => request.name.startsWith('interactions_') ? { status: 'pending', interactionId: `card-${calls.length}` } : { ok: true, echoed: request.arguments }
   const adapter = createAdapter({ dataDirectory: join(directory, 'data'), now: () => new Date().toISOString(), async invokeTool(request) { calls.push(request); return answer(request) } },
-    { executable, environment: { FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE_FILE: modeFile } })
+    { executable, environment: { FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE_FILE: modeFile, CLAUDE_CONFIG_DIR: join(directory, 'claude-config') } })
   t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
   return {
     directory, home, adapter, calls,
@@ -84,7 +84,8 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   const launch = records.findLast(record => record.launch).launch
   assert.equal(launch.cwd.endsWith('/agent'), true)
   for (const [flag, value] of [['--model', 'opus'], ['--effort', 'high'], ['--permission-mode', 'default'], ['--permission-prompt-tool', 'mcp__kipster_permission__prompt'], ['--disallowedTools', 'mcp__kipster_permission__prompt'], ['--allowedTools', `Read(/${attachment})`]]) assert.equal(launch.argv[launch.argv.indexOf(flag) + 1], value, flag)
-  for (const flag of ['--no-session-persistence', '--include-partial-messages', '--chrome']) assert.ok(launch.argv.includes(flag), flag)
+  for (const flag of ['--include-partial-messages', '--chrome']) assert.ok(launch.argv.includes(flag), flag)
+  assert.equal(launch.argv.includes('--no-session-persistence'), false, 'conversations keep their session so a continuation can reopen it')
   assert.match(launch.instructions, /^You are Kip\.\n\nKipster tools are available to you as MCP tools named mcp__kipster__/)
   assert.equal(launch.mcp.mcpServers.kipster.alwaysLoad, true)
   assert.equal(launch.env.KIPSTER_DATABASE_URL, undefined, 'Core credentials are not inherited')
@@ -138,6 +139,31 @@ test('a native approval becomes a Core card bound to the exact action, then resu
   assert.equal(granted.findLast(record => record.decision).decision.behavior, 'allow')
   assert.equal(granted.findLast(record => record.again).again.behavior, 'allow', 'a grant covers every repeat')
   assert.equal(f.calls.length, 1, 'a granted action asks nobody')
+})
+
+test('a continuation reopens the saved session with the short prompt; a missing session starts fresh; forgetting removes it', async t => {
+  const f = await fixture(t)
+  await ready(f)
+  const session = '22222222-3333-4444-8555-666666666666'
+  const resume = { threadId: session, providerStateScope: 'claude-cli-process', prompt: 'Continue after the answer' }
+  const launches = async () => (await f.records()).filter(record => record.launch || record.user)
+  await collect(await f.adapter.execute(context(f, { attemptId: 'fresh', resume })))
+  let seen = await launches()
+  assert.equal(seen.at(-2).launch.argv.includes('--resume'), false, 'no saved transcript, so it starts fresh')
+  assert.equal(seen.at(-1).user[0].text, context(f).prompt)
+  const project = join(f.directory, 'claude-config', 'projects', '-agent-home')
+  await mkdir(join(project, session), { recursive: true })
+  await writeFile(join(project, `${session}.jsonl`), '{}\n')
+  const events = await collect(await f.adapter.execute(context(f, { attemptId: 'resumed', resume })))
+  seen = await launches()
+  const argv = seen.at(-2).launch.argv
+  assert.equal(argv[argv.indexOf('--resume') + 1], session)
+  assert.deepEqual(seen.at(-1).user, [{ type: 'text', text: 'Continue after the answer' }])
+  assert.equal(events.find(event => event.kind === 'provider').threadId, session)
+  await collect(await f.adapter.execute(context(f, { attemptId: 'elsewhere', resume: { ...resume, providerStateScope: 'shared-codex-home' } })))
+  assert.equal((await launches()).at(-2).launch.argv.includes('--resume'), false, 'another provider\'s thread is not reopened')
+  await f.adapter.forgetProviderState({ threadIds: [session] })
+  assert.deepEqual(await readdir(join(f.directory, 'claude-config', 'projects')), [], 'the emptied project folder goes too')
 })
 
 test('AskUserQuestion becomes a Core question whose saved answer reaches Claude', async t => {

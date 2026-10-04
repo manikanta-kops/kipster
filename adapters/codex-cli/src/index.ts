@@ -225,7 +225,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
     const probe = this.probeReadiness()
     this.readinessProbes.add(probe)
     try { return await probe } catch (error) {
-      return { ready: false, reason: error instanceof Error ? error.message : 'Codex readiness failed', catalog: { models: [], supportedOptions: [], capabilities: { text: true, publication: true, cancellation: true, steering: false, nativeResume: false, maintenance: false } } }
+      return { ready: false, reason: error instanceof Error ? error.message : 'Codex readiness failed', catalog: { models: [], supportedOptions: [], capabilities: { text: true, publication: true, cancellation: true, steering: false, nativeResume: true, maintenance: false } } }
     } finally { this.readinessProbes.delete(probe) }
   }
   private async probeReadiness(): Promise<AdapterReadiness> {
@@ -260,7 +260,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
         if (!maintenance) maintenanceReason = 'Maintenance model catalog is empty'
       } catch (error) { maintenanceReason = error instanceof Error ? error.message : 'Maintenance unavailable' }
       finally { if (maintenanceRpc) { await maintenanceRpc.stop(); this.readinessProcesses.delete(maintenanceRpc) } }
-      const catalog = { models, ...(defaultModel ? { defaultModel } : {}), supportedOptions: [] as string[], capabilities: { text: true as const, publication: true, cancellation: true, steering: false as const, nativeResume: false as const, maintenance } }
+      const catalog = { models, ...(defaultModel ? { defaultModel } : {}), supportedOptions: [] as string[], capabilities: { text: true as const, publication: true, cancellation: true, steering: false as const, nativeResume: true, maintenance } }
       if (!models.length) return { ready: false, reason: 'Codex returned no models', catalog }
       if (this.closed) throw new Error('Codex adapter is closed')
       this.modelCatalog = models
@@ -284,12 +284,17 @@ class CodexAdapter implements MaintenanceCapableAdapter {
     const clean = async () => { await rpc.stop(); await images.close(); this.owned.delete(context.attemptId) }
     try {
       await initialize(rpc)
-      const thread = await rpc.request('thread/start', { model, cwd: context.workingDirectory, ...codexPermissions(context.permissionMode), serviceName: 'kipster', baseInstructions: context.instructions, dynamicTools: tools.map(({ name, description, inputSchema }) => ({ type: 'function', name, description, inputSchema })) })
+      const settings = { model, cwd: context.workingDirectory, ...codexPermissions(context.permissionMode), baseInstructions: context.instructions }
+      // A thread reopened after a wait keeps its history and Kipster tools; one that cannot be reopened starts fresh.
+      const resume = context.resume?.providerStateScope === 'shared-codex-home' && await this.ownsThread(context.resume.threadId) ? context.resume : undefined
+      const reopened = resume ? await rpc.request('thread/resume', { threadId: resume.threadId, ...settings, excludeTurns: true }).catch(() => undefined) : undefined
+      const thread = reopened ?? await rpc.request('thread/start', { ...settings, serviceName: 'kipster', dynamicTools: tools.map(({ name, description, inputSchema }) => ({ type: 'function', name, description, inputSchema })) })
       owned.threadId = string(object(thread.thread).id)
       if (!owned.threadId) throw new Error('Codex thread ID is missing')
       await this.recordThread(owned.threadId)
       queue.push({ kind: 'provider', attemptId: context.attemptId, threadId: owned.threadId, processId: rpc.process.pid!, providerStateScope: 'shared-codex-home', workingDirectory: context.workingDirectory, modelId: model, ...(context.settings?.effort ? { effort: context.settings.effort } : {}) })
-      const params: ObjectValue = { threadId: owned.threadId, input: [{ type: 'text', text: context.prompt }, ...await images.prepare(context.input)], model }
+      const input = reopened ? [{ type: 'text', text: resume!.prompt }] : [{ type: 'text', text: context.prompt }, ...await images.prepare(context.input)]
+      const params: ObjectValue = { threadId: owned.threadId, input, model }
       if (context.settings?.effort) params.effort = context.settings.effort
       const turn = await rpc.request('turn/start', params, 120000)
       owned.turnId = string(object(turn.turn).id)
@@ -546,6 +551,14 @@ class CodexAdapter implements MaintenanceCapableAdapter {
     const temporary = `${path}.${randomUUID()}.tmp`
     await writeFile(temporary, JSON.stringify({ threadId, home }), { mode: 0o600, flag: 'wx' })
     await rename(temporary, path)
+  }
+  /** Only a thread this adapter started, in the Codex home it still uses, is reopened. */
+  private async ownsThread(threadId: string): Promise<boolean> {
+    if (!threadIdPattern.test(threadId)) return false
+    try {
+      const record = object(JSON.parse(await readFile(join(this.config.dataDirectory, 'conversation-sessions', `${threadId}.json`), 'utf8')))
+      return record.threadId === threadId && record.home === await realpath(this.config.codexHome)
+    } catch { return false }
   }
   async forgetProviderState(request: { readonly threadIds: readonly string[] }): Promise<void> {
     const ids = new Set(request.threadIds.filter(id => threadIdPattern.test(id)))
