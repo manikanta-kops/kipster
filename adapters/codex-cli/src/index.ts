@@ -399,7 +399,8 @@ class CodexAdapter implements MaintenanceCapableAdapter {
             if (!finalized.has(id)) {
               finalized.add(id)
               texts.delete(id)
-              queue.push({ kind: 'text', attemptId: context.attemptId, messageId: id, text: item.text, final: true })
+              const phase = item.phase === 'commentary' ? 'progress' : item.phase === 'final_answer' ? 'answer' : undefined
+              queue.push({ kind: 'text', attemptId: context.attemptId, messageId: id, text: item.text, final: true, ...(phase ? { phase } : {}) })
             }
           }
         } else if (method === 'turn/completed' && string(object(params.turn).id) === owned.turnId) {

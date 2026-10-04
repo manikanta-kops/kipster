@@ -1020,3 +1020,41 @@ test('a kip turn reads as one reply and what waits on you follows its latest mes
     'Atlas',
   ])
 })
+test('progress notes a kip writes while working sit in its work, not the conversation', async ({
+  page,
+}) => {
+  const s = await setup(page)
+  const thread = await threadState(page, s.threadId)
+  const run = thread.work[0]
+  const note = (position: number, text: string) =>
+    demo(page, '/message', {
+      threadId: s.threadId,
+      message: {
+        id: crypto.randomUUID(),
+        runId: run.runId,
+        progress: true,
+        threadId: s.threadId,
+        authorId: thread.summary.agentId,
+        parts: [{ kind: 'text', text }],
+        final: true,
+        revision: 1,
+        position,
+      },
+    })
+  await note(10, 'Chrome is connected now.')
+  await note(11, 'Opening the merged pull requests page.')
+  const pane = page.locator('.thread-pane')
+  const block = work(page)
+  await expect(block.locator('.work-step.progress-note')).toHaveText([
+    'Chrome is connected now.',
+    'Opening the merged pull requests page.',
+  ])
+  await expect(block.locator('.work-block-sum')).toHaveText('2 steps')
+  await expect(
+    pane.locator('.thread-reply .message-text', { hasText: 'Chrome' }),
+  ).toHaveCount(0)
+  await expect(pane.getByText('1 reply', { exact: true })).toBeVisible()
+  await block.getByRole('button', { name: /Needs your answer/ }).click()
+  await expect(block.locator('.work-step.progress-note')).toHaveCount(0)
+  await expect(block.getByRole('button', { name: 'Send answer' })).toBeVisible()
+})

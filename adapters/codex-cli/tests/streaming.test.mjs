@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createAdapter } from '../dist/index.js'
 
-test('native images reach Codex with tools inherited; message deltas remain independent', { timeout: 10000 }, async t => {
+test('native images reach Codex with tools inherited; message deltas remain independent and carry Codex phases', { timeout: 10000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'kipster-deltas-'))
   const home = join(directory, 'user'), executable = join(directory, 'codex')
   await mkdir(home)
@@ -25,7 +25,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const delta=(itemId,delta)=>send({method:'item/agentMessage/delta',params:{threadId:'thread',turnId:'turn',itemId,delta}});
   delta('a','Hello');delta('b','Second');delta('a',' there');
   setTimeout(()=>{
-   for(const [id,text] of [['a','Hello there!'],['b','Second answer']])send({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{type:'agentMessage',id,text}}});
+   for(const [id,text,phase] of [['a','Hello there!','commentary'],['b','Second answer','final_answer'],['c','Unlabelled',null]])send({method:'item/completed',params:{threadId:'thread',turnId:'turn',item:{type:'agentMessage',id,text,phase}}});
    delta('a','late');
    send({method:'turn/completed',params:{threadId:'thread',turn:{id:'turn',status:'completed'}}});
   },200);
@@ -38,9 +38,10 @@ readline.createInterface({input:process.stdin}).on('line',line=>{
   const handle = await adapter.execute({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: directory, instructions: '',prompt:'Current message', settings: { adapterId: 'codex-cli', modelId: 'test-model' }, input: [{ messageId: 'message', text: 'Hello', parts:[{kind:'text',text:'Hello'},{kind:'file',artifactId:'photo',purpose:'attachment',name:'photo.png',mimeType:'image/png',size:10,availability:'available',readablePath:'/managed/photo.png'}] }], triggerMessageId: 'message' })
   const events = []
   for await (const event of handle.events) events.push(event)
-  assert.deepEqual(events.filter(e => e.kind === 'text').map(({ messageId, text, final }) => ({ messageId, text, final })), [
-    { messageId: 'a', text: 'Hello', final: false }, { messageId: 'b', text: 'Second', final: false }, { messageId: 'a', text: 'Hello there', final: false },
-    { messageId: 'a', text: 'Hello there!', final: true }, { messageId: 'b', text: 'Second answer', final: true },
+  assert.deepEqual(events.filter(e => e.kind === 'text').map(({ messageId, text, final, phase }) => ({ messageId, text, final, phase })), [
+    { messageId: 'a', text: 'Hello', final: false, phase: undefined }, { messageId: 'b', text: 'Second', final: false, phase: undefined }, { messageId: 'a', text: 'Hello there', final: false, phase: undefined },
+    { messageId: 'a', text: 'Hello there!', final: true, phase: 'progress' }, { messageId: 'b', text: 'Second answer', final: true, phase: 'answer' },
+    { messageId: 'c', text: 'Unlabelled', final: true, phase: undefined },
   ])
   assert.equal(events.at(-1).kind, 'ended')
 })

@@ -339,7 +339,7 @@ test('prequeued replies stay out of earlier execution context', { skip: noDataba
   }
 })
 
-test('a kip segment with no content publishes no message, and replies name their run', { skip: noDatabase }, async () => {
+test('a kip segment with no content publishes no message, progress notes are marked, and replies name their run', { skip: noDatabase }, async () => {
   const database = `kipster_textempty_${randomUUID().replaceAll('-', '')}`
   const admin = new Postgres(adminUrl)
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -362,20 +362,21 @@ test('a kip segment with no content publishes no message, and replies name their
     await dispatcher.start()
     await waitFor(() => Promise.resolve(adapter.handles.length), n => n === 1, 'dispatch')
     const handle = adapter.handles[0], attemptId = handle.context.attemptId
-    handle.release({ kind: 'text', attemptId, messageId: 'found', text: 'I found the restaurant.', final: true })
+    handle.release({ kind: 'text', attemptId, messageId: 'opening', text: 'Opening the booking page.', final: true, phase: 'progress' })
+    handle.release({ kind: 'text', attemptId, messageId: 'found', text: 'I found the restaurant.', final: true, phase: 'answer' })
     handle.release({ kind: 'text', attemptId, messageId: 'silent', text: '', final: true })
     handle.release({ kind: 'ended', attemptId, confirmed: true })
     await waitFor(() => runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [root.runId]).then(x => x.rows[0].state), state => state === 'completed', 'run completed')
     const snapshot = await get(`/v1/threads/${root.threadId}/snapshot`)
-    assert.deepEqual(snapshot.messages.map(m => [m.authorId, m.runId, m.parts]), [
-      [ids.ownerId, undefined, [{ kind: 'text', text: 'book a table' }]],
-      [ids.rootAgentId, root.runId, [{ kind: 'text', text: 'I found the restaurant.' }]],
+    assert.deepEqual(snapshot.messages.map(m => [m.authorId, m.runId, m.progress, m.parts]), [
+      [ids.ownerId, undefined, undefined, [{ kind: 'text', text: 'book a table' }]],
+      [ids.rootAgentId, root.runId, true, [{ kind: 'text', text: 'Opening the booking page.' }]],
+      [ids.rootAgentId, root.runId, undefined, [{ kind: 'text', text: 'I found the restaurant.' }]],
     ])
     const { events } = await readEvents(runtime.db, { kind: 'thread', installationId: ids.installationId, callerId: ids.ownerId, threadId: root.threadId }, before.cursor)
     const published = events.filter(e => e.type === 'message-final' && e.data.authorId === ids.rootAgentId)
-    assert.equal(published.length, 1)
-    assert.equal(published[0].data.runId, root.runId)
-    assert.equal(textEvent.parse(published[0]).data.runId, root.runId)
+    assert.deepEqual(published.map(e => [e.data.runId, e.data.progress]), [[root.runId, true], [root.runId, undefined]])
+    assert.equal(textEvent.parse(published[0]).data.progress, true)
   } finally {
     if (adapter) await adapter.close()
     if (dispatcher) await dispatcher.close()

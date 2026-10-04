@@ -103,7 +103,7 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   assert.equal(records.find(record => record.kipsterPermission).kipsterPermission.behavior, 'allow', 'Core decides its own tools')
   assert.equal(records.find(record => record.wrongToken).wrongToken, 401)
   const texts = events.filter(event => event.kind === 'text')
-  assert.deepEqual(texts.filter(event => event.final).map(event => [event.messageId, event.text]), [['msg_1:0', 'Hello there'], ['msg_2:0', 'All done']])
+  assert.deepEqual(texts.filter(event => event.final).map(event => [event.messageId, event.text, event.phase]), [['msg_1:0', 'Hello there', 'progress'], ['msg_2:0', 'All done', 'answer']], 'text before a tool call is progress; the reply that ends the turn is the answer')
   assert.deepEqual(texts.filter(event => !event.final && event.messageId === 'msg_1:0').map(event => event.text), ['Hel', 'Hello ', 'Hello the', 'Hello there'], 'drafts carry accumulated text')
   assert.equal(events[0].kind, 'provider')
   assert.equal(events[0].threadId, '11111111-2222-4333-8444-555555555555')

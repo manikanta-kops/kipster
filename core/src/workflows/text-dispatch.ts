@@ -1456,12 +1456,13 @@ export class TextDispatcher {
       if (coreParts) parts.push(...await coreParts(client))
       let messageId = prior?.id ?? randomUUID()
       let revision = prior ? Number(prior.revision) + 1 : 1
+      const progress = source === 'native' && event.final && event.phase === 'progress'
       if (prior) {
-        await client.query('UPDATE kipster.messages SET parts=$2::jsonb,final=$3,revision=$4 WHERE id=$1', [messageId, JSON.stringify(parts), event.final, revision])
+        await client.query('UPDATE kipster.messages SET parts=$2::jsonb,final=$3,revision=$4,progress=$5 WHERE id=$1', [messageId, JSON.stringify(parts), event.final, revision, progress])
       } else {
         const counter = (await client.query<{ next_message_position: string }>('SELECT next_message_position FROM kipster.threads WHERE id=$1', [context.threadId])).rows[0]!
         await client.query('UPDATE kipster.threads SET next_message_position=next_message_position+1 WHERE id=$1', [context.threadId])
-        await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,final,source_attempt_id,publication_source,publication_id) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9)', [messageId, context.threadId, Number(counter.next_message_position), context.agentId, JSON.stringify(parts), event.final, attempt.id, source, event.messageId])
+        await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,final,source_attempt_id,publication_source,publication_id,progress) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10)', [messageId, context.threadId, Number(counter.next_message_position), context.agentId, JSON.stringify(parts), event.final, attempt.id, source, event.messageId, progress])
       }
       for(const [index,artifactId] of artifactIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4) ON CONFLICT (message_id,ordinal) DO UPDATE SET artifact_id=EXCLUDED.artifact_id,purpose=EXCLUDED.purpose',[messageId,index+(event.text?1:0),artifactId,'attachment'])
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])

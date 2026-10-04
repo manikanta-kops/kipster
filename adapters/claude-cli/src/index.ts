@@ -213,11 +213,18 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       child = this.spawn(args, workingDirectory)
       const process = child
       const blocksByIndex = new Map<number, { id: string; text: string }>()
+      // Finished text waits for Claude to say why its reply stopped: text before a tool call is progress.
+      let finished: { id: string; text: string }[] = []
+      const settleText = (phase?: 'progress' | 'answer') => {
+        for (const block of finished) queue.push({ kind: 'text', attemptId, messageId: block.id, text: block.text, final: true, ...(phase ? { phase } : {}) })
+        finished = []
+      }
       let messageId: string | undefined
       let provider = false
       process.listen((message: Message) => {
         if (ended) return
         if (message.type === 'process/exited') {
+          settleText()
           if (resulted || yielding) return
           void finish({ kind: 'failed', attemptId, confirmedEnded: process.ended, message: cancelled ? 'Claude turn cancelled' : `Claude CLI exited without a result${process.diagnostic() ? `: ${process.diagnostic()}` : ''}` })
           return
@@ -231,8 +238,10 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
         if (message.type === 'stream_event') {
           const event = object(message.event)
           const index = typeof event.index === 'number' ? event.index : -1
-          if (event.type === 'message_start') { messageId = string(object(event.message).id) ?? randomUUID(); blocksByIndex.clear() }
+          if (event.type === 'message_start') { settleText(); messageId = string(object(event.message).id) ?? randomUUID(); blocksByIndex.clear() }
           else if (event.type === 'content_block_start' && object(event.content_block).type === 'text') blocksByIndex.set(index, { id: `${messageId ?? randomUUID()}:${index}`, text: '' })
+          else if (event.type === 'content_block_start' && object(event.content_block).type === 'tool_use') settleText('progress')
+          else if (event.type === 'message_delta' && string(object(event.delta).stop_reason)) settleText(string(object(event.delta).stop_reason) === 'tool_use' ? 'progress' : 'answer')
           else if (event.type === 'content_block_delta' && object(event.delta).type === 'text_delta') {
             const block = blocksByIndex.get(index)
             const delta = string(object(event.delta).text)
@@ -240,12 +249,13 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
           } else if (event.type === 'content_block_stop') {
             const block = blocksByIndex.get(index)
             blocksByIndex.delete(index)
-            if (block?.text) queue.push({ kind: 'text', attemptId, messageId: block.id, text: block.text, final: true })
+            if (block?.text) finished.push(block)
           }
           return
         }
         if (message.type === 'result') {
           resulted = true
+          settleText()
           const failure = message.is_error === true || message.subtype !== 'success'
             ? `Claude turn failed: ${string(message.result) ?? (Array.isArray(message.errors) ? message.errors.join('; ') : string(message.subtype) ?? 'error')}`
             : repeatedInteraction ? 'Provider repeated an interaction request in one turn' : undefined

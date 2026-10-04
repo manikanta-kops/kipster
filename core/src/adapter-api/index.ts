@@ -230,8 +230,10 @@ export type ExecutionEvent =
   | { readonly kind: 'provider'; readonly attemptId: string; readonly threadId: string; readonly turnId?: string; readonly processId: number; readonly providerStateScope: string; readonly workingDirectory: string; readonly modelId: string; readonly effort?: string }
   /** Full accumulated text for a stable messageId. Core may coalesce drafts: only the
    * latest matters. Send nothing for this ID after final=true; distinct messages use
-   * distinct IDs. Final content is authoritative, not an appended fragment. */
-  | { readonly kind: 'text'; readonly attemptId: string; readonly messageId: string; readonly text: string; readonly final: boolean }
+   * distinct IDs. Final content is authoritative, not an appended fragment. `phase` on the
+   * final event says whether the text is a progress note written while working or the
+   * answer; leave it out when the provider does not say. */
+  | { readonly kind: 'text'; readonly attemptId: string; readonly messageId: string; readonly text: string; readonly final: boolean; readonly phase?: 'progress' | 'answer' }
   | { readonly kind: 'waiting'; readonly attemptId: string; readonly for: 'question' | 'approval' | 'child'; readonly interactionId: string }
   | { readonly kind: 'ended'; readonly attemptId: string; readonly confirmed: true }
   | { readonly kind: 'failed'; readonly attemptId: string; readonly confirmedEnded: boolean; readonly message: string }
