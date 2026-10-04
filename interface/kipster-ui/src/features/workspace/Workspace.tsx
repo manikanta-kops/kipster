@@ -1654,10 +1654,11 @@ export function Workspace({
     inbox.filter((n) => isFailure(n) && !n.read).map((n) => n.target.threadId),
   )
   // A failure shows until its notification is read, as the sidebar marks do.
+  // Paused follow-ups show only on their own thread; the kip itself is idle.
   const islandState = (id: string): LiveState => {
     const state = threadState(id)
-    return (state === 'failed' || state === 'recovery') &&
-      !unseenFailures.has(id)
+    return state === 'held' ||
+      ((state === 'failed' || state === 'recovery') && !unseenFailures.has(id))
       ? 'ready'
       : state
   }
