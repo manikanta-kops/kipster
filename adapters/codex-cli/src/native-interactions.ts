@@ -17,7 +17,8 @@ export interface NativeInteraction {
 }
 /** Translate provider interactions; Core remains responsible for saving and resolving them. */
 export function nativeInteractions(context: ExecutionContext, method: string, params: ObjectValue): NativeInteraction[] {
-  const substantive = Object.fromEntries(Object.entries(params).filter(([key]) => !['threadId', 'turnId', 'itemId', 'callId'].includes(key)))
+  // Request IDs, timestamps and the model-written reason change on every retry; the action itself does not.
+  const substantive = Object.fromEntries(Object.entries(params).filter(([key]) => !['threadId', 'turnId', 'itemId', 'callId', 'approvalId', 'startedAtMs', 'reason'].includes(key)))
   const approval = (result: (accepted: boolean) => ObjectValue): NativeInteraction => {
     const proposal = canonical({ method, ...substantive })
     const proposalId = `codex:${createHash('sha256').update(proposal).digest('hex')}`

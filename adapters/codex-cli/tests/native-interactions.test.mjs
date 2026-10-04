@@ -4,10 +4,10 @@ import { nativeInteractions } from '../dist/native-interactions.js'
 const context = { interactions: [] }
 
 test('native command approvals match exact actions across provider IDs', () => {
-  const params = { threadId: 'old', turnId: 'old', itemId: 'old', command: 'npm test', cwd: '/workspace' }
+  const params = { threadId: 'old', turnId: 'old', itemId: 'old', approvalId: 'old', startedAtMs: 1, reason: 'run tests', command: 'npm test', cwd: '/workspace' }
   const [first] = nativeInteractions(context, 'item/commandExecution/requestApproval', params)
   const answered = { interactions: [{ kind: 'approval', ...first.arguments, response: { answer: { kind: 'approve' } } }] }
-  const [same] = nativeInteractions(answered, 'item/commandExecution/requestApproval', { ...params, threadId: 'new', turnId: 'new', itemId: 'new' })
+  const [same] = nativeInteractions(answered, 'item/commandExecution/requestApproval', { ...params, threadId: 'new', turnId: 'new', itemId: 'new', approvalId: 'new', startedAtMs: 2, reason: 'reworded' })
   assert.deepEqual(same.result(same.saved), { decision: 'accept' })
   const [changed] = nativeInteractions(answered, 'item/commandExecution/requestApproval', { ...params, command: 'npm publish' })
   assert.equal(changed.saved, undefined)
