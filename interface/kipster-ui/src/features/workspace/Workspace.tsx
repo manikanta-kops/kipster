@@ -1225,10 +1225,10 @@ export function Workspace({
         a.createdAt.localeCompare(b.createdAt) ||
         a.threadId.localeCompare(b.threadId),
     )
-  // A kip segment that never wrote anything has no content to show.
+  // A kip segment that never wrote anything has no content to show; progress notes live in the run's work.
   const ordered = (id: string) =>
     Object.values(messages[id] ?? {})
-      .filter((m) => m.parts.length > 0)
+      .filter((m) => m.parts.length > 0 && !m.progress)
       .sort((a, b) => a.position - b.position)
   const recordsFor = (threadId: string) => {
     const summary = summaries[threadId]
@@ -1782,8 +1782,23 @@ export function Workspace({
   const currentRun = records.workflows[0]?.runId
   // Each run's work closes the kip's latest reply from that run, so what waits on you comes last.
   const threadMessages = selected ? ordered(selected) : []
+  const notes = new Map<string, { id: string; text: string }[]>()
+  for (const m of Object.values(selected ? (messages[selected] ?? {}) : {})
+    .filter((m) => m.progress && m.runId)
+    .sort((a, b) => a.position - b.position)) {
+    const text = m.parts.flatMap((p) => (p.kind === 'text' ? [p.text] : []))
+    if (text.length)
+      notes.set(m.runId!, [
+        ...(notes.get(m.runId!) ?? []),
+        { id: m.id, text: text.join('\n\n') },
+      ])
+  }
   const runs = selected
-    ? runsByOrigin(Object.values(works[selected] ?? {}), records)
+    ? runsByOrigin(
+        Object.values(works[selected] ?? {}),
+        records,
+        new Set(notes.keys()),
+      )
     : new Map<string, RunWork>()
   const runsById = new Map([...runs.values()].map((run) => [run.runId, run]))
   const lastReply = new Map<string, string>()
@@ -1795,6 +1810,7 @@ export function Workspace({
       <WorkBlock
         key={run.runId}
         run={run}
+        notes={notes.get(run.runId) ?? []}
         folding={workOpen[run.runId]}
         fold={(open) => setWorkOpen((old) => ({ ...old, [run.runId]: open }))}
         drafting={drafting}

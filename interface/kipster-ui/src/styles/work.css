@@ -226,6 +226,16 @@
 .work-step.live .step-mark::before {
   animation: mark-breathe 2.8s ease-in-out infinite;
 }
+.work-step.progress-note:not(.live) .step-mark::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--label-3);
+}
+.work-step.progress-note .step-text p {
+  margin: 0;
+}
 .work-step.failed .step-mark::before {
   background: var(--danger);
 }

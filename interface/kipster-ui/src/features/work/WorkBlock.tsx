@@ -9,6 +9,7 @@ import { workLabels } from '../../data/work'
 import type { WorkspaceData } from '../chat/model'
 import { Avatar } from '../chat/Message'
 import { Icon } from '../../components/Icon'
+import { Markdown } from '../chat/Markdown'
 import { InteractionCard } from './InteractionCard'
 import type { WorkCommands } from './WorkPanel'
 import type { RunWork } from './run-work'
@@ -60,8 +61,9 @@ const delegationDone: Record<string, string> = {
 }
 
 /**
- * The work block that closes a kip's reply: what it is doing, its steps,
- * questions and approvals waiting on you, and the controls for the run.
+ * The work block that closes a kip's reply: what it is doing, its progress
+ * notes and steps, questions and approvals waiting on you, and the controls
+ * for the run.
  * Finished runs fold to a single line.
  */
 export function WorkBlock({
@@ -70,10 +72,13 @@ export function WorkBlock({
   data,
   commands,
   threadId,
+  notes,
   folding,
   fold,
 }: {
   run: RunWork
+  /** What the kip wrote while working, oldest first. */
+  notes: { id: string; text: string }[]
   drafting: boolean
   data: WorkspaceData
   commands: WorkCommands
@@ -103,7 +108,9 @@ export function WorkBlock({
     flow?.actions.filter((a) => a.allowed && a.action in labels) ?? []
   const asks = [...run.interactions].sort((a, b) => a.id.localeCompare(b.id))
   const steps =
-    asks.filter((i) => i.state !== 'pending').length + run.delegations.length
+    notes.length +
+    asks.filter((i) => i.state !== 'pending').length +
+    run.delegations.length
   const why =
     (run.state === 'failed' || run.state === 'recovery-needed') && run.failure
   const word = headline(run, drafting, name)
@@ -190,9 +197,20 @@ export function WorkBlock({
             {a.reason}
           </span>
         ))}
-      {((open && (why || run.delegations.length > 0)) || asks.length > 0) && (
+      {((open && (why || run.delegations.length > 0 || notes.length > 0)) ||
+        asks.length > 0) && (
         <div className="work-block-body">
           {open && why && <p className="work-explanation">{why}</p>}
+          {open &&
+            notes.map((note, index) => (
+              <div
+                key={note.id}
+                className={`work-step progress-note${run.state === 'running' && index === notes.length - 1 ? ' live' : ''}`}
+              >
+                <span className="step-mark" aria-hidden="true" />
+                <Markdown text={note.text} className="step-text" />
+              </div>
+            ))}
           {open &&
             run.delegations.map((d) => {
               const running = d.state === 'running' || d.state === 'waiting'

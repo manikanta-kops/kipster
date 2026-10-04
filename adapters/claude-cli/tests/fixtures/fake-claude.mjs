@@ -26,11 +26,13 @@ async function mcp(server, method, params) {
 const call = (name, args, toolUseId) => mcp('kipster', 'tools/call', { name, arguments: args, _meta: { 'claudecode/toolUseId': toolUseId } })
 const permission = async (tool_name, input, tool_use_id) => JSON.parse((await mcp('kipster_permission', 'tools/call', { name: 'prompt', arguments: { tool_name, input, tool_use_id } })).content[0].text)
 const stream = event => send({ type: 'stream_event', event, parent_tool_use_id: null, session_id: session })
-function reply(id, text) {
+function reply(id, text, stopReason) {
   stream({ type: 'message_start', message: { id } })
   stream({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
   for (const piece of text.match(/.{1,3}/g)) stream({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: piece } })
   stream({ type: 'content_block_stop', index: 0 })
+  if (stopReason === 'tool_use') stream({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_x', name: 'notes_echo', input: {} } })
+  if (stopReason) stream({ type: 'message_delta', delta: { stop_reason: stopReason } })
 }
 const done = (extra = {}) => send({ type: 'result', subtype: 'success', is_error: false, result: 'ok', session_id: session, ...extra })
 
@@ -38,14 +40,14 @@ const scenarios = {
   async chat() {
     stream({ type: 'message_start', message: { id: 'sub' } })
     send({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }, parent_tool_use_id: 'toolu_task' })
-    reply('msg_1', 'Hello there')
+    reply('msg_1', 'Hello there', 'tool_use')
     log({ listed: (await mcp('kipster', 'tools/list', {})).tools.map(tool => tool.name), permissionListed: (await mcp('kipster_permission', 'tools/list', {})).tools.map(tool => tool.name) })
     log({ offered: await call('notes_echo', { note: 'alpha' }, 'toolu_1') })
     log({ unoffered: await call('admin_agents_create', { name: 'Scout' }, 'toolu_2') })
     log({ kipsterPermission: await permission('mcp__kipster__notes_echo', { note: 'alpha' }, 'toolu_1') })
     const denied = await fetch(config.kipster.url, { method: 'POST', headers: { authorization: 'Bearer wrong', 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' })
     log({ wrongToken: denied.status })
-    reply('msg_2', 'All done')
+    reply('msg_2', 'All done', 'end_turn')
     done()
   },
   async approve() {

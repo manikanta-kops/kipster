@@ -2228,6 +2228,7 @@
       "fields": {
         "preparation": {"type":"optional","of":{"type":"array","items":{"ref":"voicePreparation"}}},
         "runId": {"type":"optional","of":{"type":"string","min":1}},
+        "progress": {"type":"optional","of":{"type":"boolean"}},
         "id": {"type":"string","min":1},
         "threadId": {"type":"string","min":1},
         "authorId": {"type":"string","min":1},

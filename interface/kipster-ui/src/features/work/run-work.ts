@@ -29,6 +29,7 @@ export interface RunWork {
 export function runsByOrigin(
   works: TextWork[],
   records: WorkRecords,
+  noted: ReadonlySet<string> = new Set(),
 ): Map<string, RunWork> {
   const current = records.workflows[0]
   const started = works.filter(
@@ -50,7 +51,8 @@ export function runsByOrigin(
     const delegations = records.delegations.filter(
       (d) => home(d.runId) === w.runId,
     )
-    const steps = interactions.length + delegations.length
+    const steps =
+      interactions.length + delegations.length + (noted.has(w.runId) ? 1 : 0)
     const state = flow?.state ?? w.state
     const held = flow?.held ?? w.queueHold
     if (!steps && (!flow || (state === 'completed' && !held))) continue
