@@ -9,6 +9,7 @@ export interface CodexPermissions {
   readonly approvalPolicy: 'untrusted' | 'never' | Granular
   /** `auto_review` routes approval requests to Codex's reviewer subagent instead of the person. */
   readonly approvalsReviewer: 'user' | 'auto_review'
+  readonly config?: { readonly 'sandbox_workspace_write.network_access': true }
 }
 
 /**
@@ -17,6 +18,9 @@ export interface CodexPermissions {
  */
 const askOutsideSandbox: Granular = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
 
+/** The workspace-write sandbox blocks network by default, and a blocked network call fails without asking. */
+const network = { 'sandbox_workspace_write.network_access': true } as const
+
 /**
  * `untrusted` asks before every file change and every command Codex does not know to be read-only. With a
  * workspace-write sandbox, edits inside the writable roots and sandboxed commands run without asking. The reviewer is
@@ -24,8 +28,8 @@ const askOutsideSandbox: Granular = { granular: { sandbox_approval: true, rules:
  */
 const modes: Readonly<Record<PermissionMode, CodexPermissions>> = {
   supervised: { sandbox: 'read-only', approvalPolicy: 'untrusted', approvalsReviewer: 'user' },
-  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user' },
-  auto: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'auto_review' },
+  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user', config: network },
+  auto: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'auto_review', config: network },
   fullAccess: { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' },
 }
 

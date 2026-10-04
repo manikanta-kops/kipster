@@ -141,14 +141,15 @@ test('explicit executable and home override environment without editing user con
   } finally { await adapter.close(); await f.cleanup() }
 })
 
-test('each permission mode starts the thread with its sandbox, approval policy and reviewer', async () => {
+test('each permission mode starts the thread with its sandbox, approval policy, reviewer and network', async () => {
+  const network = { 'sandbox_workspace_write.network_access': true }
   const askOutsideSandbox = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
   const expected = {
-    supervised: ['read-only', 'untrusted', 'user'],
-    acceptEdits: ['workspace-write', askOutsideSandbox, 'user'],
-    auto: ['workspace-write', askOutsideSandbox, 'auto_review'],
-    fullAccess: ['danger-full-access', 'never', 'user'],
-    future: ['read-only', 'untrusted', 'user'],
+    supervised: ['read-only', 'untrusted', 'user', undefined],
+    acceptEdits: ['workspace-write', askOutsideSandbox, 'user', network],
+    auto: ['workspace-write', askOutsideSandbox, 'auto_review', network],
+    fullAccess: ['danger-full-access', 'never', 'user', undefined],
+    future: ['read-only', 'untrusted', 'user', undefined],
   }
   for (const [permissionMode, settings] of Object.entries(expected)) {
     const f = await fixture()
@@ -156,7 +157,7 @@ test('each permission mode starts the thread with its sandbox, approval policy a
       assert.equal((await f.adapter.readiness()).ready, true)
       for await (const event of (await f.adapter.execute({ ...f.context, permissionMode })).events) {}
       const thread = (await f.records()).find(row => row.method === 'thread/start').params
-      assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer], settings, permissionMode)
+      assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer, thread.config], settings, permissionMode)
       assert.equal(thread.cwd, f.context.workingDirectory)
     } finally { await f.cleanup() }
   }
