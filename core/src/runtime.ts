@@ -37,6 +37,8 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/administration/migrations/017_update_approvals.sql',
     './modules/synchronization/migrations/018_notification_inbox.sql',
     './modules/documents/migrations/019_documents.sql',
+    './modules/settings/migrations/020_permission_mode.sql',
+    './modules/administration/migrations/021_permission_approvals.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }

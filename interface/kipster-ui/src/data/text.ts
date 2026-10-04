@@ -39,6 +39,7 @@ export type Bootstrap = Scope & {
     interfacePreferences?: boolean
     notificationActions?: boolean
     documents?: boolean
+    permissionModes?: boolean
   }
 }
 export type Summary = {

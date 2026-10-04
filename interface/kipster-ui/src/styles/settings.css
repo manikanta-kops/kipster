@@ -1568,3 +1568,26 @@
     display: none;
   }
 }
+.set-choices {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.set-choice {
+  align-items: flex-start;
+  cursor: pointer;
+}
+.set-choice input {
+  margin: 3px 0 0;
+  accent-color: var(--tint);
+}
+.set-choices > .set-choice + .set-choice::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: var(--pad);
+  right: 0;
+  height: 0.5px;
+  background: var(--sep);
+}

@@ -106,8 +106,7 @@ test('conversations share user config; maintenance uses the user login with inte
     assert.equal(reader.argv.includes('mcp_servers.ambient.enabled=false'), false)
     assert.ok(maintenance.argv.includes('mcp_servers.ambient.enabled=false'))
     const thread = (await f.records()).find(row => row.method === 'thread/start').params
-    assert.equal(thread.approvalPolicy, undefined)
-    assert.equal(thread.sandbox, undefined)
+    assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer], ['read-only', 'untrusted', 'user'], 'a context without a permission mode runs supervised')
     const ledger = JSON.parse(await readFile(join(f.data, 'conversation-sessions/thread-1.json'), 'utf8'))
     assert.equal(ledger.home, await realpath(f.userHome))
   } finally { await f.cleanup() }
@@ -128,26 +127,45 @@ test('MCP isolation failures disable maintenance without disabling conversations
   } finally { await f.cleanup() }
 })
 
-test('explicit executable/home and conversation permissions override environment without editing user config', async () => {
+test('explicit executable and home override environment without editing user config', async () => {
   const f = await fixture()
-  const adapter = createAdapter({ dataDirectory: f.data, now: () => '', async invokeTool() {} }, { executable: join(f.directory, 'codex'), codexHome: f.userHome, sandbox: 'workspace-write', approvalPolicy: 'on-request', environment: { CUSTOM_PLUGIN_SETTING: 'configured' } })
+  const adapter = createAdapter({ dataDirectory: f.data, now: () => '', async invokeTool() {} }, { executable: join(f.directory, 'codex'), codexHome: f.userHome, environment: { CUSTOM_PLUGIN_SETTING: 'configured' } })
   try {
     const before = await snapshot(f.userHome)
     process.env.CODEX_HOME = '/nonexistent/should-not-be-used'
     assert.equal((await adapter.readiness()).ready, true)
     for await (const event of (await adapter.execute(f.context)).events) {}
     const records = await f.records()
-    const thread = records.find(row => row.method === 'thread/start').params
-    assert.equal(thread.sandbox, 'workspace-write')
-    assert.equal(thread.approvalPolicy, 'on-request')
     assert.equal(records.find(row => row.launch).launch.env.CUSTOM_PLUGIN_SETTING, 'configured')
     assert.deepEqual(await snapshot(f.userHome), before)
   } finally { await adapter.close(); await f.cleanup() }
 })
 
-test('configuration rejects unknown keys, relative paths and invalid permissions', () => {
+test('each permission mode starts the thread with its sandbox, approval policy, reviewer and network', async () => {
+  const network = { 'sandbox_workspace_write.network_access': true }
+  const askOutsideSandbox = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
+  const expected = {
+    supervised: ['read-only', 'untrusted', 'user', undefined],
+    acceptEdits: ['workspace-write', askOutsideSandbox, 'user', network],
+    auto: ['workspace-write', askOutsideSandbox, 'auto_review', network],
+    fullAccess: ['danger-full-access', 'never', 'user', undefined],
+    future: ['read-only', 'untrusted', 'user', undefined],
+  }
+  for (const [permissionMode, settings] of Object.entries(expected)) {
+    const f = await fixture()
+    try {
+      assert.equal((await f.adapter.readiness()).ready, true)
+      for await (const event of (await f.adapter.execute({ ...f.context, permissionMode })).events) {}
+      const thread = (await f.records()).find(row => row.method === 'thread/start').params
+      assert.deepEqual([thread.sandbox, thread.approvalPolicy, thread.approvalsReviewer, thread.config], settings, permissionMode)
+      assert.equal(thread.cwd, f.context.workingDirectory)
+    } finally { await f.cleanup() }
+  }
+})
+
+test('configuration rejects unknown keys, relative paths and the removed permission keys', () => {
   const host = { dataDirectory: '/tmp/kipster-codex-data', now: () => '', async invokeTool() {} }
-  for (const config of [{ unknown: true }, { codexHome: 'relative' }, { dataDirectory: '/tmp/data' }, { maintenanceAuth: 'linked' }, { executable: 'codex --bad' }, { sandbox: 'invalid' }, { approvalPolicy: 'invalid' }, { environment: { HOME: '/tmp' } }]) assert.throws(() => createAdapter(host, config))
+  for (const config of [{ unknown: true }, { codexHome: 'relative' }, { dataDirectory: '/tmp/data' }, { maintenanceAuth: 'linked' }, { executable: 'codex --bad' }, { sandbox: 'workspace-write' }, { approvalPolicy: 'never' }, { environment: { HOME: '/tmp' } }]) assert.throws(() => createAdapter(host, config))
   for (const dataDirectory of [undefined, 'relative']) assert.throws(() => createAdapter({ ...host, dataDirectory }, {}), /data directory/)
 })
 

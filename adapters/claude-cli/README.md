@@ -18,6 +18,14 @@ Claude Code's own tools, MCP servers, skills, plugins, hooks and settings come f
 
 Claude Code's permission prompts reach the adapter through `--permission-prompt-tool`. A prompt for a Kipster tool is allowed, since Core decides those. Any other prompt becomes a Core approval card bound to the exact tool and input, leaving out labels Claude regenerates (a command's `description`, WebFetch's `prompt`). AskUserQuestion questions become Core question cards with free text. The adapter stops the waiting process and the next attempt continues with the saved answer: an approval allows that action once, and a decline is returned to Claude with the person's comment.
 
+## Permission modes
+
+Core sends the installation's permission mode with each conversation execution as `context.permissionMode`, and the
+adapter passes Claude Code the nearest `--permission-mode`: `supervised` → `default`, `acceptEdits` → `acceptEdits`,
+`auto` → `auto` and `fullAccess` → `bypassPermissions`. A missing or unknown mode is `default`. Claude Code runs
+`auto` as `default` for a model that does not support it, such as Haiku, so those turns still ask. Each execution is
+a new Claude process, so a changed mode applies from the next turn. Maintenance never uses tools or asks.
+
 ## Memory maintenance
 
 Readiness declares maintenance with recovery version 1 in the `claude-cli-process` scope. Each maintenance task runs in its own process with the agent's configured model and effort, Core's output schema through `--json-schema`, no built-in tools, no MCP servers, safe mode (no CLAUDE.md, skills, plugins or hooks) and no session persistence, in a private workspace under the data directory. The adapter fails the attempt if Claude reports any tool other than structured output or any MCP server, or uses a tool. The structured output is returned to Core, which validates it again.
@@ -31,7 +39,6 @@ Core passes the optional adapter `config` object unchanged. This adapter accepts
 | Setting | Default and purpose |
 | --- | --- |
 | `executable` | `claude` on the service's `PATH`; alternatively an absolute executable path. |
-| `permissionMode` | Inherit the user's Claude settings; optional `default`, `acceptEdits`, `auto`, `bypassPermissions` or `dontAsk`. |
 | `environment` | Additional string environment variables for Claude processes. `HOME` cannot be overridden. |
 
 Processes receive a bounded environment: the user's home, shell and locale basics, proxies, certificates, `ANTHROPIC_*` variables and the Claude Code authentication and provider selectors (`CLAUDE_CONFIG_DIR`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock and Vertex settings). Core database credentials are not inherited. The adapter keeps its own records in the private data directory Core provides (`<Kipster home>/providers/claude-cli`).

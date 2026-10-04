@@ -1,13 +1,13 @@
-import { requestAdminApproval, requestInstallApproval } from './admin-approvals.js'
+import { requestAdminApproval, requestInstallApproval, requestPermissionsApproval } from './admin-approvals.js'
 import type { Postgres } from '../platform/postgres/public.js'
 import type { Jobs } from '../platform/jobs/public.js'
 import { MAX_IDENTITY_BYTES, MAX_ORGANIZATION_INSTRUCTIONS_BYTES, type Home, type IdentityFileName } from '../platform/home/public.js'
 import { authorizeAdministration, type AgentCaller } from '../modules/identity/public.js'
 import { addAppearance, addMembership, changeSettings, createAgent, createGroup, createOrganization, deleteGroup, readDirectory, readOperation, readOrganizationInstructions, removeAppearance, removeMembership, renameGroup, reorderAppearances, reorderGroups, restoreAgent, updateAgent, updateOrganization, writeOrganizationInstructions, type Changes } from '../modules/administration/public.js'
-import { effectiveSettings, listIdentityBackups, readAdapters, readIdentityBackup, readIdentityFile, readInterfacePreferences, readSettings, requireSettingsOwner, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences, type Catalog, type Patch } from '../modules/settings/public.js'
+import { effectiveSettings, listIdentityBackups, readAdapters, readIdentityBackup, readIdentityFile, readInterfacePreferences, readPermissions, readSettings, requireSettingsOwner, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences, writePermissions, type Catalog, type Patch } from '../modules/settings/public.js'
 import type { LearningService } from '../modules/memory/public.js'
 import type { UpdatesService } from '../modules/updates/public.js'
-import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
+import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
 import { updateChannel, updateInstall, updateMode } from '../protocol/updates.js'
 import { array, boolean, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
@@ -33,6 +33,7 @@ const areas = {
   groups: 'The sidebar groups of a workspace and the kips shown in each.',
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
   adapters: 'Execution adapters and the models they offer.',
+  permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access.',
   learning: 'Learning from conversations and the nightly sleep time, for the installation and each kip.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
@@ -284,6 +285,16 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
       await host.refreshAdapters()
       return readAdapters(host.db, caller)
     },
+  }),
+  'permissions.get': operation({
+    area: 'permissions', kind: 'read', input: none,
+    description: 'Read the permission mode every kip runs with: supervised (asks before commands and file changes), acceptEdits (approves edits, asks before other actions), auto (the default: supported providers approve routine actions, others still ask) or fullAccess (commands and edits without prompts).',
+    run: ({ host, caller }) => readPermissions(host.db, caller),
+  }),
+  'permissions.set': operation({
+    area: 'permissions', kind: 'write', input: fields({}, permissionSettingsWrite),
+    description: "Change the permission mode of every kip; each kip's next turn uses it. supervised, acceptEdits and auto are saved at once. fullAccess asks the owner with an approval card and ends the turn; it is saved only when the owner approves.",
+    run: ({ host, caller, callId, args }) => args.mode === 'fullAccess' ? requestPermissionsApproval(host.db, caller, callId, args.mode) : writePermissions(host.db, caller, { version: 1, mode: args.mode }),
   }),
   'learning.get': operation({
     area: 'learning', kind: 'read', input: none,

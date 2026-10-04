@@ -30,6 +30,7 @@ const routes = {
   '/v1/directory': ['directory.get'],
   '/v1/settings/interface': ['interface.get', 'interface.set'],
   '/v1/settings/learning': ['learning.get', 'learning.set'],
+  '/v1/settings/permissions': ['permissions.get', 'permissions.set'],
   '/v1/agents/{id}/learning': ['learning.agent_set'],
   '/v1/agents/{id}/identity/(AGENTS\\.md|soul\\.md|identity\\.md)(?:/(backups)(?:/([^/]+)(/restore)?)?)?': ['identity.get', 'identity.set', 'identity.backups', 'identity.backup_get', 'identity.restore'],
   '/v1/settings/updates': ['updates.get', 'updates.settings_set'],

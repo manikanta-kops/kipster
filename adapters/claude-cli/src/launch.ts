@@ -2,26 +2,30 @@ import { execFile } from 'node:child_process'
 import { chmod, lstat, mkdir, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { isAbsolute, resolve } from 'node:path'
+import type { PermissionMode } from '@kipster/core/adapter'
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions' | 'dontAsk'
 export interface LaunchConfig {
   executable: string
   dataDirectory: string
-  permissionMode?: PermissionMode
   environment: Record<string, string>
 }
-const permissionModes: readonly PermissionMode[] = ['default', 'acceptEdits', 'auto', 'bypassPermissions', 'dontAsk']
+const permissionModes: Readonly<Record<PermissionMode, string>> = { supervised: 'default', acceptEdits: 'acceptEdits', auto: 'auto', fullAccess: 'bypassPermissions' }
+/**
+ * Claude Code's `--permission-mode` for a Kipster permission mode. A missing or unknown mode is `default`, which asks
+ * before edits and commands. Claude Code itself runs `auto` as `default` for a model that does not support it.
+ */
+export function claudePermissionMode(mode: unknown): string {
+  return typeof mode === 'string' && Object.hasOwn(permissionModes, mode) ? permissionModes[mode as PermissionMode] : 'default'
+}
 /** Only this adapter interprets its installation configuration. Paths refer to the execution host. */
 export function launchConfig(value: Readonly<Record<string, unknown>> = {}, dataDirectory?: string): LaunchConfig {
-  for (const key of Object.keys(value)) if (!['executable', 'permissionMode', 'environment'].includes(key)) throw new Error(`Unknown Claude CLI configuration: ${key}`)
+  for (const key of Object.keys(value)) if (!['executable', 'environment'].includes(key)) throw new Error(`Unknown Claude CLI configuration: ${key}`)
   if (!dataDirectory || !isAbsolute(dataDirectory)) throw new Error('Core must provide an absolute adapter data directory')
   const executable = value.executable ?? 'claude'
   if (typeof executable !== 'string' || !executable.trim() || (executable !== 'claude' && !isAbsolute(executable))) throw new Error('executable must be claude or an absolute executable path')
-  const permissionMode = value.permissionMode as PermissionMode | undefined
-  if (permissionMode !== undefined && !permissionModes.includes(permissionMode)) throw new Error(`permissionMode must be one of ${permissionModes.join(', ')}`)
   const environment = value.environment ?? {}
   if (!environment || typeof environment !== 'object' || Array.isArray(environment) || Object.entries(environment).some(([key, entry]) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || typeof entry !== 'string' || key === 'HOME')) throw new Error('environment must contain string variables other than HOME')
-  return { executable, dataDirectory: resolve(dataDirectory), ...(permissionMode ? { permissionMode } : {}), environment: { ...environment } as Record<string, string> }
+  return { executable, dataDirectory: resolve(dataDirectory), environment: { ...environment } as Record<string, string> }
 }
 const inherited = ['PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'LC_ALL', 'LC_CTYPE', 'LC_MESSAGES', 'TZ', 'TMPDIR', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'no_proxy', 'all_proxy', 'SSH_AUTH_SOCK', 'DISPLAY', 'WAYLAND_DISPLAY', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS',
   'CLAUDE_CONFIG_DIR', 'CLAUDE_CODE_OAUTH_TOKEN', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'AWS_PROFILE', 'AWS_REGION', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_BEARER_TOKEN_BEDROCK', 'CLOUD_ML_REGION', 'GOOGLE_APPLICATION_CREDENTIALS']

@@ -198,6 +198,7 @@ Administration is owner-only:
 | `POST /v1/execution-adapters/refresh` | Probe every adapter's readiness again (`{ "version": 1 }`) and return the list. |
 | `GET /v1/operations/{operationId}` | An operation recorded under the owner's operation ID: `state`, current `step`, `waitingFor`, `result` and `error`. |
 | `GET`/`PUT /v1/settings/interface` | The installation's interface choices: `palette`, `theme` (`light`, `dark` or `system`) and `desktopNotifications`; null leaves the interface default. A `PUT` (`{ "version": 1, "palette"?, "theme"?, "desktopNotifications"? }`) changes the given ones and publishes `interface-changed` when one differs. Bootstrap advertises `capabilities.interfacePreferences`. |
+| `GET`/`PUT /v1/settings/permissions` | The installation's permission mode, `{ "version": 1, "revision", "mode" }`: what kips may do without asking. `supervised` asks before commands and file changes, `acceptEdits` approves edits and asks before other actions, `auto` (the default) lets providers that support it approve routine actions, and `fullAccess` allows commands and edits without prompts. A `PUT` (`{ "version": 1, "mode" }`) publishes `permissions-changed` when the mode differs. Every text execution receives the mode as `permissionMode`; maintenance executions are unaffected. Bootstrap advertises `capabilities.permissionModes`. |
 
 Each write except an instructions save or an adapter refresh carries an
 `operationId`. A repeated ID returns the result recorded the first time, with

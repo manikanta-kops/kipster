@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference, TextExecutionContext } from '@kipster/core/adapter'
-import { launchConfig, launchEnvironment, privateDirectory, probe, processIdentity, type LaunchConfig } from './launch.js'
+import { claudePermissionMode, launchConfig, launchEnvironment, privateDirectory, probe, processIdentity, type LaunchConfig } from './launch.js'
 import { ClaudeProcess, type Message } from './process.js'
 import { permissionTool, ToolServer, type ToolResult } from './tool-server.js'
 import { permissionDecision } from './interactions.js'
@@ -205,7 +205,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       await writeFile(join(directory, 'instructions.md'), `${context.instructions}\n\n${toolNote}`, { mode: 0o600, flag: 'wx' })
       const args = [...streamJson, '--include-partial-messages', '--no-session-persistence', '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
         '--mcp-config', join(directory, 'mcp.json'), '--permission-prompt-tool', `mcp__kipster_permission__${permissionTool}`, '--disallowedTools', `mcp__kipster_permission__${permissionTool}`,
-        '--append-system-prompt-file', join(directory, 'instructions.md'), ...(this.config.permissionMode ? ['--permission-mode', this.config.permissionMode] : []),
+        '--append-system-prompt-file', join(directory, 'instructions.md'), '--permission-mode', claudePermissionMode(context.permissionMode),
         ...(readable.length ? ['--allowedTools', ...readable.map(path => `Read(/${path})`)] : [])]
       child = this.spawn(args, workingDirectory)
       const process = child

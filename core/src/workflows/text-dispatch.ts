@@ -16,7 +16,7 @@ import { administrationTool } from './admin-tools.js'
 import { executionTools, toolGuidance } from './agent-tools.js'
 import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
-import { recordAdapters, resolveSettings, resolveAgentSettings, type Catalog } from '../modules/settings/public.js'
+import { permissionModeFor, recordAdapters, resolveSettings, resolveAgentSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
 import { publishThreadChange, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
 import { askInteraction, interactionRecord, type InteractionInput } from '../modules/work/public.js'
@@ -735,8 +735,9 @@ export class TextDispatcher {
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
       const tools = executionTools({ organization: organizationId !== null, memory: !!this.runtime.memory, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
+      const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
-      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       execution = { ...prepared, prompt: turnPrompt(prepared) }
     } catch (error) {
       route?.release(attempt.id)

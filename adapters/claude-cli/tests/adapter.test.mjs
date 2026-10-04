@@ -20,7 +20,7 @@ async function fixture(t) {
   const calls = []
   let answer = request => request.name.startsWith('interactions_') ? { status: 'pending', interactionId: `card-${calls.length}` } : { ok: true, echoed: request.arguments }
   const adapter = createAdapter({ dataDirectory: join(directory, 'data'), now: () => new Date().toISOString(), async invokeTool(request) { calls.push(request); return answer(request) } },
-    { executable, permissionMode: 'default', environment: { FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE_FILE: modeFile } })
+    { executable, environment: { FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE_FILE: modeFile } })
   t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
   return {
     directory, home, adapter, calls,
@@ -56,8 +56,20 @@ test('configuration is validated by the adapter', () => {
   const host = { dataDirectory: '/tmp/kipster-claude-config', now: () => '', invokeTool: async () => ({}) }
   assert.throws(() => createAdapter(host, { codexHome: '/x' }), /Unknown Claude CLI configuration: codexHome/)
   assert.throws(() => createAdapter(host, { executable: 'relative/claude' }), /absolute executable path/)
-  assert.throws(() => createAdapter(host, { permissionMode: 'plan' }), /permissionMode must be one of/)
+  assert.throws(() => createAdapter(host, { permissionMode: 'default' }), /Unknown Claude CLI configuration: permissionMode/, 'Core chooses the permission mode')
   assert.throws(() => createAdapter(host, { environment: { HOME: '/elsewhere' } }), /other than HOME/)
+})
+
+test('each permission mode launches Claude with its permission mode; a missing or unknown one asks', async t => {
+  const f = await fixture(t)
+  await ready(f)
+  const expected = { supervised: 'default', acceptEdits: 'acceptEdits', auto: 'auto', fullAccess: 'bypassPermissions', future: 'default', undefined: 'default' }
+  for (const [permissionMode, flag] of Object.entries(expected)) {
+    await collect(await f.adapter.execute(context(f, permissionMode === 'undefined' ? {} : { permissionMode })))
+    const launch = (await f.records()).findLast(record => record.launch).launch
+    assert.equal(launch.argv[launch.argv.indexOf('--permission-mode') + 1], flag, permissionMode)
+    assert.equal(launch.argv.filter(value => value === '--permission-mode').length, 1)
+  }
 })
 
 test('a turn streams text, offers Core tools over MCP and forwards only offered tools', async t => {

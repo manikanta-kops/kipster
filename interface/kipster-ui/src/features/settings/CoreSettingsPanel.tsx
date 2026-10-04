@@ -30,6 +30,7 @@ import { BackupPage, BackupsPage, IdentityFilePage } from './IdentityFiles'
 import type { KipLook } from './KipAvatar'
 import { KipPage, KipsPage } from './KipsSettings'
 import { LearningPage } from './LearningSettings'
+import { PermissionSettings } from './PermissionSettings'
 import { InstructionsPage, OrganizationPage } from './OrganizationSettings'
 import { Panel } from './Panel'
 import { Callout, Glyph } from './ui'
@@ -44,6 +45,7 @@ type PageId =
   | 'kips'
   | 'organization'
   | 'adapters'
+  | 'permissions'
   | 'learning'
   | 'connection'
   | 'archive'
@@ -99,6 +101,12 @@ const pages: Record<
     hue: 'var(--hue-plum)',
     words: 'models providers capabilities',
   },
+  permissions: {
+    label: 'Permissions',
+    icon: 'hand',
+    hue: 'var(--hue-rose)',
+    words: 'permission mode approvals supervised auto full access sandbox ask',
+  },
   learning: {
     label: 'Learning',
     icon: 'brain',
@@ -123,6 +131,7 @@ const workspacePages: PageId[] = [
   'kips',
   'organization',
   'adapters',
+  'permissions',
   'learning',
 ]
 
@@ -134,6 +143,7 @@ export function CoreSettingsPanel({
   versions,
   updates,
   softwareUpdates,
+  permissionModes = false,
   initialTab,
   appearance,
   endpoint,
@@ -158,6 +168,8 @@ export function CoreSettingsPanel({
   versions?: { coreVersion: string; protocol: ProtocolRange }
   updates?: ApplicationUpdates
   softwareUpdates?: SoftwareUpdates
+  /** Core advertises the permission mode setting. */
+  permissionModes?: boolean
   initialTab?: 'workspace' | 'updates'
   appearance: Appearance
   endpoint: string
@@ -169,7 +181,7 @@ export function CoreSettingsPanel({
 }) {
   const platform = useContext(PlatformContext)
   const client = useMemo(() => new CoreSettingsClient(endpoint), [endpoint])
-  const settings = useCoreSettings(client, scope, updates)
+  const settings = useCoreSettings(client, scope, updates, permissionModes)
   const journalScope = JSON.stringify([
     client.endpoint,
     scope.installationId,
@@ -185,6 +197,7 @@ export function CoreSettingsPanel({
     kips: true,
     organization: true,
     adapters: true,
+    permissions: permissionModes,
     learning: true,
     connection: !!changeConnection,
     archive: !!lifecycle,
@@ -194,7 +207,10 @@ export function CoreSettingsPanel({
       platform?.app ? 'This Mac' : 'This device',
       ['appearance', 'notifications', 'general', 'updates'],
     ],
-    ['Workspace', ['kips', 'organization', 'adapters', 'learning']],
+    [
+      'Workspace',
+      ['kips', 'organization', 'adapters', 'permissions', 'learning'],
+    ],
     ['Advanced', ['connection', 'archive']],
   ]
   const [page, setPage] = useState<PageId>(() =>
@@ -416,6 +432,15 @@ export function CoreSettingsPanel({
         )
       case 'adapters':
         return <AdaptersPage settings={settings} />
+      case 'permissions':
+        return (
+          settings.permissions && (
+            <PermissionSettings
+              permissions={settings.permissions}
+              save={settings.savePermissions}
+            />
+          )
+        )
       case 'learning':
         return <LearningPage settings={settings} look={look} />
     }

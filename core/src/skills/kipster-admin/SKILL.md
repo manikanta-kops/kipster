@@ -1,6 +1,6 @@
 ---
 name: kipster-admin
-description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, learning, appearance, notifications and updates.
+description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, learning, appearance, notifications and updates.
 ---
 
 # Administering Kipster
@@ -25,6 +25,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | model, effort, provider | execution settings | `settings`, `adapters` |
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
+| permissions, asking first, approvals, full access | permission mode | `permissions` |
 | memory, learning, sleep | learning and sleep time | `learning` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
@@ -39,7 +40,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 ## Approvals
 
 Archiving or deleting a kip, deleting a workspace and installing or restoring a Core version have the kind `approval`.
-The call shows the person an approval card and your turn ends. Nothing changes until they approve. Do not ask for the
+So does `permissions.set` with `fullAccess`. The call shows the person an approval card and your turn ends. Nothing changes until they approve. Do not ask for the
 same approval twice. Kip, the main kip, cannot be archived or deleted.
 
 ## Playbooks
@@ -61,6 +62,12 @@ computer may ask once to allow them.
 
 **Change the model.** Read `adapters.list` for available models and efforts, then `settings.set` on the kip or on the
 workspace (the default for every kip in it). `settings.effective` shows what a kip will actually use.
+
+**Change what kips may do without asking.** `permissions.get` shows the mode every kip runs with and `permissions.set`
+changes it. `supervised` asks before commands and file changes, `acceptEdits` approves edits and asks before other
+actions, `auto` (the default) lets providers that support it approve routine actions while others still ask, and
+`fullAccess` allows commands and edits without prompts. Each kip's next turn uses the new mode. `fullAccess` needs the
+person's approval; say plainly that it removes every prompt.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call

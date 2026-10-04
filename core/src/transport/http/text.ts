@@ -15,8 +15,8 @@ import { context as contextSchema, textSubmission, controlCommand, interactionRe
 import type { TextDispatcher, ControlInput } from '../../workflows/text-dispatch.js'
 import { answerInteraction, interactionReceipt, type InteractionAnswer } from '../../modules/work/public.js'
 import { MAX_UPLOAD_BYTES, type ArtifactTarget, type UploadIntent } from '../../modules/artifacts/public.js'
-import { listIdentityBackups, readIdentityBackup, readIdentityFile, readInterfacePreferences, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences } from '../../modules/settings/public.js'
-import { interfacePreferencesWrite } from '../../protocol/admin.js'
+import { listIdentityBackups, readIdentityBackup, readIdentityFile, readInterfacePreferences, readPermissions, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences, writePermissions } from '../../modules/settings/public.js'
+import { interfacePreferencesWrite, permissionSettingsWrite } from '../../protocol/admin.js'
 import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from '../../platform/home/public.js'
 import { RefusedError } from '../../platform/errors/public.js'
 import { DocumentConflictError } from '../../modules/documents/public.js'
@@ -155,7 +155,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true,documents:true} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true,documents:true,permissionModes:true} }); return }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){
@@ -217,6 +217,8 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
       if (administration) { json(response, 200, administration); return }
       if (path === '/v1/settings/interface' && request.method === 'GET') { json(response, 200, await readInterfacePreferences(runtime.db, actor)); return }
       if (path === '/v1/settings/interface' && request.method === 'PUT') { json(response, 200, await writeInterfacePreferences(runtime.db, actor, interfacePreferencesWrite.parse(await body(request)))); return }
+      if (path === '/v1/settings/permissions' && request.method === 'GET') { json(response, 200, await readPermissions(runtime.db, actor)); return }
+      if (path === '/v1/settings/permissions' && request.method === 'PUT') { json(response, 200, await writePermissions(runtime.db, actor, permissionSettingsWrite.parse(await body(request)))); return }
       if (path === '/v1/settings/learning' && request.method === 'GET') { json(response, 200, { version: 1, ...await runtime.learning.get(actor) }); return }
       if (path === '/v1/settings/learning' && request.method === 'PUT') {
         const { version: _, ...update } = learningUpdate.parse(await body(request))

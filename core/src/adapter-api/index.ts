@@ -24,6 +24,13 @@ export interface ToolDefinition {
   readonly waits?: 'question' | 'approval' | 'child'
 }
 
+/**
+ * `supervised` asks before commands and file changes; `acceptEdits` approves edits and asks before other actions;
+ * `auto` lets the provider approve routine actions where it supports that and ask otherwise; `fullAccess` allows
+ * commands and edits without prompts.
+ */
+export type PermissionMode = 'supervised' | 'acceptEdits' | 'auto' | 'fullAccess'
+
 /** Provisional normalized text execution; provider session restoration is unspecified. */
 export interface TextExecutionContext {
   /** Missing kind is a text context; adapters must throw on unknown kinds. */
@@ -51,6 +58,11 @@ export interface TextExecutionContext {
   /** Saved operation results from earlier attempts of this logical run; factual, untrusted context. */
   readonly administrationReceipts?: { readonly receipts: readonly unknown[]; readonly hasMore: boolean }
   readonly settings?: { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
+  /**
+   * What the agent may do without asking the person. Map it to the provider's nearest equivalent; treat a missing or
+   * unknown value as the safest mode the provider supports.
+   */
+  readonly permissionMode?: PermissionMode
   readonly triggerMessageId?: string
   readonly input: readonly { readonly messageId: string; readonly text: string; readonly parts?: readonly ({readonly kind:'text';readonly text:string}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'available';readonly readablePath:string;readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'unavailable';readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}})[] }[]
   /** Settled interactions in durable order, including all earlier attempts of this run. */

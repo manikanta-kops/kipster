@@ -348,6 +348,11 @@
         "settings": {"type":"optional","of":{"ref":"settingsPatch"}}
       }
     },
+    "permissionSettingsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"mode":{"ref":"permissionMode"}}
+    },
     "receiptLookup": {
       "type": "object",
       "exact": true,
@@ -1588,6 +1593,20 @@
         "organization": {"ref":"directoryOrganization"}
       }
     },
+    "permissionSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "revision": {"type":"integer","min":0},
+        "mode": {"type":"string"}
+      }
+    },
+    "permissionSettingsRecord": {
+      "type": "object",
+      "exact": false,
+      "fields": {"revision":{"type":"integer","min":0},"mode":{"type":"string"}}
+    },
     "queueEntry": {
       "type": "object",
       "exact": false,
@@ -2014,6 +2033,21 @@
             "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"interface-changed"},
             "data": {"ref":"interfacePreferencesRecord"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "eventId": {"type":"string","min":1},
+            "scope": {"ref":"streamScope"},
+            "cursor": {"type":"string","min":1},
+            "occurredAt": {"type":"string","format":"utc-timestamp"},
+            "resourceId": {"type":"string","min":1},
+            "revision": {"type":"integer","min":0},
+            "type": {"type":"literal","value":"permissions-changed"},
+            "data": {"ref":"permissionSettingsRecord"}
           }
         },
         {
@@ -2469,6 +2503,15 @@
         {"type":"literal","value":"active"},
         {"type":"literal","value":"deleting"},
         {"type":"literal","value":"deleted"}
+      ]
+    },
+    "permissionMode": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"supervised"},
+        {"type":"literal","value":"acceptEdits"},
+        {"type":"literal","value":"auto"},
+        {"type":"literal","value":"fullAccess"}
       ]
     },
     "removedPart": {
