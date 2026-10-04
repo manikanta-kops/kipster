@@ -1,23 +1,31 @@
 import type { PermissionMode } from '@kipster/core/adapter'
 
+/** Codex asks for every kind of approval it can prompt for; a disabled kind would be rejected without asking. */
+type Granular = { readonly granular: { readonly sandbox_approval: true; readonly rules: true; readonly mcp_elicitations: true; readonly request_permissions: true; readonly skill_approval: true } }
+
 /** The Codex App Server thread settings that carry out one Kipster permission mode. */
 export interface CodexPermissions {
   readonly sandbox: 'read-only' | 'workspace-write' | 'danger-full-access'
-  readonly approvalPolicy: 'untrusted' | 'on-request' | 'never'
+  readonly approvalPolicy: 'untrusted' | 'never' | Granular
   /** `auto_review` routes approval requests to Codex's reviewer subagent instead of the person. */
   readonly approvalsReviewer: 'user' | 'auto_review'
 }
 
 /**
- * `untrusted` asks before file changes and before every command Codex does not know to be read-only. `on-request`
- * with a workspace-write sandbox applies edits inside the writable roots and runs sandboxed commands, asking only
- * to leave the sandbox. The reviewer is always set, so a reviewer chosen in the user's Codex configuration does not
- * change what a mode means.
+ * Asks like `on-request`, and also when the sandbox blocks a command, such as a write outside the workspace.
+ * Plain `on-request` lets such a command fail without asking.
+ */
+const askOutsideSandbox: Granular = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
+
+/**
+ * `untrusted` asks before every file change and every command Codex does not know to be read-only. With a
+ * workspace-write sandbox, edits inside the writable roots and sandboxed commands run without asking. The reviewer is
+ * always set, so a reviewer chosen in the user's Codex configuration does not change what a mode means.
  */
 const modes: Readonly<Record<PermissionMode, CodexPermissions>> = {
   supervised: { sandbox: 'read-only', approvalPolicy: 'untrusted', approvalsReviewer: 'user' },
-  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'user' },
-  auto: { sandbox: 'workspace-write', approvalPolicy: 'on-request', approvalsReviewer: 'auto_review' },
+  acceptEdits: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'user' },
+  auto: { sandbox: 'workspace-write', approvalPolicy: askOutsideSandbox, approvalsReviewer: 'auto_review' },
   fullAccess: { sandbox: 'danger-full-access', approvalPolicy: 'never', approvalsReviewer: 'user' },
 }
 

@@ -142,10 +142,11 @@ test('explicit executable and home override environment without editing user con
 })
 
 test('each permission mode starts the thread with its sandbox, approval policy and reviewer', async () => {
+  const askOutsideSandbox = { granular: { sandbox_approval: true, rules: true, mcp_elicitations: true, request_permissions: true, skill_approval: true } }
   const expected = {
     supervised: ['read-only', 'untrusted', 'user'],
-    acceptEdits: ['workspace-write', 'on-request', 'user'],
-    auto: ['workspace-write', 'on-request', 'auto_review'],
+    acceptEdits: ['workspace-write', askOutsideSandbox, 'user'],
+    auto: ['workspace-write', askOutsideSandbox, 'auto_review'],
     fullAccess: ['danger-full-access', 'never', 'user'],
     future: ['read-only', 'untrusted', 'user'],
   }

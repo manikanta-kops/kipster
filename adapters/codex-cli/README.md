@@ -12,13 +12,16 @@ adapter starts the thread with these settings; a missing or unknown mode runs as
 | Mode | `sandbox` | `approvalPolicy` | `approvalsReviewer` |
 | --- | --- | --- | --- |
 | `supervised` | `read-only` | `untrusted` | `user` |
-| `acceptEdits` | `workspace-write` | `on-request` | `user` |
-| `auto` | `workspace-write` | `on-request` | `auto_review` |
+| `acceptEdits` | `workspace-write` | `granular`, every prompt kind on | `user` |
+| `auto` | `workspace-write` | `granular`, every prompt kind on | `auto_review` |
 | `fullAccess` | `danger-full-access` | `never` | `user` |
 
-The workspace Codex may write in is the agent's Core-owned home, the execution's working directory. With
-`workspace-write`, edits there and sandboxed commands run without asking; leaving the sandbox, for example to write
-elsewhere or use the network, asks. In `auto`, Codex's reviewer subagent decides those requests instead of the person.
+The workspace Codex may write in is the agent's Core-owned home, the execution's working directory, plus the
+temporary directories Codex's `workspace-write` sandbox always allows. Edits there and sandboxed commands run without
+asking. The granular policy behaves like `on-request` and also asks when the sandbox blocks a command, such as a write
+elsewhere; plain `on-request` lets that command fail without asking. Sandboxed commands have no network access, and a
+failed network call is not reported as a sandbox denial, so it fails rather than asks. In `auto`, Codex's reviewer
+subagent decides approval requests instead of the person.
 Requests that still reach the person become approval cards. Every execution starts a new thread, so a changed mode
 applies from the next turn. Maintenance stays read-only and never asks.
 
