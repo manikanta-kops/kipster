@@ -1,0 +1,35 @@
+# Repository reading map
+
+- [Working rules](../../AGENTS.md): read before any change; package parity, migrations and ownership rules apply throughout.
+- [Product overview](../../README.md): read for user-facing terminology and package purpose.
+- [Contributing](../../CONTRIBUTING.md): read before choosing a branch, changesets and validation.
+- [Factory verification](factory-verification.md): read before checks or tester work; isolated composition, gate coverage and safety rules.
+- [CI](../../.github/workflows/ci.yml): read when updating the deterministic gate or checking package coverage.
+- [Releasing](../../docs/releasing.md): read for changeset bumps, independent package releases and owner-only stable merges.
+- [Changesets](../../.changeset/README.md): read when adding a release note or an empty changeset.
+- [Architecture plan](../../docs/initial-implementation-plan/implementation-plan.md): read for boundaries and overall scope; numbered records refine it.
+- [Identity and ownership](../../docs/initial-implementation-plan/01-identity-and-ownership.md): read before organizations, agents, memberships or groups.
+- [Conversations and work](../../docs/initial-implementation-plan/02-conversations-and-work-lifecycle.md): read before queues, controls, interactions, voice or delegation.
+- [Execution adapters](../../docs/initial-implementation-plan/03-execution-adapters-and-agent-capabilities.md): read before adapter contracts, tools, publication or continuation.
+- [Storage and recovery](../../docs/initial-implementation-plan/04-storage-and-recovery.md): read before PostgreSQL, files, task data, vectors, memory or recovery.
+- [Protocol](../../docs/initial-implementation-plan/05-kipster-protocol.md): read before HTTP/SSE and client contract changes, especially compatibility section 5.1.7.
+- [Assembly and operations](../../docs/initial-implementation-plan/06-application-assembly-and-operations.md): read for host/client separation and distribution constraints.
+- [Rich documents](../../docs/initial-implementation-plan/07-rich-documents.md): read before block editing, drafts, comments, submission or revisions.
+- [macOS privacy](../../docs/initial-implementation-plan/08-macos-backend-privacy.md): read before backend bundle identity, signing or privacy work.
+- [Login services](../../docs/initial-implementation-plan/09-macos-login-services.md): read before launchd lifecycle changes; no operational authorization is implied.
+- [Core](../../core/README.md): read for runtime assembly, exports, database tests, administration, memory and settings.
+- [Host guide](../../core/docs/host-macos.md): read before host configuration changes; never apply it to an owner's installation during factory verification.
+- [Admin skill](../../core/src/skills/kipster-admin/SKILL.md): read when changing admin catalog guidance or settings/action parity.
+- [Interfaces](../../interface/README.md): read for the interface/platform boundary.
+- [UI](../../interface/kipster-ui/README.md): read for connected features, browser tests and recovery state.
+- [Fake Core](../../interface/kipster-ui/docs/fake-core.md): read for fake-Core conformance tests; factory instances use real Core.
+- [Platform adapters](../../interface/kipster-ui/docs/platform-adapters.md): read before native notifications, permissions or desktop integration.
+- [Mac client installation](../../interface/kipster-ui/docs/install-macos.md): read before client distribution work; installed clients are outside factory scope.
+- [UI assets](../../interface/kipster-ui/public/ASSETS.md): read before changing bundled visual assets.
+- [Adapters](../../adapters/README.md): read for provider package boundaries and Core contracts.
+- [Codex adapter](../../adapters/codex-cli/README.md): read before Codex adapter code changes; use fake CLI tests only in factory work.
+- [Claude adapter](../../adapters/claude-cli/README.md): read before Claude adapter code changes; no owner credentials in verification.
+- [Embedding adapter](../../adapters/embedding-ollama/README.md): read before embedding provider configuration or implementation.
+- [Transcription adapter](../../adapters/transcription-spokenly/README.md): read before voice conversion or provider behavior.
+- [Installer](../../installer/README.md): read before installer/updater changes and disposable database tests.
+- [Verification guide](../verify/README.md): read before navigating or driving a factory-provided instance.

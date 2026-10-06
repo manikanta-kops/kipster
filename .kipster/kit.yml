@@ -1,0 +1,12 @@
+version: 1
+setup: npm ci
+check: node .kipster/check.mjs
+verify:
+  start: node .kipster/verify/start.mjs {port} {port2} {databaseUrl}
+  ready: http://127.0.0.1:{port}/health
+  ports: 2
+  database: postgres
+  timeoutSeconds: 180
+merge:
+  migrations:
+    - core/src/**/migrations/*.sql
