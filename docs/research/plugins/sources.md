@@ -2,7 +2,7 @@
 
 This document records where the service list in
 [`batches/master-list.csv`](batches/master-list.csv) came from and how it was
-built. The list names 1,742 services, ranked by everyday relevance. Later
+built. The list names 1,738 services, ranked by everyday relevance. Later
 research checks each service for an official MCP server, a sign-in method and
 a plugin path; this document does not.
 
@@ -20,24 +20,24 @@ number of master-list rows that carry the key.
 
 | Key | Source | URL | What was used | Size | Rows | Access notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| `mcp-registry` | Official MCP Registry | https://registry.modelcontextprotocol.io | `GET /v0/servers?version=latest`, all pages | 40,791 server entries | 562 | Public API |
-| `github-mcp` | GitHub MCP Registry (the list behind https://code.visualstudio.com/mcp) | https://github.com/mcp | `GET https://api.mcp.github.com/v0/servers`, all pages | 394 servers | 39 | Public API |
-| `claude-connectors` | Claude connectors directory | https://claude.com/connectors | Connector pages listed in https://claude.com/sitemap.xml | 922 connectors | 237 | https://claude.ai/directory returned HTTP 403 |
+| `mcp-registry` | Official MCP Registry | https://registry.modelcontextprotocol.io | `GET /v0/servers?version=latest`, all pages | 40,791 server entries | 512 | Public API |
+| `github-mcp` | GitHub MCP Registry (the list behind https://code.visualstudio.com/mcp) | https://github.com/mcp | `GET https://api.mcp.github.com/v0/servers`, all pages | 394 servers | 38 | Public API |
+| `claude-connectors` | Claude connectors directory | https://claude.com/connectors | Connector pages listed in https://claude.com/sitemap.xml | 922 connectors | 232 | https://claude.ai/directory returned HTTP 403 |
 | `cursor` | Cursor marketplace (MCP directory) | https://cursor.com/docs/context/mcp/directory | Publisher and plugin pages in https://cursor.com/sitemap-marketplace.xml | 3,466 pages | 106 | Public sitemap |
-| `docker-mcp` | Docker MCP Catalog | https://github.com/docker/mcp-registry | `servers/` directory listing | 328 servers | 66 | Public GitHub API |
-| `glama` | Glama MCP directory | https://glama.ai/mcp/servers | Connector and server pages in https://glama.ai/sitemap.xml | 26,905 connectors, 97,619 servers | 706 | API needs a key and robots.txt disallows `/api/`; sitemaps used instead |
-| `mcpso` | mcp.so | https://mcp.so | Server pages in https://mcp.so/sitemap.xml | 18,374 servers | 335 | robots.txt disallows `/api/`; sitemap used |
+| `docker-mcp` | Docker MCP Catalog | https://github.com/docker/mcp-registry | `servers/` directory listing | 328 servers | 65 | Public GitHub API |
+| `glama` | Glama MCP directory | https://glama.ai/mcp/servers | Connector and server pages in https://glama.ai/sitemap.xml | 26,905 connectors, 97,619 servers | 689 | API needs a key and robots.txt disallows `/api/`; sitemaps used instead |
+| `mcpso` | mcp.so | https://mcp.so | Server pages in https://mcp.so/sitemap.xml | 18,374 servers | 328 | robots.txt disallows `/api/`; sitemap used |
 | `smithery` | Smithery registry | https://smithery.ai | `GET https://registry.smithery.ai/servers` | First 500 of 19,106 servers | 16 | Public listing returns at most 500 entries |
-| `awesome-mcp` | awesome-mcp-servers | https://github.com/punkpeye/awesome-mcp-servers | README entries | 4,125 entries | 138 | MIT |
-| `composio` | Composio toolkits | https://docs.composio.dev/toolkits | Toolkit index page | 1,600 toolkits | 313 | Reference only; the API needs a key |
-| `pipedream` | Pipedream apps | https://pipedream.com/apps | App pages in https://pipedream.com/sitemap-apps.xml | 3,223 apps | 443 | Reference only; the API needs a key |
-| `zapier` | Zapier app directory | https://zapier.com/apps | `GET https://zapier.com/api/v4/apps/`, all pages, popularity order | 10,231 apps (built-in tools excluded) | 471 | Reference only |
-| `nango` | Nango provider catalog | https://github.com/NangoHQ/nango | `packages/providers/providers.yaml` | 1,046 providers | 308 | ELv2 |
-| `activepieces` | Activepieces community pieces | https://github.com/activepieces/activepieces | `packages/pieces/community` directory | 736 pieces | 241 | MIT outside enterprise directories |
-| `n8n` | n8n built-in nodes | https://github.com/n8n-io/n8n | `packages/nodes-base/nodes` directory, with Google and Microsoft sub-nodes | 345 nodes | 154 | Sustainable Use License |
-| `home-assistant` | Home Assistant integrations | https://www.home-assistant.io/integrations/ | https://www.home-assistant.io/integrations.json, with install counts from https://analytics.home-assistant.io/data.json | 1,371 integrations (helpers and system integrations excluded) | 138 | Apache-2.0 |
+| `awesome-mcp` | awesome-mcp-servers | https://github.com/punkpeye/awesome-mcp-servers | README entries | 4,125 entries | 134 | MIT |
+| `composio` | Composio toolkits | https://docs.composio.dev/toolkits | Toolkit index page | 1,600 toolkits | 312 | Reference only; the API needs a key |
+| `pipedream` | Pipedream apps | https://pipedream.com/apps | App pages in https://pipedream.com/sitemap-apps.xml | 3,223 apps | 434 | Reference only; the API needs a key |
+| `zapier` | Zapier app directory | https://zapier.com/apps | `GET https://zapier.com/api/v4/apps/`, all pages, popularity order | 10,231 apps (built-in tools excluded) | 435 | Reference only |
+| `nango` | Nango provider catalog | https://github.com/NangoHQ/nango | `packages/providers/providers.yaml` | 1,046 providers | 305 | ELv2 |
+| `activepieces` | Activepieces community pieces | https://github.com/activepieces/activepieces | `packages/pieces/community` directory | 736 pieces | 240 | MIT outside enterprise directories |
+| `n8n` | n8n built-in nodes | https://github.com/n8n-io/n8n | `packages/nodes-base/nodes` directory, with Google and Microsoft sub-nodes | 345 nodes | 153 | Sustainable Use License |
+| `home-assistant` | Home Assistant integrations | https://www.home-assistant.io/integrations/ | https://www.home-assistant.io/integrations.json, with install counts from https://analytics.home-assistant.io/data.json | 1,371 integrations (helpers and system integrations excluded) | 130 | Apache-2.0 |
 | `appstore` | Apple App Store top charts, US store | https://itunes.apple.com/us/rss/ | Top free and top grossing iPhone apps for 24 categories and overall (`topfreeapplications` and `topgrossingapplications` JSON feeds) | 4,994 chart entries (100 per chart) | 793 | Public feed |
-| `appstore-listing` | Apple App Store listing, US store | https://itunes.apple.com/search | iTunes Search API lookup for rows with no other evidence; each match checked by app name and developer | 249 confirmed listings | 249 | Public API |
+| `appstore-listing` | Apple App Store listing, US store | https://itunes.apple.com/search | iTunes Search API lookup for rows with no other confirmed evidence; each match checked by app name and developer. Stan, which is sold only in Australia, was checked in the Australian store | 270 confirmed listings | 270 | Public API |
 | `google-play` | Google Play listing, US store | https://play.google.com/store/apps | Store page of a known package, for Android-only apps | 5 listings | 5 | Public page |
 
 Not used:
@@ -100,12 +100,12 @@ different services share a name, a short qualifier keeps them apart, as in
 
 **Ranking.** Rows are ranked in three bands:
 
-1. Everyday consumer services (ranks 1–1,256): email, calendar, notes, tasks,
+1. Everyday consumer services (ranks 1–1,255): email, calendar, notes, tasks,
    documents, files, chat, social, music, video, travel, rides, food, shopping,
    banking, payments, health, smart home, learning, news and similar.
-2. Work and productivity tools (ranks 1,257–1,409), such as Notion, Slack,
+2. Work and productivity tools (ranks 1,256–1,405), such as Notion, Slack,
    Asana and Jira.
-3. Developer and business tools (ranks 1,410–1,742), such as GitHub, Stripe,
+3. Developer and business tools (ranks 1,406–1,738), such as GitHub, Stripe,
    HubSpot and AWS.
 
 Within the consumer band, the first 147 rows are ordered by hand. These are the
@@ -132,13 +132,27 @@ normalisation. Rules by source:
 - App Store matches were checked against the developer name, and known false
   matches were removed.
 
+Every match was then checked to be the same service, not just the same name.
+Where a catalog gives a homepage (Zapier, the MCP Registry, Smithery), it was
+compared with the service's own. Matches on short or dictionary-word names, on
+alternative names and on registry namespaces were reviewed by hand, and
+ambiguous catalog pages were opened. Matches for a different product were
+removed: for example, Zapier's Emma is an email-marketing tool, not the Emma
+budgeting app, and Home Assistant's Flo is a Moen water valve, not the Flo
+period tracker. A server listed under a hosting platform's namespace (for
+example `app.netlify.<site>`) does not count for that platform. Catalog
+entries for a vendor's developer API count for the developer row, not the
+consumer app: the OpenAI entries in Composio, Pipedream and Nango belong to
+OpenAI Platform, not ChatGPT. Rows whose only matches were removed stayed only
+with a confirmed App Store listing; the rest were dropped.
+
 **Website.** The `website` value is the service's official homepage. Each one
 was requested once with a single GET:
 
-- 1,298 pages loaded and named the service (21 of these after correcting to a
+- 1,295 pages loaded and named the service (20 of these after correcting to a
   renamed domain).
 - 387 answered with bot protection, a sign-in redirect or a regional redirect.
-- 23 well-known domains did not answer the automated request.
+- 22 well-known domains did not answer the automated request.
 
 The website is left blank for 34 rows, mainly Apple system apps such as Apple
 Notes, which have no separate homepage, and services whose homepage could not
@@ -146,7 +160,7 @@ be confirmed.
 
 ## Counts
 
-By tier: 400 `deep`, 1,342 `light`. By band: 1,256 consumer, 153 work and
+By tier: 400 `deep`, 1,338 `light`. By band: 1,255 consumer, 150 work and
 productivity, 333 developer and business.
 
 | Category | Rows | Deep |
@@ -189,15 +203,15 @@ productivity, 333 developer and business.
 | weather | 18 | 5 |
 | password-and-security | 30 | 8 |
 | utilities-and-telecom | 29 | 8 |
-| government-and-civic | 15 | 2 |
+| government-and-civic | 14 | 2 |
 | automotive | 35 | 5 |
 | real-estate | 19 | 3 |
 | ai-assistants | 19 | 8 |
 | productivity | 36 | 0 |
 | project-management | 31 | 0 |
-| knowledge-base | 13 | 0 |
+| knowledge-base | 11 | 0 |
 | forms-and-surveys | 20 | 0 |
-| scheduling | 19 | 0 |
+| scheduling | 18 | 0 |
 | crm-and-sales | 33 | 0 |
 | marketing-and-email-marketing | 32 | 0 |
 | social-media-management | 16 | 0 |
@@ -235,9 +249,12 @@ Brave Search, Kagi and Ecosia).
   tools far more than consumer apps. A missing `listed_in` key does not mean a
   service has no API.
 - **Name matching.** Matching by normalised name can miss services listed
-  under a different name and can credit a community server that only
-  mentions the service. `listed_in` shows that a service appears in a source,
-  not that an official integration exists.
+  under a different name. Identity was checked by homepage where a catalog
+  gives one and by hand for ambiguous names; other matches in large community
+  directories (Glama, mcp.so, awesome-mcp-servers) were sampled, not checked
+  one by one. A community key can credit a server that only mentions the
+  service. `listed_in` shows that a service appears in a source, not that an
+  official integration exists.
 - **Thin categories.** Pets, government and civic, video calls and games have
   few rows, because few such services offer accounts or data worth connecting.
 - **Ranking is a judgement.** Order within each band reflects judged
