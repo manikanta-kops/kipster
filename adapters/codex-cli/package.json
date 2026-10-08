@@ -28,11 +28,11 @@
   },
   "devDependencies": {
     "@kipster/core": "*",
-    "@types/node": "26.6.3",
+    "@types/node": "26.6.4",
     "typescript": "7.0.2"
   },
   "dependencies": {
     "jpeg-js": "0.4.4",
-    "libheif-js": "1.23.2"
+    "libheif-js": "1.23.5"
   }
 }
