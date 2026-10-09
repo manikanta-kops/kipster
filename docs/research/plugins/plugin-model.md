@@ -9,7 +9,7 @@ Specification facts were checked against the sources linked below on
 2026-10-08. **Unconfirmed** marks statements no primary source confirmed;
 **Estimate** marks judgement, not measurement. The classes and paths below are
 applied to 1,738 services in [catalog.csv](catalog.csv); [README.md](README.md)
-has the counts (287 class A, 341 B, 219 C, 63 D and 828 E).
+has the counts (275 class A, 341 B, 231 C, 63 D and 828 E).
 
 ## 1. What a Kipster plugin is
 

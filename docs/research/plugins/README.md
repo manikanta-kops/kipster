@@ -5,8 +5,8 @@ service for 1,738 widely used services, sorted by rank, saying how a kip could
 reach a person's own account in each one. [batches/](batches/) holds the six
 working files the catalog is merged from. The 400 highest-ranked services were
 researched deeply from vendor documentation and live discovery metadata; the
-other 1,338 were checked more lightly. Rows were last checked on 2026-10-08 (693
-rows) or 2026-10-09 (1,045 rows).
+other 1,338 were checked more lightly. Rows were last checked on 2026-10-08 (681
+rows) or 2026-10-09 (1,057 rows).
 
 Each service has one connection class (what must happen before a kip can
 connect) and one plugin path (what Kipster would build), explained in
@@ -34,8 +34,8 @@ Mac and Apple features, calendar or news feeds, an official CLI);
 
 ## The answer in numbers
 
-287 services (17%) can be plugged in today through an official MCP with a
-browser sign-in and nothing to register. 341 (20%) need one free setup step, 219
+275 services (16%) can be plugged in today through an official MCP with a
+browser sign-in and nothing to register. 341 (20%) need one free setup step, 231
 (13%) a vendor review or gate, 63 (4%) money or an audit, and 828 (48%) have no
 public API. Only 42 services (2%) have no qualifying route at all.
 
@@ -43,9 +43,9 @@ Counts per class (rows), per path (columns) and class by path:
 
 | Class | `mcp` | `api` | `other` | `not-feasible` | Total | Share |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| A | 287 | 0 | 0 | 0 | 287 | 17% |
+| A | 275 | 0 | 0 | 0 | 275 | 16% |
 | B | 130 | 207 | 4 | 0 | 341 | 20% |
-| C | 76 | 108 | 34 | 1 | 219 | 13% |
+| C | 88 | 108 | 34 | 1 | 231 | 13% |
 | D | 13 | 34 | 15 | 1 | 63 | 4% |
 | E | 0 | 0 | 788 | 40 | 828 | 48% |
 | Total | 506 | 349 | 841 | 42 | 1,738 | 100% |
@@ -55,9 +55,9 @@ Counts per class (rows), per path (columns) and class by path:
 
 ### Which services are plug-in-the-MCP easy? (class A)
 
-287 services, all on path `mcp` and all vendor-hosted: 193 advertise dynamic
-client registration and 94 client ID metadata documents. 246 accept personal
-accounts; 40 are business-only and 1 is unknown. The highest-ranked with
+275 services, all on path `mcp` and all vendor-hosted: 184 advertise dynamic
+client registration and 91 client ID metadata documents. 248 accept personal
+accounts; 25 are business-only and 2 are unknown. The highest-ranked with
 personal accounts are Todoist (55), Evernote (56), Robinhood (79), Philips Hue
 (114), TickTick (177), Adobe Acrobat (211), Any.do (235), Webull (251),
 TradingView (336), Upwork (342), Binance (357), Fastmail (366), Home Assistant
@@ -86,8 +86,8 @@ approval, or is excluded: Coinbase (81), Ticketmaster (118), Microsoft 365
 (161), Webex (1264), Microsoft Teams (1270), Cognito Forms (1321), Microsoft
 SharePoint (1328), Shopify (1412), Lattice (1648) and Airbyte (1716).
 
-**Class C, review or gate: 219 services.** 108 are on path `api`, 76 on `mcp`,
-34 on `other` and 1 is not feasible. 83 have a vendor MCP that a review, gate or
+**Class C, review or gate: 231 services.** 108 are on path `api`, 88 on `mcp`,
+34 on `other` and 1 is not feasible. 95 have a vendor MCP that a review, gate or
 pause stands in front of, for example Google Calendar (2), Spotify (7), DoorDash
 (24), Zoom (33), Dropbox (34), Booking.com (40), Feedly (193), Monarch Money
 (205, MCP paused), Udemy (206), Slack (1260), Ramp (1589), Plaid (1595),
@@ -135,9 +135,9 @@ Blue Book (D). Grouped by reason:
   TV (389), MasterClass (517), DAZN (655), Starz (669), Pimsleur (715), AMC+
   (731), BritBox (793), The Criterion Channel (855), ViX (925), PressReader
   (1129). For Sling TV, MasterClass, Pimsleur, AMC+, BritBox, ViX and
-  PressReader the privacy policy also offers a copy of personal data on request, mostly in some
-  regions; whether it carries viewing or reading history needs confirming
-  before any of them moves to `other`.
+  PressReader the privacy policy also offers a copy of personal data on
+  request, mostly in some regions; whether it carries viewing or reading
+  history needs confirming before any of them moves to `other`.
 - **API only for business partners or business accounts (2):** Kelley Blue Book
   (1160), Zalo (773, personal chats not covered).
 - **Nothing to read (2):** Trader Joe's (696, no online account or orders),
@@ -145,7 +145,7 @@ Blue Book (D). Grouped by reason:
 
 ## Top findings
 
-- **One in six services is ready now.** 287 services (17%) have an official MCP
+- **One in six services is ready now.** 275 services (16%) have an official MCP
   with browser sign-in and nothing to register or review.
 - **The biggest services are the hardest.** Of the top 50 by rank, only PayPal
   (22) is class A, and its MCP needs a Business account; 6 are B, 16 C, 7 D and
@@ -155,10 +155,10 @@ Blue Book (D). Grouped by reason:
   that the person connects with a pasted key or token, a local install, or no
   account at all. Many of the no-account servers only search public data
   (hotels, flights, jobs, market prices), not the person's account.
-- **Gates are common even with OAuth.** 15 MCPs with dynamic registration or
+- **Gates are common even with OAuth.** 45 MCPs with dynamic registration or
   metadata documents are class C because the vendor allowlists clients or
-  redirect addresses, enables access per customer, sells it through sales, or
-  has paused it.
+  redirect addresses, supports only named clients, enables access per
+  customer, sells the plan only through sales, or has paused it.
 - **No API is common, no route is rare.** 828 services (48%) have no public
   API, but 788 of them have an `other` route, led by the mailbox (360 services
   on path `other`; 495 outside class A mention it) and exports (353).
@@ -168,7 +168,7 @@ Blue Book (D). Grouped by reason:
 
 ## Hard cases and their best alternatives
 
-catalog.csv gives an alternative for every C, D and E row (1,110 rows). By
+catalog.csv gives an alternative for every C, D and E row (1,122 rows). By
 primary route type:
 
 | Route type | C | D | E | Total | Examples |
@@ -178,11 +178,11 @@ primary route type:
 | Mac or Apple route | 12 | 8 | 62 | 82 | Apple Notes (9) and Reminders (10) on the Mac, Dropbox (34) synced folder, Apple Music (26) scripting |
 | Calendar or feed | 6 | 2 | 36 | 44 | Google Calendar (2) through Mac Calendar, Apple Calendar (14) CalDAV, Google News (99) RSS |
 | Official CLI | 3 | 1 | 11 | 15 | Box (222), Vercel (1422), LastPass (173), Proton Drive (330) |
-| Other | 65 | 19 | 39 | 123 | YouTube (5) with the person's own API key, Spotify (7) development-mode app, Google Drive (3) `drive.file` with the Picker |
-| Total | 219 | 63 | 828 | 1,110 | |
+| Other | 77 | 19 | 39 | 135 | YouTube (5) with the person's own API key, Spotify (7) development-mode app, Google Drive (3) `drive.file` with the Picker |
+| Total | 231 | 63 | 828 | 1,122 | |
 
-67 of the 123 "Other" alternatives are an API or MCP variant (the person's own
-developer app, a narrower scope, a different API or a key).
+79 of the 135 "Other" alternatives name an API or MCP variant (own developer
+app, narrower scope, different API or key); 11 need the same sales contract.
 
 Class D: 40 are paid API tiers, such as Google Maps (11), X (36) and Perplexity
 (110), whose MCP bills every tool call at API prices (its alternative is a data
@@ -241,16 +241,16 @@ public source instead of the person's data, such as Apple Maps for Google Maps
 | maps-and-rides | 36 | 1 | 5 | 6 | 4 | 20 | 4 | 10 | 21 | 1 |
 | productivity | 36 | 26 | 8 | 0 | 0 | 2 | 30 | 4 | 2 | 0 |
 | automotive | 35 | 0 | 3 | 4 | 4 | 24 | 1 | 7 | 26 | 1 |
-| crm-and-sales | 33 | 19 | 10 | 4 | 0 | 0 | 25 | 7 | 1 | 0 |
+| crm-and-sales | 33 | 17 | 10 | 6 | 0 | 0 | 25 | 7 | 1 | 0 |
 | groceries | 32 | 2 | 1 | 3 | 0 | 26 | 5 | 1 | 25 | 1 |
 | marketing-and-email-marketing | 32 | 18 | 4 | 10 | 0 | 0 | 26 | 6 | 0 | 0 |
 | podcasts-and-books | 31 | 1 | 3 | 2 | 0 | 25 | 3 | 3 | 24 | 1 |
-| project-management | 31 | 14 | 16 | 1 | 0 | 0 | 23 | 8 | 0 | 0 |
+| project-management | 31 | 13 | 16 | 2 | 0 | 0 | 23 | 8 | 0 | 0 |
 | events-and-tickets | 30 | 1 | 2 | 4 | 2 | 21 | 3 | 5 | 22 | 0 |
 | music-and-audio | 30 | 3 | 2 | 6 | 2 | 17 | 4 | 8 | 16 | 2 |
 | password-and-security | 30 | 1 | 4 | 3 | 0 | 22 | 8 | 0 | 20 | 2 |
 | utilities-and-telecom | 29 | 0 | 1 | 3 | 0 | 25 | 0 | 3 | 26 | 0 |
-| hr-and-recruiting | 28 | 8 | 8 | 10 | 1 | 1 | 11 | 16 | 1 | 0 |
+| hr-and-recruiting | 28 | 5 | 8 | 13 | 1 | 1 | 11 | 16 | 1 | 0 |
 | notes | 27 | 7 | 11 | 1 | 0 | 8 | 16 | 2 | 9 | 0 |
 | payments | 27 | 5 | 5 | 1 | 1 | 15 | 9 | 3 | 15 | 0 |
 | home-and-family | 26 | 0 | 1 | 3 | 0 | 22 | 2 | 1 | 23 | 0 |
@@ -261,33 +261,33 @@ public source instead of the person's data, such as Apple Maps for Google Maps
 | email | 20 | 3 | 4 | 2 | 1 | 10 | 5 | 2 | 13 | 0 |
 | forms-and-surveys | 20 | 6 | 10 | 1 | 2 | 1 | 7 | 12 | 1 | 0 |
 | jobs-and-careers | 20 | 1 | 2 | 3 | 0 | 14 | 4 | 2 | 14 | 0 |
-| accounting-and-invoicing | 19 | 6 | 6 | 5 | 1 | 1 | 12 | 5 | 2 | 0 |
+| accounting-and-invoicing | 19 | 5 | 6 | 6 | 1 | 1 | 12 | 5 | 2 | 0 |
 | ai-assistants | 19 | 3 | 2 | 0 | 3 | 11 | 4 | 4 | 11 | 0 |
 | ecommerce-platforms | 19 | 4 | 12 | 3 | 0 | 0 | 7 | 12 | 0 | 0 |
 | real-estate | 19 | 0 | 1 | 3 | 1 | 14 | 2 | 2 | 15 | 0 |
 | sleep-and-wellbeing | 19 | 0 | 0 | 0 | 0 | 19 | 0 | 0 | 19 | 0 |
 | files-and-storage | 18 | 2 | 6 | 2 | 1 | 7 | 7 | 3 | 8 | 0 |
 | language-learning | 18 | 1 | 2 | 0 | 1 | 14 | 1 | 3 | 10 | 4 |
-| scheduling | 18 | 6 | 5 | 3 | 0 | 4 | 9 | 4 | 5 | 0 |
+| scheduling | 18 | 5 | 5 | 4 | 0 | 4 | 9 | 4 | 5 | 0 |
 | weather | 18 | 0 | 6 | 0 | 4 | 8 | 1 | 9 | 6 | 2 |
 | tasks-and-reminders | 17 | 7 | 3 | 1 | 0 | 6 | 7 | 4 | 6 | 0 |
 | dating | 16 | 0 | 0 | 0 | 0 | 16 | 0 | 0 | 14 | 2 |
 | social-media-management | 16 | 8 | 1 | 3 | 0 | 4 | 10 | 2 | 4 | 0 |
-| customer-support | 15 | 7 | 5 | 2 | 1 | 0 | 11 | 4 | 0 | 0 |
+| customer-support | 15 | 6 | 5 | 3 | 1 | 0 | 11 | 4 | 0 | 0 |
 | databases | 15 | 7 | 8 | 0 | 0 | 0 | 14 | 1 | 0 | 0 |
 | games | 15 | 0 | 6 | 1 | 0 | 8 | 1 | 6 | 8 | 0 |
 | government-and-civic | 14 | 0 | 4 | 5 | 0 | 5 | 0 | 7 | 7 | 0 |
 | photos | 14 | 1 | 3 | 1 | 0 | 9 | 1 | 4 | 9 | 0 |
-| security-and-it | 14 | 4 | 9 | 1 | 0 | 0 | 9 | 5 | 0 | 0 |
+| security-and-it | 14 | 3 | 9 | 2 | 0 | 0 | 9 | 5 | 0 | 0 |
 | website-and-cms | 13 | 8 | 4 | 1 | 0 | 0 | 10 | 2 | 1 | 0 |
 | cloud-and-hosting | 11 | 6 | 4 | 1 | 0 | 0 | 11 | 0 | 0 | 0 |
-| knowledge-base | 11 | 7 | 3 | 1 | 0 | 0 | 10 | 1 | 0 | 0 |
+| knowledge-base | 11 | 5 | 3 | 3 | 0 | 0 | 10 | 1 | 0 | 0 |
 | pets | 11 | 0 | 1 | 0 | 0 | 10 | 0 | 1 | 10 | 0 |
 | video-calls | 11 | 1 | 4 | 2 | 0 | 4 | 3 | 4 | 4 | 0 |
 | calendar | 10 | 1 | 2 | 1 | 0 | 6 | 3 | 1 | 6 | 0 |
 | legal-and-signatures | 9 | 4 | 0 | 3 | 2 | 0 | 6 | 3 | 0 | 0 |
 | other | 6 | 0 | 2 | 0 | 2 | 2 | 2 | 2 | 2 | 0 |
-| Total | 1,738 | 287 | 341 | 219 | 63 | 828 | 506 | 349 | 841 | 42 |
+| Total | 1,738 | 275 | 341 | 231 | 63 | 828 | 506 | 349 | 841 | 42 |
 
 ## Reference points
 
@@ -305,7 +305,7 @@ security assessment.
 
 After Core has its shared MCP client, OAuth flow and Keychain storage:
 
-1. **Class A (287, 246 with personal accounts):** configuration plus skills.
+1. **Class A (275, 248 with personal accounts):** configuration plus skills.
 2. **Shared `other` building blocks:** one IMAP plugin serves the 360
    mailbox-first services, an export and data-copy reader 353, Mac and Apple
    plugins 65, a calendar and feed reader 40, and 11 official CLIs.
@@ -313,8 +313,8 @@ After Core has its shared MCP client, OAuth flow and Keychain storage:
    and a way to start vendor-local servers; then each is like class A.
 4. **Other class B (228):** one free app registration per vendor; one Entra
    app covers the eight personal Microsoft Graph rows.
-5. **Class C (219)** where the rank justifies weeks of review, starting with the
-   83 that have a vendor MCP; one Google verification covers several rows.
+5. **Class C (231)** where the rank justifies weeks of review, starting with the
+   95 that have a vendor MCP; one Google verification covers several rows.
 6. **Class D (63)** only where the value justifies the cost.
 7. **Class E (828)** only through step 2; 40 have no route.
 
@@ -323,11 +323,11 @@ After Core has its shared MCP client, OAuth flow and Keychain storage:
 - Only public vendor pages, the MCP Registry and unauthenticated discovery
   metadata were read; nothing was registered and no one signed in.
 - Every class A row's cited vendor pages were searched for allowlists,
-  waitlists, invitations, approvals, sales contact and pauses; rows with such a
-  gate are class C, with the gate quoted in notes.
-- `consumer_accounts` describes the selected route: `business-only` when it
-  needs a business, merchant, team-admin or organisation account rather than a
-  personal one; self-serve tools an individual can sign up for stay `yes`.
+  waitlists, invitations, approvals, sales contact and pauses, and rows naming
+  plans were checked on pricing pages; gated rows are class C (gate in notes).
+- `consumer_accounts` is `business-only` when the selected route needs a plan
+  sold only to companies or teams (sales-only, seat minimums, company onboarding)
+  or an employer-only role; signing up alone, even as workspace admin, is `yes`.
 - Route types come from the `alternative` column: its first clause (text before
   `;\s|,\s+or\s`) is matched case-insensitively against these patterns in order,
   first match wins, and no match is Other. Mailbox emails count only when they
@@ -343,7 +343,7 @@ ics-caldav-rss     \bICS\b|\biCal\b|CalDAV|CardDAV|\bRSS\b|\bAtom\b|\bOPML\b|\bf
 mac-apple          Shortcuts|shortcuts run|App Intents|AppleScript|Apple ?Events|\bJXA\b|Apple Home|HomeKit|HealthKit|Apple Health|Siri|EventKit|PhotoKit|MapKit|WeatherKit|ShazamKit|FinanceKit|Apple Wallet|Spotlight|URL scheme|x-callback|on the Mac|to the Mac|Mac (app|Calendar|Notes|Messages|Reminders)|local files|sync(ed)? folders?
 ```
 
-- 291 rows are fully verified, 1,413 partly and 34 not; negative claims (no
+- 293 rows are fully verified, 1,411 partly and 34 not; negative claims (no
   API, no MCP, no export) are `partly` unless a vendor states them. Vendors
   change MCP servers and programmes often; re-check a row before building.
 
