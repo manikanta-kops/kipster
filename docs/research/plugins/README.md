@@ -181,8 +181,8 @@ primary route type:
 | Other | 77 | 19 | 39 | 135 | YouTube (5) with the person's own API key, Spotify (7) development-mode app, Google Drive (3) `drive.file` with the Picker |
 | Total | 231 | 63 | 828 | 1,122 | |
 
-79 of the 135 "Other" alternatives name an API or MCP variant (own developer
-app, narrower scope, different API or key); 11 need the same sales contract.
+90 of the 135 "Other" alternatives name an API or MCP route (own app, key or
+token, narrower scope, local MCP or another API); 11 need the MCP's sales contract.
 
 Class D: 40 are paid API tiers, such as Google Maps (11), X (36) and Perplexity
 (110), whose MCP bills every tool call at API prices (its alternative is a data
