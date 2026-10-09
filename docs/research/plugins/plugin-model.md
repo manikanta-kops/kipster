@@ -9,6 +9,11 @@ Specification facts were checked against the sources listed at the end on
 2026-10-08. Statements marked **Unconfirmed** could not be confirmed from a
 primary source. Statements marked **Estimate** are judgement, not measurement.
 
+The classes and paths below are applied to 1,738 services in
+[catalog.csv](catalog.csv), summarized in [README.md](README.md): 417 are class
+A, 227 B, 204 C, 62 D and 828 E; 508 take path `mcp`, 348 `api` and 848
+`other`, and 34 are not feasible.
+
 ## 1. What a Kipster plugin is
 
 A plugin lets kips work with one outside service, such as Notion or Todoist,
@@ -139,11 +144,11 @@ must do before a kip can use it.
 
 | Class | Name | What the person does | What the Kipster project does | Reference points |
 | --- | --- | --- | --- | --- |
-| A | Instant | Clicks Connect and signs in in the browser. | Nothing per service. Kipster identifies itself with a client ID metadata document or registers itself automatically (dynamic client registration). | Notion, Linear, Todoist, Airtable, Trello |
-| B | Register once | Same as A. | Registers one free developer app with the service once, with no review, and ships its client ID with Kipster. | GitHub, Asana, Microsoft personal accounts |
-| C | Review | Same as A once approved. | Passes a vendor review, marketplace listing, allowlist or waitlist before anyone can connect. | Slack (directory-published or internal apps only) |
-| D | Paid or audit | May need a paid plan. | Pays for an API tier, passes a security audit such as Google's CASA, or completes business verification such as Meta's. | Gmail and full Google Drive (restricted scopes) |
-| E | No public API | Cannot connect. | Nothing available; see section 3, Plugin paths. | Services with no API |
+| A | Instant | Clicks Connect and signs in in the browser, or pastes a free self-serve key or token. | Nothing per service. The service has an official vendor MCP; Kipster identifies itself with a client ID metadata document or registers itself automatically (dynamic client registration), or Core stores the person's key. | Notion, Linear, Todoist, Airtable, Trello |
+| B | Register once | Same as A, or creates a free self-serve key for a public API. | Registers one free developer app with the service once, with no review, and ships its client ID with Kipster: for a public API, or for an MCP that needs a pre-registered client. | GitHub, Asana, Microsoft personal accounts |
+| C | Review | Same as A once approved. | Passes a vendor review, marketplace listing, allowlist, partner programme or waitlist before anyone can connect, including where the vendor closed new app creation but documents a partner route. | Slack (directory-published or internal apps only) |
+| D | Paid or audit | May need a paid plan. | Pays for an API tier (including a paid plan whose product is the API itself), passes a security audit such as Google's CASA, or completes business verification such as Meta's. | Gmail and full Google Drive (restricted scopes) |
+| E | No public API | Cannot connect through an API. | Nothing available: there is no public API, or it no longer accepts new apps and has no partner route; see section 3, Plugin paths. | Services with no API |
 
 What each class means:
 
@@ -153,7 +158,8 @@ What each class means:
   project accepts the service's developer terms, owns the app and must keep it
   working. Microsoft's [app registration guide](https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app)
   offers a "Personal accounts only" account type and needs an Azure account,
-  which can be created for free.
+  which can be created for free. OAuth client credentials that a customer's own
+  admin creates also count as pre-registered, but the project registers nothing.
 - **C** depends on a vendor decision, can take an unknown time and can be
   refused. Slack's [MCP server documentation](https://docs.slack.dev/ai/mcp-server)
   says only directory-published or internal apps may use MCP, and that
@@ -166,7 +172,8 @@ What each class means:
   that data "from or through a third-party server" need a security assessment
   at least every 12 months ([Google](https://developers.google.com/identity/protocols/oauth2/production-readiness/restricted-scope-verification)).
   Meta requires [business verification](https://developers.facebook.com/docs/development/release/business-verification)
-  for advanced access.
+  for advanced access. A service stays in class B with a paid plan only when
+  the person's ordinary subscription includes API access.
 - **E** cannot become a tool plugin; at most an `other` path applies.
 
 ### Observed sign-in metadata
@@ -279,24 +286,36 @@ Each service takes one path.
 | --- | --- | --- | --- | --- |
 | `mcp` | `plugin.json`, `mcp.json` pointing at the official server, and skills. | Vendor-hosted server, called by Core on the Mac; or the vendor's local server started by Core. | Between the Mac and the service. | Notion's `https://mcp.notion.com/mcp`. |
 | `api` | A small MCP server or set of tools on the service's documented public API, plus skills. | Locally on the Mac, as a `stdio` server or inside Core. | Between the Mac and the service's API. | A service with a documented REST API and OAuth or personal keys but no MCP server (illustrative). |
-| `other` | Tools on a local or standard interface instead of a cloud API. | On the Mac, or on the person's own device. | Stays on the person's devices, or goes to their own mail or calendar provider. | See below. |
-| `not-feasible` | Nothing. | — | — | API only on a paid tier, no API, or terms that forbid this use. |
+| `other` | Tools on a local or standard interface instead of a cloud API. | On the Mac, or on the person's own device. | Stays on the person's devices, goes to their own mail or calendar provider, or arrives from the service as a file. | See below. |
+| `not-feasible` | Nothing. | — | — | No qualifying route anywhere: no usable API and none of the `other` routes below. |
 
-The `other` path covers:
+The `other` path is a documented route to the person's own data for that
+service. Routes limited to some countries or states count, with the limit
+noted in the catalog. It covers:
 
 - **Local app scripting on the Mac:** apps that support AppleScript
   ([AppleScript guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleScriptLangGuide/introduction/ASLR_intro.html))
-  or App Intents ([App Intents](https://developer.apple.com/documentation/appintents)).
+  or App Intents ([App Intents](https://developer.apple.com/documentation/appintents)),
+  the vendor's Shortcuts actions, and devices in Apple Home.
 - **iOS App Intents:** actions an iPhone app exposes. Reaching them would need a
   Kipster app or shortcut on the phone, which does not exist (**Unconfirmed**
   feasibility).
 - **The person's own exported data:** an archive the person downloads from the
-  service and keeps on the Mac. Read-only and as fresh as the last export.
+  service and keeps on the Mac, a copy the service sends through a documented
+  data-request flow, or the person's own content or saved lists saved as files,
+  with the limits noted. Read-only and as fresh as the last export. A bare
+  statement of legal access rights, with no documented way to receive a copy,
+  does not count.
+- **Mailbox emails that carry the service's data:** vendor-documented emails in
+  the person's mailbox with the service's core data, such as statements, ride
+  receipts, order, delivery or booking confirmations and bills, read over IMAP.
+  Subscription billing receipts do not count.
 - **Mail and calendar standards:** IMAP ([RFC 9051](https://www.rfc-editor.org/rfc/rfc9051))
   and SMTP for mail, CalDAV ([RFC 4791](https://www.rfc-editor.org/rfc/rfc4791))
   and CardDAV ([RFC 6352](https://www.rfc-editor.org/rfc/rfc6352)) for calendars
-  and contacts, and ICS feeds ([RFC 5545](https://www.rfc-editor.org/rfc/rfc5545)).
-  Usually signed in with an app-specific password.
+  and contacts, ICS feeds ([RFC 5545](https://www.rfc-editor.org/rfc/rfc5545))
+  and the service's own RSS feeds. Usually signed in with an app-specific
+  password, or read without sign-in for public feeds.
 - **An official CLI:** a vendor command-line tool the person installs and signs
   in to, such as GitHub's `gh`.
 
