@@ -142,7 +142,7 @@ OneDrive (25), Apple Music (26), TikTok (27), Microsoft To Do (29), Telegram
 
 848 services take path `other` (795 of them in class E). Their alternatives
 break down by route type as follows; [How rows were
-classified](#how-rows-were-classified) documents the keyword rules.
+classified](#how-rows-were-classified) publishes the exact patterns.
 
 | Route type | Services on path `other` |
 | --- | ---: |
@@ -198,6 +198,22 @@ few API-based workarounds.
 | 1160 | Kelley Blue Book | D | APIs licensed to business partners only; no consumer download. |
 | 1203 | Watch Duty | E | No API, export or email alerts. |
 
+8 more services are recorded on path `other`, but their alternative reaches only
+subscription billing or account-status emails or invoices, which the `other`
+rule does not count. Treat them as not feasible until a qualifying route is
+found, which makes 42 services with no qualifying route:
+
+| Rank | Service | Class | What the recorded alternative reaches |
+| ---: | --- | --- | --- |
+| 389 | Sling TV | E | Billing and payment emails; watching stays in the app. |
+| 517 | MasterClass | E | Membership purchase and renewal receipts; no viewing history. |
+| 655 | DAZN | E | Subscription and payment emails; no viewing history. |
+| 715 | Pimsleur | E | Order, subscription and renewal emails; no lesson progress. |
+| 731 | AMC+ | E | Billing and subscription emails; no watch history. |
+| 793 | BritBox | E | Subscription and renewal payment emails; no viewing history. |
+| 925 | ViX | E | Payment receipts; subscription status only. |
+| 1129 | PressReader | C | Invoices saved from payment history; no reading history. |
+
 ## Top findings
 
 - **A quarter of the catalog is ready now.** 417 services (24%) have an official
@@ -209,10 +225,11 @@ few API-based workarounds.
   behind verification or a security audit.
 - **No API is common, no route is rare.** 828 services (48%) have no public API,
   but 795 of them have an `other` route; only 34 services in the whole catalog
-  are not feasible.
+  are not feasible, or 42 counting the 8 that offer only billing emails.
 - **The mailbox is the largest single building block.** 369 `other`-path
-  services use the person's mailbox as their primary route, and 464 services
-  outside class A mention mailbox emails somewhere in their alternative.
+  services use the person's mailbox as their primary route (7 of them only for
+  billing emails), and 487 services outside class A match the mailbox pattern
+  anywhere in their alternative.
 - **Data exports and data requests are the second route.** 351 `other`-path
   services rely on an export or a data request: one-off snapshots, often limited
   by country or state, that a kip reads as files.
@@ -462,10 +479,10 @@ storage:
    the 304 that use browser sign-in; the 76 that need a pasted key or token
    follow once Core can store one.
 2. **Shared `other`-path building blocks.** One IMAP mail plugin serves the 369
-   services whose primary route is the mailbox; a reader for exported files and
-   data-request copies serves 351; Mac and Apple plugins (Shortcuts, EventKit,
-   Apple Home, AppleScript) serve 65; a calendar and feed reader serves 40; and
-   11 official CLIs follow one pattern.
+   services whose primary route is the mailbox (362 without the billing-only
+   rows); a reader for exported files and data-request copies serves 351; Mac
+   and Apple plugins (Shortcuts, EventKit, Apple Home, AppleScript) serve 65; a
+   calendar and feed reader serves 40; and 11 official CLIs follow one pattern.
 3. **Class B registrations (227).** Each is one free app under the project's
    name; one Entra app covers the Microsoft rows, and the 26 B services with a
    vendor MCP need only a client ID.
@@ -475,7 +492,7 @@ storage:
 5. **Class D only where the value justifies the cost (62).** Use the documented
    alternative until then.
 6. **Class E (828)** is reached only through step 2; 33 of these services have
-   no route.
+   no route, and 7 more offer only billing emails.
 
 ## How rows were classified
 
@@ -511,22 +528,26 @@ storage:
 - OAuth client credentials that the customer's own admin creates are
   `oauth-preregistered`; the project registers nothing.
 
-Route types in this report come from the `alternative` column. Its first clause
-(the text before the first "; " or ", or ") is tested against keyword groups in
-this order, and the first match wins:
+Route types in this report come from the `alternative` column. Its first clause,
+the text before the first match of `;\s|,\s+or\s` (a semicolon, or a comma
+followed by "or"), is tested against the patterns below in order, and the first
+match wins; no match is Other. Patterns are Python regular expressions, matched
+case-insensitively. The mailbox pattern counts "emails" as a noun only: an
+alternative where the vendor "emails a" link or file is a data export.
 
-1. Mailbox emails: mailbox, IMAP, inbox, mail plugin, own email, emails.
-2. Official CLI: CLI, command-line.
-3. Data export or data request: export, download, copy, request, privacy,
-   portability, archive, backup, Takeout, FOIA, statement, PDF, CSV, Blue
-   Button, Green Button, save, personal data or information, data report.
-4. Calendar or feed: ICS, iCal, CalDAV, CardDAV, RSS, Atom, OPML, feed,
-   calendar.
-5. Mac or Apple device route: Shortcuts, App Intents, AppleScript, Apple Events,
-   JXA, Apple Home, HomeKit, HealthKit, Apple Health, Siri, EventKit and other
-   Apple frameworks, Apple Wallet, URL schemes, on the Mac, local files, synced
-   folders.
-6. Other: no match.
+```text
+mailbox            mailbox|\bIMAP\b|\binbox\b|mail plugin|own email|\be-?mails\b(?! a\b)
+official-cli       \bCLIs?\b|command[- ]line|\bctl\b
+export-or-request  export|download|\bcopy\b|request|privacy|portab|\barchive|backup|takeout|FOIA|statements?\b|\bPDFs?\b|\bCSV\b|Blue Button|Green Button|\bsaves?\b|personal (data|information)|data report
+ics-caldav-rss     \bICS\b|\biCal\b|CalDAV|CardDAV|\bRSS\b|\bAtom\b|\bOPML\b|\bfeeds?\b|calendar
+mac-apple          Shortcuts|shortcuts run|App Intents|AppleScript|Apple ?Events|\bJXA\b|Apple Home|HomeKit|HealthKit|Apple Health|Siri|EventKit|PhotoKit|MapKit|WeatherKit|ShazamKit|FinanceKit|Apple Wallet|Spotlight|URL scheme|x-callback|on the Mac|to the Mac|Mac (app|Calendar|Notes|Messages|Reminders)|local files|sync(ed)? folders?
+```
+
+"Match the mailbox pattern anywhere" applies the mailbox pattern to the whole
+alternative. The billing-only rows above come from a review of every `other`
+alternative that mentions billing, subscriptions or payments; telecom, utility
+and card bills and order receipts carry the service's core data and stay
+`other`.
 
 ## Method and limits
 
@@ -539,8 +560,8 @@ this order, and the first match wins:
   `partly` unless a vendor states them.
 - Vendors change MCP servers, scopes and programmes often; re-check a row before
   building on it.
-- The route-type and third-party counts come from the keyword rules and the
-  review described above; a service can offer several routes, and only its
+- The route-type and third-party counts come from the route patterns and the
+  reviews described above; a service can offer several routes, and only its
   primary one is counted.
 
 Files:
