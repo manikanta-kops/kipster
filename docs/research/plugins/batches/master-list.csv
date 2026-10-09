@@ -1,0 +1,1739 @@
+rank,name,category,tier,website,listed_in
+1,Gmail,email,deep,https://mail.google.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;smithery;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+2,Google Calendar,calendar,deep,https://calendar.google.com,mcp-registry;claude-connectors;cursor;glama;mcpso;smithery;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+3,Google Drive,files-and-storage,deep,https://drive.google.com,mcp-registry;claude-connectors;cursor;glama;mcpso;smithery;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+4,WhatsApp,chat-and-messaging,deep,https://www.whatsapp.com,mcp-registry;glama;mcpso;awesome-mcp;composio;zapier;activepieces;n8n;appstore
+5,YouTube,video-and-streaming,deep,https://www.youtube.com,mcp-registry;github-mcp;glama;mcpso;smithery;awesome-mcp;composio;zapier;nango;activepieces;n8n;home-assistant;appstore
+6,Microsoft Outlook,email,deep,https://outlook.live.com,mcp-registry;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+7,Spotify,music-and-audio,deep,https://www.spotify.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+8,Amazon,shopping,deep,https://www.amazon.com,mcp-registry;pipedream;nango;appstore
+9,Apple Notes,notes,deep,,mcp-registry;glama;mcpso;awesome-mcp
+10,Apple Reminders,tasks-and-reminders,deep,,mcp-registry;glama;mcpso;awesome-mcp
+11,Google Maps,maps-and-rides,deep,https://maps.google.com,mcp-registry;github-mcp;docker-mcp;glama;mcpso;smithery;awesome-mcp;composio;nango;home-assistant;appstore
+12,Instagram,social,deep,https://www.instagram.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;composio;nango;appstore
+13,iCloud Drive,files-and-storage,deep,https://www.icloud.com,mcp-registry;glama
+14,Apple Calendar,calendar,deep,,mcp-registry;glama;mcpso;nango
+15,Google Docs,docs-and-office,deep,https://docs.google.com,mcp-registry;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+16,Google Photos,photos,deep,https://photos.google.com,glama;composio;pipedream;home-assistant;appstore
+17,ChatGPT,ai-assistants,deep,https://chatgpt.com,mcp-registry;glama;mcpso;zapier;appstore
+18,Facebook,social,deep,https://www.facebook.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+19,Uber,maps-and-rides,deep,https://www.uber.com,claude-connectors;glama;mcpso;nango;appstore
+20,Netflix,video-and-streaming,deep,https://www.netflix.com,appstore
+21,Messages (iMessage),chat-and-messaging,deep,,mcp-registry;glama;mcpso;awesome-mcp
+22,PayPal,payments,deep,https://www.paypal.com,mcp-registry;claude-connectors;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;n8n;appstore
+23,Google Sheets,docs-and-office,deep,https://sheets.google.com,mcp-registry;cursor;glama;mcpso;smithery;awesome-mcp;composio;pipedream;zapier;nango;activepieces;home-assistant;appstore
+24,DoorDash,food-and-delivery,deep,https://www.doordash.com,mcp-registry;glama;mcpso;awesome-mcp;appstore
+25,Microsoft OneDrive,files-and-storage,deep,https://onedrive.live.com,mcp-registry;cursor;glama;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+26,Apple Music,music-and-audio,deep,https://music.apple.com,mcp-registry;glama;mcpso;awesome-mcp;appstore
+27,TikTok,social,deep,https://www.tiktok.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;composio;appstore
+28,Google Keep,notes,deep,https://keep.google.com,mcp-registry;glama;pipedream;zapier;appstore
+29,Microsoft To Do,tasks-and-reminders,deep,https://to-do.office.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces;n8n
+30,Apple Health,health-and-fitness,deep,,mcp-registry;glama;mcpso;awesome-mcp
+31,Telegram,chat-and-messaging,deep,https://telegram.org,mcp-registry;composio;zapier;nango;n8n;home-assistant;appstore
+32,Venmo,payments,deep,https://venmo.com,mcp-registry;glama;appstore
+33,Zoom,video-calls,deep,https://www.zoom.com,mcp-registry;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+34,Dropbox,files-and-storage,deep,https://www.dropbox.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+35,Microsoft Word,docs-and-office,deep,https://www.microsoft.com/microsoft-365/word,pipedream;zapier;nango;appstore
+36,X,social,deep,https://x.com,mcp-registry;composio;nango;activepieces;n8n;home-assistant;appstore
+37,Reddit,social,deep,https://www.reddit.com,mcp-registry;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+38,Walmart,shopping,deep,https://www.walmart.com,mcp-registry;github-mcp;glama;awesome-mcp;nango;appstore
+39,Uber Eats,food-and-delivery,deep,https://www.ubereats.com,mcp-registry;claude-connectors;glama;mcpso;appstore
+40,Booking.com,travel,deep,https://www.booking.com,github-mcp;claude-connectors;awesome-mcp;nango;appstore
+41,Airbnb,travel,deep,https://www.airbnb.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;zapier;appstore
+42,Cash App,payments,deep,https://cash.app,claude-connectors;glama;mcpso;appstore
+43,Chase,finance-and-banking,deep,https://www.chase.com,appstore
+44,Google Gemini,ai-assistants,deep,https://gemini.google.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;nango;activepieces;home-assistant;appstore
+45,Claude,ai-assistants,deep,https://claude.ai,activepieces;appstore
+46,Apple Home,smart-home,deep,,glama;home-assistant
+47,Google Home,smart-home,deep,https://home.google.com,home-assistant;appstore
+48,Amazon Alexa,smart-home,deep,https://www.amazon.com/alexa,mcp-registry;glama;pipedream;zapier;appstore
+49,Facebook Messenger,chat-and-messaging,deep,https://www.messenger.com,zapier;home-assistant;appstore
+50,Signal,chat-and-messaging,deep,https://signal.org,pipedream;zapier;appstore
+51,Discord,chat-and-messaging,deep,https://discord.com,mcp-registry;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+52,FaceTime,video-calls,deep,,appstore-listing
+53,Google Meet,video-calls,deep,https://meet.google.com,glama;mcpso;composio;pipedream;zapier;nango;appstore
+54,Microsoft Excel,docs-and-office,deep,https://www.microsoft.com/microsoft-365/excel,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;n8n;appstore
+55,Todoist,tasks-and-reminders,deep,https://www.todoist.com,mcp-registry;github-mcp;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+56,Evernote,notes,deep,https://evernote.com,mcp-registry;glama;pipedream;zapier;appstore
+57,Microsoft OneNote,notes,deep,https://www.onenote.com,mcp-registry;glama;composio;pipedream;zapier;nango;activepieces;appstore
+58,Google Tasks,tasks-and-reminders,deep,,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;home-assistant;appstore
+59,Yahoo Mail,email,deep,https://mail.yahoo.com,mcp-registry;glama;appstore
+60,iCloud Mail,email,deep,,mcp-registry;glama
+61,Apple Photos,photos,deep,,glama
+62,Amazon Prime Video,video-and-streaming,deep,https://www.primevideo.com,appstore
+63,Disney+,video-and-streaming,deep,https://www.disneyplus.com,appstore
+64,Lyft,maps-and-rides,deep,https://www.lyft.com,glama;appstore
+65,Apple Maps,maps-and-rides,deep,,mcp-registry;glama
+66,Waze,maps-and-rides,deep,https://www.waze.com,glama;appstore
+67,Instacart,groceries,deep,https://www.instacart.com,mcp-registry;claude-connectors;glama;mcpso;appstore
+68,Target,shopping,deep,https://www.target.com,appstore
+69,eBay,shopping,deep,https://www.ebay.com,mcp-registry;glama;mcpso;pipedream;zapier;nango;appstore
+70,Etsy,shopping,deep,https://www.etsy.com,mcp-registry;glama;mcpso;zapier;nango;appstore
+71,Costco,groceries,deep,https://www.costco.com,mcp-registry;glama;appstore
+72,Expedia,travel,deep,https://www.expedia.com,claude-connectors;mcpso;appstore
+73,Google Flights,travel,deep,https://www.google.com/travel/flights,mcp-registry;github-mcp;docker-mcp;glama;mcpso
+74,Bank of America,finance-and-banking,deep,https://www.bankofamerica.com,appstore
+75,Capital One,finance-and-banking,deep,https://www.capitalone.com,appstore
+76,Wells Fargo,finance-and-banking,deep,https://www.wellsfargo.com,appstore
+77,Apple Wallet,payments,deep,,appstore-listing
+78,Google Wallet,payments,deep,https://wallet.google,google-play
+79,Robinhood,investing-and-crypto,deep,https://robinhood.com,mcp-registry;cursor;glama;mcpso;nango;appstore
+80,Fidelity,investing-and-crypto,deep,https://www.fidelity.com,appstore
+81,Coinbase,investing-and-crypto,deep,https://www.coinbase.com,mcp-registry;cursor;glama;mcpso;composio;pipedream;home-assistant;appstore
+82,Credit Karma,budgeting-and-taxes,deep,https://www.creditkarma.com,mcp-registry;claude-connectors;glama;mcpso;appstore
+83,YNAB,budgeting-and-taxes,deep,https://www.ynab.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;appstore
+84,Fitbit,health-and-fitness,deep,https://www.fitbit.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream;nango;home-assistant;appstore
+85,Strava,health-and-fitness,deep,https://www.strava.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;zapier;nango;n8n;appstore
+86,MyFitnessPal,health-and-fitness,deep,https://www.myfitnesspal.com,mcp-registry;glama;appstore
+87,Garmin Connect,health-and-fitness,deep,https://connect.garmin.com,mcp-registry;glama;mcpso;nango;appstore
+88,Oura,health-and-fitness,deep,https://ouraring.com,mcp-registry;glama;mcpso;awesome-mcp;nango;n8n;appstore
+89,Calm,sleep-and-wellbeing,deep,https://www.calm.com,appstore
+90,Headspace,sleep-and-wellbeing,deep,https://www.headspace.com,appstore
+91,Duolingo,language-learning,deep,https://www.duolingo.com,mcp-registry;appstore
+92,Khan Academy,learning,deep,https://www.khanacademy.org,appstore
+93,Coursera,learning,deep,https://www.coursera.org,claude-connectors;glama;appstore
+94,Kindle,podcasts-and-books,deep,https://www.amazon.com/kindle,appstore
+95,Audible,podcasts-and-books,deep,https://www.audible.com,claude-connectors;appstore
+96,Apple Podcasts,podcasts-and-books,deep,https://podcasts.apple.com,mcp-registry;glama;awesome-mcp
+97,Goodreads,podcasts-and-books,deep,https://www.goodreads.com,mcp-registry;glama;pipedream;appstore
+98,Apple News,news-and-reading,deep,,appstore-listing
+99,Google News,news-and-reading,deep,https://news.google.com,mcp-registry;glama;mcpso;smithery;awesome-mcp;appstore
+100,The New York Times,news-and-reading,deep,https://www.nytimes.com,mcp-registry;glama;mcpso;awesome-mcp;appstore
+101,1Password,password-and-security,deep,https://1password.com,mcp-registry;cursor;glama;composio;nango;appstore
+102,Bitwarden,password-and-security,deep,https://bitwarden.com,mcp-registry;glama;composio;pipedream;n8n
+103,Apple Passwords,password-and-security,deep,,appstore-listing
+104,LinkedIn,jobs-and-careers,deep,https://www.linkedin.com,mcp-registry;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+105,Indeed,jobs-and-careers,deep,https://www.indeed.com,claude-connectors;zapier;appstore
+106,Pinterest,social,deep,https://www.pinterest.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;activepieces;appstore
+107,Snapchat,social,deep,https://www.snapchat.com,mcp-registry;composio;nango;appstore
+108,Threads,social,deep,https://www.threads.com,mcp-registry;glama;mcpso;nango;appstore
+109,Microsoft Copilot,ai-assistants,deep,https://copilot.microsoft.com,activepieces;appstore
+110,Perplexity,ai-assistants,deep,https://www.perplexity.ai,mcp-registry;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+111,Apple Find My,home-and-family,deep,,glama
+112,Life360,home-and-family,deep,https://www.life360.com,appstore
+113,Ring,smart-home,deep,https://ring.com,home-assistant;appstore
+114,Philips Hue,smart-home,deep,https://www.philips-hue.com,mcp-registry;glama;pipedream;n8n;home-assistant
+115,SmartThings,smart-home,deep,https://www.smartthings.com,glama;pipedream;home-assistant;appstore
+116,The Weather Channel,weather,deep,https://weather.com,appstore
+117,AccuWeather,weather,deep,https://www.accuweather.com,mcp-registry;claude-connectors;glama;composio;pipedream;home-assistant;appstore
+118,Ticketmaster,events-and-tickets,deep,https://www.ticketmaster.com,mcp-registry;claude-connectors;glama;mcpso;composio;appstore
+119,Eventbrite,events-and-tickets,deep,https://www.eventbrite.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;n8n;appstore
+120,Steam,games,deep,https://store.steampowered.com,mcp-registry;zapier;home-assistant
+121,PlayStation,games,deep,https://www.playstation.com,mcp-registry;home-assistant;appstore
+122,Xbox,games,deep,https://www.xbox.com,glama;home-assistant;appstore
+123,ESPN,sports,deep,https://www.espn.com,mcp-registry;glama;appstore
+124,Zillow,real-estate,deep,https://www.zillow.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;zapier;appstore
+125,Tesla,automotive,deep,https://www.tesla.com,mcp-registry;glama;mcpso;appstore
+126,Verizon,utilities-and-telecom,deep,https://www.verizon.com,appstore
+127,AT&T,utilities-and-telecom,deep,https://www.att.com,glama;appstore
+128,T-Mobile,utilities-and-telecom,deep,https://www.t-mobile.com,glama;appstore
+129,Xfinity,utilities-and-telecom,deep,https://www.xfinity.com,glama;appstore
+130,Tinder,dating,deep,https://tinder.com,appstore
+131,Hinge,dating,deep,https://hinge.co,appstore
+132,Chewy,pets,deep,https://www.chewy.com,appstore
+133,Yelp,food-and-delivery,deep,https://www.yelp.com,mcp-registry;composio;pipedream;appstore
+134,OpenTable,food-and-delivery,deep,https://www.opentable.com,mcp-registry;glama;appstore
+135,Starbucks,food-and-delivery,deep,https://www.starbucks.com,glama;appstore
+136,Grubhub,food-and-delivery,deep,https://www.grubhub.com,mcp-registry;glama;appstore
+137,Kroger,groceries,deep,https://www.kroger.com,mcp-registry;glama;appstore
+138,Hulu,video-and-streaming,deep,https://www.hulu.com,appstore
+139,HBO Max,video-and-streaming,deep,https://www.hbomax.com,glama;appstore
+140,YouTube Music,music-and-audio,deep,https://music.youtube.com,glama;mcpso;appstore
+141,Pandora,music-and-audio,deep,https://www.pandora.com,appstore
+142,Amazon Music,music-and-audio,deep,https://music.amazon.com,glama;appstore
+143,Microsoft PowerPoint,docs-and-office,deep,https://www.microsoft.com/microsoft-365/powerpoint,mcp-registry;glama;mcpso;nango;appstore
+144,Google Slides,docs-and-office,deep,https://slides.google.com,mcp-registry;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+145,Canva,design-and-creative,deep,https://www.canva.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;appstore
+146,Temu,shopping,deep,https://www.temu.com,appstore
+147,Tripadvisor,travel,deep,https://www.tripadvisor.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;composio
+148,Samsung Health,health-and-fitness,deep,https://www.samsung.com/us/apps/samsung-health/,mcp-registry;glama
+149,Substack,news-and-reading,deep,https://substack.com,mcp-registry;glama;mcpso;awesome-mcp;appstore
+150,Citi,finance-and-banking,deep,https://www.citi.com,appstore
+151,Twitch,video-and-streaming,deep,https://www.twitch.tv,mcp-registry;composio;pipedream;zapier;nango;activepieces;home-assistant;appstore
+152,Arlo,smart-home,deep,https://www.arlo.com,appstore
+153,Charles Schwab,investing-and-crypto,deep,https://www.schwab.com,mcp-registry;glama;mcpso;nango;appstore
+154,Deliveroo,food-and-delivery,deep,https://deliveroo.co.uk,appstore-listing
+155,Google Messages,chat-and-messaging,deep,https://messages.google.com,glama
+156,SoundCloud,music-and-audio,deep,https://soundcloud.com,glama;composio;zapier;appstore
+157,Citymapper,maps-and-rides,deep,https://citymapper.com,appstore
+158,Rocket Money,budgeting-and-taxes,deep,https://www.rocketmoney.com,glama;appstore
+159,Quizlet,learning,deep,https://quizlet.com,appstore
+160,DraftKings,sports,deep,https://www.draftkings.com,appstore
+161,Microsoft 365,docs-and-office,deep,https://www.microsoft365.com,mcp-registry;claude-connectors;glama;mcpso;pipedream;zapier
+162,Libby,podcasts-and-books,deep,https://libbyapp.com,appstore
+163,Whole Foods Market,groceries,deep,https://www.wholefoodsmarket.com,appstore
+164,Wise,payments,deep,https://wise.com,mcp-registry;composio;pipedream;nango;n8n;appstore
+165,Google Family Link,home-and-family,deep,https://families.google.com/familylink/,appstore
+166,Shein,shopping,deep,https://www.shein.com,glama;appstore
+167,Obsidian,notes,deep,https://obsidian.md,mcp-registry;docker-mcp
+168,Google One,files-and-storage,deep,https://one.google.com,appstore
+169,Bluesky,social,deep,https://bsky.app,mcp-registry;glama;mcpso;pipedream;zapier;activepieces;appstore
+170,Kayak,travel,deep,https://www.kayak.com,appstore
+171,WHOOP,health-and-fitness,deep,https://www.whoop.com,mcp-registry;nango;appstore
+172,StubHub,events-and-tickets,deep,https://www.stubhub.com,claude-connectors;glama;mcpso;appstore
+173,LastPass,password-and-security,deep,https://www.lastpass.com,pipedream;zapier;nango;appstore
+174,Medium,news-and-reading,deep,https://medium.com,n8n;appstore
+175,American Express,finance-and-banking,deep,https://www.americanexpress.com,appstore
+176,Proton Mail,email,deep,https://proton.me/mail,mcp-registry;glama;mcpso;awesome-mcp;zapier;appstore
+177,TickTick,tasks-and-reminders,deep,https://ticktick.com,claude-connectors;composio;pipedream;zapier;nango;activepieces
+178,Amazon Photos,photos,deep,https://www.amazon.com/photos,appstore
+179,Paramount+,video-and-streaming,deep,https://www.paramountplus.com,appstore
+180,Sleep Cycle,sleep-and-wellbeing,deep,https://www.sleepcycle.com,appstore
+181,Wyze,smart-home,deep,https://www.wyze.com,glama;appstore
+182,Roblox,games,deep,https://www.roblox.com,mcp-registry;glama;mcpso;pipedream;appstore
+183,Spectrum,utilities-and-telecom,deep,https://www.spectrum.com,appstore
+184,Ford,automotive,deep,https://www.ford.com,appstore
+185,Fantastical,calendar,deep,https://flexibits.com/fantastical,claude-connectors;zapier
+186,ZipRecruiter,jobs-and-careers,deep,https://www.ziprecruiter.com,claude-connectors;mcpso;composio;appstore
+187,Weather Underground,weather,deep,https://www.wunderground.com,appstore
+188,Meta AI,ai-assistants,deep,https://www.meta.ai,appstore
+189,AliExpress,shopping,deep,https://www.aliexpress.com,glama;zapier;appstore
+190,Vanguard,investing-and-crypto,deep,https://investor.vanguard.com,appstore
+191,Skyscanner,travel,deep,https://www.skyscanner.net,glama;appstore
+192,Peloton,health-and-fitness,deep,https://www.onepeloton.com,appstore
+193,Feedly,news-and-reading,deep,https://feedly.com,glama;mcpso;zapier
+194,U.S. Bank,finance-and-banking,deep,https://www.usbank.com,appstore
+195,Peacock,video-and-streaming,deep,https://www.peacocktv.com,appstore
+196,Just Eat,food-and-delivery,deep,https://www.just-eat.co.uk,appstore-listing
+197,Blink,smart-home,deep,https://blinkforhome.com,home-assistant;appstore
+198,Babbel,language-learning,deep,https://www.babbel.com,appstore
+199,USPS,government-and-civic,deep,https://www.usps.com,glama;pipedream
+200,Redfin,real-estate,deep,https://www.redfin.com,appstore
+201,Best Buy,shopping,deep,https://www.bestbuy.com,composio;appstore
+202,WeChat,chat-and-messaging,deep,https://www.wechat.com,glama;mcpso;appstore
+203,Shazam,music-and-audio,deep,https://www.shazam.com,appstore
+204,Transit,maps-and-rides,deep,https://transitapp.com,appstore
+205,Monarch Money,budgeting-and-taxes,deep,https://www.monarch.com,mcp-registry;glama;mcpso;awesome-mcp;home-assistant;appstore
+206,Udemy,learning,deep,https://www.udemy.com,mcpso;zapier;appstore
+207,FanDuel,sports,deep,https://www.fanduel.com,appstore
+208,Hotels.com,travel,deep,https://www.hotels.com,appstore
+209,Nike Run Club,health-and-fitness,deep,https://www.nike.com/nrc-app,glama;appstore
+210,Flipboard,news-and-reading,deep,https://flipboard.com,appstore-listing
+211,Adobe Acrobat,docs-and-office,deep,https://www.adobe.com/acrobat.html,zapier;appstore
+212,Apple Books,podcasts-and-books,deep,https://www.apple.com/apple-books/,mcp-registry;glama;mcpso
+213,Sam's Club,groceries,deep,https://www.samsclub.com,mcp-registry;glama;appstore
+214,Klarna,payments,deep,https://www.klarna.com,glama;appstore
+215,Cozi,home-and-family,deep,https://www.cozi.com,glama;appstore
+216,Discover,finance-and-banking,deep,https://www.discover.com,appstore-listing
+217,E*TRADE,investing-and-crypto,deep,https://us.etrade.com,glama
+218,Apple TV,video-and-streaming,deep,https://tv.apple.com,mcp-registry;glama;home-assistant
+219,ecobee,smart-home,deep,https://www.ecobee.com,mcp-registry;home-assistant;appstore
+220,The Home Depot,shopping,deep,https://www.homedepot.com,glama;appstore
+221,Bear,notes,deep,https://bear.app,zapier
+222,Box,files-and-storage,deep,https://www.box.com,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+223,Nextdoor,social,deep,https://nextdoor.com,glama;pipedream;zapier;appstore
+224,Vrbo,travel,deep,https://www.vrbo.com,glama;appstore
+225,Withings,health-and-fitness,deep,https://www.withings.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream;home-assistant;appstore
+226,Rover,pets,deep,https://www.rover.com,appstore
+227,Bumble,dating,deep,https://bumble.com,appstore
+228,SeatGeek,events-and-tickets,deep,https://seatgeek.com,mcp-registry;glama;composio;appstore
+229,Dashlane,password-and-security,deep,https://www.dashlane.com,appstore
+230,Ground News,news-and-reading,deep,https://ground.news,appstore
+231,Resy,food-and-delivery,deep,https://resy.com,mcp-registry;claude-connectors;glama;mcpso;appstore
+232,Chime,finance-and-banking,deep,https://www.chime.com,appstore
+233,Lowe's,shopping,deep,https://www.lowes.com,appstore
+234,AOL Mail,email,deep,https://mail.aol.com,glama
+235,Any.do,tasks-and-reminders,deep,https://www.any.do,zapier
+236,Adobe Lightroom,photos,deep,https://www.adobe.com/products/photoshop-lightroom.html,appstore
+237,YouTube TV,video-and-streaming,deep,https://tv.youtube.com,appstore
+238,Rise Science,sleep-and-wellbeing,deep,https://www.risescience.com,appstore
+239,SimpliSafe,smart-home,deep,https://simplisafe.com,mcp-registry;glama;home-assistant
+240,Nintendo,games,deep,https://www.nintendo.com,appstore-listing
+241,Starlink,utilities-and-telecom,deep,https://www.starlink.com,home-assistant;appstore
+242,Toyota,automotive,deep,https://www.toyota.com,mcp-registry;glama;appstore
+243,Priceline,travel,deep,https://www.priceline.com,appstore
+244,Planet Fitness,health-and-fitness,deep,https://www.planetfitness.com,appstore
+245,LINE,chat-and-messaging,deep,https://line.me,docker-mcp;composio;activepieces;n8n;appstore
+246,SiriusXM,music-and-audio,deep,https://www.siriusxm.com,appstore
+247,Moovit,maps-and-rides,deep,https://moovitapp.com,appstore
+248,Copilot Money,budgeting-and-taxes,deep,https://www.copilot.money,mcp-registry;glama;awesome-mcp
+249,Google Classroom,learning,deep,https://classroom.google.com,glama;mcpso;composio;pipedream;appstore
+250,Yahoo Sports,sports,deep,https://sports.yahoo.com,glama;pipedream;appstore
+251,Webull,investing-and-crypto,deep,https://www.webull.com,claude-connectors;cursor;glama;appstore
+252,The Wall Street Journal,news-and-reading,deep,https://www.wsj.com,appstore
+253,IKEA,shopping,deep,https://www.ikea.com,glama;appstore
+254,SoFi,finance-and-banking,deep,https://www.sofi.com,appstore
+255,Apple Pages,docs-and-office,deep,,appstore-listing
+256,Pocket Casts,podcasts-and-books,deep,https://pocketcasts.com,glama;home-assistant;appstore
+257,Aldi,groceries,deep,https://www.aldi.us,glama;appstore
+258,Afterpay,payments,deep,https://www.afterpay.com,appstore
+259,Tile,home-and-family,deep,https://www.tile.com,home-assistant;appstore
+260,Hopper,travel,deep,https://www.hopper.com,appstore
+261,Flo,health-and-fitness,deep,https://flo.health,appstore-listing
+262,Tubi,video-and-streaming,deep,https://tubitv.com,appstore
+263,myQ,smart-home,deep,https://www.myq.com,appstore-listing
+264,Proton Calendar,calendar,deep,https://proton.me/calendar,glama
+265,Glassdoor,jobs-and-careers,deep,https://www.glassdoor.com,mcp-registry;github-mcp;glama;appstore
+266,CARROT Weather,weather,deep,https://www.meetcarrot.com/weather/,appstore
+267,Grok,ai-assistants,deep,https://grok.com,mcp-registry;glama;mcpso;awesome-mcp;composio;appstore
+268,The Washington Post,news-and-reading,deep,https://www.washingtonpost.com,appstore
+269,McDonald's,food-and-delivery,deep,https://www.mcdonalds.com,appstore
+270,Wayfair,shopping,deep,https://www.wayfair.com,appstore
+271,Ally,finance-and-banking,deep,https://www.ally.com,appstore
+272,Acorns,investing-and-crypto,deep,https://www.acorns.com,appstore
+273,Goodnotes,notes,deep,https://www.goodnotes.com,claude-connectors;glama;mcpso;appstore
+274,MEGA,files-and-storage,deep,https://mega.io,mcp-registry;glama;appstore
+275,Tumblr,social,deep,https://www.tumblr.com,pipedream;zapier;nango;appstore
+276,TripIt,travel,deep,https://www.tripit.com,glama;appstore
+277,Lose It!,health-and-fitness,deep,https://www.loseit.com,glama;appstore
+278,Fandango,events-and-tickets,deep,https://www.fandango.com,appstore
+279,Google Authenticator,password-and-security,deep,,appstore
+280,Pluto TV,video-and-streaming,deep,https://pluto.tv,appstore
+281,Govee,smart-home,deep,https://www.govee.com,mcp-registry;glama;mcpso;pipedream;appstore
+282,Viber,chat-and-messaging,deep,https://www.viber.com,glama;awesome-mcp;zapier;appstore
+283,iHeartRadio,music-and-audio,deep,https://www.iheart.com,appstore
+284,Bolt,maps-and-rides,deep,https://bolt.eu,appstore
+285,Empower,budgeting-and-taxes,deep,https://www.empower.com,appstore
+286,Canvas Student,learning,deep,https://www.instructure.com/canvas,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;appstore
+287,Sleeper,sports,deep,https://sleeper.com,mcp-registry;appstore
+288,BBC News,news-and-reading,deep,https://www.bbc.com/news,appstore
+289,Shop,shopping,deep,https://shop.app,appstore
+290,PNC,finance-and-banking,deep,https://www.pnc.com,appstore-listing
+291,Agoda,travel,deep,https://www.agoda.com,glama;appstore
+292,Cronometer,health-and-fitness,deep,https://cronometer.com,mcp-registry;glama;appstore
+293,Zoho Mail,email,deep,https://www.zoho.com/mail/,glama;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+294,Things,tasks-and-reminders,deep,https://culturedcode.com/things/,glama;mcpso;awesome-mcp;zapier
+295,Apple Numbers,docs-and-office,deep,,appstore-listing
+296,Flickr,photos,deep,https://www.flickr.com,mcp-registry;glama;mcpso;zapier
+297,Overcast,podcasts-and-books,deep,https://overcast.fm,appstore
+298,Roku,video-and-streaming,deep,https://www.roku.com,glama;home-assistant;appstore
+299,CNN,news-and-reading,deep,https://www.cnn.com,appstore
+300,Chick-fil-A,food-and-delivery,deep,https://www.chick-fil-a.com,glama;appstore
+301,Shipt,groceries,deep,https://www.shipt.com,claude-connectors;appstore
+302,Vinted,shopping,deep,https://www.vinted.com,mcp-registry;glama;appstore
+303,Affirm,payments,deep,https://www.affirm.com,appstore
+304,Kalshi,investing-and-crypto,deep,https://kalshi.com,mcp-registry;glama;mcpso;appstore
+305,BetterHelp,sleep-and-wellbeing,deep,https://www.betterhelp.com,appstore
+306,TP-Link Kasa,smart-home,deep,https://www.kasasmart.com,glama
+307,Thumbtack,home-and-family,deep,https://www.thumbtack.com,claude-connectors;appstore
+308,Google Translate,language-learning,deep,https://translate.google.com,n8n;home-assistant;appstore
+309,Chess.com,games,deep,https://www.chess.com,mcp-registry;glama;activepieces;home-assistant
+310,Google Fi,utilities-and-telecom,deep,https://fi.google.com,appstore-listing
+311,ID.me,government-and-civic,deep,https://www.id.me,appstore
+312,GasBuddy,automotive,deep,https://www.gasbuddy.com,appstore
+313,Realtor.com,real-estate,deep,https://www.realtor.com,appstore-listing
+314,CapCut,design-and-creative,deep,https://www.capcut.com,glama;appstore
+315,Google Search,other,deep,https://www.google.com,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;pipedream;nango;activepieces;n8n;home-assistant;appstore
+316,Trip.com,travel,deep,https://www.trip.com,appstore
+317,Noom,health-and-fitness,deep,https://www.noom.com,appstore
+318,Navy Federal Credit Union,finance-and-banking,deep,https://www.navyfederal.org,appstore
+319,Depop,shopping,deep,https://www.depop.com,appstore
+320,Reuters,news-and-reading,deep,https://www.reuters.com,appstore
+321,GroupMe,chat-and-messaging,deep,https://groupme.com,glama;appstore
+322,Tidal,music-and-audio,deep,https://tidal.com,mcp-registry;appstore
+323,Grab,maps-and-rides,deep,https://www.grab.com,appstore
+324,Splitwise,budgeting-and-taxes,deep,https://www.splitwise.com,mcp-registry;glama;composio;zapier;nango;activepieces;appstore
+325,Wikipedia,learning,deep,https://www.wikipedia.org,mcp-registry;docker-mcp;glama;mcpso;smithery;appstore
+326,theScore,sports,deep,https://www.thescore.com,appstore
+327,Crunchyroll,video-and-streaming,deep,https://www.crunchyroll.com,mcp-registry;glama;appstore
+328,TP-Link Tapo,smart-home,deep,https://www.tapo.com,mcp-registry;home-assistant;appstore
+329,Notability,notes,deep,https://notability.com,appstore
+330,Proton Drive,files-and-storage,deep,https://proton.me/drive,mcp-registry;glama;mcpso
+331,Quora,social,deep,https://www.quora.com,appstore
+332,Delta Air Lines,travel,deep,https://www.delta.com,mcp-registry;glama;appstore
+333,WeightWatchers,health-and-fitness,deep,https://www.weightwatchers.com,appstore-listing
+334,Partiful,events-and-tickets,deep,https://partiful.com,glama;appstore
+335,Microsoft Authenticator,password-and-security,deep,,pipedream;appstore
+336,TradingView,investing-and-crypto,deep,https://www.tradingview.com,mcp-registry;glama;mcpso;appstore
+337,USAA,finance-and-banking,deep,https://www.usaa.com,glama
+338,Poshmark,shopping,deep,https://poshmark.com,glama;appstore
+339,Domino's,food-and-delivery,deep,https://www.dominos.com,appstore
+340,AP News,news-and-reading,deep,https://apnews.com,appstore
+341,TimeTree,calendar,deep,https://timetreeapp.com,glama;appstore
+342,Upwork,jobs-and-careers,deep,https://www.upwork.com,mcp-registry;claude-connectors;appstore
+343,Windy,weather,deep,https://www.windy.com,appstore
+344,DeepSeek,ai-assistants,deep,https://www.deepseek.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces;appstore
+345,Plex,video-and-streaming,deep,https://www.plex.tv,home-assistant;appstore
+346,eufy,smart-home,deep,https://www.eufy.com,home-assistant;appstore
+347,United Airlines,travel,deep,https://www.united.com,appstore
+348,ClassPass,health-and-fitness,deep,https://classpass.com,appstore
+349,Apple Keynote,docs-and-office,deep,,glama;mcpso;awesome-mcp
+350,Hoopla,podcasts-and-books,deep,https://www.hoopladigital.com,appstore
+351,Gopuff,groceries,deep,https://www.gopuff.com,appstore
+352,Remitly,payments,deep,https://www.remitly.com,appstore
+353,Angi,home-and-family,deep,https://www.angi.com,mcp-registry;glama
+354,Revolut,finance-and-banking,deep,https://www.revolut.com,mcp-registry;cursor;glama;appstore
+355,Sephora,shopping,deep,https://www.sephora.com,glama;appstore
+356,NPR,news-and-reading,deep,https://www.npr.org,appstore
+357,Binance,investing-and-crypto,deep,https://www.binance.com,mcp-registry;glama;mcpso;activepieces
+358,KakaoTalk,chat-and-messaging,deep,https://www.kakaocorp.com/page/service/service/KakaoTalk,glama;mcpso;pipedream;appstore
+359,Deezer,music-and-audio,deep,https://www.deezer.com,mcp-registry;glama;zapier;appstore
+360,Waymo,maps-and-rides,deep,https://waymo.com,glama;appstore
+361,TurboTax,budgeting-and-taxes,deep,https://turbotax.intuit.com,mcpso
+362,Photomath,learning,deep,https://photomath.com,appstore
+363,NFL,sports,deep,https://www.nfl.com,mcp-registry;appstore
+364,American Airlines,travel,deep,https://www.aa.com,appstore
+365,MyChart,health-and-fitness,deep,https://www.mychart.org,mcp-registry;glama;appstore
+366,Fastmail,email,deep,https://www.fastmail.com,claude-connectors;glama;zapier
+367,OmniFocus,tasks-and-reminders,deep,https://www.omnigroup.com/omnifocus,mcp-registry;glama;mcpso;zapier
+368,Shutterfly,photos,deep,https://www.shutterfly.com,appstore
+369,Fubo,video-and-streaming,deep,https://www.fubo.tv,appstore
+370,Finch,sleep-and-wellbeing,deep,https://finchcare.com,appstore
+371,LG ThinQ,smart-home,deep,https://www.lg.com/us/lg-thinq,home-assistant;appstore
+372,Epic Games,games,deep,https://store.epicgames.com,mcp-registry;composio;pipedream;nango;home-assistant;appstore
+373,Mint Mobile,utilities-and-telecom,deep,https://www.mintmobile.com,appstore
+374,ParkMobile,automotive,deep,https://parkmobile.io,appstore
+375,Ulta Beauty,shopping,deep,https://www.ulta.com,appstore
+376,Monzo,finance-and-banking,deep,https://monzo.com,mcp-registry;glama;awesome-mcp;home-assistant
+377,Too Good To Go,food-and-delivery,deep,https://www.toogoodtogo.com,appstore
+378,The Guardian,news-and-reading,deep,https://www.theguardian.com,mcp-registry;glama;appstore
+379,Day One,notes,deep,https://dayoneapp.com,glama;zapier;appstore
+380,TeraBox,files-and-storage,deep,https://www.terabox.com,appstore
+381,Mastodon,social,deep,https://joinmastodon.org,mcp-registry;pipedream;activepieces;home-assistant
+382,Southwest Airlines,travel,deep,https://www.southwest.com,mcp-registry;glama;appstore
+383,Zocdoc,health-and-fitness,deep,https://www.zocdoc.com,appstore
+384,Petco,pets,deep,https://www.petco.com,appstore-listing
+385,Grindr,dating,deep,https://www.grindr.com,appstore
+386,Meetup,events-and-tickets,deep,https://www.meetup.com,glama;mcpso;pipedream;appstore
+387,NordVPN,password-and-security,deep,https://nordvpn.com,appstore
+388,Nike,shopping,deep,https://www.nike.com,appstore
+389,Sling TV,video-and-streaming,deep,https://www.sling.com,appstore
+390,Home Assistant,smart-home,deep,https://www.home-assistant.io,mcp-registry;glama;mcpso;awesome-mcp;pipedream;n8n
+391,Kraken,investing-and-crypto,deep,https://www.kraken.com,mcp-registry;pipedream;home-assistant;appstore
+392,Experian,finance-and-banking,deep,https://www.experian.com,appstore
+393,CamScanner,docs-and-office,deep,https://www.camscanner.com,appstore
+394,Everand,podcasts-and-books,deep,https://www.everand.com,appstore
+395,Tesco,groceries,deep,https://www.tesco.com,appstore-listing
+396,Western Union,payments,deep,https://www.westernunion.com,appstore
+397,Taskrabbit,home-and-family,deep,https://www.taskrabbit.com,mcp-registry;claude-connectors;mcpso;composio;zapier;appstore
+398,Readwise,news-and-reading,deep,https://readwise.io,claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+399,Marriott Bonvoy,travel,deep,https://www.marriott.com,glama;appstore
+400,CVS Pharmacy,health-and-fitness,deep,https://www.cvs.com,appstore
+401,Google Voice,chat-and-messaging,light,https://voice.google.com,zapier;appstore
+402,Audiomack,music-and-audio,light,https://audiomack.com,appstore
+403,Lime,maps-and-rides,light,https://www.li.me,appstore
+404,H&R Block,budgeting-and-taxes,light,https://www.hrblock.com,appstore-listing
+405,Kahoot!,learning,light,https://kahoot.com,claude-connectors;appstore
+406,NBA,sports,light,https://www.nba.com,mcp-registry;appstore
+407,Fetch,shopping,light,https://fetch.com,appstore
+408,Letterboxd,video-and-streaming,light,https://letterboxd.com,glama;appstore
+409,HelloFresh,food-and-delivery,light,https://www.hellofresh.com,glama
+410,Roborock,smart-home,light,https://us.roborock.com,glama;home-assistant;appstore
+411,Speak,language-learning,light,https://www.speak.com,appstore
+412,IRS,government-and-civic,light,https://www.irs.gov,appstore
+413,Apartments.com,real-estate,light,https://www.apartments.com,appstore
+414,GEICO,finance-and-banking,light,https://www.geico.com,glama;appstore
+415,Instapaper,news-and-reading,light,https://www.instapaper.com,glama;pipedream;zapier
+416,Hilton Honors,travel,light,https://www.hilton.com,glama;appstore
+417,Walgreens,health-and-fitness,light,https://www.walgreens.com,appstore
+418,Crypto.com,investing-and-crypto,light,https://crypto.com,mcp-registry;claude-connectors;mcpso
+419,Capital One Shopping,shopping,light,https://capitaloneshopping.com,appstore
+420,Notion Calendar,calendar,light,https://www.notion.com/product/calendar,glama
+421,Handshake,jobs-and-careers,light,https://joinhandshake.com,appstore
+422,MyRadar,weather,light,https://myradar.com,appstore-listing
+423,NotebookLM,ai-assistants,light,https://notebooklm.google.com,mcp-registry;glama;mcpso;awesome-mcp;composio
+424,Spark Mail,email,light,https://sparkmailapp.com,claude-connectors
+425,Structured,tasks-and-reminders,light,https://structured.app,appstore
+426,VSCO,photos,light,https://www.vsco.co,appstore
+427,IMDb,video-and-streaming,light,https://www.imdb.com,mcp-registry;glama;mcpso;appstore
+428,Hatch,sleep-and-wellbeing,light,https://www.hatch.co,appstore
+429,iRobot,smart-home,light,https://www.irobot.com,glama;mcpso;home-assistant
+430,Pokémon GO,games,light,https://pokemongo.com,appstore
+431,Truecaller,utilities-and-telecom,light,https://www.truecaller.com,appstore
+432,Carvana,automotive,light,https://www.carvana.com,glama;appstore
+433,Progressive,finance-and-banking,light,https://www.progressive.com,appstore
+434,NewsBreak,news-and-reading,light,https://www.newsbreak.com,appstore
+435,Simplenote,notes,light,https://simplenote.com,mcp-registry;glama;mcpso
+436,WeTransfer,files-and-storage,light,https://wetransfer.com,appstore
+437,BeReal,social,light,https://bereal.com,appstore
+438,Flighty,travel,light,https://flighty.com,appstore
+439,GoodRx,health-and-fitness,light,https://www.goodrx.com,glama;appstore
+440,AMC Theatres,events-and-tickets,light,https://www.amctheatres.com,appstore
+441,Proton VPN,password-and-security,light,https://protonvpn.com,appstore
+442,UPS,shopping,light,https://www.ups.com,pipedream;appstore
+443,Adobe Scan,docs-and-office,light,,appstore
+444,Wattpad,podcasts-and-books,light,https://www.wattpad.com,glama;appstore
+445,AnyList,groceries,light,https://www.anylist.com,glama
+446,Samsung Wallet,payments,light,https://www.samsung.com/us/samsung-wallet/,google-play
+447,Ancestry,home-and-family,light,https://www.ancestry.com,appstore
+448,WhatsApp Business,chat-and-messaging,light,https://business.whatsapp.com,mcp-registry;glama;pipedream;zapier;nango;appstore
+449,Sonos,music-and-audio,light,https://www.sonos.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;home-assistant;appstore
+450,AllTrails,maps-and-rides,light,https://www.alltrails.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;composio;appstore
+451,Quicken,budgeting-and-taxes,light,https://www.quicken.com,appstore
+452,ClassDojo,learning,light,https://www.classdojo.com,mcp-registry;glama;appstore
+453,MLB,sports,light,https://www.mlb.com,appstore
+454,Paprika,food-and-delivery,light,https://www.paprikaapp.com,appstore-listing
+455,Yahoo Finance,investing-and-crypto,light,https://finance.yahoo.com,mcp-registry;glama;mcpso;appstore
+456,Vimeo,video-and-streaming,light,https://vimeo.com,mcp-registry;glama;composio;pipedream;zapier;nango;activepieces;appstore
+457,eero,smart-home,light,https://eero.com,appstore
+458,State Farm,finance-and-banking,light,https://www.statefarm.com,glama;appstore
+459,SmartNews,news-and-reading,light,https://www.smartnews.com,appstore
+460,Amtrak,travel,light,https://www.amtrak.com,mcp-registry;glama;appstore
+461,Dexcom,health-and-fitness,light,https://www.dexcom.com,glama;home-assistant;appstore
+462,FedEx,shopping,light,https://www.fedex.com,pipedream;appstore
+463,JetBlue,travel,light,https://www.jetblue.com,appstore
+464,Ibotta,shopping,light,https://home.ibotta.com,appstore-listing
+465,Polar,health-and-fitness,light,https://www.polar.com,mcp-registry
+466,TD Bank,finance-and-banking,light,https://www.td.com,appstore-listing
+467,edX,learning,light,https://www.edx.org,appstore-listing
+468,Swiggy,food-and-delivery,light,https://www.swiggy.com,glama
+469,Honeywell Home,smart-home,light,https://www.honeywellhome.com,appstore-listing
+470,ESPN Fantasy,sports,light,https://fantasy.espn.com,glama
+471,E-ZPass,automotive,light,https://www.e-zpassgroup.org,appstore-listing
+472,Public,investing-and-crypto,light,https://public.com,appstore-listing
+473,Kick,video-and-streaming,light,https://kick.com,appstore
+474,Google Earth,maps-and-rides,light,https://earth.google.com,appstore
+475,Inoreader,news-and-reading,light,https://www.inoreader.com,glama;pipedream;zapier
+476,Publix,groceries,light,https://www.publix.com,glama;appstore
+477,My Disney Experience,events-and-tickets,light,https://disneyworld.disney.go.com,appstore
+478,Keeper,password-and-security,light,https://www.keepersecurity.com,mcp-registry;nango
+479,Castbox,podcasts-and-books,light,https://castbox.fm,mcpso
+480,Cox,utilities-and-telecom,light,https://www.cox.com,appstore-listing
+481,Joplin,notes,light,https://joplinapp.org,mcp-registry;glama;mcpso;pipedream
+482,Bandcamp,music-and-audio,light,https://bandcamp.com,mcp-registry;glama
+483,Skylight,home-and-family,light,https://myskylight.com,appstore
+484,Alaska Airlines,travel,light,https://www.alaskaair.com,appstore
+485,Rakuten,shopping,light,https://www.rakuten.com,mcp-registry;glama;mcpso;awesome-mcp
+486,Trulia,real-estate,light,https://www.trulia.com,appstore-listing
+487,NerdWallet,budgeting-and-taxes,light,https://www.nerdwallet.com,appstore-listing
+488,Busuu,language-learning,light,https://www.busuu.com,appstore
+489,Monster,jobs-and-careers,light,https://www.monster.com,appstore-listing
+490,Suunto,health-and-fitness,light,https://www.suunto.com,mcp-registry;glama;awesome-mcp
+491,Truist,finance-and-banking,light,https://www.truist.com,appstore-listing
+492,Eight Sleep,sleep-and-wellbeing,light,https://www.eightsleep.com,mcp-registry;glama
+493,Skillshare,learning,light,https://www.skillshare.com,glama
+494,Match,dating,light,https://www.match.com,appstore
+495,Apple Weather,weather,light,,home-assistant
+496,NHS App,government-and-civic,light,https://www.nhs.uk/nhs-app/,appstore-listing
+497,Zomato,food-and-delivery,light,https://www.zomato.com,mcp-registry;claude-connectors;glama
+498,ADT,smart-home,light,https://www.adt.com,appstore-listing
+499,NHL,sports,light,https://www.nhl.com,mcp-registry;appstore
+500,Frontier Airlines,travel,light,https://www.flyfrontier.com,appstore
+501,Mistral Le Chat,ai-assistants,light,https://chat.mistral.ai,mcp-registry;glama;awesome-mcp;composio;pipedream;zapier;activepieces;n8n
+502,Chevrolet,automotive,light,https://www.chevrolet.com,appstore
+503,Element,chat-and-messaging,light,https://element.io,pipedream;activepieces;n8n;home-assistant
+504,Lemon8,social,light,https://www.lemon8-app.com,appstore
+505,Honey,shopping,light,https://www.joinhoney.com,appstore-listing
+506,Interactive Brokers,investing-and-crypto,light,https://www.interactivebrokers.com,mcp-registry;claude-connectors;glama;mcpso
+507,YouTube Kids,video-and-streaming,light,https://www.youtubekids.com,appstore
+508,COROS,health-and-fitness,light,https://coros.com,glama;mcpso;nango
+509,GMX,email,light,https://www.gmx.com,zapier
+510,Remember The Milk,tasks-and-reminders,light,https://www.rememberthemilk.com,zapier;home-assistant
+511,PetSmart,pets,light,https://www.petsmart.com,glama;appstore
+512,Turo,maps-and-rides,light,https://turo.com,claude-connectors;glama;appstore
+513,Feedbin,news-and-reading,light,https://feedbin.com,pipedream
+514,H-E-B,groceries,light,https://www.heb.com,appstore-listing
+515,Disneyland,events-and-tickets,light,https://disneyland.disney.go.com,appstore
+516,Citizens,finance-and-banking,light,https://www.citizensbank.com,appstore-listing
+517,MasterClass,learning,light,https://www.masterclass.com,appstore
+518,Air Canada,travel,light,https://www.aircanada.com,appstore
+519,WPS Office,docs-and-office,light,https://www.wps.com,glama
+520,pCloud,files-and-storage,light,https://www.pcloud.com,glama;pipedream
+521,Snapfish,photos,light,https://www.snapfish.com,appstore-listing
+522,MoneyGram,payments,light,https://www.moneygram.com,appstore-listing
+523,Minecraft,games,light,https://www.minecraft.net,glama;mcpso;home-assistant
+524,NordPass,password-and-security,light,https://nordpass.com,appstore-listing
+525,Picsart,design-and-creative,light,https://picsart.com,mcp-registry;cursor;glama;zapier;appstore
+526,Podcast Addict,podcasts-and-books,light,https://podcastaddict.com,google-play
+527,Optimum,utilities-and-telecom,light,https://www.optimum.com,appstore-listing
+528,Groupon,shopping,light,https://www.groupon.com,mcp-registry;glama;appstore
+529,foodpanda,food-and-delivery,light,https://www.foodpanda.com,appstore
+530,Vivint,smart-home,light,https://www.vivint.com,glama
+531,MLS,sports,light,https://www.mlssoccer.com,appstore-listing
+532,Zwift,health-and-fitness,light,https://www.zwift.com,glama;appstore
+533,Honda,automotive,light,https://www.honda.com,appstore
+534,Standard Notes,notes,light,https://standardnotes.com,mcp-registry;glama
+535,Qobuz,music-and-audio,light,https://www.qobuz.com,glama;appstore
+536,Bark,home-and-family,light,https://www.bark.us,appstore
+537,British Airways,travel,light,https://www.britishairways.com,appstore
+538,Merrill,investing-and-crypto,light,https://www.merrilledge.com,appstore-listing
+539,Fifth Third Bank,finance-and-banking,light,https://www.53.com,appstore-listing
+540,LinkedIn Learning,learning,light,https://www.linkedin.com/learning,appstore-listing
+541,Disney Hotstar,video-and-streaming,light,https://www.hotstar.com,appstore-listing
+542,Slickdeals,shopping,light,https://slickdeals.net,appstore-listing
+543,Homes.com,real-estate,light,https://www.homes.com,appstore-listing
+544,Bing,other,light,https://www.bing.com,appstore-listing
+545,EveryDollar,budgeting-and-taxes,light,https://www.ramseysolutions.com/ramseyplus/everydollar,appstore
+546,Rosetta Stone,language-learning,light,https://www.rosettastone.com,appstore-listing
+547,Fiverr,jobs-and-careers,light,https://www.fiverr.com,mcp-registry;glama;awesome-mcp;appstore
+548,Zipcar,maps-and-rides,light,https://www.zipcar.com,glama
+549,Glovo,food-and-delivery,light,https://glovoapp.com,claude-connectors
+550,TrainingPeaks,health-and-fitness,light,https://www.trainingpeaks.com,glama;awesome-mcp
+551,Lufthansa,travel,light,https://www.lufthansa.com,appstore
+552,Reolink,smart-home,light,https://reolink.com,mcp-registry;glama;home-assistant
+553,Premier League,sports,light,https://www.premierleague.com,appstore-listing
+554,Matter,news-and-reading,light,https://getmatter.com,appstore-listing
+555,Safeway,groceries,light,https://www.safeway.com,appstore-listing
+556,Universal Orlando Resort,events-and-tickets,light,https://www.universalorlando.com,appstore
+557,Proton Pass,password-and-security,light,https://proton.me/pass,glama
+558,Hyundai,automotive,light,https://www.hyundaiusa.com,glama
+559,RetailMeNot,shopping,light,https://www.retailmenot.com,appstore-listing
+560,Howbout,calendar,light,https://howbout.app,appstore
+561,Podbean,podcasts-and-books,light,https://www.podbean.com,appstore
+562,KeyBank,finance-and-banking,light,https://www.key.com,appstore-listing
+563,Insight Timer,sleep-and-wellbeing,light,https://insighttimer.com,appstore
+564,Brilliant,learning,light,https://brilliant.org,appstore
+565,OkCupid,dating,light,https://www.okcupid.com,appstore-listing
+566,WeatherBug,weather,light,https://www.weatherbug.com,glama;appstore
+567,Frontier,utilities-and-telecom,light,https://frontier.com,appstore-listing
+568,Emirates,travel,light,https://www.emirates.com,appstore-listing
+569,Runna,health-and-fitness,light,https://www.runna.com,appstore
+570,Betterment,investing-and-crypto,light,https://www.betterment.com,appstore-listing
+571,Medicare,government-and-civic,light,https://www.medicare.gov,glama
+572,Philo,video-and-streaming,light,https://www.philo.com,appstore
+573,Wolt,food-and-delivery,light,https://wolt.com,glama
+574,Mercari,shopping,light,https://www.mercari.com,glama;appstore
+575,UniFi,smart-home,light,https://ui.com,mcp-registry;github-mcp;glama;mcpso;composio;home-assistant
+576,Formula 1,sports,light,https://www.formula1.com,mcp-registry;glama;mcpso;appstore
+577,UpNote,notes,light,https://getupnote.com,glama
+578,TuneIn,music-and-audio,light,https://tunein.com,mcp-registry;appstore
+579,Qustodio,home-and-family,light,https://www.qustodio.com,appstore
+580,Qatar Airways,travel,light,https://www.qatarairways.com,appstore-listing
+581,Character.AI,ai-assistants,light,https://character.ai,appstore
+582,DiDi,maps-and-rides,light,https://web.didiglobal.com,appstore
+583,Huntington Bank,finance-and-banking,light,https://www.huntington.com,appstore-listing
+584,Chegg,learning,light,https://www.chegg.com,appstore
+585,Kia,automotive,light,https://www.kia.com,appstore-listing
+586,Ladder,health-and-fitness,light,https://www.joinladder.com,appstore
+587,MSN,news-and-reading,light,https://www.msn.com,zapier;appstore
+588,Wegmans,groceries,light,https://www.wegmans.com,glama
+589,Apple Invites,events-and-tickets,light,,appstore
+590,Threema,chat-and-messaging,light,https://threema.com,home-assistant
+591,RedNote,social,light,https://www.xiaohongshu.com,mcp-registry;glama;mcpso;appstore
+592,OfferUp,shopping,light,https://offerup.com,appstore
+593,RoboForm,password-and-security,light,https://www.roboform.com,appstore-listing
+594,Zumper,real-estate,light,https://www.zumper.com,appstore-listing
+595,Ryanair,travel,light,https://www.ryanair.com,appstore
+596,Rappi,food-and-delivery,light,https://www.rappi.com,glama
+597,Wealthfront,investing-and-crypto,light,https://www.wealthfront.com,appstore-listing
+598,Snipd,podcasts-and-books,light,https://www.snipd.com,appstore-listing
+599,Visible,utilities-and-telecom,light,https://www.visible.com,appstore
+600,Netgear,smart-home,light,https://www.netgear.com,home-assistant
+601,UFC,sports,light,https://www.ufc.com,appstore
+602,Goodbudget,budgeting-and-taxes,light,https://goodbudget.com,appstore-listing
+603,Memrise,language-learning,light,https://www.memrise.com,glama
+604,Welcome to the Jungle,jobs-and-careers,light,https://www.welcometothejungle.com,appstore-listing
+605,DirecTV,video-and-streaming,light,https://www.directv.com,home-assistant;appstore
+606,Regions Bank,finance-and-banking,light,https://www.regions.com,appstore-listing
+607,Course Hero,learning,light,https://www.coursehero.com,appstore
+608,Apple Fitness+,health-and-fitness,light,https://www.apple.com/apple-fitness-plus/,appstore-listing
+609,Tuta,email,light,https://tuta.com,appstore-listing
+610,Due,tasks-and-reminders,light,https://www.dueapp.com,appstore-listing
+611,Wag!,pets,light,https://wagwalking.com,appstore-listing
+612,Craigslist,shopping,light,https://www.craigslist.org,appstore
+613,BMW,automotive,light,https://www.bmw.com,appstore
+614,easyJet,travel,light,https://www.easyjet.com,appstore-listing
+615,Ola,maps-and-rides,light,https://www.olacabs.com,appstore-listing
+616,iFood,food-and-delivery,light,https://www.ifood.com.br,mcp-registry;glama
+617,Yahoo News,news-and-reading,light,https://news.yahoo.com,appstore-listing
+618,Sprouts Farmers Market,groceries,light,https://www.sprouts.com,claude-connectors;mcpso
+619,AXS,events-and-tickets,light,https://www.axs.com,appstore-listing
+620,Craft,notes,light,https://www.craft.do,mcp-registry;claude-connectors;composio
+621,Last.fm,music-and-audio,light,https://www.last.fm,mcp-registry;glama;home-assistant
+622,Care.com,home-and-family,light,https://www.care.com,appstore
+623,Nike Training Club,health-and-fitness,light,https://www.nike.com/ntc-app,appstore-listing
+624,Synchrony,finance-and-banking,light,https://www.synchrony.com,appstore
+625,BetterSleep,sleep-and-wellbeing,light,https://www.bettersleep.com,appstore
+626,Gauth,learning,light,https://www.gauthmath.com,appstore
+627,Plenty of Fish,dating,light,https://www.pof.com,appstore
+628,Clime,weather,light,https://climeradar.com,appstore
+629,LIFX,smart-home,light,https://www.lifx.com,mcp-registry;glama;mcpso;pipedream;home-assistant
+630,PGA TOUR,sports,light,https://www.pgatour.com,appstore-listing
+631,Air France,travel,light,https://www.airfrance.com,appstore
+632,ThredUp,shopping,light,https://www.thredup.com,appstore-listing
+633,Stash,investing-and-crypto,light,https://www.stash.com,appstore-listing
+634,Smallpdf,docs-and-office,light,https://smallpdf.com,appstore-listing
+635,Sync.com,files-and-storage,light,https://www.sync.com,appstore-listing
+636,SmugMug,photos,light,https://www.smugmug.com,composio;pipedream;nango
+637,Sezzle,payments,light,https://sezzle.com,appstore
+638,Lichess,games,light,https://lichess.org,mcp-registry;glama;mcpso;home-assistant
+639,Enpass,password-and-security,light,https://www.enpass.io,mcp-registry;glama
+640,Adobe Express,design-and-creative,light,https://www.adobe.com/express/,appstore
+641,Fandango at Home,video-and-streaming,light,https://athome.fandango.com,appstore-listing
+642,Mercedes-Benz,automotive,light,https://www.mercedes-benz.com,appstore-listing
+643,Google Play Books,podcasts-and-books,light,https://play.google.com/books,appstore
+644,Cricket Wireless,utilities-and-telecom,light,https://www.cricketwireless.com,appstore-listing
+645,Trusted Traveler Programs,government-and-civic,light,https://ttp.dhs.gov,appstore-listing
+646,KLM,travel,light,https://www.klm.com,appstore-listing
+647,adidas Running,health-and-fitness,light,https://www.runtastic.com,appstore-listing
+648,The RealReal,shopping,light,https://www.therealreal.com,appstore-listing
+649,Apartment List,real-estate,light,https://www.apartmentlist.com,appstore
+650,Talabat,food-and-delivery,light,https://www.talabat.com,appstore
+651,Marcus by Goldman Sachs,finance-and-banking,light,https://www.marcus.com,appstore-listing
+652,Brainly,learning,light,https://brainly.com,appstore
+653,Rapido,maps-and-rides,light,https://www.rapido.bike,appstore-listing
+654,Nanoleaf,smart-home,light,https://nanoleaf.me,mcp-registry;glama;home-assistant
+655,DAZN,sports,light,https://www.dazn.com,appstore
+656,Fox News,news-and-reading,light,https://www.foxnews.com,appstore
+657,Turkish Airlines,travel,light,https://www.turkishairlines.com,claude-connectors;glama;appstore
+658,BJ's Wholesale Club,groceries,light,https://www.bjs.com,appstore
+659,M1,investing-and-crypto,light,https://m1.com,appstore-listing
+660,PocketGuard,budgeting-and-taxes,light,https://pocketguard.com,appstore
+661,Drops,language-learning,light,https://languagedrops.com,appstore-listing
+662,Instawork,jobs-and-careers,light,https://www.instawork.com,appstore
+663,Vivid Seats,events-and-tickets,light,https://www.vividseats.com,appstore
+664,Poe,ai-assistants,light,https://poe.com,appstore-listing
+665,YouTube Studio,social-media-management,light,https://studio.youtube.com,mcp-registry;glama;appstore
+666,StockX,shopping,light,https://stockx.com,appstore
+667,Hevy,health-and-fitness,light,https://www.hevyapp.com,mcp-registry;glama;mcpso;appstore
+668,Volkswagen,automotive,light,https://www.vw.com,appstore-listing
+669,Starz,video-and-streaming,light,https://www.starz.com,appstore
+670,Authy,password-and-security,light,https://www.authy.com,appstore-listing
+671,Varo Bank,finance-and-banking,light,https://www.varomoney.com,appstore
+672,WolframAlpha,learning,light,https://www.wolframalpha.com,mcp-registry;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream
+673,Logseq,notes,light,https://logseq.com,mcp-registry;glama;mcpso
+674,Genius,music-and-audio,light,https://genius.com,mcp-registry
+675,Houzz,home-and-family,light,https://www.houzz.com,appstore-listing
+676,SkipTheDishes,food-and-delivery,light,https://www.skipthedishes.com,appstore-listing
+677,Singapore Airlines,travel,light,https://www.singaporeair.com,appstore-listing
+678,Lutron,smart-home,light,https://www.lutron.com,home-assistant
+679,FOX Sports,sports,light,https://www.foxsports.com,appstore
+680,Kobo,podcasts-and-books,light,https://www.kobo.com,glama;appstore
+681,Metro by T-Mobile,utilities-and-telecom,light,https://www.metrobyt-mobile.com,appstore-listing
+682,Wire,chat-and-messaging,light,https://wire.com,appstore-listing
+683,Locket,social,light,https://locket.camera,appstore
+684,GOAT,shopping,light,https://www.goat.com,appstore
+685,Strong,health-and-fitness,light,https://www.strong.app,appstore
+686,inDrive,maps-and-rides,light,https://indrive.com,appstore-listing
+687,moomoo,investing-and-crypto,light,https://www.moomoo.com,glama
+688,Qantas,travel,light,https://www.qantas.com,appstore-listing
+689,Current,finance-and-banking,light,https://current.com,appstore
+690,Balance,sleep-and-wellbeing,light,https://themindcompany.com/apps/balance,appstore-listing
+691,Blackboard,learning,light,https://www.blackboard.com,composio;appstore
+692,Coffee Meets Bagel,dating,light,https://coffeemeetsbagel.com,appstore
+693,Zoom Earth,weather,light,https://zoom.earth,appstore
+694,Audi,automotive,light,https://www.audi.com,appstore-listing
+695,NBC News,news-and-reading,light,https://www.nbcnews.com,appstore
+696,Trader Joe's,groceries,light,https://www.traderjoes.com,glama
+697,Gametime,events-and-tickets,light,https://gametime.co,appstore
+698,Tock,food-and-delivery,light,https://www.exploretock.com,appstore-listing
+699,MGM+,video-and-streaming,light,https://www.mgmplus.com,appstore
+700,Whatnot,shopping,light,https://www.whatnot.com,appstore
+701,Opendoor,real-estate,light,https://www.opendoor.com,appstore-listing
+702,DuckDuckGo,other,light,https://duckduckgo.com,mcp-registry;github-mcp;docker-mcp;glama;mcpso;awesome-mcp;appstore
+703,Fitbod,health-and-fitness,light,https://fitbod.me,glama;appstore
+704,Meross,smart-home,light,https://www.meross.com,appstore-listing
+705,CBS Sports,sports,light,https://www.cbssports.com,appstore
+706,Yubico,password-and-security,light,https://www.yubico.com,glama
+707,IHG One Rewards,travel,light,https://www.ihg.com,glama;appstore
+708,HEY,email,light,https://www.hey.com,appstore-listing
+709,Habitica,tasks-and-reminders,light,https://habitica.com,glama;mcpso;composio;pipedream;zapier;home-assistant
+710,Petfinder,pets,light,https://www.petfinder.com,glama
+711,Mobile Passport Control,government-and-civic,light,,appstore
+712,Dave,finance-and-banking,light,https://dave.com,appstore
+713,Moodle,learning,light,https://moodle.com,mcp-registry;pipedream;zapier;appstore
+714,Tiller,budgeting-and-taxes,light,https://tiller.com,claude-connectors
+715,Pimsleur,language-learning,light,https://www.pimsleur.com,appstore
+716,SEEK,jobs-and-careers,light,https://www.seek.com.au,appstore-listing
+717,Quince,shopping,light,https://www.quince.com,appstore
+718,Drafts,notes,light,https://getdrafts.com,claude-connectors;glama
+719,Musixmatch,music-and-audio,light,https://www.musixmatch.com,zapier
+720,MyHeritage,home-and-family,light,https://www.myheritage.com,appstore
+721,Barnes & Noble,podcasts-and-books,light,https://www.barnesandnoble.com,appstore
+722,Vodafone,utilities-and-telecom,light,https://www.vodafone.com,appstore-listing
+723,Gojek,maps-and-rides,light,https://www.gojek.com,appstore-listing
+724,tastytrade,investing-and-crypto,light,https://tastytrade.com,glama
+725,Subaru,automotive,light,https://www.subaru.com,home-assistant
+726,Beli,food-and-delivery,light,https://beliapp.com,glama;appstore
+727,Sweatcoin,health-and-fitness,light,https://sweatco.in,appstore
+728,World of Hyatt,travel,light,https://www.hyatt.com,appstore
+729,Aqara,smart-home,light,https://www.aqara.com,mcpso;home-assistant
+730,Bleacher Report,sports,light,https://bleacherreport.com,appstore-listing
+731,AMC+,video-and-streaming,light,https://www.amcplus.com,appstore
+732,ABC News,news-and-reading,light,https://abcnews.go.com,appstore
+733,Thrive Market,groceries,light,https://thrivemarket.com,appstore-listing
+734,TickPick,events-and-tickets,light,https://www.tickpick.com,appstore
+735,Alibaba.com,shopping,light,https://www.alibaba.com,glama;appstore
+736,Bilt Rewards,finance-and-banking,light,https://www.bilt.com,appstore
+737,Schoology,learning,light,https://www.schoology.com,glama;appstore
+738,Wyndham Hotels,travel,light,https://www.wyndhamhotels.com,claude-connectors;mcpso
+739,Replika,ai-assistants,light,https://replika.com,appstore
+740,Ultrahuman,health-and-fitness,light,https://www.ultrahuman.com,appstore-listing
+741,iLovePDF,docs-and-office,light,https://www.ilovepdf.com,glama;composio;pipedream;zapier
+742,Backblaze,files-and-storage,light,https://www.backblaze.com,glama;pipedream;activepieces
+743,Ente,photos,light,https://ente.com,appstore-listing
+744,Alipay,payments,light,https://global.alipay.com,glama;appstore
+745,Battle.net,games,light,https://battle.net,mcp-registry;pipedream;nango
+746,ExpressVPN,password-and-security,light,https://www.expressvpn.com,appstore
+747,Photoroom,design-and-creative,light,https://www.photoroom.com,composio;zapier;activepieces;appstore
+748,Taco Bell,food-and-delivery,light,https://www.tacobell.com,mcp-registry;appstore
+749,Nissan,automotive,light,https://www.nissanusa.com,appstore-listing
+750,Polymarket,investing-and-crypto,light,https://polymarket.com,mcp-registry;glama;mcpso;smithery;composio;appstore
+751,Macy's,shopping,light,https://www.macys.com,appstore
+752,Compass,real-estate,light,https://www.compass.com,zapier
+753,Careem,maps-and-rides,light,https://www.careem.com,appstore-listing
+754,Accor,travel,light,https://all.accor.com,claude-connectors
+755,SwitchBot,smart-home,light,https://www.switch-bot.com,mcp-registry;glama;mcpso;home-assistant
+756,Apple Sports,sports,light,,appstore
+757,Amie,calendar,light,https://amie.so,appstore-listing
+758,StoryGraph,podcasts-and-books,light,https://thestorygraph.com,appstore
+759,OnePay,finance-and-banking,light,https://www.onepay.com,appstore
+760,Waking Up,sleep-and-wellbeing,light,https://www.wakingup.com,appstore
+761,Brightspace,learning,light,https://www.d2l.com/brightspace/,mcp-registry;glama;mcpso;awesome-mcp
+762,eharmony,dating,light,https://www.eharmony.com,appstore-listing
+763,RadarScope,weather,light,https://www.radarscope.app,appstore
+764,EE,utilities-and-telecom,light,https://ee.co.uk,appstore-listing
+765,MacroFactor,health-and-fitness,light,https://macrofactor.com,mcp-registry;glama;awesome-mcp;appstore
+766,Discovery+,video-and-streaming,light,https://www.discoveryplus.com,appstore
+767,Reflect,notes,light,https://reflect.app,pipedream;zapier
+768,Suno,music-and-audio,light,https://suno.com,mcp-registry;glama;appstore
+769,FamilySearch,home-and-family,light,https://www.familysearch.org,mcp-registry;glama;appstore
+770,CBS News,news-and-reading,light,https://www.cbsnews.com,appstore
+771,Misfits Market,groceries,light,https://www.misfitsmarket.com,appstore-listing
+772,DICE (live events),events-and-tickets,light,https://dice.fm,appstore-listing
+773,Zalo,chat-and-messaging,light,https://zalo.me,glama
+774,Clubhouse,social,light,https://www.clubhouse.com,appstore
+775,Nordstrom,shopping,light,https://www.nordstrom.com,glama;appstore
+776,Royal Caribbean,travel,light,https://www.royalcaribbean.com,appstore
+777,Chipotle,food-and-delivery,light,https://www.chipotle.com,mcp-registry;glama;appstore
+778,Lunch Money,budgeting-and-taxes,light,https://lunchmoney.app,mcp-registry;glama;mcpso;zapier
+779,HelloTalk,language-learning,light,https://www.hellotalk.com,appstore
+780,Naukri,jobs-and-careers,light,https://www.naukri.com,glama
+781,Rivian,automotive,light,https://rivian.com,glama
+782,Lifesum,health-and-fitness,light,https://lifesum.com,appstore-listing
+783,Greenlight,finance-and-banking,light,https://greenlight.com,appstore-listing
+784,Clever,learning,light,https://www.clever.com,appstore
+785,Smart Life,smart-home,light,https://www.tuya.com,glama;mcpso;pipedream;home-assistant;appstore
+786,FotMob,sports,light,https://www.fotmob.com,glama;appstore
+787,eToro,investing-and-crypto,light,https://www.etoro.com,mcp-registry;glama
+788,Surfshark,password-and-security,light,https://surfshark.com,appstore
+789,FEMA,government-and-civic,light,https://www.fema.gov,mcp-registry;glama;smithery;appstore
+790,Carnival Cruise Line,travel,light,https://www.carnival.com,appstore
+791,Kohl's,shopping,light,https://www.kohls.com,appstore
+792,Cabify,maps-and-rides,light,https://cabify.com,appstore-listing
+793,BritBox,video-and-streaming,light,https://www.britbox.com,appstore
+794,Dunkin',food-and-delivery,light,https://www.dunkindonuts.com,appstore
+795,Blinkist,podcasts-and-books,light,https://www.blinkist.com,appstore
+796,BT,utilities-and-telecom,light,https://www.bt.com,appstore-listing
+797,Yazio,health-and-fitness,light,https://www.yazio.com,mcp-registry;glama;mcpso
+798,Trainline,travel,light,https://www.thetrainline.com,appstore-listing
+799,Equifax,finance-and-banking,light,https://www.equifax.com,pipedream
+800,Seesaw,learning,light,https://seesaw.com,appstore-listing
+801,Volvo Cars,automotive,light,https://www.volvocars.com,home-assistant
+802,USA Today,news-and-reading,light,https://www.usatoday.com,appstore
+803,Weee!,groceries,light,https://www.weee.com,appstore
+804,Bandsintown,events-and-tickets,light,https://www.bandsintown.com,mcp-registry;glama;appstore
+805,Dollar General,shopping,light,https://www.dollargeneral.com,appstore-listing
+806,Rightmove,real-estate,light,https://www.rightmove.co.uk,appstore-listing
+807,Xiaomi Home,smart-home,light,https://home.mi.com,glama;home-assistant
+808,OneFootball,sports,light,https://onefootball.com,appstore-listing
+809,Yandex Mail,email,light,https://mail.yandex.com,glama
+810,Habitify,tasks-and-reminders,light,https://www.habitify.me,glama;pipedream;zapier
+811,BarkBox,pets,light,https://www.barkbox.com,appstore-listing
+812,Mem,notes,light,https://mem.ai,mcp-registry;claude-connectors;composio;pipedream;zapier;activepieces
+813,BandLab,music-and-audio,light,https://www.bandlab.com,glama;appstore
+814,BabyCenter,home-and-family,light,https://www.babycenter.com,appstore-listing
+815,Trading 212,investing-and-crypto,light,https://www.trading212.com,mcp-registry;glama;mcpso;awesome-mcp
+816,Omio,travel,light,https://www.omio.com,appstore
+817,Qwen Chat,ai-assistants,light,https://chat.qwen.ai,mcp-registry;glama;mcpso
+818,Cal AI,health-and-fitness,light,https://www.calai.app,appstore
+819,Mullvad VPN,password-and-security,light,https://mullvad.net,glama;mcpso;home-assistant;appstore
+820,Dutch Bros,food-and-delivery,light,https://www.dutchbros.com,appstore
+821,Apple Store,shopping,light,https://www.apple.com/store,appstore-listing
+822,FREENOW,maps-and-rides,light,https://www.free-now.com,appstore-listing
+823,TransUnion,finance-and-banking,light,https://www.transunion.com,appstore
+824,Endel,sleep-and-wellbeing,light,https://endel.io,appstore
+825,IXL,learning,light,https://www.ixl.com,appstore
+826,Feeld,dating,light,https://feeld.co,appstore
+827,FOX Weather,weather,light,https://www.foxweather.com,appstore
+828,Mubi,video-and-streaming,light,https://mubi.com,appstore-listing
+829,Actual Budget,budgeting-and-taxes,light,https://actualbudget.org,mcp-registry;glama;awesome-mcp;activepieces
+830,Tandem,language-learning,light,https://www.tandem.net,appstore-listing
+831,XING,jobs-and-careers,light,https://www.xing.com,glama
+832,ChargePoint,automotive,light,https://www.chargepoint.com,appstore
+833,VeSync,smart-home,light,https://www.vesync.com,home-assistant;appstore
+834,SofaScore,sports,light,https://www.sofascore.com,glama;appstore
+835,FlixBus,travel,light,https://www.flixbus.com,appstore
+836,Storytel,podcasts-and-books,light,https://www.storytel.com,appstore
+837,Sky,utilities-and-telecom,light,https://www.sky.com,home-assistant
+838,Yuka,health-and-fitness,light,https://yuka.io,appstore
+839,Bloomberg,news-and-reading,light,https://www.bloomberg.com,glama;mcpso;appstore
+840,Sainsbury's,groceries,light,https://www.sainsburys.co.uk,glama
+841,Songkick,events-and-tickets,light,https://www.songkick.com,zapier
+842,Adidas,shopping,light,https://www.adidas.com,appstore
+843,Wealthsimple,investing-and-crypto,light,https://www.wealthsimple.com,glama;mcpso
+844,Burger King,food-and-delivery,light,https://www.bk.com,glama;appstore
+845,Allstate,finance-and-banking,light,https://www.allstate.com,appstore
+846,Prodigy,learning,light,https://www.prodigygame.com,appstore-listing
+847,Greyhound,travel,light,https://www.greyhound.com,appstore
+848,Roam Research,notes,light,https://roamresearch.com,claude-connectors;glama;mcpso;pipedream;zapier
+849,PDF Expert,docs-and-office,light,https://pdfexpert.com,appstore
+850,IDrive,files-and-storage,light,https://www.idrive.com,glama
+851,Immich,photos,light,https://immich.app,glama;home-assistant
+852,Marco Polo,chat-and-messaging,light,https://www.marcopolo.me,composio;appstore
+853,Skool,social,light,https://www.skool.com,glama;zapier;appstore
+854,JioSaavn,music-and-audio,light,https://www.jiosaavn.com,appstore-listing
+855,The Criterion Channel,video-and-streaming,light,https://www.criterionchannel.com,appstore
+856,BlaBlaCar,maps-and-rides,light,https://www.blablacar.com,appstore-listing
+857,Zara,shopping,light,https://www.zara.com,appstore
+858,Paytm,payments,light,https://paytm.com,mcp-registry;glama
+859,Clue,health-and-fitness,light,https://helloclue.com,appstore-listing
+860,August,smart-home,light,https://august.com,home-assistant
+861,Huckleberry,home-and-family,light,https://huckleberrycare.com,appstore
+862,EA app,games,light,https://www.ea.com/ea-app,glama
+863,Flashscore,sports,light,https://www.flashscore.com,appstore
+864,Private Internet Access,password-and-security,light,https://www.privateinternetaccess.com,docker-mcp
+865,VA,government-and-civic,light,https://www.va.gov,appstore
+866,Electrify America,automotive,light,https://www.electrifyamerica.com,appstore
+867,Zoopla,real-estate,light,https://www.zoopla.co.uk,appstore-listing
+868,Google Forms,forms-and-surveys,light,https://forms.google.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+869,InShot,design-and-creative,light,https://inshot.com,appstore
+870,Brave Search,other,light,https://search.brave.com,mcp-registry;glama;mcpso;smithery;awesome-mcp;pipedream;activepieces
+871,Rome2Rio,travel,light,https://www.rome2rio.com,claude-connectors
+872,Lemonade,finance-and-banking,light,https://www.lemonade.com,appstore-listing
+873,ABCmouse,learning,light,https://www.abcmouse.com,appstore
+874,Wendy's,food-and-delivery,light,https://www.wendys.com,glama;appstore
+875,Zerodha,investing-and-crypto,light,https://zerodha.com,mcp-registry;glama;mcpso;awesome-mcp
+876,H&M,shopping,light,https://www.hm.com,appstore
+877,Financial Times,news-and-reading,light,https://www.ft.com,appstore
+878,Ocado,groceries,light,https://www.ocado.com,appstore-listing
+879,Luma,events-and-tickets,light,https://luma.com,mcp-registry;pipedream;zapier;nango;appstore
+880,Natural Cycles,health-and-fitness,light,https://www.naturalcycles.com,appstore
+881,Audiobooks.com,podcasts-and-books,light,https://www.audiobooks.com,appstore
+882,Rogers,utilities-and-telecom,light,https://www.rogers.com,appstore-listing
+883,Wanderlog,travel,light,https://wanderlog.com,glama;awesome-mcp;appstore
+884,Yale,smart-home,light,https://www.shopyalehome.com,home-assistant
+885,BBC Sport,sports,light,https://www.bbc.com/sport,appstore-listing
+886,EVgo,automotive,light,https://www.evgo.com,appstore
+887,Emma,budgeting-and-taxes,light,https://emma-app.com,appstore-listing
+888,italki,language-learning,light,https://www.italki.com,appstore-listing
+889,Levels.fyi,jobs-and-careers,light,https://www.levels.fyi,glama;mcpso
+890,Kanopy,video-and-streaming,light,https://www.kanopy.com,appstore-listing
+891,Rocket Mortgage,finance-and-banking,light,https://www.rocketmortgage.com,appstore-listing
+892,Talkspace,sleep-and-wellbeing,light,https://www.talkspace.com,appstore-listing
+893,Epic,learning,light,https://www.getepic.com,appstore
+894,HER,dating,light,https://weareher.com,appstore-listing
+895,Tomorrow.io,weather,light,https://www.tomorrow.io,mcp-registry;glama;home-assistant
+896,Dott,maps-and-rides,light,https://ridedott.com,appstore-listing
+897,Uniqlo,shopping,light,https://www.uniqlo.com,appstore
+898,Subway,food-and-delivery,light,https://www.subway.com,appstore
+899,Cloudflare 1.1.1.1,password-and-security,light,https://one.one.one.one,appstore-listing
+900,Medisafe,health-and-fitness,light,https://www.medisafe.com,appstore
+901,Polarsteps,travel,light,https://www.polarsteps.com,glama;mcpso;appstore
+902,Kimi,ai-assistants,light,https://www.kimi.com,mcp-registry;glama
+903,Gemini Exchange,investing-and-crypto,light,https://www.gemini.com,mcp-registry;glama
+904,Capacities,notes,light,https://capacities.io,mcp-registry;glama;mcpso
+905,Anghami,music-and-audio,light,https://www.anghami.com,appstore
+906,Nanit,home-and-family,light,https://www.nanit.com,appstore
+907,Edison Mail,email,light,https://www.edisonmail.com,appstore-listing
+908,Streaks,tasks-and-reminders,light,https://streaksapp.com,appstore-listing
+909,Fi,pets,light,https://tryfi.com,appstore-listing
+910,Schlage,smart-home,light,https://www.schlage.com,home-assistant
+911,Cricbuzz,sports,light,https://www.cricbuzz.com,appstore
+912,Lululemon,shopping,light,https://shop.lululemon.com,appstore
+913,realestate.com.au,real-estate,light,https://www.realestate.com.au,appstore-listing
+914,The Economist,news-and-reading,light,https://www.economist.com,appstore
+915,Lidl,groceries,light,https://www.lidl.com,glama;appstore
+916,Posh,events-and-tickets,light,https://posh.vip,appstore
+917,PlugShare,automotive,light,https://www.plugshare.com,appstore
+918,Barclays,finance-and-banking,light,https://www.barclays.co.uk,appstore
+919,Outschool,learning,light,https://outschool.com,appstore-listing
+920,FlightAware,travel,light,https://www.flightaware.com,mcp-registry;glama;mcpso;appstore
+921,FreeStyle Libre,health-and-fitness,light,https://www.freestyle.abbott,mcp-registry;glama;appstore
+922,Libro.fm,podcasts-and-books,light,https://libro.fm,appstore
+923,Bell,utilities-and-telecom,light,https://www.bell.ca,appstore-listing
+924,Pizza Hut,food-and-delivery,light,https://www.pizzahut.com,appstore
+925,ViX,video-and-streaming,light,https://vix.com,appstore
+926,Citi Bike,maps-and-rides,light,https://citibikenyc.com,mcp-registry;glama;appstore
+927,Gap,shopping,light,https://www.gap.com,appstore
+928,Flightradar24,travel,light,https://www.flightradar24.com,glama;mcpso;appstore
+929,GOV.UK,government-and-civic,light,https://www.gov.uk,glama;awesome-mcp
+930,Norton,password-and-security,light,https://us.norton.com,claude-connectors
+931,OKX,investing-and-crypto,light,https://www.okx.com,mcp-registry
+932,Rachio,smart-home,light,https://rachio.com,mcp-registry;glama;home-assistant
+933,ESPNcricinfo,sports,light,https://www.espncricinfo.com,appstore-listing
+934,HSBC,finance-and-banking,light,https://www.hsbc.com,appstore-listing
+935,Common App,learning,light,https://www.commonapp.org,appstore
+936,Omron Connect,health-and-fitness,light,https://omronhealthcare.com,glama;appstore
+937,SpotHero,automotive,light,https://spothero.com,appstore
+938,Wallet by BudgetBakers,budgeting-and-taxes,light,https://budgetbakers.com,glama
+939,Preply,language-learning,light,https://preply.com,appstore
+940,Blind,jobs-and-careers,light,https://www.teamblind.com,appstore
+941,KFC,food-and-delivery,light,https://www.kfc.com,appstore-listing
+942,Hostelworld,travel,light,https://www.hostelworld.com,appstore
+943,Beeper,chat-and-messaging,light,https://www.beeper.com,glama;mcpso;awesome-mcp;pipedream
+944,Patreon,social,light,https://www.patreon.com,mcp-registry;glama;mcpso;pipedream;zapier;appstore
+945,ASOS,shopping,light,https://www.asos.com,appstore-listing
+946,The Atlantic,news-and-reading,light,https://www.theatlantic.com,appstore
+947,Woolworths,groceries,light,https://www.woolworths.com.au,glama
+948,Evite,events-and-tickets,light,https://www.evite.com,mcp-registry;glama
+949,Heptabase,notes,light,https://heptabase.com,glama
+950,Audacy,music-and-audio,light,https://www.audacy.com,appstore
+951,Owlet,home-and-family,light,https://owletcare.com,appstore
+952,Viki,video-and-streaming,light,https://www.viki.com,appstore
+953,Teladoc Health,health-and-fitness,light,https://www.teladochealth.com,glama;appstore
+954,Morgen,calendar,light,https://www.morgen.so,pipedream;zapier
+955,Chirp,podcasts-and-books,light,https://www.chirpbooks.com,appstore-listing
+956,Lloyds Bank,finance-and-banking,light,https://www.lloydsbank.com,appstore-listing
+957,Daylio,sleep-and-wellbeing,light,https://daylio.net,appstore-listing
+958,Elevate,learning,light,https://themindcompany.com/apps/elevate,appstore
+959,The League,dating,light,https://www.theleague.com,appstore
+960,IQAir,weather,light,https://www.iqair.com,glama;home-assistant;appstore
+961,Telstra,utilities-and-telecom,light,https://www.telstra.com.au,appstore-listing
+962,Sense,smart-home,light,https://sense.com,home-assistant
+963,PrizePicks,sports,light,https://www.prizepicks.com,appstore
+964,Hipcamp,travel,light,https://www.hipcamp.com,appstore-listing
+965,HERE WeGo,maps-and-rides,light,https://wego.here.com,appstore-listing
+966,Zalando,shopping,light,https://www.zalando.com,appstore-listing
+967,Domain,real-estate,light,https://www.domain.com.au,mcp-registry
+968,MetaMask,investing-and-crypto,light,https://metamask.io,glama
+969,PayByPhone,automotive,light,https://www.paybyphone.com,appstore
+970,Wingstop,food-and-delivery,light,https://www.wingstop.com,glama;appstore
+971,Genius Scan,docs-and-office,light,https://thegrizzlylabs.com/genius-scan/,appstore-listing
+972,Tresorit,files-and-storage,light,https://tresorit.com,appstore-listing
+973,Remini,photos,light,https://remini.ai,appstore
+974,PhonePe,payments,light,https://www.phonepe.com,appstore-listing
+975,Riot Games,games,light,https://www.riotgames.com,mcp-registry;glama
+976,McAfee,password-and-security,light,https://www.mcafee.com,claude-connectors;appstore
+977,Edits,design-and-creative,light,,appstore
+978,One Medical,health-and-fitness,light,https://www.onemedical.com,appstore
+979,Kiwi.com,travel,light,https://www.kiwi.com,claude-connectors
+980,Manus,ai-assistants,light,https://manus.im,mcp-registry;composio;zapier;activepieces;appstore
+981,NatWest,finance-and-banking,light,https://www.natwest.com,appstore-listing
+982,Lumosity,learning,light,https://www.lumosity.com,appstore
+983,Zappos,shopping,light,https://www.zappos.com,appstore-listing
+984,The New Yorker,news-and-reading,light,https://www.newyorker.com,appstore
+985,PC Express,groceries,light,https://www.pcexpress.ca,glama
+986,Paperless Post,events-and-tickets,light,https://www.paperlesspost.com,appstore-listing
+987,FOX One,video-and-streaming,light,https://www.foxone.com,appstore
+988,tado,smart-home,light,https://www.tado.com,home-assistant
+989,Underdog,sports,light,https://underdogfantasy.com,appstore
+990,Going,travel,light,https://www.going.com,appstore
+991,Hims & Hers,health-and-fitness,light,https://www.forhims.com,appstore
+992,Panera Bread,food-and-delivery,light,https://www.panerabread.com,mcp-registry;appstore
+993,Upside,automotive,light,https://www.upside.com,appstore
+994,Trust Wallet,investing-and-crypto,light,https://trustwallet.com,appstore-listing
+995,Organic Maps,maps-and-rides,light,https://organicmaps.app,appstore
+996,Webtoon,podcasts-and-books,light,https://www.webtoons.com,appstore
+997,Jio,utilities-and-telecom,light,https://www.jio.com,appstore-listing
+998,Notesnook,notes,light,https://notesnook.com,glama
+999,BBC Sounds,music-and-audio,light,https://www.bbc.co.uk/sounds,google-play
+1000,Brightwheel,home-and-family,light,https://mybrightwheel.com,appstore
+1001,DICK'S Sporting Goods,shopping,light,https://www.dickssportinggoods.com,appstore
+1002,Cleo,budgeting-and-taxes,light,https://web.meetcleo.com,appstore
+1003,Cambly,language-learning,light,https://www.cambly.com,appstore-listing
+1004,Simplify,jobs-and-careers,light,https://simplify.jobs,appstore-listing
+1005,Santander,finance-and-banking,light,https://www.santander.com,mcp-registry;glama
+1006,Anki,learning,light,https://apps.ankiweb.net,mcp-registry;glama;mcpso;awesome-mcp;appstore
+1007,HMRC,government-and-civic,light,https://www.gov.uk/government/organisations/hm-revenue-customs,appstore-listing
+1008,Spike,email,light,https://www.spikenow.com,appstore-listing
+1009,Tiimo,tasks-and-reminders,light,https://www.tiimoapp.com,appstore-listing
+1010,Tractive,pets,light,https://tractive.com,glama;home-assistant
+1011,Viator,travel,light,https://www.viator.com,claude-connectors;composio;appstore
+1012,Malwarebytes,password-and-security,light,https://www.malwarebytes.com,claude-connectors;mcpso;composio;nango;appstore
+1013,Netatmo,smart-home,light,https://www.netatmo.com,mcp-registry;pipedream;home-assistant
+1014,BetMGM,sports,light,https://www.betmgm.com,appstore
+1015,Ro,health-and-fitness,light,https://ro.co,appstore
+1016,BBC iPlayer,video-and-streaming,light,https://www.bbc.co.uk/iplayer,google-play
+1017,REI,shopping,light,https://www.rei.com,appstore-listing
+1018,REALTOR.ca,real-estate,light,https://www.realtor.ca,appstore-listing
+1019,Kagi,other,light,https://kagi.com,glama;mcpso;awesome-mcp
+1020,Sweetgreen,food-and-delivery,light,https://www.sweetgreen.com,appstore
+1021,CNBC,news-and-reading,light,https://www.cnbc.com,appstore
+1022,BigBasket,groceries,light,https://www.bigbasket.com,appstore-listing
+1023,SignUpGenius,events-and-tickets,light,https://www.signupgenius.com,mcp-registry;glama;zapier
+1024,Shell,automotive,light,https://www.shell.com,appstore
+1025,Starling Bank,finance-and-banking,light,https://www.starlingbank.com,mcp-registry;glama;home-assistant
+1026,How We Feel,sleep-and-wellbeing,light,https://howwefeel.org,appstore-listing
+1027,TED,learning,light,https://www.ted.com,appstore-listing
+1028,Raya,dating,light,,appstore
+1029,PurpleAir,weather,light,https://www.purpleair.com,home-assistant
+1030,GetYourGuide,travel,light,https://www.getyourguide.com,mcp-registry;claude-connectors;glama;appstore
+1031,Phantom,investing-and-crypto,light,https://phantom.com,appstore-listing
+1032,MapQuest,maps-and-rides,light,https://www.mapquest.com,appstore
+1033,UnitedHealthcare,health-and-fitness,light,https://www.uhc.com,appstore
+1034,Session,chat-and-messaging,light,https://getsession.org,appstore
+1035,Ko-fi,social,light,https://ko-fi.com,composio;zapier;activepieces
+1036,Fanatics,shopping,light,https://www.fanatics.com,appstore
+1037,Fable,podcasts-and-books,light,https://fable.co,appstore
+1038,Airtel,utilities-and-telecom,light,https://www.airtel.in,appstore-listing
+1039,Hive Home,smart-home,light,https://www.hivehome.com,appstore-listing
+1040,Caesars Sportsbook,sports,light,https://www.caesars.com/sportsbook-and-casino,appstore-listing
+1041,Klook,travel,light,https://www.klook.com,appstore
+1042,Tim Hortons,food-and-delivery,light,https://www.timhortons.com,appstore-listing
+1043,Tana,notes,light,https://tana.inc,claude-connectors
+1044,Moises,music-and-audio,light,https://moises.ai,appstore
+1045,ParentSquare,home-and-family,light,https://www.parentsquare.com,glama;appstore
+1046,N26,finance-and-banking,light,https://n26.com,appstore-listing
+1047,Desmos,learning,light,https://www.desmos.com,glama
+1048,Bitdefender,password-and-security,light,https://www.bitdefender.com,mcp-registry;glama;nango
+1049,Stan,video-and-streaming,light,https://www.stan.com.au,appstore-listing
+1050,CarMax,automotive,light,https://www.carmax.com,glama;appstore
+1051,Kaiser Permanente,health-and-fitness,light,https://healthy.kaiserpermanente.org,appstore
+1052,Newegg,shopping,light,https://www.newegg.com,appstore-listing
+1053,Axios,news-and-reading,light,https://www.axios.com,glama
+1054,Airalo,travel,light,https://www.airalo.com,appstore
+1055,Blinkit,groceries,light,https://blinkit.com,glama
+1056,Ledger,investing-and-crypto,light,https://www.ledger.com,appstore-listing
+1057,Albert,budgeting-and-taxes,light,https://albert.com,appstore
+1058,Praktika,language-learning,light,https://praktika.ai,appstore
+1059,Freelancer,jobs-and-careers,light,https://www.freelancer.com,mcp-registry;glama;pipedream
+1060,Resident Advisor,events-and-tickets,light,https://ra.co,appstore-listing
+1061,Genspark,ai-assistants,light,https://www.genspark.ai,glama
+1062,TikTok Studio,social-media-management,light,,glama;appstore
+1063,Ecovacs,smart-home,light,https://www.ecovacs.com,glama;mcpso;home-assistant
+1064,bet365,sports,light,https://www.bet365.com,appstore
+1065,Gaia GPS,maps-and-rides,light,https://www.gaiagps.com,appstore
+1066,RBC Royal Bank,finance-and-banking,light,https://www.rbcroyalbank.com,glama
+1067,Mathway,learning,light,https://www.mathway.com,appstore-listing
+1068,7-Eleven,food-and-delivery,light,https://www.7-eleven.com,appstore
+1069,B&H Photo,shopping,light,https://www.bhphotovideo.com,appstore-listing
+1070,idealista,real-estate,light,https://www.idealista.com,claude-connectors
+1071,Aetna,health-and-fitness,light,https://www.aetna.com,appstore
+1072,CLEAR,travel,light,https://www.clearme.com,appstore
+1073,myGov,government-and-civic,light,https://my.gov.au,appstore-listing
+1074,Headway,podcasts-and-books,light,https://makeheadway.com,appstore
+1075,PG&E,utilities-and-telecom,light,https://www.pge.com,appstore-listing
+1076,Cars.com,automotive,light,https://www.cars.com,appstore
+1077,Dailymotion,video-and-streaming,light,https://www.dailymotion.com,mcp-registry
+1078,Speechify,docs-and-office,light,https://speechify.com,appstore
+1079,Synology,files-and-storage,light,https://www.synology.com,mcp-registry;glama;mcpso
+1080,Facetune,photos,light,https://www.facetuneapp.com,appstore
+1081,Mercado Pago,payments,light,https://www.mercadopago.com,mcp-registry;docker-mcp;glama
+1082,Apple Games,games,light,,appstore-listing
+1083,Avast,password-and-security,light,https://www.avast.com,appstore-listing
+1084,Cricut Design Space,design-and-creative,light,https://cricut.com,appstore
+1085,Base,investing-and-crypto,light,https://www.base.org,composio
+1086,Flipkart,shopping,light,https://www.flipkart.com,appstore-listing
+1087,Priority Pass,travel,light,https://www.prioritypass.com,appstore
+1088,SharkClean,smart-home,light,https://www.sharkclean.com,appstore
+1089,GameChanger,sports,light,https://gc.com,appstore
+1090,Scotiabank,finance-and-banking,light,https://www.scotiabank.com,appstore-listing
+1091,Bearable,sleep-and-wellbeing,light,https://bearable.app,appstore-listing
+1092,Merriam-Webster,learning,light,https://www.merriam-webster.com,mcp-registry;glama;appstore
+1093,Badoo,dating,light,https://badoo.com,appstore
+1094,Ambient Weather,weather,light,https://ambientweather.net,glama;mcpso;composio;pipedream;appstore
+1095,Cigna,health-and-fitness,light,https://www.cigna.com,appstore
+1096,Anytype,notes,light,https://anytype.io,mcp-registry;glama;mcpso
+1097,Ultimate Guitar,music-and-audio,light,https://www.ultimate-guitar.com,appstore
+1098,Remind,home-and-family,light,https://www.remind.com,appstore
+1099,The Athletic,news-and-reading,light,https://www.nytimes.com/athletic/,appstore
+1100,Zepto,groceries,light,https://www.zeptonow.com,appstore-listing
+1101,Fever,events-and-tickets,light,https://feverup.com,appstore
+1102,Factor,food-and-delivery,light,https://www.factor75.com,appstore
+1103,onX,maps-and-rides,light,https://www.onxmaps.com,appstore
+1104,Capital One Travel,travel,light,https://travel.capitalone.com,appstore
+1105,Autotrader,automotive,light,https://www.autotrader.com,appstore-listing
+1106,Mercado Libre,shopping,light,https://www.mercadolibre.com,mcp-registry;docker-mcp;glama;awesome-mcp
+1107,Canary Mail,email,light,https://canarymail.io,appstore-listing
+1108,Superlist,tasks-and-reminders,light,https://www.superlist.com,mcp-registry;glama;mcpso
+1109,Furbo,pets,light,https://furbo.com,appstore-listing
+1110,Humana,health-and-fitness,light,https://www.humana.com,appstore-listing
+1111,BMO,finance-and-banking,light,https://www.bmo.com,appstore-listing
+1112,Merlin Bird ID,learning,light,https://merlin.allaboutbirds.org,appstore-listing
+1113,Rumble,video-and-streaming,light,https://rumble.com,pipedream;appstore
+1114,Tricount,budgeting-and-taxes,light,https://tricount.com,glama
+1115,DeepL,language-learning,light,https://www.deepl.com,mcp-registry;claude-connectors;glama;mcpso;pipedream;zapier;activepieces;n8n;appstore
+1116,Toptal,jobs-and-careers,light,https://www.toptal.com,appstore-listing
+1117,SmartHQ,smart-home,light,https://www.geappliances.com,appstore
+1118,TeamSnap,sports,light,https://www.teamsnap.com,appstore
+1119,Book of the Month,podcasts-and-books,light,https://www.bookofthemonth.com,appstore
+1120,Con Edison,utilities-and-telecom,light,https://www.coned.com,mcp-registry;glama;home-assistant
+1121,Fundrise,investing-and-crypto,light,https://fundrise.com,appstore-listing
+1122,Home Chef,food-and-delivery,light,https://www.homechef.com,appstore-listing
+1123,AwardWallet,travel,light,https://awardwallet.com,glama;appstore
+1124,TextNow,chat-and-messaging,light,https://www.textnow.com,appstore
+1125,Buy Me a Coffee,social,light,https://buymeacoffee.com,mcp-registry;glama;pipedream;zapier
+1126,Shopee,shopping,light,https://shopee.com,mcp-registry;glama
+1127,Aura,password-and-security,light,https://www.aura.com,appstore
+1128,ImmoScout24,real-estate,light,https://www.immobilienscout24.de,appstore-listing
+1129,PressReader,news-and-reading,light,https://www.pressreader.com,appstore
+1130,Carrefour,groceries,light,https://www.carrefour.com,mcp-registry;claude-connectors;glama
+1131,TodayTix,events-and-tickets,light,https://www.todaytix.com,appstore-listing
+1132,Express Scripts,health-and-fitness,light,https://www.express-scripts.com,appstore
+1133,CarGurus,automotive,light,https://www.cargurus.com,claude-connectors;appstore
+1134,CommBank,finance-and-banking,light,https://www.commbank.com.au,appstore-listing
+1135,PictureThis,learning,light,https://www.picturethisai.com,appstore
+1136,komoot,maps-and-rides,light,https://www.komoot.com,glama
+1137,MakeMyTrip,travel,light,https://www.makemytrip.com,appstore-listing
+1138,Muse from Meta,ai-assistants,light,,appstore
+1139,NotePlan,notes,light,https://noteplan.co,claude-connectors;glama
+1140,Simply Piano,music-and-audio,light,https://www.hellosimply.com,mcpso;appstore
+1141,PowerSchool,home-and-family,light,https://www.powerschool.com,glama;appstore
+1142,Home Connect,smart-home,light,https://www.home-connect.com,home-assistant
+1143,SportsEngine,sports,light,https://www.sportsengine.com,appstore
+1144,Lazada,shopping,light,https://www.lazada.com,glama
+1145,Blue Apron,food-and-delivery,light,https://www.blueapron.com,glama
+1146,JustWatch,video-and-streaming,light,https://www.justwatch.com,glama
+1147,DigiLocker,government-and-civic,light,https://www.digilocker.gov.in,appstore-listing
+1148,Seeking Alpha,investing-and-crypto,light,https://seekingalpha.com,appstore
+1149,Hinge Health,health-and-fitness,light,https://www.hingehealth.com,appstore
+1150,Traveloka,travel,light,https://www.traveloka.com,appstore-listing
+1151,Saturn,calendar,light,https://www.saturn.live,appstore
+1152,Hallow,podcasts-and-books,light,https://hallow.com,appstore
+1153,ING,finance-and-banking,light,https://www.ing.com,appstore-listing
+1154,Opal,sleep-and-wellbeing,light,https://opalapp.com,appstore
+1155,iNaturalist,learning,light,https://www.inaturalist.org,mcp-registry;glama;appstore
+1156,Timeleft,dating,light,https://timeleft.com,appstore-listing
+1157,Met Office,weather,light,https://www.metoffice.gov.uk,home-assistant
+1158,Duke Energy,utilities-and-telecom,light,https://www.duke-energy.com,appstore-listing
+1159,Coupang,shopping,light,https://www.coupang.com,glama
+1160,Kelley Blue Book,automotive,light,https://www.kbb.com,appstore-listing
+1161,Incogni,password-and-security,light,https://incogni.com,appstore-listing
+1162,Citizen,news-and-reading,light,https://citizen.com,appstore
+1163,OurGroceries,groceries,light,https://www.ourgroceries.com,glama;home-assistant;appstore
+1164,Regal,events-and-tickets,light,https://www.regmovies.com,appstore-listing
+1165,Whirlpool,smart-home,light,https://www.whirlpool.com,home-assistant
+1166,Hudl,sports,light,https://www.hudl.com,glama;appstore
+1167,Trivago,travel,light,https://www.trivago.com,mcp-registry;claude-connectors;mcpso;composio
+1168,Labcorp,health-and-fitness,light,https://www.labcorp.com,appstore
+1169,NYT Cooking,food-and-delivery,light,https://cooking.nytimes.com,glama;appstore
+1170,what3words,maps-and-rides,light,https://what3words.com,mcp-registry;glama
+1171,TaxAct,budgeting-and-taxes,light,https://www.taxact.com,mcp-registry;claude-connectors;glama
+1172,Papago,language-learning,light,https://papago.naver.com,appstore
+1173,Spark Driver,jobs-and-careers,light,,appstore
+1174,Trakt,video-and-streaming,light,https://trakt.tv,mcp-registry;glama
+1175,Keepa,shopping,light,https://keepa.com,mcp-registry;glama
+1176,SpareRoom,real-estate,light,https://www.spareroom.co.uk,appstore-listing
+1177,Ecosia,other,light,https://www.ecosia.org,appstore-listing
+1178,Nubank,finance-and-banking,light,https://nubank.com.br,mcp-registry;glama
+1179,Codecademy,learning,light,https://www.codecademy.com,appstore-listing
+1180,Morningstar,investing-and-crypto,light,https://www.morningstar.com,claude-connectors;docker-mcp;glama;mcpso
+1181,Enterprise Rent-A-Car,travel,light,https://www.enterprise.com,glama;mcpso;appstore
+1182,Amplenote,notes,light,https://www.amplenote.com,pipedream
+1183,Yousician,music-and-audio,light,https://yousician.com,appstore
+1184,Zola,home-and-family,light,https://www.zola.com,mcp-registry;glama
+1185,CARFAX,automotive,light,https://www.carfax.com,appstore
+1186,Quest Diagnostics,health-and-fitness,light,https://www.questdiagnostics.com,appstore
+1187,Dyson,smart-home,light,https://www.dyson.com,appstore-listing
+1188,18Birdies,sports,light,https://18birdies.com,appstore
+1189,Samsung Food,food-and-delivery,light,https://samsungfood.com,appstore-listing
+1190,Parcel,shopping,light,https://parcelapp.net,appstore
+1191,YouVersion Bible,podcasts-and-books,light,https://www.youversion.com,appstore-listing
+1192,Octopus Energy,utilities-and-telecom,light,https://octopus.energy,mcp-registry;glama
+1193,Grammarly,docs-and-office,light,https://www.grammarly.com,glama;nango;appstore
+1194,Nextcloud,files-and-storage,light,https://nextcloud.com,glama;mcpso;pipedream;n8n;home-assistant
+1195,Snapseed,photos,light,,appstore
+1196,M-Pesa,payments,light,https://www.safaricom.co.ke/personal/m-pesa,mcp-registry;glama;mcpso;awesome-mcp
+1197,NYT Games,games,light,https://www.nytimes.com/crosswords,glama;home-assistant
+1198,Have I Been Pwned,password-and-security,light,https://haveibeenpwned.com,mcp-registry;claude-connectors;glama;mcpso;pipedream;home-assistant
+1199,Midjourney,design-and-creative,light,https://www.midjourney.com,mcp-registry;glama
+1200,Hertz,travel,light,https://www.hertz.com,appstore
+1201,BBVA,finance-and-banking,light,https://www.bbva.com,appstore-listing
+1202,DataCamp,learning,light,https://www.datacamp.com,claude-connectors
+1203,Watch Duty,news-and-reading,light,https://www.watchduty.org,appstore
+1204,Bring!,groceries,light,https://www.getbring.com,home-assistant
+1205,Cinemark,events-and-tickets,light,https://www.cinemark.com,appstore-listing
+1206,Geocaching,maps-and-rides,light,https://www.geocaching.com,home-assistant;appstore
+1207,SimpleLogin,email,light,https://simplelogin.io,glama
+1208,Amazing Marvin,tasks-and-reminders,light,https://amazingmarvin.com,glama;composio;pipedream;zapier
+1209,Whisker,pets,light,https://www.whisker.com,home-assistant
+1210,Doctolib,health-and-fitness,light,https://www.doctolib.fr,glama
+1211,Jellyfin,video-and-streaming,light,https://jellyfin.org,mcp-registry;glama;home-assistant
+1212,CoinMarketCap,investing-and-crypto,light,https://coinmarketcap.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream
+1213,BAND,chat-and-messaging,light,https://band.us,appstore
+1214,Linktree,social,light,https://linktr.ee,appstore
+1215,17TRACK,shopping,light,https://www.17track.net,home-assistant
+1216,AAA,automotive,light,https://www.aaa.com,appstore-listing
+1217,Avis,travel,light,https://www.avis.com,appstore
+1218,Wispr Flow,ai-assistants,light,https://wisprflow.ai,claude-connectors;cursor;composio;appstore
+1219,Hubitat,smart-home,light,https://hubitat.com,mcp-registry;glama
+1220,Surfline,sports,light,https://www.surfline.com,glama;appstore
+1221,Untappd,food-and-delivery,light,https://untappd.com,mcp-registry;glama;mcpso;appstore
+1222,Congress.gov,government-and-civic,light,https://www.congress.gov,mcp-registry;glama;mcpso;pipedream
+1223,HDFC Bank,finance-and-banking,light,https://www.hdfc.bank.in,appstore-listing
+1224,Forest,sleep-and-wellbeing,light,https://www.forestapp.cc,appstore-listing
+1225,freeCodeCamp,learning,light,https://www.freecodecamp.org,appstore-listing
+1226,Shaadi.com,dating,light,https://www.shaadi.com,appstore-listing
+1227,National Weather Service,weather,light,https://www.weather.gov,mcp-registry;glama;mcpso;smithery;home-assistant;appstore
+1228,23andMe,health-and-fitness,light,https://www.23andme.com,appstore-listing
+1229,FreeTaxUSA,budgeting-and-taxes,light,https://www.freetaxusa.com,glama
+1230,Microsoft Translator,language-learning,light,https://translator.microsoft.com,appstore-listing
+1231,Amazon Flex,jobs-and-careers,light,https://flex.amazon.com,appstore
+1232,DHL,shopping,light,https://www.dhl.com,pipedream;n8n
+1233,RentCafe,real-estate,light,https://www.rentcafe.com,appstore-listing
+1234,SIXT,travel,light,https://www.sixt.com,appstore
+1235,Workflowy,notes,light,https://workflowy.com,mcp-registry;glama;mcpso;pipedream;zapier
+1236,Bose,music-and-audio,light,https://www.bose.com,appstore
+1237,The Knot,home-and-family,light,https://www.theknot.com,appstore-listing
+1238,Spotify for Creators,podcasts-and-books,light,https://creators.spotify.com,appstore
+1239,Speedtest by Ookla,utilities-and-telecom,light,https://www.speedtest.net,appstore
+1240,Cloaked,password-and-security,light,https://www.cloaked.com,appstore
+1241,The Times,news-and-reading,light,https://www.thetimes.com,appstore
+1242,Flipp,groceries,light,https://flipp.com,appstore-listing
+1243,BookMyShow,events-and-tickets,light,https://in.bookmyshow.com,appstore-listing
+1244,MTA TrainTime,maps-and-rides,light,https://new.mta.info,glama;mcpso;home-assistant;appstore
+1245,ReelShort,video-and-streaming,light,https://www.reelshort.com,appstore
+1246,CoinGecko,investing-and-crypto,light,https://www.coingecko.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;n8n
+1247,Bouncie,automotive,light,https://www.bouncie.com,glama;zapier
+1248,Homey,smart-home,light,https://homey.app,appstore-listing
+1249,Fishbrain,sports,light,https://fishbrain.com,appstore
+1250,Vivino,food-and-delivery,light,https://www.vivino.com,mcp-registry;appstore
+1251,State Bank of India,finance-and-banking,light,https://onlinesbi.sbi.bank.in,appstore-listing
+1252,Pluralsight,learning,light,https://www.pluralsight.com,appstore-listing
+1253,Mindbody,health-and-fitness,light,https://www.mindbodyonline.com,mcp-registry;glama;composio;pipedream;zapier;nango;appstore
+1254,Royal Mail,shopping,light,https://www.royalmail.com,glama;mcpso;awesome-mcp
+1255,U-Haul,travel,light,https://www.uhaul.com,appstore
+1256,Notion,productivity,light,https://www.notion.com,claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1257,Asana,project-management,light,https://asana.com,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1258,Typeform,forms-and-surveys,light,https://www.typeform.com,mcp-registry;cursor;glama;composio;pipedream;zapier;nango;activepieces;n8n
+1259,Calendly,scheduling,light,https://calendly.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1260,Slack,chat-and-messaging,light,https://slack.com,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+1261,Airtable,productivity,light,https://www.airtable.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;zapier;nango;activepieces;n8n
+1262,Confluence,knowledge-base,light,https://www.atlassian.com/software/confluence,mcp-registry;composio;pipedream;zapier;nango;activepieces;n8n
+1263,Trello,project-management,light,https://trello.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1264,Webex,video-calls,light,https://www.webex.com,glama;mcpso;composio;pipedream;nango;activepieces;appstore
+1265,Miro,productivity,light,https://miro.com,mcp-registry;claude-connectors;docker-mcp;composio;zapier;nango
+1266,Jotform,forms-and-surveys,light,https://www.jotform.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1267,Jira,project-management,light,https://www.atlassian.com/software/jira,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1268,Microsoft Bookings,scheduling,light,,pipedream
+1269,Loom,productivity,light,https://www.loom.com,nango
+1270,Microsoft Teams,chat-and-messaging,light,https://www.microsoft.com/microsoft-teams,mcp-registry;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1271,Linear,project-management,light,https://linear.app,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1272,Gamma,docs-and-office,light,https://gamma.app,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces
+1273,Otter.ai,productivity,light,https://otter.ai,claude-connectors;cursor;glama;mcpso;composio;zapier;appstore
+1274,SurveyMonkey,forms-and-surveys,light,https://www.surveymonkey.com,claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1275,Guru,knowledge-base,light,https://www.getguru.com,mcp-registry;claude-connectors;pipedream;zapier;nango
+1276,Reclaim.ai,scheduling,light,https://reclaim.ai,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;zapier
+1277,monday.com,project-management,light,https://monday.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1278,Coda,productivity,light,https://coda.io,composio;pipedream;nango;activepieces;n8n
+1279,Superhuman,email,light,https://superhuman.com,zapier;nango
+1280,Dropbox Sign,legal-and-signatures,light,https://sign.dropbox.com,mcp-registry;glama;composio;pipedream;zapier;nango
+1281,ClickUp,project-management,light,https://clickup.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1282,Google Chat,chat-and-messaging,light,https://chat.google.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1283,Microsoft Loop,productivity,light,https://loop.cloud.microsoft,appstore-listing
+1284,Microsoft Forms,forms-and-surveys,light,https://forms.office.com,mcp-registry
+1285,GoTo Meeting,video-calls,light,https://www.goto.com/meeting,zapier;appstore
+1286,Cal.com,scheduling,light,https://cal.com,glama;awesome-mcp;pipedream;zapier;nango;activepieces
+1287,Zoho Workplace,productivity,light,https://www.zoho.com/workplace/,appstore-listing
+1288,Basecamp,project-management,light,https://basecamp.com,glama;mcpso;composio;pipedream;zapier;nango
+1289,Slite,knowledge-base,light,https://slite.com,composio;pipedream;zapier;activepieces
+1290,Fireflies.ai,productivity,light,https://fireflies.ai,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1291,Tally,forms-and-surveys,light,https://tally.so,claude-connectors;composio;pipedream;zapier;nango;activepieces
+1292,Smartsheet,project-management,light,https://www.smartsheet.com,claude-connectors;cursor;glama;mcpso;pipedream;zapier;nango;activepieces
+1293,Mattermost,chat-and-messaging,light,https://mattermost.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream;zapier;nango;activepieces;n8n
+1294,Acuity Scheduling,scheduling,light,https://acuityscheduling.com,mcp-registry;glama;pipedream;zapier;nango;activepieces;n8n
+1295,Granola,productivity,light,https://www.granola.ai,claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;appstore
+1296,Wrike,project-management,light,https://www.wrike.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1297,Qualtrics,forms-and-surveys,light,https://www.qualtrics.com,glama;zapier;nango
+1298,Lucid,productivity,light,https://lucid.co,mcp-registry;claude-connectors;composio;pipedream;nango
+1299,Doodle,scheduling,light,https://doodle.com,zapier
+1300,Microsoft Planner,project-management,light,https://www.microsoft.com/microsoft-365/planner,mcp-registry;nango
+1301,RingCentral,video-calls,light,https://www.ringcentral.com,glama;pipedream;zapier;nango;activepieces;appstore
+1302,Nuclino,knowledge-base,light,https://www.nuclino.com,glama;pipedream
+1303,Whimsical,productivity,light,https://whimsical.com,mcp-registry;claude-connectors;pipedream
+1304,Rocket.Chat,chat-and-messaging,light,https://www.rocket.chat,mcp-registry;glama;pipedream;zapier;n8n;home-assistant
+1305,Teamwork.com,project-management,light,https://www.teamwork.com,mcp-registry;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1306,Formstack,forms-and-surveys,light,https://www.formstack.com,mcp-registry;glama;pipedream;zapier;activepieces;n8n
+1307,Mural,productivity,light,https://www.mural.co,mcp-registry;composio;pipedream;zapier;nango
+1308,SavvyCal,scheduling,light,https://savvycal.com,mcp-registry;glama;mcpso;pipedream;zapier;activepieces
+1309,Zoho Projects,project-management,light,https://www.zoho.com/projects/,claude-connectors;glama;pipedream;zapier
+1310,Pitch,docs-and-office,light,https://pitch.com,claude-connectors
+1311,tl;dv,productivity,light,https://tldv.io,claude-connectors;glama;mcpso;composio;zapier;nango;activepieces
+1312,Zulip,chat-and-messaging,light,https://zulip.com,glama;mcpso;composio;pipedream;zapier;n8n
+1313,Wufoo,forms-and-surveys,light,https://www.wufoo.com,mcp-registry;glama;composio;pipedream;zapier;activepieces;n8n
+1314,Read AI,productivity,light,https://www.read.ai,claude-connectors;cursor;composio;pipedream;zapier;nango
+1315,Microsoft Project,project-management,light,https://www.microsoft.com/microsoft-365/project,mcp-registry
+1316,Tettra,knowledge-base,light,https://tettra.com,pipedream;zapier
+1317,YouCanBookMe,scheduling,light,https://youcanbook.me,mcp-registry;glama;pipedream;zapier;nango;activepieces
+1318,Fathom,productivity,light,https://www.fathom.ai,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces
+1319,Hive,project-management,light,https://hive.com,composio;pipedream;zapier
+1320,Dialpad,video-calls,light,https://www.dialpad.com,glama;composio;pipedream;zapier;nango
+1321,Cognito Forms,forms-and-surveys,light,https://www.cognitoforms.com,claude-connectors;zapier;activepieces
+1322,Krisp,productivity,light,https://krisp.ai,claude-connectors;mcpso;zapier
+1323,Lark,chat-and-messaging,light,https://www.larksuite.com,zapier
+1324,Nifty,project-management,light,https://niftypm.com,pipedream;zapier;activepieces
+1325,Setmore,scheduling,light,https://www.setmore.com,nango
+1326,Quickbase,productivity,light,https://www.quickbase.com,glama;pipedream;zapier;nango;activepieces;n8n
+1327,Shortwave,email,light,https://www.shortwave.com,appstore-listing
+1328,Microsoft SharePoint,files-and-storage,light,https://www.microsoft.com/microsoft-365/sharepoint,mcp-registry;cursor;glama;mcpso;composio;pipedream;zapier;activepieces;n8n;appstore
+1329,Podio,project-management,light,https://podio.com,pipedream;zapier;activepieces
+1330,Slab,knowledge-base,light,https://slab.com,pipedream;nango
+1331,Paperform,forms-and-surveys,light,https://paperform.co,composio;pipedream;zapier;activepieces
+1332,Figma,design-and-creative,light,https://www.figma.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1333,Front,customer-support,light,https://front.com,mcp-registry;zapier;nango;activepieces
+1334,DocuSign,legal-and-signatures,light,https://www.docusign.com,claude-connectors;cursor;mcpso;composio;pipedream;zapier;nango;activepieces;appstore
+1335,SmartSuite,productivity,light,https://www.smartsuite.com,glama;pipedream;zapier;activepieces
+1336,Square Appointments,scheduling,light,https://squareup.com/appointments,appstore-listing
+1337,ProofHub,project-management,light,https://www.proofhub.com,glama
+1338,DingTalk,chat-and-messaging,light,https://www.dingtalk.com,glama;mcpso
+1339,Baserow,productivity,light,https://baserow.io,glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1340,Fillout,forms-and-surveys,light,https://www.fillout.com,mcp-registry;glama;pipedream;zapier;nango
+1341,Whereby,video-calls,light,https://whereby.com,appstore-listing
+1342,Adobe Workfront,project-management,light,,claude-connectors;zapier;nango
+1343,NocoDB,productivity,light,https://nocodb.com,glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces;n8n
+1344,SimplyBook.me,scheduling,light,https://simplybook.me,glama;pipedream;zapier;activepieces
+1345,Document360,knowledge-base,light,https://document360.com,glama;pipedream;zapier;nango
+1346,Productboard,project-management,light,https://www.productboard.com,glama;composio;pipedream;zapier;nango;activepieces
+1347,Fibery,productivity,light,https://fibery.com,mcp-registry;claude-connectors;docker-mcp;glama;mcpso;composio;pipedream;zapier
+1348,SurveySparrow,forms-and-surveys,light,https://surveysparrow.com,pipedream;zapier
+1349,Chatwork,chat-and-messaging,light,https://go.chatwork.com,glama;mcpso;composio;pipedream;zapier
+1350,Quip,docs-and-office,light,https://quip.com,zapier
+1351,Sunsama,productivity,light,https://www.sunsama.com,glama;mcpso;zapier
+1352,Aha!,project-management,light,https://www.aha.io,mcp-registry;pipedream;zapier
+1353,Chili Piper,scheduling,light,https://www.chilipiper.com,mcp-registry;glama;zapier;nango
+1354,Akiflow,productivity,light,https://akiflow.com,mcp-registry;glama;zapier
+1355,Alchemer,forms-and-surveys,light,https://www.alchemer.com,pipedream;zapier
+1356,Taiga,project-management,light,https://taiga.io,pipedream;zapier;n8n
+1357,Zoho Cliq,chat-and-messaging,light,https://www.zoho.com/cliq/,pipedream;zapier
+1358,Motion,productivity,light,https://www.usemotion.com,composio;pipedream;zapier;activepieces
+1359,Outline,knowledge-base,light,https://www.getoutline.com,mcp-registry;composio;pipedream;zapier;nango
+1360,Jitsi Meet,video-calls,light,https://jitsi.org/jitsi-meet/,glama
+1361,OpenProject,project-management,light,https://www.openproject.org,mcp-registry;glama;mcpso
+1362,TidyCal,scheduling,light,https://tidycal.com,pipedream;zapier;activepieces
+1363,Toggl Track,productivity,light,https://toggl.com/track/,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1364,QuestionPro,forms-and-surveys,light,https://www.questionpro.com,pipedream
+1365,Redmine,project-management,light,https://www.redmine.org,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;pipedream
+1366,Harvest,productivity,light,https://www.getharvest.com,composio;pipedream;zapier;nango;activepieces;n8n
+1367,Pumble,chat-and-messaging,light,https://pumble.com,glama;composio;pipedream;zapier
+1368,OnceHub,scheduling,light,https://www.oncehub.com,pipedream;zapier;activepieces
+1369,YouTrack,project-management,light,https://www.jetbrains.com/youtrack/,mcp-registry;claude-connectors;glama;mcpso;activepieces
+1370,Gravity Forms,forms-and-surveys,light,https://www.gravityforms.com,pipedream;zapier;activepieces
+1371,Clockify,productivity,light,https://clockify.me,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces;n8n
+1372,Helpjuice,knowledge-base,light,https://helpjuice.com,glama;zapier
+1373,MeisterTask,project-management,light,https://www.meistertask.com,mcp-registry;claude-connectors;glama;pipedream;zapier;activepieces
+1374,RescueTime,productivity,light,https://www.rescuetime.com,mcp-registry;glama;pipedream;zapier
+1375,Zcal,scheduling,light,https://zcal.co,zapier
+1376,Zoho Meeting,video-calls,light,https://www.zoho.com/meeting/,pipedream;zapier
+1377,Zoho Forms,forms-and-surveys,light,https://www.zoho.com/forms/,pipedream;zapier
+1378,Timely,productivity,light,https://www.timely.com,composio;nango
+1379,Chanty,chat-and-messaging,light,https://www.chanty.com,mcp-registry;glama;zapier
+1380,Taskade,project-management,light,https://www.taskade.com,mcp-registry;mcpso;pipedream;zapier;activepieces
+1381,Missive,email,light,https://missiveapp.com,composio;pipedream;zapier;nango;activepieces
+1382,PandaDoc,legal-and-signatures,light,https://www.pandadoc.com,mcp-registry;claude-connectors;glama;composio;pipedream;zapier;nango;activepieces
+1383,Everhour,productivity,light,https://everhour.com,glama;composio;pipedream;zapier;activepieces
+1384,Paymo,project-management,light,https://www.paymoapp.com,mcp-registry;glama;pipedream;zapier
+1385,Vagaro,scheduling,light,https://www.vagaro.com,appstore
+1386,Archbee,knowledge-base,light,https://www.archbee.com,zapier
+1387,Formsite,forms-and-surveys,light,https://www.formsite.com,composio;pipedream;zapier;activepieces
+1388,Zoho Sheet,docs-and-office,light,https://www.zoho.com/sheet/,pipedream;zapier
+1389,Hubstaff,productivity,light,https://hubstaff.com,glama;pipedream;zapier;nango
+1390,Productive,project-management,light,https://productive.io,claude-connectors;pipedream;zapier
+1391,Flock,chat-and-messaging,light,https://www.flock.com,pipedream;zapier;home-assistant
+1392,TimeCamp,productivity,light,https://www.timecamp.com,glama;composio;pipedream;zapier
+1393,Fresha,scheduling,light,https://www.fresha.com,appstore-listing
+1394,Float,project-management,light,https://www.float.com,composio;pipedream;zapier;nango
+1395,123FormBuilder,forms-and-surveys,light,https://www.123formbuilder.com,zapier
+1396,Rize,productivity,light,https://rize.io,glama;composio;pipedream;zapier
+1397,Gather,video-calls,light,https://www.gather.town,pipedream
+1398,Resource Guru,project-management,light,https://resourceguruapp.com,mcp-registry;pipedream;zapier
+1399,Trainual,knowledge-base,light,https://trainual.com,pipedream;zapier
+1400,Timing,productivity,light,https://timingapp.com,pipedream;zapier
+1401,Twist,chat-and-messaging,light,https://twist.com,pipedream;zapier;n8n
+1402,Booksy,scheduling,light,https://booksy.com,appstore
+1403,Typebot,forms-and-surveys,light,https://typebot.io,glama;mcpso;pipedream;zapier
+1404,Zenhub,project-management,light,https://www.zenhub.com,glama
+1405,Raycast,productivity,light,https://www.raycast.com,mcp-registry;glama
+1406,GitHub,developer-tools,light,https://github.com,mcp-registry;github-mcp;cursor;docker-mcp;glama;mcpso;smithery;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant;appstore
+1407,HubSpot,crm-and-sales,light,https://www.hubspot.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1408,Adobe Photoshop,design-and-creative,light,https://www.adobe.com/products/photoshop.html,mcp-registry;glama;mcpso;pipedream;appstore
+1409,Mailchimp,marketing-and-email-marketing,light,https://mailchimp.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1410,Gusto,hr-and-recruiting,light,https://gusto.com,claude-connectors;composio;pipedream;nango;appstore
+1411,Google Analytics,analytics-and-data,light,https://analytics.google.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;n8n
+1412,Shopify,ecommerce-platforms,light,https://www.shopify.com,mcp-registry;github-mcp;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1413,QuickBooks,accounting-and-invoicing,light,https://quickbooks.intuit.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1414,GitLab,developer-tools,light,https://gitlab.com,mcp-registry;github-mcp;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1415,Supabase,databases,light,https://supabase.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1416,Hootsuite,social-media-management,light,https://www.hootsuite.com,mcp-registry;glama;pipedream;zapier;activepieces
+1417,Zendesk,customer-support,light,https://www.zendesk.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1418,Snyk,security-and-it,light,https://snyk.io,mcp-registry;github-mcp;cursor;glama;pipedream
+1419,WordPress,website-and-cms,light,https://wordpress.com,mcp-registry;github-mcp;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1420,Salesforce,crm-and-sales,light,https://www.salesforce.com,mcp-registry;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1421,Adobe Creative Cloud,design-and-creative,light,https://www.adobe.com/creativecloud.html,mcp-registry;cursor;glama;zapier;nango;appstore
+1422,Vercel,cloud-and-hosting,light,https://vercel.com,mcp-registry;github-mcp;claude-connectors;cursor;glama;mcpso;composio;zapier;nango;activepieces
+1423,Google Ads,marketing-and-email-marketing,light,https://ads.google.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;n8n
+1424,Bitbucket,developer-tools,light,https://bitbucket.org,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;nango;n8n
+1425,ADP,hr-and-recruiting,light,https://www.adp.com,pipedream;zapier;nango;appstore
+1426,Stripe,payments,light,https://stripe.com,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces;n8n;appstore
+1427,Sentry,developer-tools,light,https://sentry.io,claude-connectors;docker-mcp;composio;pipedream;nango;n8n;home-assistant
+1428,Google Search Console,analytics-and-data,light,https://search.google.com/search-console,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;nango;activepieces
+1429,Zoho CRM,crm-and-sales,light,https://www.zoho.com/crm/,mcp-registry;claude-connectors;glama;pipedream;zapier;nango;activepieces
+1430,Adobe Illustrator,design-and-creative,light,https://www.adobe.com/products/illustrator.html,mcp-registry;glama;mcpso
+1431,Meta Ads,marketing-and-email-marketing,light,https://www.facebook.com/business/ads,mcp-registry;glama;mcpso;awesome-mcp;composio;zapier;nango;n8n;appstore
+1432,Square,ecommerce-platforms,light,https://squareup.com,claude-connectors;composio;pipedream;zapier;activepieces;appstore
+1433,Expensify,accounting-and-invoicing,light,https://www.expensify.com,claude-connectors;glama;pipedream;zapier;nango
+1434,Ironclad,legal-and-signatures,light,https://ironcladapp.com,claude-connectors;pipedream;zapier;nango
+1435,Datadog,developer-tools,light,https://www.datadoghq.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;home-assistant
+1436,Workday,hr-and-recruiting,light,https://www.workday.com,mcp-registry;composio;pipedream;zapier;nango;activepieces;appstore
+1437,Firebase,databases,light,https://firebase.google.com,mcp-registry;cursor;glama;mcpso;awesome-mcp;composio;zapier;n8n
+1438,Grafana,developer-tools,light,https://grafana.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;n8n
+1439,Pipedrive,crm-and-sales,light,https://www.pipedrive.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1440,Adobe Premiere Pro,design-and-creative,light,https://www.adobe.com/products/premiere.html,mcp-registry;glama
+1441,Buffer,social-media-management,light,https://buffer.com,composio;zapier;nango;activepieces
+1442,Intercom,customer-support,light,https://www.intercom.com,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces;n8n
+1443,Okta,security-and-it,light,https://www.okta.com,docker-mcp;glama;mcpso;pipedream;zapier;nango;activepieces;n8n;appstore
+1444,Google Business Profile,marketing-and-email-marketing,light,https://business.google.com,mcp-registry;glama;pipedream;zapier;activepieces;n8n
+1445,Snowflake,analytics-and-data,light,https://www.snowflake.com,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces;n8n
+1446,Squarespace,website-and-cms,light,https://www.squarespace.com,mcp-registry;glama;pipedream;nango
+1447,Rippling,hr-and-recruiting,light,https://www.rippling.com,pipedream;nango;appstore
+1448,PagerDuty,developer-tools,light,https://www.pagerduty.com,mcp-registry;github-mcp;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1449,Gumroad,ecommerce-platforms,light,https://gumroad.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;n8n
+1450,Xero,accounting-and-invoicing,light,https://www.xero.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;zapier;nango;activepieces;n8n
+1451,Microsoft Dynamics 365,crm-and-sales,light,https://dynamics.microsoft.com,mcp-registry;glama;mcpso;composio
+1452,Adobe Firefly,design-and-creative,light,https://firefly.adobe.com,glama;appstore
+1453,Netlify,cloud-and-hosting,light,https://www.netlify.com,claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;activepieces;n8n
+1454,Klaviyo,marketing-and-email-marketing,light,https://www.klaviyo.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1455,Postman,developer-tools,light,https://www.postman.com,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier
+1456,Google BigQuery,analytics-and-data,light,https://cloud.google.com/bigquery,mcp-registry;claude-connectors;glama;mcpso;smithery;awesome-mcp;composio;zapier;nango;activepieces;n8n
+1457,BambooHR,hr-and-recruiting,light,https://www.bamboohr.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1458,Docker,developer-tools,light,https://www.docker.com,mcp-registry;docker-mcp;composio;pipedream
+1459,Close,crm-and-sales,light,https://www.close.com,claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces
+1460,Sketch,design-and-creative,light,https://www.sketch.com,claude-connectors
+1461,MongoDB Atlas,databases,light,https://www.mongodb.com/atlas,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;activepieces;n8n
+1462,Constant Contact,marketing-and-email-marketing,light,https://www.constantcontact.com,claude-connectors;composio;pipedream;zapier;nango;activepieces
+1463,Meta Business Suite,social-media-management,light,https://business.facebook.com,appstore
+1464,Freshdesk,customer-support,light,https://www.freshworks.com/freshdesk/,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1465,Microsoft Entra ID,security-and-it,light,https://www.microsoft.com/security/business/microsoft-entra,glama;pipedream;zapier;nango;n8n
+1466,Cursor,developer-tools,light,https://cursor.com,composio;pipedream;zapier;nango;activepieces;appstore
+1467,WooCommerce,ecommerce-platforms,light,https://woocommerce.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream;zapier;nango;activepieces;n8n
+1468,FreshBooks,accounting-and-invoicing,light,https://www.freshbooks.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;zapier;nango
+1469,Payoneer,payments,light,https://www.payoneer.com,appstore-listing
+1470,Wix,website-and-cms,light,https://www.wix.com,claude-connectors;docker-mcp;composio;zapier
+1471,Paychex,hr-and-recruiting,light,https://www.paychex.com,mcpso;nango;appstore
+1472,Copper,crm-and-sales,light,https://www.copper.com,composio;pipedream;zapier;nango;activepieces;n8n
+1473,Dribbble,design-and-creative,light,https://dribbble.com,glama;composio;pipedream;zapier
+1474,Replit,developer-tools,light,https://replit.com,claude-connectors;cursor;glama;appstore
+1475,Brevo,marketing-and-email-marketing,light,https://www.brevo.com,mcp-registry;claude-connectors;cursor;glama;composio;pipedream;zapier;nango;activepieces;n8n
+1476,Databricks,analytics-and-data,light,https://www.databricks.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;n8n
+1477,Expo,developer-tools,light,https://expo.dev,mcp-registry;claude-connectors;glama;mcpso
+1478,Freshsales,crm-and-sales,light,https://www.freshworks.com/crm/sales/,glama;pipedream;nango;activepieces;n8n
+1479,Behance,design-and-creative,light,https://www.behance.net,glama
+1480,Cloudflare,cloud-and-hosting,light,https://www.cloudflare.com,mcp-registry;claude-connectors;cursor;glama;mcpso;smithery;awesome-mcp;composio;nango;n8n;home-assistant
+1481,UKG,hr-and-recruiting,light,https://www.ukg.com,zapier;nango;appstore
+1482,Neon,databases,light,https://neon.com,mcp-registry;claude-connectors;docker-mcp;composio;nango
+1483,Kit,marketing-and-email-marketing,light,https://kit.com,mcp-registry;claude-connectors;composio;pipedream;zapier;activepieces;n8n
+1484,BigCommerce,ecommerce-platforms,light,https://www.bigcommerce.com,mcp-registry;glama;mcpso;pipedream;zapier;nango;activepieces
+1485,Wave,accounting-and-invoicing,light,https://www.waveapps.com,pipedream;zapier;appstore
+1486,App Store Connect,developer-tools,light,https://appstoreconnect.apple.com,mcp-registry;glama;appstore
+1487,Sprout Social,social-media-management,light,https://sproutsocial.com,glama;zapier
+1488,Help Scout,customer-support,light,https://www.helpscout.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;activepieces;n8n
+1489,Mixpanel,analytics-and-data,light,https://mixpanel.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1490,Google Workspace Admin,security-and-it,light,https://admin.google.com,glama;composio;zapier;nango
+1491,Clio,legal-and-signatures,light,https://www.clio.com,pipedream;zapier;nango
+1492,Attio,crm-and-sales,light,https://attio.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+1493,Unsplash,design-and-creative,light,https://unsplash.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;pipedream
+1494,Google Play Console,developer-tools,light,https://play.google.com/console,mcp-registry;glama;appstore
+1495,beehiiv,marketing-and-email-marketing,light,https://www.beehiiv.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1496,Paylocity,hr-and-recruiting,light,https://www.paylocity.com,glama;pipedream;nango;appstore
+1497,Webflow,website-and-cms,light,https://webflow.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1498,OpenAI Platform,developer-tools,light,https://platform.openai.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;nango;activepieces;n8n;home-assistant
+1499,folk,crm-and-sales,light,https://www.folk.app,composio;zapier;nango;activepieces
+1500,Pexels,design-and-creative,light,https://www.pexels.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream
+1501,Amazon Seller Central,ecommerce-platforms,light,https://sellercentral.amazon.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;pipedream;zapier;nango
+1502,Zoho Books,accounting-and-invoicing,light,https://www.zoho.com/books/,claude-connectors;glama;composio;pipedream;zapier;nango;activepieces
+1503,Amplitude,analytics-and-data,light,https://amplitude.com,mcp-registry;claude-connectors;composio;pipedream;zapier;nango
+1504,MailerLite,marketing-and-email-marketing,light,https://www.mailerlite.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1505,Claude Platform,developer-tools,light,https://platform.claude.com,glama;mcpso;pipedream;nango;home-assistant
+1506,PlanetScale,databases,light,https://planetscale.com,mcp-registry;claude-connectors;cursor;mcpso;composio
+1507,Paycom,hr-and-recruiting,light,https://www.paycom.com,nango;appstore
+1508,Lemon Squeezy,payments,light,https://www.lemonsqueezy.com,mcp-registry;glama;composio;pipedream;zapier;activepieces
+1509,Hugging Face,developer-tools,light,https://huggingface.co,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;activepieces
+1510,Streak,crm-and-sales,light,https://www.streak.com,pipedream;zapier;nango;activepieces
+1511,Shutterstock,design-and-creative,light,https://www.shutterstock.com,claude-connectors;pipedream
+1512,Amazon Web Services,cloud-and-hosting,light,https://aws.amazon.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;pipedream;nango;n8n;home-assistant
+1513,Later,social-media-management,light,https://later.com,appstore-listing
+1514,Gorgias,customer-support,light,https://www.gorgias.com,glama;mcpso;composio;zapier;nango;activepieces
+1515,Microsoft Intune,security-and-it,light,https://www.microsoft.com/security/business/microsoft-intune,glama;nango
+1516,ActiveCampaign,marketing-and-email-marketing,light,https://www.activecampaign.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1517,Lovable,developer-tools,light,https://lovable.dev,mcp-registry;claude-connectors;nango;appstore
+1518,Dayforce,hr-and-recruiting,light,https://www.dayforce.com,zapier;nango;appstore
+1519,PostHog,analytics-and-data,light,https://posthog.com,mcp-registry;claude-connectors;cursor;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces;n8n
+1520,Kajabi,ecommerce-platforms,light,https://kajabi.com,mcp-registry;glama;zapier
+1521,Zoho Invoice,accounting-and-invoicing,light,https://www.zoho.com/invoice/,composio;pipedream;zapier;nango;activepieces
+1522,GoDaddy,website-and-cms,light,https://www.godaddy.com,claude-connectors;cursor;glama;mcpso;composio;pipedream;appstore
+1523,Insightly,crm-and-sales,light,https://www.insightly.com,mcp-registry;glama;pipedream;zapier;nango;activepieces
+1524,Getty Images,design-and-creative,light,https://www.gettyimages.com,pipedream;nango
+1525,v0,developer-tools,light,https://v0.app,claude-connectors;composio;appstore
+1526,Campaign Monitor,marketing-and-email-marketing,light,https://www.campaignmonitor.com,glama;pipedream;zapier;activepieces
+1527,Upstash,databases,light,https://upstash.com,cursor;mcpso
+1528,Deel,hr-and-recruiting,light,https://www.deel.com,claude-connectors;pipedream;zapier;nango
+1529,CircleCI,developer-tools,light,https://circleci.com,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;n8n
+1530,Keap,crm-and-sales,light,https://keap.com,mcp-registry;glama;pipedream;zapier;nango;n8n
+1531,Envato,design-and-creative,light,https://www.envato.com,glama
+1532,Hotjar,analytics-and-data,light,https://www.hotjar.com,pipedream;zapier
+1533,Omnisend,marketing-and-email-marketing,light,https://www.omnisend.com,claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1534,Sendible,social-media-management,light,https://www.sendible.com,zapier
+1535,Zoho Desk,customer-support,light,https://www.zoho.com/desk/,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces
+1536,Jamf,security-and-it,light,https://www.jamf.com,glama;zapier;nango
+1537,Azure DevOps,developer-tools,light,https://azure.microsoft.com/products/devops,mcp-registry;github-mcp;glama;mcpso;awesome-mcp;pipedream;zapier;nango;activepieces;home-assistant
+1538,Teachable,ecommerce-platforms,light,https://www.teachable.com,pipedream;zapier
+1539,Sage,accounting-and-invoicing,light,https://www.sage.com,pipedream;zapier;nango;activepieces
+1540,Capsule CRM,crm-and-sales,light,https://capsulecrm.com,mcp-registry;glama;awesome-mcp;composio;pipedream;zapier;activepieces
+1541,Freepik,design-and-creative,light,https://www.freepik.com,glama;mcpso;nango
+1542,Google Cloud,cloud-and-hosting,light,https://cloud.google.com,glama;mcpso;pipedream;home-assistant
+1543,Remote,hr-and-recruiting,light,https://remote.com,pipedream;zapier
+1544,Jenkins,developer-tools,light,https://www.jenkins.io,glama;mcpso;awesome-mcp;pipedream;zapier;n8n
+1545,LegalZoom,legal-and-signatures,light,https://www.legalzoom.com,claude-connectors;mcpso
+1546,GetResponse,marketing-and-email-marketing,light,https://www.getresponse.com,mcp-registry;glama;composio;pipedream;zapier;activepieces;n8n
+1547,Namecheap,website-and-cms,light,https://www.namecheap.com,mcp-registry;glama;pipedream
+1548,Segment,analytics-and-data,light,https://segment.com,mcp-registry;composio;pipedream;zapier;nango;activepieces;n8n
+1549,Terraform,developer-tools,light,https://www.terraform.io,mcp-registry;github-mcp;docker-mcp;glama;mcpso;awesome-mcp;pipedream;nango
+1550,Redis,databases,light,https://redis.io,mcp-registry;cursor;docker-mcp;glama;mcpso;awesome-mcp;n8n
+1551,Paddle,payments,light,https://www.paddle.com,mcp-registry;pipedream;nango;activepieces;n8n
+1552,Nimble,crm-and-sales,light,https://www.nimble.com,mcp-registry;pipedream;zapier
+1553,Runway,design-and-creative,light,https://runwayml.com,mcp-registry;composio;pipedream;zapier;activepieces;appstore
+1554,Justworks,hr-and-recruiting,light,https://www.justworks.com,nango
+1555,Thinkific,ecommerce-platforms,light,https://www.thinkific.com,glama;pipedream;zapier
+1556,NetSuite,accounting-and-invoicing,light,https://www.netsuite.com,mcp-registry;claude-connectors;glama;mcpso;composio;zapier;nango;activepieces
+1557,Kubernetes,developer-tools,light,https://kubernetes.io,mcp-registry;claude-connectors;docker-mcp;glama;mcpso;awesome-mcp
+1558,AWeber,marketing-and-email-marketing,light,https://www.aweber.com,composio;pipedream;zapier
+1559,Agorapulse,social-media-management,light,https://www.agorapulse.com,zapier
+1560,Crisp,customer-support,light,https://crisp.chat,mcp-registry;composio;pipedream;zapier;nango;activepieces
+1561,Kandji,security-and-it,light,https://www.kandji.io,nango
+1562,Less Annoying CRM,crm-and-sales,light,https://www.lessannoyingcrm.com,mcp-registry;glama;pipedream;zapier
+1563,ElevenLabs,design-and-creative,light,https://elevenlabs.io,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;composio;pipedream;zapier;nango;activepieces;home-assistant;appstore
+1564,npm,developer-tools,light,https://www.npmjs.com,mcp-registry;composio;n8n
+1565,Plausible,analytics-and-data,light,https://plausible.io,mcp-registry;activepieces
+1566,Greenhouse,hr-and-recruiting,light,https://www.greenhouse.com,mcp-registry;composio;pipedream;zapier;nango;activepieces
+1567,Drip,marketing-and-email-marketing,light,https://www.drip.com,pipedream;zapier;activepieces
+1568,Stack Overflow,developer-tools,light,https://stackoverflow.com,mcp-registry;claude-connectors;glama
+1569,SugarCRM,crm-and-sales,light,https://www.sugarcrm.com,pipedream
+1570,HeyGen,design-and-creative,light,https://www.heygen.com,cursor;glama;composio;pipedream;zapier;nango;activepieces
+1571,Ghost,website-and-cms,light,https://ghost.org,zapier;nango;n8n;home-assistant
+1572,Podia,ecommerce-platforms,light,https://www.podia.com,zapier
+1573,Bill.com,accounting-and-invoicing,light,https://www.bill.com,pipedream;nango
+1574,PostgreSQL,databases,light,https://www.postgresql.org,mcp-registry;github-mcp;cursor;glama;mcpso;awesome-mcp;pipedream;zapier;activepieces;n8n
+1575,Microsoft Azure,cloud-and-hosting,light,https://azure.microsoft.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp
+1576,Codeberg,developer-tools,light,https://codeberg.org,mcp-registry;pipedream
+1577,Customer.io,marketing-and-email-marketing,light,https://customer.io,mcp-registry;claude-connectors;cursor;glama;composio;pipedream;zapier;nango;activepieces;n8n
+1578,Lever,hr-and-recruiting,light,https://www.lever.co,composio;pipedream;nango;activepieces
+1579,Fathom Analytics,analytics-and-data,light,https://usefathom.com,glama;mcpso;activepieces
+1580,JetBrains,developer-tools,light,https://www.jetbrains.com,mcp-registry;docker-mcp;glama;mcpso
+1581,Bitrix24,crm-and-sales,light,https://www.bitrix24.com,mcp-registry;glama;mcpso;awesome-mcp
+1582,Synthesia,design-and-creative,light,https://www.synthesia.io,glama;zapier;activepieces
+1583,SocialBee,social-media-management,light,https://socialbee.com,zapier
+1584,LiveChat,customer-support,light,https://www.livechat.com,glama;pipedream;zapier
+1585,Duo Security,security-and-it,light,https://duo.com,glama;appstore
+1586,Iterable,marketing-and-email-marketing,light,https://iterable.com,composio;zapier;n8n
+1587,Visual Studio Code,developer-tools,light,https://code.visualstudio.com,mcp-registry;glama;mcpso;awesome-mcp
+1588,Printful,ecommerce-platforms,light,https://www.printful.com,mcp-registry;glama;pipedream;nango
+1589,Ramp,accounting-and-invoicing,light,https://ramp.com,claude-connectors;composio;pipedream;zapier;nango;appstore
+1590,Ashby,hr-and-recruiting,light,https://www.ashbyhq.com,mcp-registry;claude-connectors;cursor;glama;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+1591,Kommo,crm-and-sales,light,https://www.kommo.com,mcp-registry;glama;composio;pipedream;zapier;activepieces
+1592,Descript,design-and-creative,light,https://www.descript.com,claude-connectors;composio;pipedream;zapier;activepieces
+1593,Chargebee,payments,light,https://www.chargebee.com,mcp-registry;claude-connectors;cursor;glama;pipedream;zapier;nango;activepieces;n8n
+1594,MySQL,databases,light,https://www.mysql.com,mcp-registry;cursor;glama;mcpso;awesome-mcp;pipedream;zapier;activepieces;n8n
+1595,Plaid,developer-tools,light,https://plaid.com,mcp-registry;claude-connectors;composio;pipedream
+1596,Heap,analytics-and-data,light,https://www.heap.io,pipedream;nango
+1597,Contentful,website-and-cms,light,https://www.contentful.com,claude-connectors;composio;pipedream;zapier;nango;activepieces;n8n
+1598,Braze,marketing-and-email-marketing,light,https://www.braze.com,claude-connectors;composio;pipedream;nango
+1599,SignNow,legal-and-signatures,light,https://www.signnow.com,mcp-registry;claude-connectors;mcpso;composio;pipedream;zapier;nango;activepieces;appstore
+1600,Twilio,developer-tools,light,https://www.twilio.com,mcp-registry;claude-connectors;cursor;glama;mcpso;pipedream;zapier;nango;activepieces;n8n;home-assistant
+1601,Workable,hr-and-recruiting,light,https://www.workable.com,claude-connectors;composio;zapier;nango;activepieces;n8n
+1602,HighLevel,crm-and-sales,light,https://www.gohighlevel.com,mcp-registry;glama;composio;zapier;nango;activepieces;n8n
+1603,Riverside,design-and-creative,light,https://riverside.com,mcp-registry;claude-connectors
+1604,DigitalOcean,cloud-and-hosting,light,https://www.digitalocean.com,mcp-registry;glama;mcpso;composio;pipedream;zapier;nango;activepieces;home-assistant
+1605,Printify,ecommerce-platforms,light,https://printify.com,mcp-registry;glama;mcpso;composio;pipedream
+1606,Brex,accounting-and-invoicing,light,https://www.brex.com,claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango
+1607,SendGrid,developer-tools,light,https://sendgrid.com,mcp-registry;glama;composio;pipedream;zapier;nango;activepieces;n8n;home-assistant
+1608,Loomly,social-media-management,light,https://www.loomly.com,zapier
+1609,Tidio,customer-support,light,https://www.tidio.com,glama;zapier
+1610,CrowdStrike,security-and-it,light,https://www.crowdstrike.com,mcp-registry;cursor;glama;nango
+1611,OneSignal,marketing-and-email-marketing,light,https://onesignal.com,mcp-registry;claude-connectors;cursor;glama;mcpso;smithery;composio;zapier
+1612,Looker Studio,analytics-and-data,light,https://lookerstudio.google.com,glama;composio;zapier
+1613,Affinity (CRM),crm-and-sales,light,https://www.affinity.co,appstore-listing
+1614,VEED,design-and-creative,light,https://www.veed.io,mcp-registry;glama;nango
+1615,JazzHR,hr-and-recruiting,light,https://www.jazzhr.com,nango
+1616,Resend,developer-tools,light,https://resend.com,claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces
+1617,Pinecone,databases,light,https://www.pinecone.io,mcp-registry;cursor;docker-mcp;glama;composio;pipedream;zapier;activepieces
+1618,Attentive,marketing-and-email-marketing,light,https://www.attentive.com,pipedream;zapier
+1619,Mailgun,developer-tools,light,https://www.mailgun.com,mcp-registry;cursor;glama;mcpso;pipedream;zapier;nango;activepieces;n8n;home-assistant
+1620,Apollo.io,crm-and-sales,light,https://www.apollo.io,mcp-registry;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+1621,Captions,design-and-creative,light,https://www.captions.ai,composio;zapier;appstore
+1622,Sanity,website-and-cms,light,https://www.sanity.io,mcp-registry;claude-connectors;composio;pipedream;nango
+1623,ShipStation,ecommerce-platforms,light,https://www.shipstation.com,glama;mcpso;pipedream;zapier;nango
+1624,Mercury,accounting-and-invoicing,light,https://mercury.com,claude-connectors;composio;zapier;nango
+1625,Looker,analytics-and-data,light,https://cloud.google.com/looker,pipedream;zapier;nango
+1626,Personio,hr-and-recruiting,light,https://www.personio.com,glama;composio;pipedream;zapier;nango
+1627,Postmark,developer-tools,light,https://postmarkapp.com,mcp-registry;composio;pipedream;zapier;activepieces;n8n
+1628,Postscript,marketing-and-email-marketing,light,https://postscript.io,mcp-registry;zapier;nango
+1629,Planoly,social-media-management,light,https://www.planoly.com,appstore-listing
+1630,Drift,customer-support,light,https://www.drift.com,pipedream;zapier;n8n
+1631,Tailscale,security-and-it,light,https://tailscale.com,mcp-registry;glama;mcpso;composio;pipedream;nango;home-assistant;appstore
+1632,ZoomInfo,crm-and-sales,light,https://www.zoominfo.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;zapier;nango
+1633,Splice,design-and-creative,light,https://splice.com,claude-connectors;composio
+1634,Heroku,cloud-and-hosting,light,https://www.heroku.com,docker-mcp;glama;mcpso;pipedream
+1635,Firecrawl,developer-tools,light,https://www.firecrawl.dev,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces
+1636,Recurly,payments,light,https://recurly.com,mcp-registry;glama;composio;pipedream;zapier;activepieces
+1637,HiBob,hr-and-recruiting,light,https://www.hibob.com,zapier;nango
+1638,Turso,databases,light,https://turso.tech,cursor;glama;mcpso;composio;pipedream
+1639,Brave Search API,developer-tools,light,https://brave.com/search/api/,pipedream
+1640,Microsoft Advertising,marketing-and-email-marketing,light,https://ads.microsoft.com,mcp-registry;glama;zapier
+1641,Tableau,analytics-and-data,light,https://www.tableau.com,mcp-registry;claude-connectors;composio;pipedream;zapier;nango;activepieces
+1642,Shippo,ecommerce-platforms,light,https://goshippo.com,mcp-registry;claude-connectors;composio;zapier;nango;activepieces
+1643,Relay,accounting-and-invoicing,light,https://relayfi.com,appstore-listing
+1644,LinkedIn Sales Navigator,crm-and-sales,light,https://business.linkedin.com/sales-solutions/sales-navigator,mcp-registry;glama;zapier;appstore
+1645,Spline,design-and-creative,light,https://spline.design,appstore-listing
+1646,Tavily,developer-tools,light,https://www.tavily.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;zapier;activepieces
+1647,Strapi,website-and-cms,light,https://strapi.io,glama;mcpso;pipedream;n8n
+1648,Lattice,hr-and-recruiting,light,https://lattice.com,claude-connectors;pipedream;zapier;nango
+1649,LinkedIn Ads,marketing-and-email-marketing,light,https://business.linkedin.com/marketing-solutions/ads,mcp-registry;glama;mcpso;composio;pipedream;zapier
+1650,Exa,developer-tools,light,https://exa.ai,mcp-registry;claude-connectors;docker-mcp;composio;pipedream;zapier;nango;activepieces
+1651,Outreach,crm-and-sales,light,https://www.outreach.ai,mcp-registry;claude-connectors;pipedream;zapier;nango
+1652,Affinity (design),design-and-creative,light,https://www.affinity.studio,glama
+1653,Metricool,social-media-management,light,https://metricool.com,glama;pipedream;zapier
+1654,Kustomer,customer-support,light,https://www.kustomer.com,pipedream;zapier;nango;activepieces
+1655,Power BI,analytics-and-data,light,https://www.microsoft.com/power-platform/products/power-bi,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;zapier;nango;activepieces
+1656,Auth0,security-and-it,light,https://auth0.com,mcp-registry;cursor;glama;mcpso;nango
+1657,Juro,legal-and-signatures,light,https://juro.com,claude-connectors;zapier
+1658,Microsoft Power Automate,developer-tools,light,https://www.microsoft.com/power-platform/products/power-automate,mcp-registry;glama;pipedream
+1659,AfterShip,ecommerce-platforms,light,https://www.aftership.com,pipedream;home-assistant
+1660,Novo,accounting-and-invoicing,light,https://www.novo.co,zapier
+1661,TikTok Ads,marketing-and-email-marketing,light,https://ads.tiktok.com,mcp-registry;claude-connectors;glama;mcpso;awesome-mcp;composio;nango
+1662,Convex,databases,light,https://www.convex.dev,composio
+1663,Culture Amp,hr-and-recruiting,light,https://www.cultureamp.com,zapier
+1664,Salesloft,crm-and-sales,light,https://www.salesloft.com,claude-connectors;pipedream;zapier;nango;activepieces
+1665,Leonardo.Ai,design-and-creative,light,https://leonardo.ai,pipedream;appstore
+1666,Render,cloud-and-hosting,light,https://render.com,claude-connectors;docker-mcp;composio;pipedream;nango
+1667,Retool,developer-tools,light,https://retool.com,claude-connectors;pipedream;zapier
+1668,Metabase,analytics-and-data,light,https://www.metabase.com,mcp-registry;claude-connectors;docker-mcp;glama;mcpso;awesome-mcp;composio;pipedream;nango;activepieces;n8n
+1669,Semrush,marketing-and-email-marketing,light,https://www.semrush.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;zapier;nango
+1670,Bubble,developer-tools,light,https://bubble.io,composio;pipedream;zapier;activepieces;n8n
+1671,Gong,crm-and-sales,light,https://www.gong.io,mcp-registry;composio;pipedream;zapier;nango;n8n
+1672,Ideogram,design-and-creative,light,https://ideogram.ai,zapier
+1673,15Five,hr-and-recruiting,light,https://www.15five.com,appstore-listing
+1674,Storyblok,website-and-cms,light,https://www.storyblok.com,mcp-registry;glama;mcpso;awesome-mcp;composio;pipedream;n8n
+1675,Adyen,payments,light,https://www.adyen.com,mcp-registry;pipedream;nango
+1676,Toast,ecommerce-platforms,light,https://pos.toasttab.com,nango;appstore
+1677,Navan,accounting-and-invoicing,light,https://navan.com,cursor;pipedream;zapier
+1678,Glide,developer-tools,light,https://www.glideapps.com,mcp-registry;composio;pipedream;zapier;activepieces
+1679,Publer,social-media-management,light,https://publer.com,glama;zapier
+1680,Aircall,customer-support,light,https://aircall.io,mcp-registry;glama;pipedream;zapier;nango;activepieces
+1681,Clerk,security-and-it,light,https://clerk.com,mcp-registry;claude-connectors;pipedream;zapier;nango
+1682,Ahrefs,marketing-and-email-marketing,light,https://ahrefs.com,mcp-registry;claude-connectors;cursor;glama;mcpso;composio;pipedream;nango
+1683,Clay,crm-and-sales,light,https://www.clay.com,claude-connectors;composio;zapier;nango;activepieces
+1684,Pika,design-and-creative,light,https://pika.art,appstore
+1685,Elastic,databases,light,https://www.elastic.co,mcp-registry;docker-mcp;composio;n8n
+1686,Softr,developer-tools,light,https://www.softr.io,claude-connectors;composio;pipedream;zapier;activepieces
+1687,Homebase,hr-and-recruiting,light,https://www.joinhomebase.com,mcp-registry;appstore
+1688,Fivetran,analytics-and-data,light,https://www.fivetran.com,mcp-registry;glama;mcpso;pipedream
+1689,New Relic,developer-tools,light,https://newrelic.com,mcp-registry;glama;mcpso;composio;pipedream
+1690,Moz,marketing-and-email-marketing,light,https://moz.com,composio
+1691,Lemlist,crm-and-sales,light,https://www.lemlist.com,composio;pipedream;zapier;nango;activepieces;n8n
+1692,Kling AI,design-and-creative,light,https://kling.ai,appstore
+1693,Railway,cloud-and-hosting,light,https://railway.com,mcp-registry;claude-connectors;composio;pipedream;appstore
+1694,Clover,ecommerce-platforms,light,https://www.clover.com,mcp-registry;composio;nango
+1695,SAP Concur,accounting-and-invoicing,light,https://www.concur.com,glama;zapier;nango;appstore
+1696,Deputy,hr-and-recruiting,light,https://www.deputy.com,pipedream;zapier
+1697,Honeycomb,developer-tools,light,https://www.honeycomb.io,mcp-registry;claude-connectors;composio
+1698,Weebly,website-and-cms,light,https://www.weebly.com,zapier
+1699,dbt,analytics-and-data,light,https://www.getdbt.com,claude-connectors;pipedream
+1700,Bitly,marketing-and-email-marketing,light,https://bitly.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces;n8n
+1701,Vista Social,social-media-management,light,https://vistasocial.com,zapier
+1702,Trustpilot,customer-support,light,https://www.trustpilot.com,pipedream;zapier;nango
+1703,Vanta,security-and-it,light,https://www.vanta.com,mcp-registry;claude-connectors;glama;nango
+1704,Instantly,crm-and-sales,light,https://instantly.ai,composio;pipedream;zapier;nango;activepieces
+1705,Luma AI,design-and-creative,light,https://lumalabs.ai,mcp-registry;glama;mcpso;appstore-listing
+1706,Better Stack,developer-tools,light,https://betterstack.com,mcp-registry;glama;composio;pipedream;zapier
+1707,ClickHouse,databases,light,https://clickhouse.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio;nango
+1708,When I Work,hr-and-recruiting,light,https://wheniwork.com,mcp-registry;glama;zapier
+1709,UptimeRobot,developer-tools,light,https://uptimerobot.com,mcp-registry;glama;mcpso;composio;pipedream;activepieces;n8n;home-assistant
+1710,Harvey,legal-and-signatures,light,https://www.harvey.ai,claude-connectors
+1711,Lightspeed,ecommerce-platforms,light,https://www.lightspeedhq.com,composio;zapier
+1712,Dext,accounting-and-invoicing,light,https://dext.com,claude-connectors;pipedream;zapier
+1713,Unbounce,marketing-and-email-marketing,light,https://unbounce.com,pipedream;zapier
+1714,Hunter,crm-and-sales,light,https://hunter.io,mcp-registry;composio;pipedream;zapier;activepieces;n8n
+1715,Krea,design-and-creative,light,https://www.krea.ai,cursor;glama
+1716,Airbyte,analytics-and-data,light,https://airbyte.com,glama
+1717,Statuspage,developer-tools,light,https://www.atlassian.com/software/statuspage,mcp-registry;glama;pipedream
+1718,Braintree,payments,light,https://www.braintreepayments.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream;zapier;nango
+1719,Connecteam,hr-and-recruiting,light,https://connecteam.com,mcp-registry;glama;composio;pipedream;zapier;appstore
+1720,LaunchDarkly,developer-tools,light,https://launchdarkly.com,mcp-registry;github-mcp;cursor;glama;mcpso;composio;pipedream;zapier
+1721,ClickFunnels,marketing-and-email-marketing,light,https://www.clickfunnels.com,cursor;pipedream;zapier;activepieces
+1722,Lusha,crm-and-sales,light,https://www.lusha.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;activepieces
+1723,remove.bg,design-and-creative,light,https://www.remove.bg,glama;composio;pipedream;zapier
+1724,Fly.io,cloud-and-hosting,light,https://fly.io,mcp-registry;pipedream
+1725,Hostinger,website-and-cms,light,https://www.hostinger.com,mcp-registry;github-mcp;cursor;docker-mcp;glama;mcpso;composio
+1726,Typefully,social-media-management,light,https://typefully.com,mcp-registry;claude-connectors;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1727,Birdeye,customer-support,light,https://birdeye.com,zapier
+1728,Drata,security-and-it,light,https://drata.com,claude-connectors;glama;pipedream;nango
+1729,Algolia,databases,light,https://www.algolia.com,cursor;glama;mcpso;composio;pipedream;zapier;nango;activepieces
+1730,Context7,developer-tools,light,https://context7.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;mcpso;awesome-mcp;composio
+1731,Faire,ecommerce-platforms,light,https://www.faire.com,appstore-listing
+1732,Invoice Ninja,accounting-and-invoicing,light,https://invoiceninja.com,mcp-registry;glama;pipedream;zapier;activepieces;n8n
+1733,Apify,analytics-and-data,light,https://apify.com,mcp-registry;github-mcp;claude-connectors;cursor;docker-mcp;glama;composio;pipedream;zapier;nango;activepieces
+1734,HireVue,hr-and-recruiting,light,https://www.hirevue.com,appstore
+1735,Google Tag Manager,marketing-and-email-marketing,light,https://tagmanager.google.com,mcp-registry;glama;mcpso;awesome-mcp;pipedream
+1736,Podium,crm-and-sales,light,https://www.podium.com,zapier;nango
+1737,Visme,design-and-creative,light,https://www.visme.co,zapier
+1738,BrowserStack,developer-tools,light,https://www.browserstack.com,cursor;mcpso;pipedream;zapier
