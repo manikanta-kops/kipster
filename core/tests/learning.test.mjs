@@ -13,7 +13,7 @@ import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js
 import { adminUrl, noDatabase } from './support/database.mjs'
 
 // Memory switch mechanics against real PostgreSQL with the deterministic fixture adapter.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value

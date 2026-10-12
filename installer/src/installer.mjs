@@ -11,6 +11,7 @@ import { safeError } from './diagnostics.mjs'
 import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
 import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, templates, unregister, writeServices } from './services.mjs'
 import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeRuntime } from './backend.mjs'
+import { embeddingPackage, embeddingRuntime, installEmbeddingRuntime, withEmbedding } from './embedding.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export async function prerequisites() {
@@ -43,7 +44,7 @@ export function managedConfiguration(config, home) {
     return { ...adapter, root: current, entry: entry.entry }
   }) }
   for (const kind of ['embedding', 'transcription']) if (config[kind]) {
-    const entry = reference(config[kind].module, kind === 'embedding' ? 'embedding-ollama' : 'transcription-spokenly')
+    const entry = reference(config[kind].module, kind === 'embedding' ? 'embedding-llama-cpp' : 'transcription-spokenly')
     names.add(entry.name); result[kind] = { ...config[kind], module: join(current, entry.entry) }
   }
   if (names.has('@kipster/core') || names.has('@kipster/installer') || names.has('@kipster/ui')) throw new Error('Configure adapter packages, not Core, the installer or the app, as providers.')
@@ -63,13 +64,15 @@ async function within(path, root) {
   return canonical
 }
 export class Installer {
-  constructor(home, settings, config, { onStep, platformCheck = prerequisites, registerServices = register, unregisterServices = unregister, app = {} } = {}) {
+  constructor(home, settings, config, { onStep, platformCheck = prerequisites, registerServices = register, unregisterServices = unregister, app = {}, embedding = {} } = {}) {
     this.home = home; this.settings = settings; this.config = withManagedUpdates(config); this.onStep = onStep; this.platformCheck = platformCheck
     this.env = runtimeEnvironment(config)
     this.registerServices = registerServices
     // Login jobs need a stably signed Kipster app; tests substitute their own build.
     this.app = { source: app.source ?? packagedApp(), requireTeam: app.requireTeam ?? true }
     this.unregisterServices = unregisterServices
+    // Tests substitute a loopback runtime; null means no runtime for this platform.
+    this.embedding = { manifest: embedding.manifest === undefined ? embeddingRuntime : embedding.manifest, platform: embedding.platform ?? process.platform, arch: embedding.arch ?? process.arch }
     if (settings.pgBin) this.env.PATH = settings.pgBin + ':' + this.env.PATH
     const maintenanceURL = settings.maintenanceDatabaseUrl ?? config.databaseUrl
     if (databaseEndpoint(maintenanceURL) !== databaseEndpoint(config.databaseUrl)) throw new Error('Maintenance login must connect to the same database endpoint as host.json.')
@@ -119,6 +122,19 @@ export class Installer {
     await this.onStep?.(step, journal)
   }
   async persist(journal) { await save(this.journalPath, journal) }
+  /** Adds the embedding runtime once its package is on the channel; a missing runtime only disables search. */
+  async embeddingConfiguration(selectedChannel) {
+    const latest = await this.catalog.read(`${selectedChannel}.json`)
+    try {
+      const { config, report } = await withEmbedding(this.config, this.home, latest[embeddingPackage]?.package === embeddingPackage, () => installEmbeddingRuntime(this.home, this.embedding))
+      return { config, report }
+    } catch (failure) {
+      const report = `The embedding runtime could not be installed, so memory search stays unavailable: ${safeError(failure, this.config, this.settings, this.env)}`
+      console.error(report)
+      await appendFile(join(this.home, 'logs/installer-error.log'), `${new Date().toISOString()} ${report}\n`, { mode: 0o600 }).catch(() => {})
+      return { config: this.config, report }
+    }
+  }
   async stage(journal, files) {
     const staged = join(journal.work, 'release')
     await privateDirectory(staged)
@@ -313,7 +329,8 @@ export class Installer {
     await privateDirectory(journal.work); await this.persist(journal)
     try {
       await this.database.check()
-      const { config: targetConfig, names } = managedConfiguration(this.config, this.home)
+      const embedding = wanted.action === 'install' ? await this.embeddingConfiguration(selectedChannel) : { config: this.config, report: null }
+      const { config: targetConfig, names } = managedConfiguration(embedding.config, this.home)
       let restoring
       if (wanted.action === 'restore') {
         restoring = (await this.backups()).find(backup => wanted.backupId ? backup.id === wanted.backupId : backup.coreVersion === wanted.target)
@@ -373,7 +390,7 @@ export class Installer {
       }
       await this.start(wanted.target, journal)
       await this.finish(journal)
-      return await this.status()
+      return { ...await this.status(), ...(embedding.report ? { embedding: embedding.report } : {}) }
     } catch (failure) {
       const error = safeError(failure, this.config, this.settings, this.env)
       console.error(error)

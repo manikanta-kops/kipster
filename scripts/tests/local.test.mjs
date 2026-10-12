@@ -52,3 +52,11 @@ test('regenerating the install preserves adapter-owned settings', () => {
   assert.deepEqual(next.adapters[0].config, custom)
   assert.deepEqual(next.adapters[1], { id: 'claude-cli', root: '/new', entry: 'node_modules/@kipster/claude-cli/dist/index.js' })
 })
+
+test('a downloaded embedding runtime replaces the embedding entry and keeps its chosen port', () => {
+  const runtime = { binary: '/tmp/kipster/embedding/llama.cpp/b11565/llama-server', model: '/tmp/kipster/embedding/models/embeddinggemma-2-Q8_0.gguf', modelSha256: 'a'.repeat(64), modelName: 'embeddinggemma-2-Q8_0', port: 43180 }
+  const first = configuration('/tmp/kipster', '/new', { embedding: { module: '/old/provider.js', options: { endpoint: 'http://127.0.0.1:1' } } }, runtime)
+  assert.deepEqual(first.embedding, { module: '/new/node_modules/@kipster/embedding-llama-cpp/dist/index.js', options: {}, server: runtime })
+  const moved = configuration('/tmp/kipster', '/newer', { embedding: { ...first.embedding, options: { timeoutMs: 5000 }, server: { ...runtime, port: 45000 } } }, runtime)
+  assert.deepEqual([moved.embedding.module, moved.embedding.options, moved.embedding.server.port], ['/newer/node_modules/@kipster/embedding-llama-cpp/dist/index.js', { timeoutMs: 5000 }, 45000])
+})
