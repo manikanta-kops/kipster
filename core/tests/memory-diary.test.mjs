@@ -306,6 +306,33 @@ test('rows waiting for an embedding are embedded by a later night without new me
   assert.deepEqual(await nightRow(), { night: '2026-10-17', failures: 0, failure: null, retry_at: null })
 })
 
+test('an edited card is embedded at the next sleep time of any kip, Kip first when several begin together', { skip: noDatabase, timeout: 90000 }, async t => {
+  const ctx = await setup(t)
+  await ctx.db.query(`UPDATE kipster.agents SET sleep_time = CASE WHEN id=$1 THEN '03:00'::time ELSE '01:00'::time END WHERE id = ANY($2::uuid[])`, [ctx.kip, [ctx.kip, ctx.scout]])
+  const nights = async () => Object.fromEntries((await ctx.rows('SELECT agent_id, night::text AS night, started_at IS NOT NULL AS ran FROM kipster.memory_nights')).map(row => [row.agent_id === ctx.kip ? 'kip' : 'scout', { night: row.night, ran: row.ran }]))
+  const cards = new CardService(ctx.db, ctx.installationId)
+  const search = () => searchMemory(ctx.db, ctx.installationId, ctx.runtime.embedding, { query: 'garden party June', cards: 'all', threads: { agents: null, organizations: 'all' }, cardCount: 10, itemCount: 30, timeoutMs: 5000 })
+  const card = await cards.create({ type: 'fact', subject: 'user', statement: 'Hosts a garden party', organizationId: null }, [])
+
+  // Both sleep times begin together: Kip runs for the card alone, Scout's night is recorded idle.
+  await ctx.night(at('03:30', '2026-10-13'))
+  assert.deepEqual(await nights(), { kip: { night: '2026-10-13', ran: true }, scout: { night: '2026-10-13', ran: false } })
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
+
+  // Edited after the night: Scout's sleep time comes first and embeds it, so search finds the edit before Kip's.
+  assert.equal(await cards.update(card, { statement: 'Hosts a garden party every June' }, []), true)
+  assert.deepEqual((await search()).cards, [])
+  await ctx.night(at('01:30', '2026-10-14'))
+  assert.deepEqual(await nights(), { kip: { night: '2026-10-13', ran: true }, scout: { night: '2026-10-14', ran: true } })
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
+  assert.deepEqual((await search()).cards.map(found => found.statement), ['Hosts a garden party every June'])
+  // Kip's sleep time then finds nothing waiting.
+  const attempts = ctx.embeddingCalls.length
+  await ctx.night(at('03:30', '2026-10-14'))
+  assert.deepEqual((await nights()).kip.night, '2026-10-14')
+  assert.equal(ctx.embeddingCalls.length, attempts)
+})
+
 test('without an embedding provider nothing is attempted and nights with only unembedded rows stay idle', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t, { embedding: false })
   await ctx.thread(ctx.kip, null, 'No provider NOPROVIDER888')
