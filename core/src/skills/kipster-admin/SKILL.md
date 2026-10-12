@@ -1,6 +1,6 @@
 ---
 name: kipster-admin
-description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, learning, appearance, notifications and updates.
+description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, memory, appearance, notifications and updates.
 ---
 
 # Administering Kipster
@@ -27,6 +27,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | alerts, notifications | desktop notifications | `interface` |
 | permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
 | memory, learning, sleep, nightly model, core cards | memory switch, sleep time, nightly model and memory counts | `learning` |
+| what you know about me, remembered facts, forget that | memory cards | `memory` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
 ## How to work
@@ -79,6 +80,13 @@ off for every kip and sets the default `sleepTime` ("HH:MM", local time); `learn
 kip. `learning.set` also sets `nightlyModel` (`{ adapterId, modelId, effort? }` from `adapters.list`, or `null` to use
 Kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
 (cards and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only what they ask for.
+
+**Memory cards.** Cards are the facts about the person every kip shares, such as a preference, a person they know or a
+date. `memory.cards_list` lists them newest first with their workspace (`organizationId`, null for every workspace) and
+the messages they came from; `ended: true` adds replaced cards. When the person corrects a card, change it with
+`memory.card_update`; the card becomes confirmed. A replaced card cannot be edited: edit the card that replaced it. When
+they want something forgotten, `memory.card_delete` removes the card; their messages stay. Find the card first and
+change only the cards they mean.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call

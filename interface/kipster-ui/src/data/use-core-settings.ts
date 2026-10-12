@@ -14,6 +14,7 @@ import {
   type CoreSettingsClient,
   type Directory,
   type Learning,
+  type LearningChange,
   type PermissionMode,
   type Permissions,
   type SavedSettings,
@@ -285,10 +286,7 @@ export function useCoreSettings(
     setAdapterError('')
     effectiveChanged()
   }
-  const saveLearning = async (update: {
-    enabled?: boolean
-    sleepTime?: string
-  }) => {
+  const saveLearning = async (update: LearningChange) => {
     const next = await client.saveLearning(update, AbortSignal.timeout(20000))
     setLearning((held) => mergeLearning(held, next))
   }

@@ -30,6 +30,7 @@ import { BackupPage, BackupsPage, IdentityFilePage } from './IdentityFiles'
 import type { KipLook } from './KipAvatar'
 import { KipPage, KipsPage } from './KipsSettings'
 import { LearningPage } from './LearningSettings'
+import { CardPage, CardsPage } from './MemoryCards'
 import { PermissionSettings } from './PermissionSettings'
 import { InstructionsPage, OrganizationPage } from './OrganizationSettings'
 import { Panel } from './Panel'
@@ -108,10 +109,10 @@ const pages: Record<
     words: 'permission mode approvals supervised auto full access sandbox ask',
   },
   learning: {
-    label: 'Learning',
+    label: 'Memory',
     icon: 'brain',
     hue: 'var(--hue-sage)',
-    words: 'sleep memory learn',
+    words: 'sleep learning learn cards remember forget nightly model',
   },
   connection: {
     label: 'Connection',
@@ -357,6 +358,17 @@ export function CoreSettingsPanel({
           )
         case 'adapter':
           return <AdapterPage settings={settings} adapterId={frame.adapterId} />
+        case 'cards':
+          return <CardsPage client={client} directory={directory} />
+        case 'card':
+          return (
+            <CardPage
+              key={frame.cardId}
+              client={client}
+              directory={directory}
+              cardId={frame.cardId}
+            />
+          )
         case 'instructions':
           return (
             <InstructionsPage

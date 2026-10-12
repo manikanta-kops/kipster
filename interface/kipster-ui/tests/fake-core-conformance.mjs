@@ -409,6 +409,50 @@ test('settings, effective inheritance, adapters, learning and identity files con
     enabled: false,
     sleepTime: '02:30',
   })
+  const memory = await json(
+    '/v1/settings/learning',
+    protocol.learningSettings,
+    'PUT',
+    {
+      version: 1,
+      nightlyModel: { adapterId: adapter.id, modelId: adapter.models[0].id },
+      coreCardCount: 12,
+      searchCardCount: 0,
+      searchChunkCount: 30,
+    },
+  )
+  assert.deepEqual(
+    [
+      memory.nightlyModel,
+      memory.coreCardCount,
+      memory.searchCardCount,
+      memory.searchChunkCount,
+    ],
+    [{ adapterId: adapter.id, modelId: adapter.models[0].id }, 12, 0, 30],
+  )
+  for (const change of [
+    { coreCardCount: 201 },
+    { searchCardCount: -1 },
+    { searchChunkCount: 1.5 },
+  ])
+    assert.equal(
+      (
+        await request('/v1/settings/learning', 'PUT', {
+          version: 1,
+          ...change,
+        })
+      ).status,
+      400,
+    )
+  assert.equal(
+    (
+      await json('/v1/settings/learning', protocol.learningSettings, 'PUT', {
+        version: 1,
+        nightlyModel: null,
+      })
+    ).nightlyModel,
+    null,
+  )
   await json(
     `/v1/agents/${agentId}/learning`,
     protocol.agentLearningResult,
@@ -448,6 +492,98 @@ test('settings, effective inheritance, adapters, learning and identity files con
     )
     assert.equal(restored.content, backup.content)
   }
+})
+
+test('memory cards list, read, edit and delete like Core', async (t) => {
+  const { json, request } = harness(t)
+  const refused = async (path, method, body, status, code) => {
+    const response = await request(path, method, body)
+    assert.equal(response.status, status, `${method} ${path}`)
+    assert.equal(protocol.stableError.parse(await response.json()).code, code)
+  }
+  const current = await json('/v1/memory/cards', protocol.memoryCardPage)
+  assert.ok(current.cards.length)
+  assert.ok(current.cards.every((card) => card.validTo === null))
+  assert.ok(current.cards.some((card) => card.organizationId !== null))
+  const all = await json('/v1/memory/cards?ended=true', protocol.memoryCardPage)
+  const replaced = all.cards.find((card) => card.validTo !== null)
+  assert.ok(replaced?.replacedBy)
+  const seen = []
+  let cursor = null
+  do {
+    const page = await json(
+      `/v1/memory/cards?${query({ ended: true, limit: 2, cursor })}`,
+      protocol.memoryCardPage,
+    )
+    seen.push(...page.cards.map((card) => card.id))
+    cursor = page.nextCursor
+  } while (cursor)
+  assert.deepEqual(
+    seen,
+    all.cards.map((card) => card.id),
+  )
+  for (const filter of ['ended=yes', 'limit=0', 'limit=201', 'cursor=nope'])
+    await refused(
+      `/v1/memory/cards?${filter}`,
+      'GET',
+      undefined,
+      400,
+      'invalid',
+    )
+
+  const inferred = current.cards.find((card) => !card.confirmed)
+  const path = `/v1/memory/cards/${inferred.id}`
+  assert.deepEqual((await json(path, protocol.memoryCardResult)).card, inferred)
+  const edited = (
+    await json(path, protocol.memoryCardResult, 'PUT', {
+      version: 1,
+      statement: '  A corrected statement ',
+      details: { note: 'checked' },
+    })
+  ).card
+  assert.equal(edited.statement, 'A corrected statement')
+  assert.deepEqual(edited.details, { note: 'checked' })
+  assert.equal(edited.confirmed, true)
+  assert.deepEqual(
+    (
+      await json(path, protocol.memoryCardResult, 'PUT', {
+        version: 1,
+        statement: 'A corrected statement',
+      })
+    ).card,
+    edited,
+  )
+  for (const body of [
+    { version: 1 },
+    { version: 1, statement: '' },
+    { version: 1, statement: '   ' },
+    { version: 1, details: ['x'] },
+    { version: 1, confirmed: false },
+    { statement: 'No version' },
+  ])
+    await refused(path, 'PUT', body, 400, 'invalid')
+  await refused(
+    `/v1/memory/cards/${replaced.id}`,
+    'PUT',
+    { version: 1, statement: 'Changed' },
+    409,
+    'conflict',
+  )
+  await refused(
+    `/v1/memory/cards/${randomUUID()}`,
+    'GET',
+    undefined,
+    404,
+    'not-found',
+  )
+
+  const removed = await json(path, protocol.memoryCardRemoval, 'DELETE')
+  assert.deepEqual(removed, { version: 1, cardId: inferred.id, deleted: true })
+  assert.equal(
+    (await json(path, protocol.memoryCardRemoval, 'DELETE')).deleted,
+    false,
+  )
+  await refused(path, 'GET', undefined, 404, 'not-found')
 })
 
 test('administration, grouping and lifecycle return public results and stable operations', async (t) => {

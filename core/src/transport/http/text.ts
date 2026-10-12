@@ -21,6 +21,8 @@ import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from
 import { RefusedError } from '../../platform/errors/public.js'
 import { DocumentConflictError } from '../../modules/documents/public.js'
 import { documentRoute } from './documents.js'
+import { memoryCardUpdate } from '../../protocol/memory.js'
+import { CardReplacedError, deleteCard, editCard, listCards, readCard, type CardPageRequest } from '../../workflows/memory-cards.js'
 
 export interface TextServer { url: string; close(): Promise<void> }
 const maxBodyBytes = 64 * 1024
@@ -36,7 +38,7 @@ function errorCode(error: unknown): { status: number; code: string; message: str
   if (error instanceof RefusedError) return { status: error.code === 'membership-removed' ? 403 : error.code === 'agent-archived' ? 409 : 410, code: error.code, message }
   if (error instanceof ServiceUnavailableError) return { status: 503, code: 'unavailable', message }
   if (error instanceof UpdateRefusedError) return { status: 409, code: error.code, message }
-  if (error instanceof IdentityConflictError || error instanceof DocumentConflictError || error instanceof OperationConflictError || error instanceof OrderConflictError || error instanceof AgentNotArchivedError) return { status: 409, code: 'conflict', message }
+  if (error instanceof IdentityConflictError || error instanceof DocumentConflictError || error instanceof OperationConflictError || error instanceof OrderConflictError || error instanceof AgentNotArchivedError || error instanceof CardReplacedError) return { status: 409, code: 'conflict', message }
   if (/denied|mismatch|unauthorized/i.test(message)) return { status: 403, code: 'forbidden', message }
   if (/not found/i.test(message)) return { status: 404, code: 'not-found', message }
   if (/Invalid|Expected|Unknown|Future|missing|required/i.test(message) || error instanceof SyntaxError || error instanceof TypeError) return { status: 400, code: 'invalid', message }
@@ -71,6 +73,13 @@ function mediaIntent(value: unknown): UploadIntent {
   const row=value as Record<string,unknown>
   if(Object.keys(row).some(key=>!['uploadId','target','name','mimeType','size','sha256','purpose'].includes(key))||typeof row.uploadId!=='string'||typeof row.name!=='string'||typeof row.mimeType!=='string'||typeof row.sha256!=='string'||typeof row.size!=='number'||(row.purpose!=='attachment'&&row.purpose!=='voice_note'))throw new Error('Invalid upload intent')
   return {uploadId:row.uploadId,target:mediaTarget(row.target),name:row.name,mimeType:row.mimeType,size:row.size,sha256:row.sha256,purpose:row.purpose}
+}
+/** `ended=true` includes replaced cards; `limit` is 1-200 cards; `cursor` is the previous page's `nextCursor`. */
+function cardPage(query: URLSearchParams): CardPageRequest {
+  const ended = query.get('ended'), limit = query.get('limit'), cursor = query.get('cursor')
+  if (ended !== null && ended !== 'true' && ended !== 'false') throw new Error('Invalid ended filter')
+  if (limit !== null && (!/^[1-9]\d{0,2}$/.test(limit) || Number(limit) > 200)) throw new Error('Invalid card page limit')
+  return { ended: ended === 'true', ...(limit !== null ? { limit: Number(limit) } : {}), cursor: cursor || null }
 }
 function mediaQuery(url: URL): ArtifactTarget {const value=url.searchParams.get('target');if(!value||value.length>4096)throw new Error('Invalid media target');return mediaTarget(JSON.parse(value))}
 function scope(actor: TrustedActor, path: string): Stream | null {
@@ -224,6 +233,14 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         const { version: _, ...update } = learningUpdate.parse(await body(request))
         json(response, 200, { version: 1, ...await runtime.learning.setInstallation(actor, update, options.dispatcher?.catalog() ?? null) }); return
       }
+      if (path === '/v1/memory/cards' && request.method === 'GET') { json(response, 200, { version: 1, ...await listCards(runtime.db, actor, cardPage(url.searchParams)) }); return }
+      const cardMatch = /^\/v1\/memory\/cards\/([0-9a-f-]{36})$/.exec(path)
+      if (cardMatch && request.method === 'GET') { json(response, 200, { version: 1, card: await readCard(runtime.db, actor, cardMatch[1]!) }); return }
+      if (cardMatch && request.method === 'PUT') {
+        const { version: _, ...edit } = memoryCardUpdate.parse(await body(request))
+        json(response, 200, { version: 1, card: await editCard(runtime.db, actor, cardMatch[1]!, edit) }); return
+      }
+      if (cardMatch && request.method === 'DELETE') { json(response, 200, { version: 1, ...await deleteCard(runtime.db, actor, cardMatch[1]!) }); return }
       const agentLearningMatch = /^\/v1\/agents\/([0-9a-f-]{36})\/learning$/.exec(path)
       if (agentLearningMatch && request.method === 'PUT') {
         const { version: _, ...update } = agentLearningUpdate.parse(await body(request))

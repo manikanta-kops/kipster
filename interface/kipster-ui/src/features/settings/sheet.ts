@@ -9,6 +9,8 @@ export type Frame = { title: string } & (
   | { kind: 'adapter'; adapterId: string }
   | { kind: 'instructions'; organizationId: string }
   | { kind: 'testing' }
+  | { kind: 'cards' }
+  | { kind: 'card'; cardId: string }
 )
 
 type Sheet = {
