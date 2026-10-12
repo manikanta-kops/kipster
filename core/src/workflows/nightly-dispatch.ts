@@ -108,6 +108,7 @@ export class NightlyDispatch {
     const route = this.route(settings.adapterId, opened.id)
     let failure: string | null = null
     let output: string | undefined
+    let settled = false
     try {
       if (!route) throw new Error('The nightly model\'s adapter is unavailable for memory')
       const unsupported = Object.keys(settings.options ?? {}).filter(key => !(route.supportedOptions ?? []).includes(key))
@@ -122,9 +123,11 @@ export class NightlyDispatch {
       failure = error instanceof Error ? error.message : String(error)
     } finally {
       this.host.live.delete(opened.id)
-      try { await runtime.db.transaction(client => settleMemoryCall(client, opened, failure)) }
+      try { settled = await runtime.db.transaction(client => settleMemoryCall(client, opened, failure)) }
       finally { route?.release(opened.id) }
     }
+    // Recovery settled the call after this process lost the coordinator: its answer or failure is no longer this run's.
+    if (!settled) throw new NightlyDeferred('The call was settled by another process')
     if (failure !== null) throw request.signal.aborted ? new NightlyDeferred(failure) : new Error(`Nightly ${request.step} step failed: ${failure}`)
     try { return JSON.parse(output!) } catch { throw new Error(`Nightly ${request.step} step failed: the answer is not JSON`) }
   }

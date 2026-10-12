@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, TextDispatcher } from '../dist/runtime.js'
-import { CardService, embedPending, removeThreadMemory, sleepDay } from '../dist/modules/memory/public.js'
+import { CardService, embedPending, removeThreadMemory, settleInterruptedMemoryCalls, sleepDay } from '../dist/modules/memory/public.js'
 import { EmbeddingProfile } from '../dist/modules/vectors/public.js'
 import { removeThreads } from '../dist/modules/conversations/public.js'
 import { NIGHTLY_CALLS } from '../dist/workflows/nightly-dispatch.js'
@@ -475,6 +475,91 @@ test('a call lost with its process is failed by the next coordinator and its per
   ctx.clock.now = at('01:30', '2026-10-13')
   await dispatcher.nightlyTick()
   assert.equal(await ctx.processed(threadId), 1)
+})
+
+test('a failed core re-pick is caught up by the retry, though its threads were saved', { skip: noDatabase }, async t => {
+  let fail = true
+  const ctx = await setup(t, {
+    script: context => {
+      const { step, instructions } = context.maintenance
+      if (step === 'core') {
+        if (fail) return new Error('provider failed')
+        return { core: [[...instructions.matchAll(/^\[(k\d+)\] fact \| user \| New fact/gm)][0][1]] }
+      }
+      if (step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
+      return quiet(context)
+    },
+  })
+  // The core set is already full, so only the card change calls for a re-pick.
+  const source = await ctx.thread([{ author: 'user', text: 'Old fact' }])
+  await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [source, ctx.installationId])
+  const [message] = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [source])).map(row => row.id)
+  await ctx.cards.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, [{ threadId: source, messageId: message }])
+  await ctx.db.query('UPDATE kipster.cards SET core=true')
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 1 })
+  const threadId = await ctx.thread([{ author: 'user', text: 'A new fact' }])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const dispatcher = ctx.dispatcher()
+  await dispatcher.start()
+  await dispatcher.nightlyTick()
+  assert.equal(await ctx.processed(threadId), 1, 'the thread is saved before the re-pick')
+  assert.deepEqual(await ctx.rows('SELECT failures, repick, retry_at FROM kipster.memory_nights'), [{ failures: 1, repick: true, retry_at: at('02:00', '2026-10-13') }])
+  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.cards WHERE core'), [{ statement: 'Old fact' }])
+
+  // No thread waits, but the retry re-picks the core cards.
+  fail = false
+  ctx.clock.now = at('02:01', '2026-10-13')
+  await dispatcher.nightlyTick()
+  assert.equal(ctx.calls.filter(call => call.context.maintenance.step === 'core').length, 2)
+  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.cards WHERE core'), [{ statement: 'New fact' }])
+  assert.deepEqual(await ctx.rows('SELECT night::text AS night, failures, failure, repick, owner FROM kipster.memory_nights'), [{ night: '2026-10-13', failures: 0, failure: null, repick: false, owner: null }])
+
+  // A re-pick still owed after the night gave up is done the next night.
+  await ctx.db.query(`UPDATE kipster.memory_nights SET repick=true, failure='gave up', failures=0, retry_at=NULL`)
+  ctx.clock.now = at('01:30', '2026-10-14')
+  await dispatcher.nightlyTick()
+  assert.equal(ctx.calls.filter(call => call.context.maintenance.step === 'core').length, 3)
+  assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-14', failure: null, repick: false }])
+})
+
+test('a former owner\'s late answer or failure neither saves nor changes the new owner\'s claim', { skip: noDatabase }, async t => {
+  const pending = []
+  const ctx = await setup(t, {
+    script: context => context.maintenance.step === 'diary' ? new Promise(resolve => pending.push(resolve)) : quiet(context),
+  })
+  const threadId = await ctx.thread([{ author: 'user', text: 'Hi' }])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const former = ctx.dispatcher()
+  await former.start()
+  const replacement = randomUUID()
+  // Recovery by the next coordinator: it fails the call, frees its permit and runs the agent itself.
+  const takeOver = async () => {
+    while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
+    await ctx.db.transaction(client => settleInterruptedMemoryCalls(client, ctx.installationId, [], null))
+    await ctx.db.query('UPDATE kipster.memory_nights SET owner=$1', [replacement])
+  }
+  const claim = () => ctx.rows('SELECT owner, failures, failure, retry_at, night FROM kipster.memory_nights')
+
+  for (const late of [new Error('late failure'), { days: [{ day, summary: 'Late diary' }] }]) {
+    await ctx.db.query('UPDATE kipster.memory_nights SET owner=NULL')
+    const tick = former.nightlyTick()
+    await takeOver()
+    pending.shift()(late)
+    await tick
+    assert.deepEqual(await claim(), [{ owner: replacement, failures: 0, failure: null, retry_at: null, night: null }])
+    assert.equal(await ctx.processed(threadId), 0)
+    for (const table of ['thread_chunks', 'diary']) assert.equal((await ctx.rows(`SELECT count(*)::int AS n FROM kipster.${table}`))[0].n, 0, table)
+  }
+  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.owned_permits'))[0].n, 0)
+
+  // Once the agent is free again, a run saves the thread.
+  await ctx.db.query('UPDATE kipster.memory_nights SET owner=NULL')
+  const tick = former.nightlyTick()
+  while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
+  pending.shift()({ days: [{ day, summary: 'Diary' }] })
+  await tick
+  assert.equal(await ctx.processed(threadId), 1)
+  assert.deepEqual((await claim()).map(row => row.owner), [null])
 })
 
 test('nightly work leaves the last free permit to waiting user turns and is deferred, not failed', { skip: noDatabase }, async t => {

@@ -12,8 +12,11 @@ ALTER TABLE kipster.installations
 -- Each agent's nightly run. `night` is the last sleep day whose run finished
 -- or gave up; a later sleep day is due. A failed run is tried again after
 -- `retry_at` and given up after a few failures; its threads keep their
--- processed position, so the next night catches them up. `owner` is the Core
--- incarnation running the agent now: only that incarnation saves results.
+-- processed position, so the next night catches them up. `repick` is set
+-- when a run changed cards and cleared once the core cards are re-picked, so
+-- a failed re-pick is caught up even when no thread waits. `owner` is the Core
+-- incarnation running the agent now: only that incarnation saves results or
+-- records the run's outcome.
 CREATE TABLE kipster.memory_nights (
   agent_id uuid PRIMARY KEY REFERENCES kipster.agents(id) ON DELETE CASCADE,
   installation_id uuid NOT NULL REFERENCES kipster.installations(id),
@@ -21,6 +24,7 @@ CREATE TABLE kipster.memory_nights (
   failures integer NOT NULL DEFAULT 0 CHECK (failures >= 0),
   failure text,
   retry_at timestamptz,
+  repick boolean NOT NULL DEFAULT false,
   owner uuid,
   started_at timestamptz,
   finished_at timestamptz,

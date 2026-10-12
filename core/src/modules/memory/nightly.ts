@@ -74,12 +74,13 @@ export class NightlyMemory {
   private get db(): Postgres { return this.options.db }
   private get installationId(): string { return this.options.installationId }
 
-  /** Agents whose sleep day began after their last run, with memory on and unprocessed threads, oldest night first. Agents
-   * due with nothing to process have their night recorded, so a message later that day waits for the next sleep time. */
+  /** Agents whose sleep day began after their last run, with memory on and unprocessed threads, a failed run to retry or
+   * a core re-pick still owed, oldest night first. Agents due with nothing to do have their night recorded, so a message
+   * later that day waits for the next sleep time. */
   async due(): Promise<string[]> {
     const now = this.options.clock()
-    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; owner: string | null; pending: boolean }>(
-      `SELECT a.id, left(COALESCE(a.sleep_time, i.sleep_time)::text, 5) AS sleep_time, n.night::text AS night, n.retry_at, n.owner,
+    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; failure: string | null; repick: boolean | null; pending: boolean }>(
+      `SELECT a.id, left(COALESCE(a.sleep_time, i.sleep_time)::text, 5) AS sleep_time, n.night::text AS night, n.retry_at, n.failure, n.repick,
          EXISTS (SELECT 1 FROM kipster.direct_chats c JOIN kipster.threads t ON t.chat_id=c.id WHERE c.agent_id=a.id AND ${unprocessedThreadCondition('t.id', 'c')}) AS pending
        FROM kipster.agents a JOIN kipster.installations i ON i.id=a.installation_id LEFT JOIN kipster.memory_nights n ON n.agent_id=a.id
        WHERE a.installation_id=$1 AND ${learningCondition('a.id')} ORDER BY n.night NULLS FIRST, a.id`, [this.installationId])).rows
@@ -87,7 +88,7 @@ export class NightlyMemory {
     for (const row of rows) {
       const night = sleepDay(now, row.sleep_time)
       if (row.night !== null && row.night >= night) continue
-      if (!row.pending) { await this.finish(row.id, night, null, true); continue }
+      if (!row.pending && row.failure === null && !row.repick) { await this.finish(row.id, night, null, true); continue }
       if (row.retry_at && row.retry_at > now) continue
       due.push(row.id)
     }
@@ -113,11 +114,12 @@ export class NightlyMemory {
       JOIN kipster.installations i ON i.id=a.installation_id WHERE a.id=$1 AND a.installation_id=$2`, [agentId, this.installationId])).rows[0]
     if (!sleep) return { outcome: 'busy' }
     const night = sleepDay(now, sleep.sleep_time)
-    const claimed = await this.db.query(`INSERT INTO kipster.memory_nights(agent_id, installation_id, owner, started_at) VALUES ($1,$2,$3,now())
+    const claimed = await this.db.query<{ repick: boolean }>(`INSERT INTO kipster.memory_nights(agent_id, installation_id, owner, started_at) VALUES ($1,$2,$3,now())
       ON CONFLICT (agent_id) DO UPDATE SET owner=EXCLUDED.owner, started_at=now(), updated_at=now()
-      WHERE kipster.memory_nights.owner IS NULL OR kipster.memory_nights.owner=EXCLUDED.owner`, [agentId, this.installationId, this.options.incarnation])
+      WHERE kipster.memory_nights.owner IS NULL OR kipster.memory_nights.owner=EXCLUDED.owner RETURNING repick`, [agentId, this.installationId, this.options.incarnation])
     if (!claimed.rowCount) return { outcome: 'busy' }
-    let changed = false
+    // A re-pick an earlier run owed, after changing cards, is done in this one.
+    let changed = claimed.rows[0]!.repick
     try {
       for (const thread of await this.threads(agentId)) {
         signal.throwIfAborted()
@@ -142,20 +144,25 @@ export class NightlyMemory {
     }
   }
 
-  /** Records a finished run, or a failure that is tried again later and given up for the night after a few. */
+  /** Records a finished run, or a failure that is tried again later and given up for the night after a few. A run's
+   * outcome is recorded only while this incarnation still owns the agent, so a former owner never changes a later one's
+   * claim or retries; an idle night only while no one runs the agent. */
   private async finish(agentId: string, night: string, failure: string | null, idle = false): Promise<void> {
-    if (failure === null) {
+    if (idle) {
       await this.db.query(`INSERT INTO kipster.memory_nights(agent_id, installation_id, night, finished_at) VALUES ($1,$2,$3::date,now())
-        ON CONFLICT (agent_id) DO UPDATE SET night=EXCLUDED.night, failures=0, failure=NULL, retry_at=NULL, finished_at=now(), updated_at=now(),
-          owner=CASE WHEN $4 THEN kipster.memory_nights.owner ELSE NULL END
-        WHERE $4 = false OR kipster.memory_nights.owner IS NULL`, [agentId, this.installationId, night, idle])
-      return
+        ON CONFLICT (agent_id) DO UPDATE SET night=EXCLUDED.night, failures=0, failure=NULL, retry_at=NULL, finished_at=now(), updated_at=now()
+        WHERE kipster.memory_nights.owner IS NULL`, [agentId, this.installationId, night])
+    } else if (failure === null) {
+      await this.db.query(`UPDATE kipster.memory_nights SET night=$2::date, failures=0, failure=NULL, retry_at=NULL, repick=false, owner=NULL, finished_at=now(), updated_at=now()
+        WHERE agent_id=$1 AND owner=$3`, [agentId, night, this.options.incarnation])
+    } else {
+      // Retries follow Core's clock, as the schedule does.
+      await this.db.query(`UPDATE kipster.memory_nights SET failures=CASE WHEN failures+1 >= $4 THEN 0 ELSE failures+1 END,
+          night=CASE WHEN failures+1 >= $4 THEN $3::date ELSE night END,
+          retry_at=CASE WHEN failures+1 >= $4 THEN NULL ELSE $6::timestamptz + make_interval(mins => $5 * (failures+1)) END,
+          failure=$2, owner=NULL, finished_at=now(), updated_at=now() WHERE agent_id=$1 AND owner=$7`,
+        [agentId, failure.slice(0, 1000), night, NIGHTLY.failures, NIGHTLY.retryMinutes, this.options.clock(), this.options.incarnation])
     }
-    // Retries follow Core's clock, as the schedule does.
-    await this.db.query(`UPDATE kipster.memory_nights SET failures=CASE WHEN failures+1 >= $4 THEN 0 ELSE failures+1 END,
-        night=CASE WHEN failures+1 >= $4 THEN $3::date ELSE night END,
-        retry_at=CASE WHEN failures+1 >= $4 THEN NULL ELSE $6::timestamptz + make_interval(mins => $5 * (failures+1)) END,
-        failure=$2, owner=NULL, finished_at=now(), updated_at=now() WHERE agent_id=$1`, [agentId, failure.slice(0, 1000), night, NIGHTLY.failures, NIGHTLY.retryMinutes, this.options.clock()])
   }
 
   private async release(agentId: string): Promise<void> {
@@ -345,6 +352,8 @@ export class NightlyMemory {
       }
       await client.query(`INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,$3)
         ON CONFLICT (thread_id) DO UPDATE SET processed_position=EXCLUDED.processed_position, updated_at=now()`, [thread.id, this.installationId, result.upTo])
+      // The core cards are re-picked after changed cards, by this run or, when it fails, a later one.
+      if (cards) await client.query('UPDATE kipster.memory_nights SET repick=true, updated_at=now() WHERE agent_id=$1', [agentId])
       return cards ? 'cards' : 'saved'
     })
   }
@@ -369,7 +378,11 @@ export class NightlyMemory {
       const refs = parseCore(await this.ask(agentId, null, 'core', corePrompt(cards, count), signal), cards, count)
       chosen = refs.map(ref => candidates[Number(ref.slice(1)) - 1]!.id)
     }
-    await this.db.query(`UPDATE kipster.cards SET core = (id = ANY($2::uuid[])) WHERE installation_id=$1 AND (core OR id = ANY($2::uuid[]))`, [this.installationId, chosen])
+    await this.db.transaction(async client => {
+      const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
+      if (!owned.rows.length) throw new NightlyDeferred('Another process runs this agent now')
+      await client.query(`UPDATE kipster.cards SET core = (id = ANY($2::uuid[])) WHERE installation_id=$1 AND (core OR id = ANY($2::uuid[]))`, [this.installationId, chosen])
+    })
   }
 }
 
