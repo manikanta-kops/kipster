@@ -212,7 +212,7 @@ test('maintenance runs isolated with the schema Core supplies and returns its st
   await ready(f)
   await f.mode('maintenance')
   const schema = { type: 'object', required: ['candidates'], properties: { candidates: { type: 'array' } } }
-  const maintenance = { kind: 'maintenance', runId: 'mr', attemptId: 'm1', organizationId: null, agentId: 'agent', maintenance: { task: 'extract', sourceRunId: 's', sourceRevision: 1, contextKind: 'installation', contextId: 'i', instructions: 'Extract.', sources: [], outputSchema: schema, settings: { adapterId: 'claude-cli', modelId: 'haiku' } } }
+  const maintenance = { kind: 'maintenance', runId: 'mr', attemptId: 'm1', organizationId: null, agentId: 'agent', maintenance: { task: 'memory', step: 'cards', instructions: 'Kipster memory, nightly step "cards".', outputSchema: schema, settings: { adapterId: 'claude-cli', modelId: 'haiku' } } }
   const events = await collect(await f.adapter.execute(maintenance))
   assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
   assert.equal(events[1].text, '{"candidates":[]}')
@@ -224,13 +224,16 @@ test('maintenance runs isolated with the schema Core supplies and returns its st
   assert.equal(launch.argv[launch.argv.indexOf('--session-id') + 1], events[0].threadId)
   for (const flag of ['--safe-mode', '--strict-mcp-config', '--no-session-persistence', '--disable-slash-commands']) assert.ok(launch.argv.includes(flag), flag)
   assert.equal(launch.argv.includes('--mcp-config'), false)
-  assert.deepEqual(records.findLast(record => record.user).user, [{ type: 'text', text: 'Extract.' }])
+  assert.deepEqual(records.findLast(record => record.user).user, [{ type: 'text', text: 'Kipster memory, nightly step "cards".' }])
   assert.deepEqual(await readdir(join(f.directory, 'data', 'maintenance', 'processes')), [], 'the process record is removed after the end is confirmed')
   await f.mode('maintenance-leak')
   const leaked = await collect(await f.adapter.execute({ ...maintenance, attemptId: 'm2' }))
   assert.match(leaked.at(-1).message, /isolation check failed/)
-  const unknown = await collect(await f.adapter.execute({ ...maintenance, attemptId: 'm3', maintenance: { ...maintenance.maintenance, task: 'summarize' } }))
-  assert.deepEqual(unknown, [{ kind: 'failed', attemptId: 'm3', confirmedEnded: true, message: 'Unsupported maintenance task' }])
+  // The first memory engine's tasks and unknown steps fail before any launch.
+  for (const [attemptId, payload] of [['m3', { task: 'summarize' }], ['m4', { task: 'extract' }], ['m5', { task: 'consolidate' }], ['m6', { task: 'identity' }], ['m7', { step: 'summarize' }]]) {
+    const unknown = await collect(await f.adapter.execute({ ...maintenance, attemptId, maintenance: { ...maintenance.maintenance, ...payload } }))
+    assert.deepEqual(unknown, [{ kind: 'failed', attemptId, confirmedEnded: true, message: 'Unsupported maintenance task' }])
+  }
 })
 
 test('durable reconciliation confirms an end only when the recorded process group is gone', async t => {

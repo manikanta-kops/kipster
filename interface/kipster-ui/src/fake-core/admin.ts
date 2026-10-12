@@ -229,7 +229,20 @@ export function createAdministration(options: Options = {}) {
     sleepTime: '02:00',
     revision: 1,
     available: true,
+    nightlyModel: null as {
+      adapterId: string
+      modelId: string
+      effort?: string
+    } | null,
+    coreCardCount: 60,
+    searchCardCount: 10,
+    searchChunkCount: 6,
   }
+  const memoryCounts = {
+    coreCardCount: 200,
+    searchCardCount: 50,
+    searchChunkCount: 30,
+  } as const
   const permissions = {
     revision: 0,
     mode: 'auto',
@@ -804,9 +817,56 @@ export function createAdministration(options: Options = {}) {
       (family === 'agents' && action === 'learning')
     ) {
       if (method !== 'PUT') return undefined
-      keys(body, ['version', 'enabled', 'sleepTime'])
-      if (body.enabled === undefined && body.sleepTime === undefined)
+      const memoryFields = ['nightlyModel', ...Object.keys(memoryCounts)]
+      keys(body, [
+        'version',
+        'enabled',
+        'sleepTime',
+        ...(family === 'agents' ? [] : memoryFields),
+      ])
+      if (
+        body.enabled === undefined &&
+        body.sleepTime === undefined &&
+        !memoryFields.some((field) => body[field] !== undefined)
+      )
         invalid('Invalid learning update')
+      let memoryChanged = false
+      const memory: Partial<
+        Pick<typeof learning, 'nightlyModel' | keyof typeof memoryCounts>
+      > = {}
+      if (family !== 'agents') {
+        for (const [field, max] of Object.entries(memoryCounts)) {
+          const value = body[field]
+          if (value === undefined) continue
+          if (
+            typeof value !== 'number' ||
+            !Number.isSafeInteger(value) ||
+            value < 0 ||
+            value > max
+          )
+            invalid()
+          const key = field as keyof typeof memoryCounts
+          memoryChanged ||= learning[key] !== value
+          memory[key] = value as number
+        }
+        if (body.nightlyModel !== undefined) {
+          const model = body.nightlyModel as Record<string, unknown> | null
+          if (
+            model !== null &&
+            (typeof model !== 'object' ||
+              typeof model.adapterId !== 'string' ||
+              !model.adapterId ||
+              typeof model.modelId !== 'string' ||
+              !model.modelId ||
+              (model.effort !== undefined && typeof model.effort !== 'string'))
+          )
+            invalid()
+          const next = model as typeof learning.nightlyModel
+          memoryChanged ||=
+            JSON.stringify(learning.nightlyModel) !== JSON.stringify(next)
+          memory.nightlyModel = next
+        }
+      }
       const target =
         family === 'agents'
           ? (findAgent(targetId),
@@ -825,8 +885,10 @@ export function createAdministration(options: Options = {}) {
       )
         invalid()
       const learningChanged =
+        memoryChanged ||
         (body.enabled !== undefined && body.enabled !== target.enabled) ||
         (body.sleepTime !== undefined && body.sleepTime !== target.sleepTime)
+      Object.assign(learning, memory)
       if (body.enabled !== undefined) target.enabled = body.enabled as boolean
       if (body.sleepTime !== undefined)
         target.sleepTime = body.sleepTime as string
@@ -838,6 +900,14 @@ export function createAdministration(options: Options = {}) {
             target: family === 'agents' ? 'agent' : 'installation',
             enabled: target.enabled,
             sleepTime: target.sleepTime,
+            ...(family === 'agents'
+              ? {}
+              : {
+                  nightlyModel: learning.nightlyModel,
+                  coreCardCount: learning.coreCardCount,
+                  searchCardCount: learning.searchCardCount,
+                  searchChunkCount: learning.searchChunkCount,
+                }),
           },
           family === 'agents' ? targetId : DEMO_IDS.installation,
           target.revision,

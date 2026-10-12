@@ -26,7 +26,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
 | permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
-| memory, learning, sleep | memory switch and sleep time | `learning` |
+| memory, learning, sleep, nightly model, core cards | memory switch, sleep time, nightly model and memory counts | `learning` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
 ## How to work
@@ -72,6 +72,13 @@ person's approval; say plainly that it removes every prompt.
 **Always-allowed actions.** When the person picks "Always allow" on an approval card, that action joins
 `alwaysAllowed` in `permissions.get` and no kip asks for it again. Remove one with `permissions.set`
 `removeAlwaysAllowed: [id]`. Only the person adds them, from a card.
+
+**Memory.** `learning.get` shows the memory settings. Each night, at a kip's sleep time, Kipster turns that kip's new
+conversation into searchable thread chunks, shared cards about the person and a diary. `learning.set` turns memory on or
+off for every kip and sets the default `sleepTime` ("HH:MM", local time); `learning.agent_set` does the same for one
+kip. `learning.set` also sets `nightlyModel` (`{ adapterId, modelId, effort? }` from `adapters.list`, or `null` to use
+Kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
+(cards and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only what they ask for.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call

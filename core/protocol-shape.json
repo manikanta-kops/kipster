@@ -297,7 +297,11 @@
       "fields": {
         "version": {"type":"literal","value":1},
         "enabled": {"type":"optional","of":{"type":"boolean"}},
-        "sleepTime": {"type":"optional","of":{"type":"string","format":"clock-time"}}
+        "sleepTime": {"type":"optional","of":{"type":"string","format":"clock-time"}},
+        "nightlyModel": {"type":"optional","of":{"type":"nullable","of":{"ref":"nightlyModel"}}},
+        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0,"max":200}},
+        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0,"max":50}},
+        "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0,"max":30}}
       }
     },
     "membershipAdd": {
@@ -307,6 +311,15 @@
         "version": {"type":"literal","value":1},
         "operationId": {"type":"string","min":1,"max":200},
         "agentId": {"type":"string","min":1}
+      }
+    },
+    "nightlyModel": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "adapterId": {"type":"string","min":1,"max":200},
+        "modelId": {"type":"string","min":1,"max":200},
+        "effort": {"type":"optional","of":{"type":"string","min":1,"max":200}}
       }
     },
     "notificationBatch": {
@@ -1455,7 +1468,25 @@
           "of": [{"type":"literal","value":"installation"},{"type":"literal","value":"agent"}]
         },
         "enabled": {"type":"boolean"},
-        "sleepTime": {"type":"nullable","of":{"type":"string","format":"clock-time"}}
+        "sleepTime": {"type":"nullable","of":{"type":"string","format":"clock-time"}},
+        "nightlyModel": {
+          "type": "optional",
+          "of": {
+            "type": "nullable",
+            "of": {
+              "type": "object",
+              "exact": false,
+              "fields": {
+                "adapterId": {"type":"string","min":1},
+                "modelId": {"type":"string","min":1},
+                "effort": {"type":"optional","of":{"type":"string","min":1}}
+              }
+            }
+          }
+        },
+        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0}}
       }
     },
     "learningSettings": {
@@ -1467,7 +1498,25 @@
         "sleepTime": {"type":"string","format":"clock-time"},
         "revision": {"type":"integer","min":0},
         "available": {"type":"boolean"},
-        "agents": {"type":"array","items":{"ref":"agentLearning"}}
+        "agents": {"type":"array","items":{"ref":"agentLearning"}},
+        "nightlyModel": {
+          "type": "optional",
+          "of": {
+            "type": "nullable",
+            "of": {
+              "type": "object",
+              "exact": false,
+              "fields": {
+                "adapterId": {"type":"string","min":1},
+                "modelId": {"type":"string","min":1},
+                "effort": {"type":"optional","of":{"type":"string","min":1}}
+              }
+            }
+          }
+        },
+        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0}}
       }
     },
     "membershipRemovalResult": {

@@ -57,7 +57,7 @@ async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
     await rm(home, { recursive: true, force: true })
   })
   const serve = async as => {
-    const server = await startTextServer(runtime, as, { host: '127.0.0.1', port: 0 })
+    const server = await startTextServer(runtime, as, { host: '127.0.0.1', port: 0, dispatcher })
     servers.push(server)
     return async (method, path, body) => {
       const response = await fetch(server.url + path, { method, ...(body === undefined ? {} : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }) })
@@ -80,6 +80,7 @@ async function completeTextRun(ctx, text) {
   await until(async () => (await ctx.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [saved.runId])).rows[0]?.state, state => state === 'completed', `run completed ${saved.runId}`)
   return saved
 }
+const memoryDefaults = { nightlyModel: null, coreCardCount: 60, searchCardCount: 10, searchChunkCount: 6 }
 const memoryRows = ctx => count(ctx.db, `SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.cards) + (SELECT count(*) FROM kipster.diary)
   + (SELECT count(*) FROM kipster.memory_thread_state) AS n`)
 
@@ -89,6 +90,7 @@ test('memory is off for the installation and on for each agent by default', { sk
   assert.deepEqual(await ctx.runtime.learning.get(ctx.actor), {
     enabled: false, sleepTime: '01:00', revision: 0, available: true,
     agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: false }],
+    ...memoryDefaults,
   })
   await completeTextRun(ctx, 'The team meets on Tuesdays')
   assert.equal(await memoryRows(ctx), 0)
@@ -101,7 +103,7 @@ test('memory turns on without an embedding provider, and available reports that 
   const call = await ctx.serve(ctx.actor)
   const enabled = await call('PUT', '/v1/settings/learning', { version: 1, enabled: true })
   assert.equal(enabled.status, 200)
-  assert.deepEqual(learningSettings.parse(enabled.data), { version: 1, enabled: true, sleepTime: '01:00', revision: 1, available: false, agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }] })
+  assert.deepEqual(learningSettings.parse(enabled.data), { version: 1, enabled: true, sleepTime: '01:00', revision: 1, available: false, agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }], ...memoryDefaults })
   assert.deepEqual((await readEvents(ctx.db, scope, start)).events.map(event => event.type), ['learning-changed'])
 })
 
@@ -129,7 +131,7 @@ test('owners read and update the switches and sleep times over HTTP, others are 
 
   const enabled = await owner('PUT', '/v1/settings/learning', { version: 1, enabled: true })
   assert.equal(enabled.status, 200)
-  assert.deepEqual(learningSettings.parse(enabled.data), { version: 1, enabled: true, sleepTime: '01:00', revision: 1, available: true, agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }] })
+  assert.deepEqual(learningSettings.parse(enabled.data), { version: 1, enabled: true, sleepTime: '01:00', revision: 1, available: true, agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }], ...memoryDefaults })
   assert.equal(learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, enabled: true })).data).revision, 1, 'an unchanged value is not a change')
 
   const agentPath = `/v1/agents/${ctx.agentId}/learning`
@@ -163,11 +165,42 @@ test('owners read and update the switches and sleep times over HTTP, others are 
 
   const events = (await readEvents(ctx.db, scope, start)).events.map(event => textEvent.parse(JSON.parse(JSON.stringify(event))))
   assert.deepEqual(events.map(event => [event.type, event.resourceId, event.revision, event.data]), [
-    ['learning-changed', ctx.actor.installationId, 1, { target: 'installation', enabled: true, sleepTime: '01:00' }],
+    ['learning-changed', ctx.actor.installationId, 1, { target: 'installation', enabled: true, sleepTime: '01:00', ...memoryDefaults }],
     ['learning-changed', ctx.agentId, 1, { target: 'agent', enabled: false, sleepTime: null }],
-    ['learning-changed', ctx.actor.installationId, 2, { target: 'installation', enabled: true, sleepTime: '23:30' }],
+    ['learning-changed', ctx.actor.installationId, 2, { target: 'installation', enabled: true, sleepTime: '23:30', ...memoryDefaults }],
     ['learning-changed', ctx.agentId, 2, { target: 'agent', enabled: true, sleepTime: '04:15' }],
     ['learning-changed', ctx.agentId, 3, { target: 'agent', enabled: true, sleepTime: null }],
     ['learning-changed', ctx.agentId, 4, { target: 'agent', enabled: false, sleepTime: null }],
+  ])
+})
+
+test('the nightly model and memory counts are installation settings, validated, bounded and checked against the adapter catalog', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
+  await ctx.dispatcher.start()
+  const scope = { kind: 'application', installationId: ctx.actor.installationId, callerId: ctx.actor.personId }
+  const start = (await snapshot(ctx.db, scope)).cursor
+  const owner = await ctx.serve(ctx.actor)
+  const stranger = await ctx.serve({ installationId: ctx.actor.installationId, personId: randomUUID() })
+  const model = { adapterId: 'deterministic-fixture', modelId: 'fixture-model' }
+  const changed = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: model, coreCardCount: 0, searchCardCount: 50, searchChunkCount: 30 })).data)
+  assert.deepEqual([changed.nightlyModel, changed.coreCardCount, changed.searchCardCount, changed.searchChunkCount, changed.enabled, changed.revision], [model, 0, 50, 30, false, 1])
+  assert.equal(learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, coreCardCount: 0 })).data).revision, 1, 'an unchanged value is not a change')
+  const kips = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: null, coreCardCount: 200 })).data)
+  assert.deepEqual([kips.nightlyModel, kips.coreCardCount, kips.revision], [null, 200, 2])
+  for (const bad of [
+    { coreCardCount: 201 }, { coreCardCount: -1 }, { coreCardCount: 1.5 }, { searchCardCount: 51 }, { searchChunkCount: 31 }, { searchChunkCount: '6' },
+    { nightlyModel: { adapterId: 'deterministic-fixture' } }, { nightlyModel: { ...model, extra: 1 } }, { nightlyModel: { ...model, modelId: '' } },
+    // The connected catalog has no such adapter, model or effort.
+    { nightlyModel: { adapterId: 'missing', modelId: 'fixture-model' } }, { nightlyModel: { ...model, modelId: 'missing' } }, { nightlyModel: { ...model, effort: 'high' } },
+  ]) assert.equal((await owner('PUT', '/v1/settings/learning', { version: 1, ...bad })).status, 400, JSON.stringify(bad))
+  assert.equal((await owner('PUT', `/v1/agents/${ctx.agentId}/learning`, { version: 1, coreCardCount: 5 })).status, 400, 'counts belong to the installation')
+  assert.equal((await stranger('PUT', '/v1/settings/learning', { version: 1, coreCardCount: 5 })).status, 403)
+  // The service checks the same rules for the admin tools.
+  await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { searchCardCount: 99 }), /Invalid searchCardCount/)
+  await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { nightlyModel: { adapterId: 'x', modelId: 'y' } }, ctx.dispatcher.catalog()), /Invalid nightly model/)
+  const events = (await readEvents(ctx.db, scope, start)).events.map(event => textEvent.parse(JSON.parse(JSON.stringify(event))))
+  assert.deepEqual(events.map(event => [event.type, event.revision, event.data]), [
+    ['learning-changed', 1, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: model, coreCardCount: 0, searchCardCount: 50, searchChunkCount: 30 }],
+    ['learning-changed', 2, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: null, coreCardCount: 200, searchCardCount: 50, searchChunkCount: 30 }],
   ])
 })

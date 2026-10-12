@@ -106,6 +106,12 @@ messages, using Kip's model unless the nightly-model setting names another:
 6. Embed the new and changed chunks, cards and diary pages.
 7. Advance a thread's `processed_position` only after its results are saved.
 
+A thread's chunks, card changes, sources, diary contribution and processed
+position are saved in one transaction. Delegated (internal) threads and progress
+notes are not conversation and are left out. Each model call is ordinary work
+with an execution permit, one at a time per installation, and never takes the
+last free permit while a user turn waits for one.
+
 ## 5. Every turn
 
 In order:
@@ -169,7 +175,9 @@ a habit.
 
 In Core, in the administration catalog and in the `kipster-admin` skill:
 memory on or off, sleep time, nightly model (default: Kip's model), core card
-count, search card count and search chunk count. The interface has a Memory view
+count (0-200, default 60), search card count (0-50, default 10) and search chunk
+count (0-30, default 6). The nightly model and the counts belong to the
+installation. The interface has a Memory view
 to read, edit and delete cards.
 
 ## 9. Not in this version
