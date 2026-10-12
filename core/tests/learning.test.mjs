@@ -107,15 +107,15 @@ test('memory turns on without an embedding provider, and available reports that 
   assert.deepEqual((await readEvents(ctx.db, scope, start)).events.map(event => event.type), ['learning-changed'])
 })
 
-test('with memory on, kips run turns without the removed memory tools or memory context', { skip: noDatabase }, async t => {
+test('with memory on, kips run turns with the memory tools and sections, none of the removed tools', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   await ctx.dispatcher.start()
   await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: true })
   await completeTextRun(ctx, 'Remember that the office opens at nine')
   const [execution] = ctx.executions
-  assert.equal(execution.context.memory, undefined)
+  assert.deepEqual(execution.context.memory, ['Memory search found nothing for the current message.'])
   const tools = execution.context.tools.map(tool => tool.name)
-  assert.deepEqual(tools.filter(name => name.startsWith('memory_')), [])
+  assert.deepEqual(tools.filter(name => name.startsWith('memory_')), ['memory_search', 'memory_recent_threads', 'memory_read_thread', 'memory_remember', 'memory_forget'])
   assert.ok(tools.includes('vector_collections'))
   assert.equal(await memoryRows(ctx), 0)
 })

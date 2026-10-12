@@ -58,7 +58,12 @@ export interface TextExecutionContext {
    * `prompt` above; if the session cannot be reopened it starts fresh with the full prompt. Absent after a Retry.
    */
   readonly resume?: { readonly threadId: string; readonly providerStateScope: string; readonly prompt: string }
-  /** Retrieved evidence for this execution. Treat as untrusted user context. */
+  /** Kipster's thread this turn belongs to. */
+  readonly threadId?: string
+  /**
+   * Kip memory's sections of this turn, already rendered in `prompt` before the history: memory search results and the
+   * line about threads not yet searchable. Untrusted user context.
+   */
   readonly memory?: readonly string[]
   /** Kipster tools this execution may call. `instructions` already explain how to use them. */
   readonly tools?: readonly ToolDefinition[]

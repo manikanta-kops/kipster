@@ -12,7 +12,7 @@ import { claimPreparation, issueAttempt, childDelegation, delegate, delegationAc
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
-import { executionTools, toolGuidance } from './agent-tools.js'
+import { executionTools, memoryGuidance, toolGuidance } from './agent-tools.js'
 import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
 import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, type Catalog } from '../modules/settings/public.js'
@@ -24,7 +24,7 @@ import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
-import { settleInterruptedMemoryCalls } from '../modules/memory/public.js'
+import { memoryTool, settleInterruptedMemoryCalls, turnMemory } from '../modules/memory/public.js'
 
 /** An unavailable adapter that work selects is probed again at most this often. */
 const REPROBE_INTERVAL_MS = 30000
@@ -59,7 +59,7 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
   })
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
@@ -94,6 +94,7 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
       // Agent tools keep their Core names, such as `agents.delegate` for `agents_delegate`.
       if (/^agents_(list|get|delegate|delegation_status)$/.test(request.name)) return dispatcher.agentTool(request.attemptId,request.callId,request.name.replace('_','.'),args)
       if ((request.name === 'admin_operations' || request.name === 'admin_call') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
+      if (/^memory_(search|recent_threads|read_thread|remember|forget)$/.test(request.name) && dispatcher.memoryTool) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
       if (request.name === 'data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
       if (request.name === 'vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
       const document = /^documents_(create|list|read|edit|delete)$/.exec(request.name)
@@ -681,11 +682,15 @@ export class TextDispatcher {
       const delegationResults=delegationRows.map(row=>({id:row.id,recipientAgentId:row.recipient_agent_id,request:row.request,state:row.state,...(row.result!==null?{result:row.result}:{}),...(row.failure!==null?{failure:row.failure}:{})}))
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
-      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
+      // Kip memory: core cards in the stable instructions, then search results and the unprocessed-threads line before the history.
+      const trigger = input.find(message => message.messageId === context.inputMessageId)
+      const query = (trigger?.parts ?? []).map(part => part.kind === 'text' ? part.text : part.transcription?.text ?? '').filter(Boolean).join('\n')
+      const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
-      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
       const previous = (await this.runtime.db.query<{ provider_metadata: { threadId?: unknown; providerStateScope?: unknown } }>(`SELECT a.provider_metadata FROM kipster.attempts a
@@ -802,6 +807,10 @@ export class TextDispatcher {
   async structuredTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
     if (!this.runtime.structured) throw new Error('Task-data service is not configured')
     return this.runtime.structured.invoke(attemptId,this.incarnation,callId,args)
+  }
+  /** Kip memory's tools, for an agent with memory on. */
+  async memoryTool(attemptId: string, _callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+    return memoryTool(this.runtime.db, this.runtime.embedding, attemptId, this.incarnation, name, args)
   }
   async vectorTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
     if (!this.runtime.vectors) throw new Error('Vector embedding profile is not configured')

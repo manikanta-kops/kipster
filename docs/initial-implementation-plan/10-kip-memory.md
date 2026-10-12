@@ -129,7 +129,9 @@ In order:
 4. The current thread's history and its thread ID.
 
 Limits are counts, never cut mid-item: 60 core cards, and 10 cards plus 6 thread
-chunks from search. Each is a setting.
+chunks from search. Each is a setting. Diary pages are ranked with the thread
+chunks and share their count, and the current thread's chunks are left out: its
+history is already there.
 
 Without the embedding runtime, core cards, the unprocessed-threads line and
 reading threads still work, and search reports that it is unavailable.
@@ -146,7 +148,10 @@ reading threads still work, and search reports that it is unavailable.
 - `memory_forget(cardId or query)`: deletes matching cards with their sources and
   embeddings. Raw messages stay.
 
-`agent` is accepted only from Kip. The old tools `memory_save`, `memory_get`,
+`agent` is accepted only from Kip; without it Kip's tools cover every kip. A
+`memory_forget` query deletes at most 20 cards: with more matches it deletes none
+and returns the candidates. The tools are offered only while the kip has memory
+on. The old tools `memory_save`, `memory_get`,
 `memory_correct`, `memory_publish`, `memory_link`, `memory_unlink` and the
 `memory_relationship_*` tools are removed. `data_space` is renamed
 `data_tables` and `vectors_space` is renamed `vector_collections`; kips keep
