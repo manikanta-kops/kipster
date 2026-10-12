@@ -190,7 +190,7 @@ async function seedMemory(ctx, data) {
     const id = randomUUID()
     await db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,details,confirmed,organization_id,valid_to,replaced_by)
       VALUES ($1,$2,'fact','user',$3,'{}',true,$4,CASE WHEN $5::boolean THEN now() END,$6)`, [id, installationId, statement, extra.organizationId ?? null, extra.ended ?? false, extra.replacedBy ?? null])
-    for (const [threadId, messageId] of sources) await db.query('INSERT INTO kipster.card_sources(card_id,thread_id,message_id) VALUES ($1,$2,$3)', [id, threadId, messageId])
+    for (const [threadId, messageId] of sources) await db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, installationId, threadId, messageId])
     return id
   }
   const diary = (agentId, day, threadIds) => db.query('INSERT INTO kipster.diary(agent_id,day,installation_id,summary,thread_ids) VALUES ($1,$2,$3,$4,$5::uuid[])', [agentId, day, installationId, `What happened on ${day}`, threadIds])
@@ -481,7 +481,7 @@ test('organization deletion fences work, removes owned resources and preserves g
   const card = async organizationId => {
     const id = randomUUID()
     await ctx.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,organization_id) VALUES ($1,$2,'fact','user','Works with Scout',$3)`, [id, ctx.installationId, organizationId])
-    await ctx.db.query('INSERT INTO kipster.card_sources(card_id,thread_id,message_id) VALUES ($1,$2,$3)', [id, other.threadId, otherMessage])
+    await ctx.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, ctx.installationId, other.threadId, otherMessage])
     return id
   }
   const organizationCard = await card(ctx.organizationId), globalCard = await card(null)

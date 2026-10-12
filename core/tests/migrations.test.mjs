@@ -44,6 +44,8 @@ const embedded = { thread_chunks: ['embedding'], cards: ['embedding'], diary: ['
 async function assertMemorySchema(db) {
   const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='kipster' AND (table_name LIKE 'memory%' OR table_name LIKE 'maintenance%' OR table_name IN ('thread_chunks','cards','card_sources','diary','embedding_profiles','embedding_generations')) ORDER BY table_name")).rows.map(row => row.table_name)
   assert.deepEqual(tables, ['card_sources', 'cards', 'diary', 'embedding_generations', 'embedding_profiles', 'memory_thread_state', 'thread_chunks'])
+  const owned = (await db.query("SELECT table_name FROM information_schema.columns WHERE table_schema='kipster' AND column_name='installation_id' AND is_nullable='NO' AND table_name IN ('memory_thread_state','thread_chunks','cards','card_sources','diary') ORDER BY table_name")).rows.map(row => row.table_name)
+  assert.deepEqual(owned, ['card_sources', 'cards', 'diary', 'memory_thread_state', 'thread_chunks'])
   for (const name of retiredMemoryTables) assert.equal((await db.query('SELECT to_regclass($1) AS name', [`kipster.${name}`])).rows[0].name, null, name)
   assert.equal((await db.query("SELECT to_regprocedure('kipster.memory_strength(real,integer,bigint)') AS name")).rows[0].name, null)
   assert.equal((await db.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='kipster' AND column_name='maintenance_counter'")).rows[0].n, 0)

@@ -90,6 +90,7 @@ CREATE TABLE kipster.cards (
 -- deleted with the thread that removed its last one.
 CREATE TABLE kipster.card_sources (
   card_id uuid NOT NULL REFERENCES kipster.cards(id) ON DELETE CASCADE,
+  installation_id uuid NOT NULL REFERENCES kipster.installations(id),
   thread_id uuid NOT NULL REFERENCES kipster.threads(id) ON DELETE CASCADE,
   message_id uuid NOT NULL REFERENCES kipster.messages(id) ON DELETE CASCADE,
   PRIMARY KEY (card_id, message_id)
