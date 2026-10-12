@@ -42,14 +42,15 @@ function cardInput(input: CardInput): Required<CardInput> {
   if (input.confirmed !== undefined && typeof input.confirmed !== 'boolean') throw new Error('Invalid card confirmation')
   return { type: text(input.type, 'type', CARD_LIMITS.type).toLowerCase(), subject: text(input.subject, 'subject', CARD_LIMITS.subject), statement: text(input.statement, 'statement', CARD_LIMITS.statement), details: details(input.details), confirmed: input.confirmed ?? false }
 }
-const scopeSql = (scope: CardScope, parameter: string): string => scope === 'all' ? `${parameter}::uuid IS NULL` : `(c.organization_id IS NULL OR c.organization_id = ${parameter}::uuid)`
-const scopeValue = (scope: CardScope): string | null => scope === 'all' ? null : scope.organizationId
+export const scopeSql = (scope: CardScope, parameter: string): string => scope === 'all' ? `${parameter}::uuid IS NULL` : `(c.organization_id IS NULL OR c.organization_id = ${parameter}::uuid)`
+export const scopeValue = (scope: CardScope): string | null => scope === 'all' ? null : scope.organizationId
 
-type Row = { id: string; type: string; subject: string; statement: string; details: Record<string, unknown>; confirmed: boolean; core: boolean; organization_id: string | null; valid_from: Date; valid_to: Date | null; replaced_by: string | null; created_at: Date; updated_at: Date; embedded: boolean; sources: CardSource[] }
-const columns = `c.id, c.type, c.subject, c.statement, c.details, c.confirmed, c.core, c.organization_id, c.valid_from, c.valid_to, c.replaced_by, c.created_at, c.updated_at,
+export type CardRow = { id: string; type: string; subject: string; statement: string; details: Record<string, unknown>; confirmed: boolean; core: boolean; organization_id: string | null; valid_from: Date; valid_to: Date | null; replaced_by: string | null; created_at: Date; updated_at: Date; embedded: boolean; sources: CardSource[] }
+/** Columns of a `CardRow`, with the card table as `c`. */
+export const cardColumns = `c.id, c.type, c.subject, c.statement, c.details, c.confirmed, c.core, c.organization_id, c.valid_from, c.valid_to, c.replaced_by, c.created_at, c.updated_at,
   c.embedding IS NOT NULL AS embedded,
   COALESCE((SELECT jsonb_agg(jsonb_build_object('threadId', s.thread_id, 'messageId', s.message_id) ORDER BY s.thread_id, s.message_id) FROM kipster.card_sources s WHERE s.card_id = c.id), '[]'::jsonb) AS sources`
-function card(row: Row): Card {
+export function card(row: CardRow): Card {
   return {
     id: row.id, type: row.type, subject: row.subject, statement: row.statement, details: row.details, confirmed: row.confirmed, core: row.core,
     organizationId: row.organization_id, validFrom: row.valid_from.toISOString(), validTo: row.valid_to?.toISOString() ?? null, replacedBy: row.replaced_by,
@@ -126,7 +127,7 @@ export class CardService {
   }
 
   async get(id: string, client: Postgres | SqlClient = this.db): Promise<Card | null> {
-    const row = (await client.query<Row>(`SELECT ${columns} FROM kipster.cards c WHERE c.id=$1 AND c.installation_id=$2`, [id, this.installationId])).rows[0]
+    const row = (await client.query<CardRow>(`SELECT ${cardColumns} FROM kipster.cards c WHERE c.id=$1 AND c.installation_id=$2`, [id, this.installationId])).rows[0]
     return row ? card(row) : null
   }
 
@@ -136,7 +137,7 @@ export class CardService {
     const limit = Math.min(Math.max(1, options.limit ?? 50), CARD_LIMITS.page)
     const after = options.cursor ? (await client.query<{ updated_at: Date; id: string }>('SELECT updated_at, id FROM kipster.cards WHERE id=$1 AND installation_id=$2', [options.cursor, this.installationId])).rows[0] : undefined
     if (options.cursor && !after) throw new Error('Invalid card cursor')
-    const rows = (await client.query<Row>(`SELECT ${columns} FROM kipster.cards c WHERE c.installation_id=$1 AND ${scopeSql(scope, '$2')}
+    const rows = (await client.query<CardRow>(`SELECT ${cardColumns} FROM kipster.cards c WHERE c.installation_id=$1 AND ${scopeSql(scope, '$2')}
       AND ($3 OR c.valid_to IS NULL) AND ($4::timestamptz IS NULL OR (c.updated_at, c.id) < ($4, $5::uuid))
       ORDER BY c.updated_at DESC, c.id DESC LIMIT $6`, [this.installationId, scopeValue(scope), options.ended === true, after?.updated_at ?? null, after?.id ?? null, limit + 1])).rows
     return { cards: rows.slice(0, limit).map(card), nextCursor: rows.length > limit ? rows[limit - 1]!.id : null }
@@ -154,15 +155,15 @@ export class CardService {
       const { profile, embedder } = this.embedding.embeddingConfig()
       try { vector = vectorLiteral(await boundedEmbed(embedder, embeddingQuery(query.text.slice(0, EMBEDDING_TEXT_MAX)), 10000)); model = profile.model } catch { vector = undefined }
     }
-    const found: Row[] = []
+    const found: CardRow[] = []
     if (vector) {
       try {
-        found.push(...(await client.query<Row>(`SELECT ${columns} FROM kipster.cards c WHERE c.installation_id=$1 AND c.valid_to IS NULL AND ${scopeSql(scope, '$2')}
+        found.push(...(await client.query<CardRow>(`SELECT ${cardColumns} FROM kipster.cards c WHERE c.installation_id=$1 AND c.valid_to IS NULL AND ${scopeSql(scope, '$2')}
           AND c.embedding IS NOT NULL AND c.embedding_model=$3 ORDER BY c.embedding <=> $4::vector, c.id LIMIT $5`, [this.installationId, scopeValue(scope), model, vector, limit])).rows)
       } catch { /* A vector of another dimension finds nothing; the fallback below still answers. */ }
     }
     if (found.length < limit) {
-      found.push(...(await client.query<Row>(`SELECT ${columns} FROM kipster.cards c WHERE c.installation_id=$1 AND c.valid_to IS NULL AND ${scopeSql(scope, '$2')}
+      found.push(...(await client.query<CardRow>(`SELECT ${cardColumns} FROM kipster.cards c WHERE c.installation_id=$1 AND c.valid_to IS NULL AND ${scopeSql(scope, '$2')}
         AND c.id <> ALL($3::uuid[]) AND ($4::text IS NULL OR c.embedding IS NULL OR c.embedding_model IS DISTINCT FROM $4)
         ORDER BY lower(c.subject) = lower(COALESCE($5, '')) DESC, c.updated_at DESC, c.id LIMIT $6`,
         [this.installationId, scopeValue(scope), found.map(row => row.id), vector ? model : null, query.subject ?? null, limit - found.length])).rows)
@@ -202,7 +203,6 @@ const pending = {
  */
 export async function embedPending(db: Postgres, installationId: string, embedding: EmbeddingProfile | undefined, signal?: AbortSignal): Promise<{ embedded: number; failed: boolean }> {
   if (!embedding) return { embedded: 0, failed: false }
-  const { profile, embedder } = embedding.embeddingConfig()
   let embedded = 0
   for (const [table, source] of Object.entries(pending)) {
     const skipped = new Set<string>()
@@ -213,17 +213,40 @@ export async function embedPending(db: Postgres, installationId: string, embeddi
       if (!rows.length) break
       for (const row of rows) {
         if (signal?.aborted) break
-        let values: readonly number[]
-        try { values = await boundedEmbed(embedder, embeddingDocument(row.text.slice(0, EMBEDDING_TEXT_MAX), row.title), EMBED_TIMEOUT_MS) }
-        catch { return { embedded, failed: true } }
-        try {
-          const saved = await db.query(`UPDATE kipster.${table} SET embedding=$3::vector, embedding_model=$4 WHERE installation_id=$1 AND ${source.where}=$2 AND embedding IS NULL AND updated_at=$5::timestamptz`,
-            [installationId, row.key, vectorLiteral(values), profile.model, row.updated_at])
-          if (saved.rowCount) embedded++
-          else skipped.add(row.key)
-        } catch { skipped.add(row.key) /* A vector of another dimension cannot be stored. */ }
+        const saved = await embedRow(db, installationId, embedding, table as keyof typeof pending, row, EMBED_TIMEOUT_MS)
+        if (saved === 'failed') return { embedded, failed: true }
+        if (saved === 'saved') embedded++
+        else skipped.add(row.key)
       }
     }
   }
   return { embedded, failed: false }
+}
+
+/** Embeds the given cards now when they still lack an embedding, as `embedPending` does, waiting at most `timeoutMs` for
+ * each. Returns how many were embedded, or `failed` at the first provider failure; the rest wait for the nightly run. */
+export async function embedCards(db: Postgres, installationId: string, embedding: EmbeddingProfile | undefined, ids: readonly string[], timeoutMs: number): Promise<{ embedded: number; failed: boolean }> {
+  if (!embedding || !ids.length) return { embedded: 0, failed: false }
+  const rows = (await db.query<{ key: string; title: string; text: string; updated_at: string }>(
+    `SELECT ${pending.cards.select} WHERE installation_id=$1 AND embedding IS NULL AND id = ANY($2::uuid[]) ORDER BY updated_at, id`, [installationId, ids])).rows
+  let embedded = 0
+  for (const row of rows) {
+    const saved = await embedRow(db, installationId, embedding, 'cards', row, timeoutMs)
+    if (saved === 'failed') return { embedded, failed: true }
+    if (saved === 'saved') embedded++
+  }
+  return { embedded, failed: false }
+}
+
+/** Embeds one row with the document prompt format unless it changed meanwhile. */
+async function embedRow(db: Postgres, installationId: string, embedding: EmbeddingProfile, table: keyof typeof pending, row: { key: string; title: string; text: string; updated_at: string }, timeoutMs: number): Promise<'saved' | 'skipped' | 'failed'> {
+  const { profile, embedder } = embedding.embeddingConfig()
+  let values: readonly number[]
+  try { values = await boundedEmbed(embedder, embeddingDocument(row.text.slice(0, EMBEDDING_TEXT_MAX), row.title), timeoutMs) }
+  catch { return 'failed' }
+  try {
+    const saved = await db.query(`UPDATE kipster.${table} SET embedding=$3::vector, embedding_model=$4 WHERE installation_id=$1 AND ${pending[table].where}=$2 AND embedding IS NULL AND updated_at=$5::timestamptz`,
+      [installationId, row.key, vectorLiteral(values), profile.model, row.updated_at])
+    return saved.rowCount ? 'saved' : 'skipped'
+  } catch { return 'skipped' /* A vector of another dimension cannot be stored. */ }
 }

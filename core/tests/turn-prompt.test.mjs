@@ -36,3 +36,18 @@ test('Core adds saved answers, delegations and receipts to the turn', () => {
   assert.match(sections[4], /saved-agent/)
   assert.equal(sections.length, 5)
 })
+
+test('Core places memory sections before the history, which names its thread', () => {
+  const prompt = turnPrompt({ ...base, threadId: 'thread-1', memory: ['Memory search is unavailable this turn.', '2 threads since last night are not searchable yet.'], triggerMessageId: 'm', input: [{ messageId: 'm', text: 'Hi' }] })
+  assert.equal(prompt, [
+    'Memory search is unavailable this turn.',
+    '',
+    '2 threads since last night are not searchable yet.',
+    '',
+    'Kipster conversation history of thread thread-1 (canonical, ordered):',
+    '',
+    '',
+    'Current user message [m]:',
+    'Hi',
+  ].join('\n'))
+})

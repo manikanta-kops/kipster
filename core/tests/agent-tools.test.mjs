@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { executionTools, toolGuidance } from '../dist/workflows/agent-tools.js'
+import { executionTools, memoryGuidance, toolGuidance } from '../dist/workflows/agent-tools.js'
 import { adminSkill, skillsSection } from '../dist/workflows/skills.js'
 import { textPublicationHost } from '../dist/runtime.js'
 import { access, readFile } from 'node:fs/promises'
@@ -20,6 +20,8 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   }
   const waits = Object.fromEntries(executionTools(all).filter(tool => tool.waits).map(tool => [tool.name, tool.waits]))
   assert.deepEqual(waits, { interactions_ask: 'question', interactions_request_approval: 'approval', agents_delegate: 'child' })
+  assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['memory_search', 'memory_recent_threads', 'memory_read_thread', 'memory_remember', 'memory_forget'])
+  assert.match(memoryGuidance, /memory_search/)
   const dataTables = executionTools(all).find(tool => tool.name === 'data_tables')
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
   assert.match(toolGuidance, /conversation_publish/)
@@ -30,11 +32,13 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }
-  const dispatcher = Object.fromEntries(['publishToolText', 'askToolInteraction', 'structuredTool', 'vectorTool', 'writeArtifactTool', 'publishArtifactTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool'].map(method => [method, record(method)]))
+  const dispatcher = Object.fromEntries(['publishToolText', 'askToolInteraction', 'structuredTool', 'vectorTool', 'writeArtifactTool', 'publishArtifactTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
   const host = textPublicationHost(dispatcher)
   const valid = { conversation_publish: { text: 'Hi' }, audio_transcribe: { artifactId: 'a' }, artifacts_write: { name: 'a.txt', content: 'x' }, artifacts_publish: { outputId: 'o' }, artifacts_copy_to_organization: { artifactId: 'a' } }
-  for (const name of names(all)) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
-  const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [names(all)[index], [method, rest.at(-1)]]))
+  const offered = names({ ...all, memory: true })
+  for (const name of offered) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
+  const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [offered[index], [method, rest.at(-1)]]))
+  assert.deepEqual(routed.memory_read_thread, ['memoryTool', 'memory_read_thread'])
   assert.deepEqual(routed.agents_delegation_status, ['agentTool', 'agents.delegation_status'])
   assert.deepEqual(routed.admin_call, ['adminTool', 'admin_call'])
   assert.deepEqual(routed.data_tables[0], 'structuredTool')
