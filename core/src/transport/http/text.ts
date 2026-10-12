@@ -222,7 +222,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
       if (path === '/v1/settings/learning' && request.method === 'GET') { json(response, 200, { version: 1, ...await runtime.learning.get(actor) }); return }
       if (path === '/v1/settings/learning' && request.method === 'PUT') {
         const { version: _, ...update } = learningUpdate.parse(await body(request))
-        json(response, 200, { version: 1, ...await runtime.learning.setInstallation(actor, update) }); return
+        json(response, 200, { version: 1, ...await runtime.learning.setInstallation(actor, update, options.dispatcher?.catalog() ?? null) }); return
       }
       const agentLearningMatch = /^\/v1\/agents\/([0-9a-f-]{36})\/learning$/.exec(path)
       if (agentLearningMatch && request.method === 'PUT') {

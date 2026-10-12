@@ -23,6 +23,8 @@ import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
+import { NightlyDispatch } from './nightly-dispatch.js'
+import { settleInterruptedMemoryCalls } from '../modules/memory/public.js'
 
 /** An unavailable adapter that work selects is probed again at most this often. */
 const REPROBE_INTERVAL_MS = 30000
@@ -31,7 +33,7 @@ const CANCELLATION_DELIVERY_MS = 5000
 
 export interface ControlInput { operationId: string; context: Context; chatId: string; threadId: string; runId: string; attemptId?: string; action: 'stop'|'resume'|'retry'|'cancel-queued'|'steer' }
 export interface ControlReceipt { version: 1; operationId: string; outcome: 'accepted'|'unsupported'|'rejected'; reason: string; runId: string; threadId: string; state: string }
-export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterStartupRecovery?(): Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void> }
+export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterStartupRecovery?(): Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void>; nightlyFailed?(error: unknown): void | Promise<void> }
 const transcriptionFailures=new Set(['unavailable','timeout','cancelled','invalid-input','output-limit','provider-error'])
 function normalizedTranscription(value:unknown,provider:string):{status:'succeeded'|'no-speech';text:string;provider:string}|{status:'unavailable';reason:string;provider:string}{
   const row=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
@@ -169,9 +171,20 @@ export class TextDispatcher {
   /** When each adapter was last probed, and probes that work is waiting for. */
   private readonly probedAt = new Map<string, number>()
   private readonly reprobes = new Map<string, Promise<void>>()
+  /** Kip memory's nightly run, while this process coordinates. */
+  private readonly nightly: NightlyDispatch
   /** `hostCatalog`, when given, is the catalog of a direct adapter; otherwise its readiness report supplies it. */
   constructor(private readonly runtime: Runtime, private readonly adapter: TextExecutionAdapter | AdapterRegistry, private readonly hooks: DispatchHooks = {}, private readonly hostCatalog: Catalog | null = null) {
     this.operations = new OperationEngine(runtime, hooks, () => this.deliverCancellations())
+    this.nightly = new NightlyDispatch({
+      runtime, adapter, incarnation: this.incarnation, live: this.live,
+      catalog: () => this.catalog(),
+      directMaintenance: () => this.directReason === null && this.directReadiness?.catalog.capabilities.maintenance === true,
+      coordinating: () => this.coordinating && !this.stopped,
+      mayCoordinate: client => this.mayCoordinate(client),
+      lockCapacity: client => lockCapacity(client, runtime.bootstrap.installationId),
+      onError: error => { void Promise.resolve().then(() => this.hooks.nightlyFailed?.(error)).catch(() => undefined) },
+    })
     this.operations.register('agent.delete', agentDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
     this.operations.register('organization.delete', organizationDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
   }
@@ -340,6 +353,9 @@ export class TextDispatcher {
     return receipt
   }
 
+  /** Runs the due nightly memory runs now instead of at the next timer tick; resolves when they stopped. */
+  nightlyTick(): Promise<void> { return this.nightly.tick() }
+
   /** Asks the adapter to cancel an attempt this process drives, once at a time, and records the answer. */
   private requestCancel(attemptId: string): void {
     const handle = this.handles.get(attemptId)
@@ -381,6 +397,7 @@ export class TextDispatcher {
     if (this.lock !== lock) throw new Error('Coordinator lock lost during startup')
     this.started = true
     await this.coordinate()
+    this.nightly.start()
     // Runs whether or not this process coordinates: it drives its own attempts either way.
     this.cancellationTimer = setInterval(() => { void this.deliverCancellations().catch(() => undefined) }, CANCELLATION_DELIVERY_MS)
     this.cancellationTimer.unref?.()
@@ -486,6 +503,7 @@ export class TextDispatcher {
       const ids = await client.query<{ installation_id: string }>('SELECT installation_id FROM kipster.bootstrap ORDER BY installation_id')
       for (const { installation_id: installationId } of ids.rows) {
         await lockCapacity(client, installationId)
+        await settleInterruptedMemoryCalls(client, installationId, [...this.live], this.incarnation)
         const rows = await client.query<{ id: string; thread_id: string; state: string; current_attempt_id: string | null }>(`SELECT r.id,r.thread_id,r.state,r.current_attempt_id FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.installation_id=$1 AND r.current_attempt_id <> ALL($2::uuid[]) AND (r.state='preparing' OR (r.state IN ('running','waiting','cancellation-requested') AND EXISTS (SELECT 1 FROM kipster.attempts a WHERE a.id=r.current_attempt_id AND a.state='issued'))) ORDER BY r.thread_id,r.queue_position`, [installationId, [...this.live]])
         for (const row of rows.rows) {
           await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
@@ -1025,9 +1043,11 @@ export class TextDispatcher {
     if (this.startPromise) await this.startPromise.catch(() => undefined)
     for(const controller of this.voiceControllers.values())controller.abort()
     for(const controller of this.toolControllers.values())controller.abort()
-    if (!this.started) return
+    if (!this.started) { await this.nightly.close(); return }
     this.coordinating = false
     try {
+      // The nightly call in flight is cancelled and settles itself; one left over is failed by the next recovery.
+      await this.bounded(this.nightly.close(), 15000)
       await this.fenceOwnedOnClose()
       await this.bounded(Promise.allSettled([this.runtime.jobs.stopWork(), this.operations.stop(), this.adapter.close(), ...this.active]), 2000)
     } finally {

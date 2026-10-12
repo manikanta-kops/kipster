@@ -431,7 +431,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       throw error
     }
   }
-  /** Runs one maintenance task (extraction, consolidation or identity promotion) as an ephemeral, tool-free Codex thread in its own App Server process. The turn runs inside that process, so its observed exit confirms the end. */
+  /** Runs one maintenance task, a step of Kip memory's nightly run, as an ephemeral, tool-free Codex thread in its own App Server process. The turn runs inside that process, so its observed exit confirms the end. */
   private async maintenance(context: MaintenanceExecutionContext): Promise<ExecutionHandle> {
     const { attemptId } = context
     const payload = context.maintenance
@@ -442,7 +442,8 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       queue.finish()
       return { events: queue, cancel: async () => ({ acknowledged: true, confirmedEnded: true }), reconcile: async () => 'ended' }
     }
-    if (payload.task !== 'extract' && payload.task !== 'consolidate' && payload.task !== 'identity') return refused('Unsupported maintenance task')
+    // Only Kip memory's nightly steps; a task or step this adapter does not know fails before launch.
+    if (payload.task !== 'memory' || !['chunks', 'cards', 'diary', 'core'].includes(payload.step)) return refused('Unsupported maintenance task')
     const supported = this.modelCatalog?.find(entry => entry.id === settings.modelId)
     if (settings.adapterId !== this.id || !supported) return refused('Codex model is unavailable')
     if (settings.effort && !supported.efforts?.includes(settings.effort)) return refused('Codex effort is unsupported')

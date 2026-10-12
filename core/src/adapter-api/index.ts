@@ -86,60 +86,24 @@ export interface TextExecutionContext {
 
 type MaintenanceSettings = { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
 
-/** Verified extraction input for one maintenance source. Least privilege: no
- * provider IDs, paths, history, identity material, tools, or memory excerpts. */
-export interface ExtractionPayload {
-  readonly task: 'extract'
-  readonly sourceRunId: string
-  readonly sourceRevision: number
-  readonly contextKind: 'installation' | 'organization'
-  readonly contextId: string
-  /** Versioned Core template plus output schema; verified source texts follow. */
+/**
+ * One step of Kip memory's nightly run: write a thread's chunk boundaries (`chunks`), propose card changes (`cards`),
+ * write diary pages (`diary`) or rank the core cards (`core`). Least privilege: no provider IDs, paths, history,
+ * identity material, tools or memory beyond what `instructions` contains. Send `instructions` as the user turn of a
+ * tool-free, session-free turn and return the structured answer as one final text event.
+ */
+export interface MemoryPayload {
+  readonly task: 'memory'
+  readonly step: 'chunks' | 'cards' | 'diary' | 'core'
+  /** Versioned Core template with the input it names by short refs. */
   readonly instructions: string
-  readonly sources: readonly {
-    readonly messageId: string
-    readonly position: number
-    readonly revision: number
-    readonly partsHash: string
-    readonly authorId: string
-    readonly authorClass: 'human' | 'agent' | 'unknown'
-    readonly text: string
-  }[]
-  /** JSON Schema of the expected output, limited to the supplied references. Core validates every result again. */
+  /** JSON Schema of the expected output, limited to the supplied refs. Core validates every result again. */
   readonly outputSchema: Readonly<Record<string, unknown>>
   readonly settings: MaintenanceSettings
 }
 
-/** One agent's sleep consolidation: memories named by short references and the pairs to judge. */
-export interface ConsolidationPayload {
-  readonly task: 'consolidate'
-  /** Versioned Core template plus output format; the memories and pairs follow. */
-  readonly instructions: string
-  readonly memories: readonly { readonly ref: string; readonly text: string }[]
-  readonly pairs: readonly { readonly ref: string; readonly memories: readonly [string, string] }[]
-  /** Most lessons the output may contain. */
-  readonly lessonsMax: number
-  /** JSON Schema of the expected output, limited to the supplied references. Core validates every result again. */
-  readonly outputSchema: Readonly<Record<string, unknown>>
-  readonly settings: MaintenanceSettings
-}
-
-/** One agent's identity promotion: its strongest memories and the current Learned section of identity.md, which the
- * output replaces. */
-export interface IdentityPayload {
-  readonly task: 'identity'
-  /** Versioned Core template plus output format; the memories and the current section follow. */
-  readonly instructions: string
-  readonly memories: readonly { readonly ref: string; readonly text: string }[]
-  readonly section: string
-  /** Largest section the output may contain, in UTF-8 bytes. */
-  readonly sectionMaxBytes: number
-  /** JSON Schema of the expected output. Core validates every result again. */
-  readonly outputSchema: Readonly<Record<string, unknown>>
-  readonly settings: MaintenanceSettings
-}
-
-export type MaintenancePayload = ExtractionPayload | ConsolidationPayload | IdentityPayload
+/** Adapters fail a payload whose `task` they do not know, so a later task never runs on an older adapter. */
+export type MaintenancePayload = MemoryPayload
 
 export interface MaintenanceExecutionContext {
   readonly kind: 'maintenance'

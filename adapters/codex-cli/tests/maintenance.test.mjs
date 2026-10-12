@@ -10,13 +10,9 @@ import { createAdapter } from '../dist/index.js'
 
 const allowedEnvironment = /^(__CF_USER_TEXT_ENCODING|HOME|CODEX_HOME|OPENAI_API_KEY|OPENAI_BASE_URL|PATH|LANG|LC_[A-Z]+|TZ|TMPDIR|USER|LOGNAME|SHELL|TERM|SSL_CERT_(FILE|DIR)|CODEX_CA_CERTIFICATE|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy)$/
 const profile = ['features.apps=false', 'features.plugins=false', 'features.shell_tool=false', 'features.unified_exec=false', 'features.image_generation=false', 'features.view_image=false', 'web_search="disabled"']
-const author = '6f1c2a57-3f0e-4a8e-9a55-0d7f4f3b9c11'
-const output = { candidates: [{ kind: 'fact', text: 'The Amsterdam office opens at nine', subject: 'office hours', author_id: author, author_class: 'human', citations: [{ message_id: 'message-1', revision: 1, parts_hash: 'hash-1', excerpt: 'opens at nine' }] }] }
-const unweighted = { kind: 'observation', text: 'The office is in Amsterdam', subject: 'office location', author_id: author, author_class: 'human', citations: [{ message_id: 'message-1', revision: 1, parts_hash: 'hash-1', excerpt: 'Amsterdam office' }] }
-const weighted = { candidates: [{ ...output.candidates[0], importance: 0.8 }, { ...unweighted, importance: null }] }
-const promoted = { section: '- Prefers short summaries' }
-const consolidated = { verdicts: [{ pair: 'p1', verdict: 'same' }, { pair: 'p2', verdict: 'none' }], lessons: [{ text: 'Offices open early in the week', memories: ['m1', 'm2'] }] }
-
+const output = { topics: [{ start: 'm1', title: 'Office hours' }] }
+const cardChanges = { changes: [{ action: 'add', card: null, type: 'fact', subject: 'office', statement: 'The Amsterdam office opens at nine', details: [{ key: 'opens', value: '09:00' }], confirmed: true, sources: ['m1'] }] }
+const diaryPage = { days: [{ day: '2026-10-12', summary: 'Talked about office hours.' }] }
 // A scripted App Server. Its behavior after turn/start comes from the mode file, read at launch.
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'kipster-codex-maintenance-'))
@@ -54,12 +50,11 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const x=JSON.pa
   item('item/started',{type:'userMessage',id:'input'});
   item('item/completed',{type:'reasoning',id:'reasoning'});
   if(mode==='ok')message('answer',${JSON.stringify(JSON.stringify(output))});
-  if(mode==='importance')message('answer',${JSON.stringify(JSON.stringify(weighted))});
-  if(mode==='consolidate')message('answer',${JSON.stringify(JSON.stringify(consolidated))});
-  if(mode==='identity')message('answer',${JSON.stringify(JSON.stringify(promoted))});
+  if(mode==='cards')message('answer',${JSON.stringify(JSON.stringify(cardChanges))});
+  if(mode==='diary')message('answer',${JSON.stringify(JSON.stringify(diaryPage))});
   if(mode==='malformed')message('answer','Here is what I found: nothing');
-  if(mode==='multiple'){message('first','{"candidates":[]}');message('second','{"candidates":[]}')}
-  if(mode==='tool'){item('item/started',{type:'commandExecution',id:'command',command:'ls ~'});setTimeout(()=>{message('answer','{"candidates":[]}');complete('completed')},500);return}
+  if(mode==='multiple'){message('first','{"topics":[]}');message('second','{"topics":[]}')}
+  if(mode==='tool'){item('item/started',{type:'commandExecution',id:'command',command:'ls ~'});setTimeout(()=>{message('answer','{"topics":[]}');complete('completed')},500);return}
   if(mode==='request'){send({id:900,method:'item/commandExecution/requestApproval',params:{threadId:thread,turnId:'turn-1',itemId:'command'}});return}
   if(mode==='hang')return;
   complete(mode==='failed'?'failed':'completed');
@@ -82,8 +77,8 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const x=JSON.pa
   }
   return { directory, userHome, data, adapter, records, mode, launcher, cleanup }
 }
-const extractionSchema = { type: 'object', additionalProperties: false, required: ['candidates'], properties: { candidates: { type: 'array', maxItems: 8 } } }
-const context = (attemptId = 'attempt-1') => ({ kind: 'maintenance', runId: 'maintenance-run', attemptId, organizationId: null, agentId: 'agent', maintenance: { task: 'extract', sourceRunId: 'source-run', sourceRevision: 1, contextKind: 'installation', contextId: 'installation', instructions: 'Extract durable memory candidates.\n--- message message-1 ---\nThe Amsterdam office opens at nine.', sources: [{ messageId: 'message-1', position: 1, revision: 1, partsHash: 'hash-1', authorId: author, authorClass: 'human', text: 'The Amsterdam office opens at nine.' }], outputSchema: extractionSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } })
+const chunksSchema = { type: 'object', additionalProperties: false, required: ['topics'], properties: { topics: { type: 'array', minItems: 1, maxItems: 1, items: { type: 'object', additionalProperties: false, required: ['start', 'title'], properties: { start: { type: 'string', enum: ['m1'] }, title: { type: 'string' } } } } } }
+const context = (attemptId = 'attempt-1') => ({ kind: 'maintenance', runId: 'maintenance-run', attemptId, organizationId: null, agentId: 'agent', maintenance: { task: 'memory', step: 'chunks', instructions: 'Kipster memory, nightly step "chunks".\n\n[m1] Owner (user, new), Mon 12 Oct 2026 09:14:\nThe Amsterdam office opens at nine.', outputSchema: chunksSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } })
 async function collect(handle) { const events = []; for await (const event of handle.events) events.push(event); return events }
 async function run(f, mode) {
   await f.mode(mode)
@@ -113,7 +108,7 @@ test('readiness declares maintenance with durable recovery', async () => {
   } finally { await f.cleanup() }
 })
 
-test('extraction runs as an isolated, tool-free, ephemeral thread and returns the structured result', async () => {
+test('a nightly memory step runs as an isolated, tool-free, ephemeral thread and returns the structured result', async () => {
   const f = await fixture()
   try {
     const before = await hashes(f.userHome)
@@ -154,69 +149,52 @@ test('extraction runs as an isolated, tool-free, ephemeral thread and returns th
     assert.equal(turn.model, 'test-model')
     assert.equal(turn.effort, 'low')
     assert.deepEqual(turn.input, [{ type: 'text', text: context().maintenance.instructions }])
-    assert.deepEqual(turn.outputSchema, extractionSchema, 'Core supplies the output schema')
+    assert.deepEqual(turn.outputSchema, chunksSchema, 'Core supplies the output schema')
     await until(() => gone(provider.processId), 'process exit')
     assert.deepEqual(await readdir(join(f.data, 'maintenance', 'processes')), [])
   } finally { await f.cleanup() }
 })
 
-const consolidationSchema = { type: 'object', additionalProperties: false, required: ['verdicts', 'lessons'], properties: { verdicts: { type: 'array', maxItems: 2 }, lessons: { type: 'array', maxItems: 3 } } }
-const consolidation = { kind: 'maintenance', runId: 'consolidation-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'consolidate', instructions: 'Consolidate memories.\n\nMemories:\nm1 (new): The office opens at nine\nm2: The office opens at 9am\nm4: Invoices go out on Fridays\n\nPairs:\np1: m1 m2\np2: m1 m4', memories: [{ ref: 'm1', text: 'The office opens at nine' }, { ref: 'm2', text: 'The office opens at 9am' }, { ref: 'm4', text: 'Invoices go out on Fridays' }], pairs: [{ ref: 'p1', memories: ['m1', 'm2'] }, { ref: 'p2', memories: ['m1', 'm4'] }], lessonsMax: 3, outputSchema: consolidationSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
+const cardsSchema = { type: 'object', additionalProperties: false, required: ['changes'], properties: { changes: { type: 'array', maxItems: 30 } } }
+const cardsStep = { kind: 'maintenance', runId: 'cards-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'memory', step: 'cards', instructions: 'Kipster memory, nightly step "cards".\n\nExisting cards:\n(none)\n\nConversation:\n\n[m1] Owner (user, new, citable), Mon 12 Oct 2026 09:14:\nThe Amsterdam office opens at nine.', outputSchema: cardsSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
 
-test('consolidation runs in the same isolated thread with the schema Core supplies', async () => {
+test('every nightly step runs in the same isolated thread with the schema Core supplies', async () => {
   const f = await fixture()
   try {
-    await f.mode('consolidate')
+    await f.mode('cards')
     const adapter = f.adapter()
     await adapter.readiness()
-    const events = await collect(await adapter.execute(consolidation))
+    const events = await collect(await adapter.execute(cardsStep))
     assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
-    assert.deepEqual(JSON.parse(events[1].text), consolidated, 'the result reaches Core unchanged')
+    assert.deepEqual(JSON.parse(events[1].text), cardChanges, 'the result reaches Core unchanged')
     const calls = (await f.records()).filter(record => record.method && !record.launch)
     const thread = calls.findLast(record => record.method === 'thread/start').params
     assert.equal(thread.ephemeral, true)
     assert.equal('dynamicTools' in thread, false)
     const turn = calls.findLast(record => record.method === 'turn/start').params
-    assert.deepEqual(turn.input, [{ type: 'text', text: consolidation.maintenance.instructions }])
+    assert.deepEqual(turn.input, [{ type: 'text', text: cardsStep.maintenance.instructions }])
     assert.equal(turn.model, 'test-model')
     assert.equal(turn.effort, 'low')
-    assert.deepEqual(turn.outputSchema, consolidationSchema, 'Core supplies the output schema')
+    assert.deepEqual(turn.outputSchema, cardsSchema, 'Core supplies the output schema')
     await until(() => gone(events[0].processId), 'process exit')
-    const unknown = await collect(await adapter.execute({ ...consolidation, attemptId: 'attempt-3', maintenance: { ...consolidation.maintenance, task: 'summarize' } }))
-    assert.deepEqual(unknown, [{ kind: 'failed', attemptId: 'attempt-3', confirmedEnded: true, message: 'Unsupported maintenance task' }])
+    await f.mode('diary')
+    const diary = { ...cardsStep, attemptId: 'attempt-3', maintenance: { ...cardsStep.maintenance, step: 'diary', outputSchema: { type: 'object' } } }
+    const page = await collect(await adapter.execute(diary))
+    assert.deepEqual(JSON.parse(page[1].text), diaryPage)
+    await until(() => gone(page[0].processId), 'process exit')
   } finally { await f.cleanup() }
 })
 
-const promotion = { kind: 'maintenance', runId: 'identity-run', attemptId: 'attempt-4', organizationId: null, agentId: 'agent', maintenance: { task: 'identity', instructions: 'Rewrite the Learned section.\n\nMemories, strongest first:\nm1: Prefers short summaries\n\nCurrent section:\n(empty)', memories: [{ ref: 'm1', text: 'Prefers short summaries' }], section: '', sectionMaxBytes: 2048, outputSchema: { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string' } } }, settings: { adapterId: 'codex-cli', modelId: 'test-model' } } }
-
-test('identity promotion runs in the same isolated thread with the schema Core supplies', async () => {
+test('the first memory engine\'s tasks and unknown steps fail before any launch', async () => {
   const f = await fixture()
   try {
-    await f.mode('identity')
     const adapter = f.adapter()
     await adapter.readiness()
-    const events = await collect(await adapter.execute(promotion))
-    assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
-    assert.deepEqual(JSON.parse(events[1].text), promoted, 'the result reaches Core unchanged')
-    const calls = (await f.records()).filter(record => record.method && !record.launch)
-    const thread = calls.findLast(record => record.method === 'thread/start').params
-    assert.equal(thread.ephemeral, true)
-    assert.equal('dynamicTools' in thread, false)
-    const turn = calls.findLast(record => record.method === 'turn/start').params
-    assert.deepEqual(turn.input, [{ type: 'text', text: promotion.maintenance.instructions }])
-    assert.equal(turn.model, 'test-model')
-    assert.deepEqual(turn.outputSchema, { type: 'object', additionalProperties: false, required: ['section'], properties: { section: { type: 'string' } } })
-    await until(() => gone(events[0].processId), 'process exit')
-  } finally { await f.cleanup() }
-})
-
-test('emitted importance values, including null, reach Core unchanged', async () => {
-  const f = await fixture()
-  try {
-    const events = await run(f, 'importance')
-    assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
-    const result = JSON.parse(events[1].text)
-    assert.deepEqual(result, { candidates: [{ ...output.candidates[0], importance: 0.8 }, { ...unweighted, importance: null }] })
+    const launches = (await f.records()).filter(record => record.launch).length
+    for (const [attemptId, maintenance] of [['old-1', { ...cardsStep.maintenance, task: 'extract' }], ['old-2', { ...cardsStep.maintenance, task: 'consolidate' }], ['old-3', { ...cardsStep.maintenance, task: 'identity' }], ['unknown-step', { ...cardsStep.maintenance, step: 'summarize' }]]) {
+      assert.deepEqual(await collect(await adapter.execute({ ...cardsStep, attemptId, maintenance })), [{ kind: 'failed', attemptId, confirmedEnded: true, message: 'Unsupported maintenance task' }])
+    }
+    assert.equal((await f.records()).filter(record => record.launch).length, launches)
   } finally { await f.cleanup() }
 })
 
