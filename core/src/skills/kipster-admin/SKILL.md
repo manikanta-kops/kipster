@@ -85,8 +85,8 @@ Kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `s
 date. `memory.cards_list` lists them newest first with their workspace (`organizationId`, null for every workspace) and
 the messages they came from; `ended: true` adds replaced cards. When the person corrects a card, change it with
 `memory.card_update`; the card becomes confirmed. A replaced card cannot be edited: edit the card that replaced it. When
-they want something forgotten, `memory.card_delete` removes the card; their messages stay. Find the card first and
-change only the cards they mean.
+they want something forgotten, `memory.card_delete` removes the card; their messages stay. Both need an `operationId`.
+Find the card first and change only the cards they mean.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call

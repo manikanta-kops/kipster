@@ -189,6 +189,9 @@ to read, edit and delete cards.
   a card it replaced keeps its `valid_to`.
 - The owner and Kip, through the administration catalog's `memory` area, have
   the same card actions. The view does not create cards or change `core`.
+- Kip's card edits and deletes take an `operationId` like other catalog
+  writes: a repeat changes nothing again. Their receipts keep the card ID and a
+  digest of the request, never the card's text.
 
 ## 9. Not in this version
 

@@ -238,9 +238,9 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
       if (cardMatch && request.method === 'GET') { json(response, 200, { version: 1, card: await readCard(runtime.db, actor, cardMatch[1]!) }); return }
       if (cardMatch && request.method === 'PUT') {
         const { version: _, ...edit } = memoryCardUpdate.parse(await body(request))
-        json(response, 200, { version: 1, card: await editCard(runtime.db, actor, cardMatch[1]!, edit) }); return
+        json(response, 200, { version: 1, card: (await editCard(runtime.db, actor, cardMatch[1]!, edit)).card }); return
       }
-      if (cardMatch && request.method === 'DELETE') { json(response, 200, { version: 1, ...await deleteCard(runtime.db, actor, cardMatch[1]!) }); return }
+      if (cardMatch && request.method === 'DELETE') { const { alreadyApplied: _, ...deleted } = await deleteCard(runtime.db, actor, cardMatch[1]!); json(response, 200, { version: 1, ...deleted }); return }
       const agentLearningMatch = /^\/v1\/agents\/([0-9a-f-]{36})\/learning$/.exec(path)
       if (agentLearningMatch && request.method === 'PUT') {
         const { version: _, ...update } = agentLearningUpdate.parse(await body(request))

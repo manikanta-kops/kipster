@@ -329,14 +329,14 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     run: async ({ host, caller, args }) => ({ version: 1, card: await readCard(host.db, caller, args.cardId) }),
   }),
   'memory.card_update': operation({
-    area: 'memory', kind: 'write', input: fields({ cardId: id }, memoryCardUpdate),
-    description: 'Correct a current memory card when the person asks: type, subject, statement or details (a JSON object); omitted fields are unchanged. The card becomes confirmed. A replaced card cannot be edited; edit its replacement.',
-    run: async ({ host, caller, args }) => { const { cardId, ...edit } = args; return { version: 1, card: await editCard(host.db, caller, cardId, edit) } },
+    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }, memoryCardUpdate),
+    description: 'Correct a current memory card when the person asks: type, subject, statement or details (a JSON object); omitted fields are unchanged. The card becomes confirmed. A replaced card cannot be edited; edit its replacement. A repeat with the same operationId changes nothing and returns the card as it is now.',
+    run: async ({ host, caller, operationId, args }) => { const { cardId, ...edit } = args; return recorded(operationId, { version: 1, ...await editCard(host.db, caller, cardId, edit, operationId) }) },
   }),
   'memory.card_delete': operation({
-    area: 'memory', kind: 'write', input: fields({ cardId: id }),
-    description: 'Delete a memory card the person wants forgotten, with its sources and embedding. The messages it was learned from stay. deleted is false when it was already gone.',
-    run: async ({ host, caller, args }) => ({ version: 1, ...await deleteCard(host.db, caller, args.cardId) }),
+    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }),
+    description: 'Delete a memory card the person wants forgotten, with its sources and embedding. The messages it was learned from stay. deleted is false when it was already gone; a repeat with the same operationId returns the first outcome.',
+    run: async ({ host, caller, operationId, args }) => recorded(operationId, { version: 1, ...await deleteCard(host.db, caller, args.cardId, operationId) }),
   }),
   'interface.get': operation({
     area: 'interface', kind: 'read', input: none,
