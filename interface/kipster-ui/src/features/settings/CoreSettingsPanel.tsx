@@ -145,6 +145,7 @@ export function CoreSettingsPanel({
   updates,
   softwareUpdates,
   permissionModes = false,
+  memoryCards = false,
   initialTab,
   appearance,
   endpoint,
@@ -171,6 +172,8 @@ export function CoreSettingsPanel({
   softwareUpdates?: SoftwareUpdates
   /** Core advertises the permission mode setting. */
   permissionModes?: boolean
+  /** Core advertises the memory card actions. */
+  memoryCards?: boolean
   initialTab?: 'workspace' | 'updates'
   appearance: Appearance
   endpoint: string
@@ -359,15 +362,19 @@ export function CoreSettingsPanel({
         case 'adapter':
           return <AdapterPage settings={settings} adapterId={frame.adapterId} />
         case 'cards':
-          return <CardsPage client={client} directory={directory} />
+          return (
+            memoryCards && <CardsPage client={client} directory={directory} />
+          )
         case 'card':
           return (
-            <CardPage
-              key={frame.cardId}
-              client={client}
-              directory={directory}
-              cardId={frame.cardId}
-            />
+            memoryCards && (
+              <CardPage
+                key={frame.cardId}
+                client={client}
+                directory={directory}
+                cardId={frame.cardId}
+              />
+            )
           )
         case 'instructions':
           return (
@@ -455,7 +462,13 @@ export function CoreSettingsPanel({
           )
         )
       case 'learning':
-        return <LearningPage settings={settings} look={look} />
+        return (
+          <LearningPage
+            settings={settings}
+            look={look}
+            memoryCards={memoryCards}
+          />
+        )
     }
   }
 

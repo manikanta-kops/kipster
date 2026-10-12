@@ -16,9 +16,12 @@ type State = 'idle' | 'saving' | { error: string }
 export function LearningPage({
   settings,
   look,
+  memoryCards,
 }: {
   settings: Settings
   look: (agentId: string) => KipLook
+  /** Core advertises the memory card actions; older Cores show no Cards. */
+  memoryCards: boolean
 }) {
   const learning = settings.learning!
   const directory: Directory = settings.directory!
@@ -107,14 +110,16 @@ export function LearningPage({
           <MemoryCounts settings={settings} learning={learning} />
         </>
       )}
-      <Block>
-        <Row
-          label="Cards"
-          sub="What kips remember about you. Read, correct or delete it."
-          chevron
-          onClick={() => push({ kind: 'cards', title: 'Cards' })}
-        />
-      </Block>
+      {memoryCards && (
+        <Block>
+          <Row
+            label="Cards"
+            sub="What kips remember about you. Read, correct or delete it."
+            chevron
+            onClick={() => push({ kind: 'cards', title: 'Cards' })}
+          />
+        </Block>
+      )}
       {agents.length > 0 && (
         <Block
           label="Kips"

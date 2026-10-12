@@ -187,3 +187,64 @@ test('the nightly model and the memory counts are saved in Core', async ({
     )
     .toBeNull()
 })
+
+test('a Core without memory cards shows the Memory switch and sleep time, but no Cards or memory counts', async ({
+  page,
+}) => {
+  await page.route('**/v1/bootstrap', async (route) => {
+    const response = await route.fetch()
+    const body = await response.json()
+    delete body.capabilities.memoryCards
+    await route.fulfill({ response, json: body })
+  })
+  // An older Core's learning settings have no nightly model or counts.
+  await page.route('**/v1/settings/learning', async (route) => {
+    const response = await route.fetch()
+    const {
+      nightlyModel: _model,
+      coreCardCount: _core,
+      searchCardCount: _cards,
+      searchChunkCount: _chunks,
+      ...body
+    } = await response.json()
+    await route.fulfill({ response, json: body })
+  })
+  const reads: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/v1/memory/cards')) reads.push(request.url())
+  })
+  await startDemo(page)
+  await openMemory(page)
+  const learn = page.getByRole('switch', { name: 'Learn from conversations' })
+  await expect(learn).toBeVisible()
+  await expect(page.getByLabel('Default sleep time')).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Cards/ })).toHaveCount(0)
+  await expect(
+    page.getByRole('combobox', { name: 'Nightly model' }),
+  ).toHaveCount(0)
+  await expect(
+    page.getByRole('spinbutton', { name: 'Core cards' }),
+  ).toHaveCount(0)
+
+  const enabled = (await coreJson(page, '/v1/settings/learning')).enabled
+  await learn.click()
+  await expect
+    .poll(async () => (await coreJson(page, '/v1/settings/learning')).enabled)
+    .toBe(!enabled)
+  expect(reads).toEqual([])
+})
+
+test('a Core advertising memory cards offers Cards, which lists them', async ({
+  page,
+}) => {
+  const reads: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/v1/memory/cards')) reads.push(request.url())
+  })
+  await startDemo(page)
+  await openMemory(page)
+  expect(reads).toEqual([])
+  await page.getByRole('button', { name: /^Cards/ }).click()
+  await expect(card(page, /Vegetarian since Oct 2026/)).toBeVisible()
+  expect(reads.length).toBeGreaterThan(0)
+})
