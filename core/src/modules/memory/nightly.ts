@@ -57,6 +57,17 @@ export function unprocessedThreadCondition(threadColumn: string, chatColumn: str
 
 interface Message { id: string; position: number; author: 'user' | 'kip' | 'other'; name: string; at: Date; text: string; progress: boolean }
 interface Thread { id: string; organizationId: string | null; organizationName: string | null; processed: number }
+/** A diary page that owes a rebuild: a thread it covered was deleted. */
+interface OwedPage { day: string; organizationId: string | null; threadIds: string[] }
+type MessageRow = { id: string; position: string; final: boolean; progress: boolean; created_at: Date; parts: unknown[]; person: string | null; agent: string | null; transcripts: Record<string, string> | null }
+/** Columns of a `MessageRow`, with the message table as `m`. */
+const messageColumns = `m.id, m.position, m.final, m.progress, m.created_at, m.parts, p.display_name AS person, a.display_name AS agent,
+  (SELECT jsonb_object_agg(v.ordinal::text, v.transcript) FROM kipster.voice_preparations v WHERE v.message_id=m.id AND v.transcript IS NOT NULL) AS transcripts`
+const messageAuthors = 'LEFT JOIN kipster.people p ON p.id=m.author_id LEFT JOIN kipster.agents a ON a.id=m.author_id'
+function message(row: MessageRow): Message {
+  const author = row.person !== null ? 'user' : row.agent !== null ? 'kip' : 'other'
+  return { id: row.id, position: Number(row.position), author, name: row.person ?? row.agent ?? 'Unknown', at: row.created_at, text: render(row.parts, row.transcripts ?? {}), progress: row.progress }
+}
 interface ChunkRow { from: number; to: number; startedAt: Date; endedAt: Date; title: string; text: string }
 type CardOperation = { change: CardChange; sources: CardSource[] }
 
@@ -74,21 +85,30 @@ export class NightlyMemory {
   private get db(): Postgres { return this.options.db }
   private get installationId(): string { return this.options.installationId }
 
-  /** Agents whose sleep day began after their last run, with memory on and unprocessed threads, a failed run to retry or
-   * a core re-pick still owed, oldest night first. Agents due with nothing to do have their night recorded, so a message
-   * later that day waits for the next sleep time. */
+  /** Agents whose sleep day began after their last run, with memory on and work: unprocessed threads, diary pages owing a
+   * rebuild, a failed run to retry, a core re-pick still owed or, with an embedding provider, rows waiting for an
+   * embedding, oldest night first. The agent's own chunks and diary pages wait for it; cards, shared by the
+   * installation, wait for Kip, or the first agent by ID while Kip has memory off, and any other due run embeds them too.
+   * Agents due with nothing to do have their night recorded, so a message later that day waits for the next sleep time. */
   async due(): Promise<string[]> {
     const now = this.options.clock()
-    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; failure: string | null; repick: boolean | null; pending: boolean }>(
+    const embedding = this.options.embedding !== undefined
+    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; failure: string | null; repick: boolean | null; pending: boolean; owed: boolean; unembedded: boolean; kip: boolean }>(
       `SELECT a.id, left(COALESCE(a.sleep_time, i.sleep_time)::text, 5) AS sleep_time, n.night::text AS night, n.retry_at, n.failure, n.repick,
-         EXISTS (SELECT 1 FROM kipster.direct_chats c JOIN kipster.threads t ON t.chat_id=c.id WHERE c.agent_id=a.id AND ${unprocessedThreadCondition('t.id', 'c')}) AS pending
+         EXISTS (SELECT 1 FROM kipster.direct_chats c JOIN kipster.threads t ON t.chat_id=c.id WHERE c.agent_id=a.id AND ${unprocessedThreadCondition('t.id', 'c')}) AS pending,
+         EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.summary IS NULL) AS owed,
+         $2::boolean AND (EXISTS (SELECT 1 FROM kipster.thread_chunks ch WHERE ch.agent_id=a.id AND ch.embedding IS NULL)
+           OR EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.embedding IS NULL AND d.summary IS NOT NULL)) AS unembedded,
+         EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS kip
        FROM kipster.agents a JOIN kipster.installations i ON i.id=a.installation_id LEFT JOIN kipster.memory_nights n ON n.agent_id=a.id
-       WHERE a.installation_id=$1 AND ${learningCondition('a.id')} ORDER BY n.night NULLS FIRST, a.id`, [this.installationId])).rows
+       WHERE a.installation_id=$1 AND ${learningCondition('a.id')} ORDER BY n.night NULLS FIRST, a.id`, [this.installationId, embedding])).rows
+    const cards = embedding && (await this.db.query('SELECT 1 FROM kipster.cards WHERE installation_id=$1 AND embedding IS NULL LIMIT 1', [this.installationId])).rows.length > 0
+    const cardAgent = cards ? (rows.find(row => row.kip) ?? [...rows].sort((a, b) => a.id < b.id ? -1 : 1)[0])?.id : undefined
     const due: string[] = []
     for (const row of rows) {
       const night = sleepDay(now, row.sleep_time)
       if (row.night !== null && row.night >= night) continue
-      if (!row.pending && row.failure === null && !row.repick) { await this.finish(row.id, night, null, true); continue }
+      if (!row.pending && !row.owed && !row.unembedded && row.id !== cardAgent && row.failure === null && !row.repick) { await this.finish(row.id, night, null, true); continue }
       if (row.retry_at && row.retry_at > now) continue
       due.push(row.id)
     }
@@ -121,6 +141,11 @@ export class NightlyMemory {
     // A re-pick an earlier run owed, after changing cards, is done in this one.
     let changed = claimed.rows[0]!.repick
     try {
+      // Pages owing a rebuild first, so the threads' new messages build on them.
+      for (const page of await this.owedPages(agentId)) {
+        signal.throwIfAborted()
+        if (await this.rebuild(agentId, page, signal) === 'stopped') break
+      }
       for (const thread of await this.threads(agentId)) {
         signal.throwIfAborted()
         const saved = await this.thread(agentId, thread, signal)
@@ -129,6 +154,7 @@ export class NightlyMemory {
       }
       signal.throwIfAborted()
       await this.repickCore(agentId, changed, signal)
+      // A provider that fails leaves rows waiting for the next night; the saved work stands and the night is finished.
       await embedPending(this.db, this.installationId, this.options.embedding, signal)
       await this.finish(agentId, night, null)
       return { outcome: 'finished' }
@@ -209,17 +235,13 @@ export class NightlyMemory {
       if (!kip || !exists) return null
       const last = (await client.query<{ from_position: string; title: string }>('SELECT from_position, title FROM kipster.thread_chunks WHERE thread_id=$1 ORDER BY from_position DESC LIMIT 1', [thread.id])).rows[0]
       const from = Math.max(1, Math.min(last ? Number(last.from_position) : thread.processed + 1, thread.processed + 1) - NIGHTLY.contextMessages * 2)
-      const rows = (await client.query<{ id: string; position: string; final: boolean; progress: boolean; created_at: Date; parts: unknown[]; person: string | null; agent: string | null; transcripts: Record<string, string> | null }>(
-        `SELECT m.id, m.position, m.final, m.progress, m.created_at, m.parts, p.display_name AS person, a.display_name AS agent,
-           (SELECT jsonb_object_agg(v.ordinal::text, v.transcript) FROM kipster.voice_preparations v WHERE v.message_id=m.id AND v.transcript IS NOT NULL) AS transcripts
-         FROM kipster.messages m LEFT JOIN kipster.people p ON p.id=m.author_id LEFT JOIN kipster.agents a ON a.id=m.author_id
+      const rows = (await client.query<MessageRow>(`SELECT ${messageColumns} FROM kipster.messages m ${messageAuthors}
          WHERE m.thread_id=$1 AND m.position >= $2 ORDER BY m.position`, [thread.id, from])).rows
       const messages: Message[] = []
       for (const row of rows) {
         // Processing stops before a message still being written.
         if (!row.final) break
-        const author = row.person !== null ? 'user' : row.agent !== null ? 'kip' : 'other'
-        messages.push({ id: row.id, position: Number(row.position), author, name: row.person ?? row.agent ?? 'Unknown', at: row.created_at, text: render(row.parts, row.transcripts ?? {}), progress: row.progress })
+        messages.push(message(row))
       }
       return { kip, messages, last: last ? { from: Number(last.from_position), title: last.title } : null }
     })
@@ -294,15 +316,18 @@ export class NightlyMemory {
     return operations
   }
 
-  /** New diary summaries for each day the thread's new messages cover, built on each day's current page. */
-  private async diary(agentId: string, thread: Thread, kip: string, spoken: Message[], chunks: ChunkRow[], signal: AbortSignal): Promise<Map<string, string>> {
+  /** New diary summaries for each day the thread's new messages cover, built on each day's current page in the thread's
+   * own context. A day whose page owes a rebuild gets no summary (null): the rebuild covers this thread too. */
+  private async diary(agentId: string, thread: Thread, kip: string, spoken: Message[], chunks: ChunkRow[], signal: AbortSignal): Promise<Map<string, string | null>> {
     const byDay = new Map<string, Message[]>()
     for (const message of spoken) byDay.set(localDay(message.at), [...byDay.get(localDay(message.at)) ?? [], message])
     if (!byDay.size) return new Map()
-    const summaries = new Map((await this.db.query<{ day: string; summary: string }>('SELECT day::text AS day, summary FROM kipster.diary WHERE agent_id=$1 AND day = ANY($2::date[])',
-      [agentId, [...byDay.keys()]])).rows.map(row => [row.day, row.summary]))
+    const pages = (await this.db.query<{ day: string; summary: string | null }>(`SELECT day::text AS day, summary FROM kipster.diary
+      WHERE agent_id=$1 AND organization_id IS NOT DISTINCT FROM $2::uuid AND day = ANY($3::date[])`, [agentId, thread.organizationId, [...byDay.keys()]])).rows
+    const owed = new Set(pages.filter(page => page.summary === null).map(page => page.day))
+    const summaries = new Map(pages.filter(page => page.summary !== null).map(page => [page.day, page.summary!]))
     // A long thread goes in windows; each window builds on the summaries so far.
-    for (const window of windows(spoken, message => wordCount(promptText(message.text)))) {
+    for (const window of windows(spoken.filter(message => !owed.has(localDay(message.at))), message => wordCount(promptText(message.text)))) {
       const grouped = new Map<string, Message[]>()
       for (const message of window) grouped.set(localDay(message.at), [...grouped.get(localDay(message.at)) ?? [], message])
       const days = [...grouped.entries()].map(([day, messages]) => ({ day, label: dayLabel(messages[0]!.at), summary: summaries.get(day) ?? null, messages: promptMessages(messages, () => false) }))
@@ -311,7 +336,59 @@ export class NightlyMemory {
         summaries.set(day.day, answer.get(day.day) ?? summaries.get(day.day) ?? `${kip}: ${chunks.find(chunk => localDay(chunk.startedAt) === day.day)?.title ?? derivedTitle(grouped.get(day.day)!)}`)
       }
     }
-    return new Map([...byDay.keys()].map(day => [day, summaries.get(day)!]))
+    return new Map([...byDay.keys()].map(day => [day, owed.has(day) ? null : summaries.get(day)!]))
+  }
+
+  /** The agent's diary pages owing a rebuild. */
+  private async owedPages(agentId: string): Promise<OwedPage[]> {
+    return (await this.db.query<{ day: string; organization_id: string | null; thread_ids: string[] }>(`SELECT day::text AS day, organization_id, thread_ids FROM kipster.diary
+      WHERE agent_id=$1 AND installation_id=$2 AND summary IS NULL ORDER BY day, organization_id NULLS FIRST`, [agentId, this.installationId])).rows
+      .map(row => ({ day: row.day, organizationId: row.organization_id, threadIds: row.thread_ids }))
+  }
+
+  /**
+   * Writes an owed diary page again from scratch, never from its old summary: from the processed messages of that day
+   * of its remaining threads, in the page's own context, thread by thread and window by window with the diary prompt.
+   * A page with nothing left is deleted. Saved only while this incarnation runs the agent, the agent has memory and the
+   * page is unchanged; a page changed meanwhile stays owed for a later run.
+   */
+  private async rebuild(agentId: string, page: OwedPage, signal: AbortSignal): Promise<'saved' | 'stopped' | 'gone'> {
+    const [year, month, date] = page.day.split('-').map(Number) as [number, number, number]
+    const kip = (await this.db.query<{ display_name: string }>('SELECT display_name FROM kipster.agents WHERE id=$1', [agentId])).rows[0]?.display_name
+    if (!kip) return 'gone'
+    const rows = (await this.db.query<MessageRow & { thread_id: string }>(`SELECT m.thread_id, ${messageColumns}
+       FROM kipster.messages m JOIN kipster.threads t ON t.id=m.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
+         JOIN kipster.memory_thread_state s ON s.thread_id=m.thread_id ${messageAuthors}
+       WHERE m.thread_id = ANY($1::uuid[]) AND c.agent_id=$2 AND c.installation_id=$3 AND NOT t.internal
+         AND CASE WHEN c.context_kind='organization' THEN c.context_id IS NOT DISTINCT FROM $4::uuid ELSE $4::uuid IS NULL END
+         AND m.final AND NOT m.progress AND m.position <= s.processed_position AND m.created_at >= $5 AND m.created_at < $6
+       ORDER BY array_position($1::uuid[], m.thread_id), m.position`,
+    [page.threadIds, agentId, this.installationId, page.organizationId, new Date(year, month - 1, date), new Date(year, month - 1, date + 1)])).rows
+    const byThread = new Map<string, Message[]>()
+    for (const row of rows) {
+      const item = message(row)
+      if (item.text) byThread.set(row.thread_id, [...byThread.get(row.thread_id) ?? [], item])
+    }
+    let summary: string | null = null
+    for (const [threadId, messages] of byThread) {
+      for (const window of windows(messages, item => wordCount(promptText(item.text)))) {
+        const days = [{ day: page.day, label: dayLabel(window[0]!.at), summary, messages: promptMessages(window, () => false) }]
+        const answer = parseDiary(await this.ask(agentId, threadId, 'diary', diaryPrompt(kip, days), signal), [page.day])
+        summary = answer.get(page.day) ?? summary ?? `${kip}: ${derivedTitle(window)}`
+      }
+    }
+    return this.db.transaction(async client => {
+      await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR SHARE', [this.installationId])
+      const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
+      if (!owned.rows.length) throw new NightlyDeferred('Another process runs this agent now')
+      if (!(await client.query(`SELECT 1 WHERE ${learningCondition('$1::uuid')}`, [agentId])).rows.length) return 'stopped'
+      const where = 'agent_id=$1 AND day=$2::date AND organization_id IS NOT DISTINCT FROM $3::uuid AND summary IS NULL AND thread_ids=$4::uuid[]'
+      const values = [agentId, page.day, page.organizationId, page.threadIds]
+      const saved = summary === null
+        ? await client.query(`DELETE FROM kipster.diary WHERE ${where}`, values)
+        : await client.query(`UPDATE kipster.diary SET summary=$5, embedding=NULL, embedding_model=NULL, updated_at=now() WHERE ${where}`, [...values, summary])
+      return saved.rowCount ? 'saved' : 'gone'
+    })
   }
 
   private async ask(agentId: string, threadId: string | null, step: MemoryStep, prompt: { instructions: string; outputSchema: Record<string, unknown> }, signal: AbortSignal): Promise<unknown> {
@@ -321,7 +398,7 @@ export class NightlyMemory {
 
   /** Saves a thread's results and advances its processed position in one transaction, while this incarnation still runs
    * the agent, the agent has memory, the thread exists and no one processed it meanwhile. */
-  private async save(agentId: string, thread: Thread, result: { rewriteFrom: number; upTo: number; chunks: ChunkRow[]; operations: CardOperation[]; days: Map<string, string> }): Promise<'saved' | 'cards' | 'gone' | 'stopped'> {
+  private async save(agentId: string, thread: Thread, result: { rewriteFrom: number; upTo: number; chunks: ChunkRow[]; operations: CardOperation[]; days: Map<string, string | null> }): Promise<'saved' | 'cards' | 'gone' | 'stopped'> {
     return this.db.transaction(async client => {
       await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR SHARE', [this.installationId])
       const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
@@ -344,11 +421,12 @@ export class NightlyMemory {
         else if (change.action === 'update') cards = await this.cards.update(change.card!, input, sources, client) || cards
         else cards = await this.cards.replace(change.card!, input, sources, client) !== null || cards
       }
+      // The page of the thread's own context. A page owing a rebuild stays owed and gains the thread, which the rebuild covers.
       for (const [day, summary] of result.days) {
-        await client.query(`INSERT INTO kipster.diary(agent_id, day, installation_id, summary, thread_ids) VALUES ($1,$2::date,$3,$4,ARRAY[$5::uuid])
-          ON CONFLICT (agent_id, day) DO UPDATE SET summary=EXCLUDED.summary,
+        await client.query(`INSERT INTO kipster.diary(agent_id, day, organization_id, installation_id, summary, thread_ids) VALUES ($1,$2::date,$6,$3,$4,ARRAY[$5::uuid])
+          ON CONFLICT ON CONSTRAINT diary_page DO UPDATE SET summary=CASE WHEN kipster.diary.summary IS NULL THEN NULL ELSE EXCLUDED.summary END,
             thread_ids=CASE WHEN $5::uuid = ANY(kipster.diary.thread_ids) THEN kipster.diary.thread_ids ELSE kipster.diary.thread_ids || $5::uuid END,
-            embedding=NULL, embedding_model=NULL, updated_at=now()`, [agentId, day, this.installationId, summary, thread.id])
+            embedding=NULL, embedding_model=NULL, updated_at=now()`, [agentId, day, this.installationId, summary, thread.id, thread.organizationId])
       }
       await client.query(`INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,$3)
         ON CONFLICT (thread_id) DO UPDATE SET processed_position=EXCLUDED.processed_position, updated_at=now()`, [thread.id, this.installationId, result.upTo])

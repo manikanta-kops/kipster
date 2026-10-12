@@ -60,6 +60,13 @@ async function assertMemorySchema(db) {
   const current = (await db.query("SELECT indexdef FROM pg_indexes WHERE schemaname='kipster' AND indexname IN ('cards_current','cards_core') ORDER BY indexname")).rows.map(row => row.indexdef)
   assert.match(current[0], /WHERE \(\(valid_to IS NULL\) AND core\)/)
   assert.match(current[1], /WHERE \(valid_to IS NULL\)/)
+  // A diary page belongs to one context; a null summary marks a page owing a rebuild.
+  const diary = (await db.query(`SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='kipster' AND table_name='diary' AND column_name IN ('organization_id','summary') ORDER BY column_name`)).rows
+  assert.deepEqual(diary, [{ column_name: 'organization_id', data_type: 'uuid', is_nullable: 'YES' }, { column_name: 'summary', data_type: 'text', is_nullable: 'YES' }])
+  const keys = (await db.query(`SELECT conname, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='kipster.diary'::regclass AND contype IN ('p','u','f') ORDER BY conname`)).rows
+  assert.deepEqual(keys.filter(key => key.conname === 'diary_page'), [{ conname: 'diary_page', definition: 'UNIQUE NULLS NOT DISTINCT (agent_id, day, organization_id)' }])
+  assert.ok(keys.some(key => /FOREIGN KEY \(organization_id\) REFERENCES kipster\.organizations\(id\) ON DELETE CASCADE/.test(key.definition)))
+  assert.ok(!keys.some(key => key.conname === 'diary_pkey'))
 }
 
 // Seed only with SQL supported by the frozen 001–012 schema, before current Core starts.
@@ -139,6 +146,39 @@ for (const prefixOnly of [false, true]) {
 test('a fresh database gets the Kip memory schema and none of the first engine', { skip: noDatabase }, async t => {
   const fixture = await database(t)
   await fixture.db.migrate(await loadMigrations())
+  await assertMemorySchema(fixture.db)
+})
+
+test('an upgrade from the 025 diary keeps single-context pages in their context and deletes pages that mix contexts', { skip: noDatabase }, async t => {
+  const fixture = await database(t)
+  const migrations = await loadMigrations()
+  await fixture.db.migrate(migrations.filter(item => Number(item.version.slice(0, 3)) <= 25))
+  const id = () => randomUUID()
+  const [installation, owner, agent, organization, homeChat, orgChat, home, work, gone] = Array.from({ length: 9 }, id)
+  await fixture.db.transaction(async client => {
+    await client.query('INSERT INTO kipster.installations(id) VALUES ($1)', [installation])
+    await client.query('INSERT INTO kipster.people(id,installation_id,display_name) VALUES ($1,$2,$3)', [owner, installation, 'Owner'])
+    await client.query('INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)', [agent, installation, 'Kip'])
+    await client.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)', [organization, installation, 'Garden'])
+    await client.query("INSERT INTO kipster.direct_chats(id,installation_id,caller_id,context_kind,context_id,agent_id) VALUES ($1,$2,$3,'installation',$2,$4),($5,$2,$3,'organization',$6,$4)", [homeChat, installation, owner, agent, orgChat, organization])
+    await client.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2),($3,$4)', [home, homeChat, work, orgChat])
+    const page = (day, threadIds) => client.query('INSERT INTO kipster.diary(agent_id,day,installation_id,summary,thread_ids,embedding,embedding_model) VALUES ($1,$2,$3,$4,$5::uuid[],$6::vector,$7)',
+      [agent, day, installation, `Page of ${day}`, threadIds, `[${new Array(768).fill(0.1).join(',')}]`, 'fake-gemma'])
+    await page('2026-10-01', [home])
+    await page('2026-10-02', [work, work])
+    await page('2026-10-03', [home, work])
+    await page('2026-10-04', [gone])
+  })
+  await fixture.db.migrate(migrations)
+  const pages = (await fixture.db.query('SELECT day::text AS day, organization_id, summary, thread_ids, embedding_model FROM kipster.diary ORDER BY day')).rows
+  assert.deepEqual(pages, [
+    { day: '2026-10-01', organization_id: null, summary: 'Page of 2026-10-01', thread_ids: [home], embedding_model: 'fake-gemma' },
+    { day: '2026-10-02', organization_id: organization, summary: 'Page of 2026-10-02', thread_ids: [work, work], embedding_model: 'fake-gemma' },
+  ], 'a mixed page and a page of no surviving thread are deleted')
+  // The day now has a page per context, and one page per context only.
+  await fixture.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,organization_id,summary,thread_ids) VALUES ($1,'2026-10-01',$2,$3,'Garden page',ARRAY[$4::uuid])", [agent, installation, organization, work])
+  await assert.rejects(fixture.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,summary) VALUES ($1,'2026-10-01',$2,'Second installation page')", [agent, installation]), /diary_page/)
+  await assert.rejects(fixture.db.query("UPDATE kipster.diary SET summary=NULL WHERE day='2026-10-02'"), /diary_owed_unembedded/, 'a page owing a rebuild has no embedding')
   await assertMemorySchema(fixture.db)
 })
 

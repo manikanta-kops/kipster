@@ -111,7 +111,8 @@ async function setup(t, { embedding = true } = {}) {
       VALUES ($1,$2,$3,$4,$5,1,2,$6,$7,$8,$9)`, [id, installationId, threadId, agentId, organizationId, at, end, text.split(' ').slice(0, 3).join(' '), text])
     return id
   }
-  const diary = (agentId, day, summary, threadIds = []) => db.query('INSERT INTO kipster.diary(agent_id, day, installation_id, summary, thread_ids) VALUES ($1,$2,$3,$4,$5::uuid[])', [agentId, day, installationId, summary, threadIds])
+  /** A diary page of one context: the installation, or `organizationId`. */
+  const diary = (agentId, day, summary, threadIds = [], organizationId = null) => db.query('INSERT INTO kipster.diary(agent_id, day, organization_id, installation_id, summary, thread_ids) VALUES ($1,$2,$3,$4,$5,$6::uuid[])', [agentId, day, organizationId, installationId, summary, threadIds])
   const cards = new CardService(db, installationId, runtime.embedding)
   async function card(statement, { organizationId = null, core = false, subject = 'user', type = 'fact', sources = [] } = {}) {
     const id = await cards.create({ type, subject, statement, organizationId }, sources)
@@ -199,7 +200,8 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   const pennyThread = await ctx.thread(ctx.penny, ctx.garden, [{ author: 'user', text: 'Berlin bakery' }, { text: 'Noted' }])
   const pennyChunk = await ctx.chunk(pennyThread.id, ctx.penny, ctx.garden, 'Berlin bakery list for the berlin trip')
   await ctx.diary(ctx.kip, '2026-10-10', 'Planned the Berlin trip and berlin flights.', [kipThread.id])
-  await ctx.diary(ctx.scout, '2026-10-10', 'Talked about the berlin trip garden show.', [scoutGarden.id])
+  await ctx.diary(ctx.scout, '2026-10-10', 'Talked about the berlin trip garden show.', [scoutGarden.id], ctx.garden)
+  await ctx.diary(ctx.scout, '2026-10-10', 'Talked about the berlin trip studio rent.', [scoutStudio.id], ctx.studio)
   const installationCard = await ctx.card('Berlin trip with Priya in December', { sources: [{ threadId: kipThread.id, messageId: kipThread.messages[0] }] })
   const gardenCard = await ctx.card('Berlin garden show in spring', { organizationId: ctx.garden })
   const studioCard = await ctx.card('Berlin studio rent is due', { organizationId: ctx.studio })
@@ -225,7 +227,7 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   const scoutSearch = scout.context.memory[0]
   assert.ok(scoutSearch.includes('Berlin garden show tickets for the berlin trip') && scoutSearch.includes('Talked about the berlin trip garden show.'))
   assert.ok(scoutSearch.includes(gardenCard) && scoutSearch.includes(installationCard))
-  for (const hidden of ['studio rent', 'bakery', long, studioCard]) assert.ok(!scoutSearch.includes(hidden), hidden.slice(0, 40))
+  for (const hidden of ['studio rent', 'bakery', long, studioCard, scoutStudio.id]) assert.ok(!scoutSearch.includes(hidden), hidden.slice(0, 40))
   assert.equal((scoutSearch.match(/^- \[card /gm) ?? []).length, 2)
   await scout.finish()
 
@@ -313,7 +315,7 @@ test('memory_search: Kip may search another kip with a date range; other kips se
   await ctx.chunk(early.id, ctx.scout, ctx.studio, 'Studio lamp order', { at: '2026-09-01T09:00:00Z' })
   const late = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden lamp' }, { text: 'Ok' }])
   await ctx.chunk(late.id, ctx.scout, ctx.garden, 'Garden lamp order', { at: '2026-10-05T09:00:00Z' })
-  await ctx.diary(ctx.scout, '2026-10-05', 'Ordered a lamp for the garden.', [late.id])
+  await ctx.diary(ctx.scout, '2026-10-05', 'Ordered a lamp for the garden.', [late.id], ctx.garden)
   const studioCard = await ctx.card('Studio lamp is red', { organizationId: ctx.studio })
   await ctx.embedAll()
 
