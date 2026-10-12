@@ -17,7 +17,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // under the same capacity lock as a lifecycle change, and sleep skips an agent that is not live.
 // The fixture's scripted answers stand in for the model, whose judgment is outside these tests.
 
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 async function until(read, predicate, label) {
   let value

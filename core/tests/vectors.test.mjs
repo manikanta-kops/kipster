@@ -41,7 +41,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     const ownerQueryBarrier=new Promise(resolve=>enteredOwnerQuery=resolve)
     const leaseBarrier=new Promise(resolve=>enteredLease=resolve)
     const embedder={async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='LEASE_BLOCK'&&++leaseCalls===1){enteredLease();await new Promise(resolve=>releaseLease=resolve)}if(fail)throw Error('provider offline');return text.includes('north')||text==='BLOCK'?[1,0]:[0,1]}}
-    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'One',rootAgent:'Agent'},embedding:{id: 'ollama', contractMajor: 1,model:'fixture-one',...embedder}})
+    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'One',rootAgent:'Agent'},embedding:{id: 'fixture-provider', contractMajor: 1,model:'fixture-one',...embedder}})
     await runtime.vectors.stopIndexing();await runtime.memory.stopIndexing()
     const ids=runtime.bootstrap,otherAgent=randomUUID(),otherOrg=randomUUID()
     await runtime.home.provisionAgent(otherAgent)
@@ -142,12 +142,12 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal(org.owner.kind,'organization')
     await runtime.db.query("CREATE FUNCTION kipster.reject_vector_rebuild() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'vector rebuild rejected'; END $$")
     await runtime.db.query('CREATE TRIGGER reject_vector_rebuild BEFORE INSERT ON kipster.vector_index_intents FOR EACH ROW EXECUTE FUNCTION kipster.reject_vector_rebuild()')
-    await assert.rejects(runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(){return [0,1]} }),/vector rebuild rejected/)
+    await assert.rejects(runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'fixture-provider', contractMajor: 1,model:'fixture-two', async embed(){return [0,1]} }),/vector rebuild rejected/)
     assert.equal(Number((await runtime.db.query('SELECT generation FROM kipster.memory_profiles WHERE installation_id=$1',[ids.installationId])).rows[0].generation),1)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.memory_embedding_generations WHERE installation_id=$1',[ids.installationId])).rows[0].n,1)
     await runtime.db.query('DROP TRIGGER reject_vector_rebuild ON kipster.vector_index_intents')
     await runtime.db.query('DROP FUNCTION kipster.reject_vector_rebuild()')
-    const newGeneration=await runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(text){if(text==='QUERY_BLOCK'){enteredQuery();await new Promise(resolve=>releaseQuery=resolve)}return [0,1]} })
+    const newGeneration=await runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'fixture-provider', contractMajor: 1,model:'fixture-two', async embed(text){if(text==='QUERY_BLOCK'){enteredQuery();await new Promise(resolve=>releaseQuery=resolve)}return [0,1]} })
     assert.equal(newGeneration,2)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.vector_index_intents WHERE generation=2')).rows[0].n,2)
     const rebuilding=await call('rebuilding',{operation:'search',collectionId,query:'south'})
@@ -157,7 +157,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal((await call('rebuilt',{operation:'search',collectionId,query:'south'})).results.length,2)
     const queryDuringChange=call('query-changing',{operation:'search',collectionId,query:'QUERY_BLOCK'}).then(()=>null,error=>error)
     await queryBarrier
-    assert.equal(await runtime.memory.activateRebuild(ids.ownerId,2,{ id: 'ollama', contractMajor: 1,model:'fixture-three', async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}return [0,1]} }),3)
+    assert.equal(await runtime.memory.activateRebuild(ids.ownerId,2,{ id: 'fixture-provider', contractMajor: 1,model:'fixture-three', async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}return [0,1]} }),3)
     releaseQuery()
     assert.match((await queryDuringChange).message,/pagination invalidated/)
     assert.equal((await runtime.vectors.indexPending(2)).ready,2)
@@ -181,7 +181,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await rowBarrier
     const concurrentUpsert=call('concurrent-upsert',{operation:'upsert',collectionId,key:'doc-1',expectedRevision:2,text:'south changed'})
     await new Promise(resolve=>setTimeout(resolve,80))
-    const concurrentActivation=runtime.memory.activateRebuild(ids.ownerId,3,{ id: 'ollama', contractMajor: 1,model:'fixture-four', async embed(text){if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}if(text==='QUERY_OWNER'){enteredOwnerQuery();await new Promise(resolve=>releaseOwnerQuery=resolve)}return [0,1]} })
+    const concurrentActivation=runtime.memory.activateRebuild(ids.ownerId,3,{ id: 'fixture-provider', contractMajor: 1,model:'fixture-four', async embed(text){if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}if(text==='QUERY_OWNER'){enteredOwnerQuery();await new Promise(resolve=>releaseOwnerQuery=resolve)}return [0,1]} })
     unlockRecord();await rowBlocker
     const overlap=await Promise.allSettled([concurrentUpsert,concurrentActivation])
     assert.equal(overlap[0].status,'fulfilled')
@@ -244,7 +244,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await dispatcher.close();dispatcher=null
     await server.close();server=null
     await runtime.close();runtime=null
-    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'One',rootAgent:'Agent'},embedding:{id: 'ollama', contractMajor: 1,model:'fixture-four',async embed(){return [0,1]}}})
+    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'One',rootAgent:'Agent'},embedding:{id: 'fixture-provider', contractMajor: 1,model:'fixture-four',async embed(){return [0,1]}}})
     await runtime.vectors.stopIndexing()
     await runtime.vectors.indexPending(20,true)
     const durable=(await runtime.db.query('SELECT status FROM kipster.vector_index_intents WHERE record_id=$1 AND generation=4',[restartPending.recordId])).rows[0]

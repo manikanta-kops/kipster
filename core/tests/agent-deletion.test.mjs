@@ -20,7 +20,7 @@ import { adminUrl, noDatabase, taskDataRole } from './support/database.mjs'
 
 const names = { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }
 const fixture = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const sha256 = text => createHash('sha256').update(text).digest('hex')
 const exists = path => access(path).then(() => true, () => false)
 async function until(read, predicate, label) {

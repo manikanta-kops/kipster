@@ -5,10 +5,14 @@ import { pathToFileURL } from 'node:url'
 import { mkdir, realpath } from 'node:fs/promises'
 import { dependencies, exists, initializeHome, json, locked, privateDirectory, repository, run, saveJSON } from './local-common.mjs'
 import { checkDatabase, databaseURL, postgresBinaries, postgresClient, prepareDatabase, stopDatabase } from './local-database.mjs'
+import { installEmbeddingRuntime, installedEmbeddingRuntime } from '../installer/src/embedding.mjs'
 
-export function configuration(home, installation, previous = {}) {
+/** `embedding` is the installed runtime's server entry; without one, host.json keeps its embedding settings. */
+export function configuration(home, installation, previous = {}, embedding) {
+  const kept = previous.embedding?.server ? previous.embedding : undefined
   return {
     ...previous,
+    ...(embedding ? { embedding: { module: join(installation, 'node_modules/@kipster/embedding-llama-cpp/dist/index.js'), options: kept?.options ?? {}, server: { ...embedding, port: kept?.server.port ?? embedding.port } } } : {}),
     version: 1, home, databaseUrl: databaseURL(home), taskDataUrl: databaseURL(home, 'kipster', 'kipster_task'),
     listen: previous.listen ?? { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: ['tauri://localhost'] },
     adapters: [
@@ -24,8 +28,8 @@ function saved(previous, id) {
   return config ? { config } : {}
 }
 export async function buildBackend(home) {
-  const core = join(repository, 'core'), adapters = executionAdapters.map(id => join(repository, 'adapters', id))
-  console.log('Building Core and the Codex and Claude CLI adapters…')
+  const core = join(repository, 'core'), adapters = [...executionAdapters, 'embedding-llama-cpp'].map(id => join(repository, 'adapters', id))
+  console.log('Building Core, the Codex and Claude CLI adapters and the embedding provider…')
   await dependencies()
   await run('npm', ['run', 'build'], { cwd: core })
   for (const adapter of adapters) await run('npm', ['run', 'build'], { cwd: adapter })
@@ -64,7 +68,7 @@ export async function activateBackend(home, installation, pgBin) {
   const configPath = join(home, 'host.json')
   const previous = await exists(configPath) ? await json(configPath) : undefined
   if (previous && previous.home !== home) throw new Error('host.json belongs to a different home; it was not changed.')
-  const config = configuration(home, installation, previous)
+  const config = configuration(home, installation, previous, await installedEmbeddingRuntime(home) ?? undefined)
   const host = await import(pathToFileURL(cli(installation)).href)
   host.validateHostConfig(config)
   const state = await host.control(home, 'status')
@@ -84,7 +88,7 @@ export async function activateBackend(home, installation, pgBin) {
   if (!response.ok || (await response.json()).installationId !== started.installationId) throw new Error('Backend started but its readiness check failed. Inspect the logs.')
   return started
 }
-export async function backend(inputHome, action) {
+export async function backend(inputHome, action, { embeddings = false } = {}) {
   if (Buffer.byteLength(join(inputHome, '.host-control/control.sock')) > 103) throw new Error('Development home is too long for a macOS control socket. Use a shorter home folder path.')
   if (action && !await exists(inputHome)) { console.log('Development backend and database are stopped (not initialized).'); return }
   await privateDirectory(inputHome)
@@ -107,6 +111,11 @@ export async function backend(inputHome, action) {
       return
     }
     await privateDirectory(join(home, 'logs'))
+    if (action === undefined && embeddings) {
+      console.log('Downloading and verifying llama.cpp and EmbeddingGemma 2 when missing (about 330 MB)…')
+      const runtime = await installEmbeddingRuntime(home)
+      if (!runtime.available) console.log(runtime.reason)
+    }
     const pgBin = await postgresBinaries()
     const installation = await buildBackend(home)
     // Record first setup before database startup, so --stop works after an interrupted setup.
@@ -121,7 +130,8 @@ export async function backend(inputHome, action) {
     console.log(available('codex-cli') ? 'Codex: ready. Agents use its default model until you choose another in Settings.' : 'Codex: unavailable. Check your Codex CLI/account and the host log, then rerun npm run backend.')
     console.log(available('claude-cli') ? 'Claude CLI: ready. Choose it for a kip in Settings.' : 'Claude CLI: unavailable. Check your claude CLI login and the host log, then rerun npm run backend.')
     const config = await json(join(home, 'host.json'))
-    if (!config.embedding) console.log('Embeddings: not configured. Configure an embedding provider module and options in host.json to enable indexed memory.')
+    if (config.embedding?.server) console.log('Embeddings: Core runs the downloaded llama.cpp server with EmbeddingGemma 2.')
+    else if (!config.embedding) console.log('Embeddings: not downloaded, so memory search is unavailable. Run npm run backend -- --with-embeddings to download llama.cpp and EmbeddingGemma 2 into this development home.')
     if (!config.transcription) console.log('Voice transcription: not configured.')
     console.log('You can close this terminal. Use npm run backend -- --stop to stop this installation.')
   })

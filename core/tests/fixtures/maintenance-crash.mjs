@@ -3,7 +3,7 @@ import { openRuntime, TextDispatcher, textPublicationHost } from '../../dist/run
 import { MaintenanceService } from '../../dist/modules/memory/public.js'
 import { fixtureAdapter } from '../.build/tests/fixtures/deterministic-adapter.js'
 const [phase, connectionString, home] = process.argv.slice(2)
-const runtime = await openRuntime({ connectionString, home, embedding: { id: 'ollama', contractMajor: 1, model: 'fixture-embedding', async embed() { return [1, 0] } } })
+const runtime = await openRuntime({ connectionString, home, embedding: { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding', async embed() { return [1, 0] } } })
 await runtime.memory.stopIndexing()
 const pause = async stage => { process.send({ stage }); await new Promise(() => {}) }
 if (phase === 'intent') {

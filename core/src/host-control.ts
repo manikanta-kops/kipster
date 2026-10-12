@@ -2,8 +2,9 @@ import { createServer, request } from 'node:http'
 import { randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { EmbeddingServerStatus } from './embedding/supervisor.js'
 
-export interface HostStatus { state: 'starting' | 'running' | 'stopping'; pid: number; instance: string; installationId?: string; url?: string; adapters?: { id: string; available: boolean }[] }
+export interface HostStatus { state: 'starting' | 'running' | 'stopping'; pid: number; instance: string; installationId?: string; url?: string; adapters?: { id: string; available: boolean }[]; embedding?: EmbeddingServerStatus }
 export const controlDirectory = (home: string) => join(home, '.host-control')
 async function privateDirectory(path: string): Promise<void> {
   const stat = await lstat(path)

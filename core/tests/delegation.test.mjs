@@ -19,7 +19,7 @@ test('capacity-one delegation routes exact child question and internal result ba
   const home=await mkdtemp(join(tmpdir(),'kipster-delegate-'))
   let runtime,dispatcher,server
   try{
-    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Agent A'},executionLimit:1,embedding:{id: 'ollama', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}})
+    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Agent A'},executionLimit:1,embedding:{id: 'fixture-provider', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}})
     await runtime.memory.stopIndexing()
     const a=runtime.bootstrap.rootAgentId,b=randomUUID(),hidden=randomUUID(),org=runtime.bootstrap.organizationId,actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId}
     await runtime.home.provisionAgent(b)

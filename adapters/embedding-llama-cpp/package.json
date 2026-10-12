@@ -1,9 +1,9 @@
 {
-  "name": "@kipster/embedding-ollama",
+  "name": "@kipster/embedding-llama-cpp",
   "version": "0.0.0",
   "license": "Apache-2.0",
   "type": "module",
-  "description": "Ollama embedding provider for Kipster",
+  "description": "llama.cpp llama-server embedding provider for Kipster",
   "engines": {
     "node": ">=26.10.0 <27"
   },

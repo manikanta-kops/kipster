@@ -14,7 +14,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // Promotion of strong memories into the Learned section of identity.md, against real PostgreSQL and a real agent
 // home, with the deterministic fixture adapter. Memories come from real extraction; the fixture's scripted sections
 // stand in for the model, whose writing is outside these tests.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const BEGIN = '<!-- kipster:learned:begin -->'
 const END = '<!-- kipster:learned:end -->'
 const HEAD = '# Identity\nWritten by the owner.\n\n'

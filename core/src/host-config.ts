@@ -1,5 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { isAbsolute, resolve, sep } from 'node:path'
+import type { EmbeddingServerConfig } from './embedding/supervisor.js'
 
 export interface HostConfig {
   version: 1
@@ -8,7 +9,8 @@ export interface HostConfig {
   taskDataUrl?: string
   listen: { host: '127.0.0.1' | '::1'; port: number; allowedHosts: string[]; allowedOrigins: string[] }
   adapters: { id: string; root: string; entry: string; config?: Record<string, unknown> }[]
-  embedding?: { module: string; options: Record<string, unknown> }
+  /** With `server`, Core runs the installed llama-server and passes the package its endpoint. */
+  embedding?: { module: string; options: Record<string, unknown>; server?: EmbeddingServerConfig }
   transcription?: { module: string; options: Record<string, unknown> }
   environment?: Record<string, string>
   executionLimit?: number
@@ -28,6 +30,12 @@ export function validateHostConfig(value: unknown): HostConfig {
   if (!Array.isArray(value.adapters) || !value.adapters.every(item => object(item) && typeof item.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(item.id) && text(item.root) && isAbsolute(item.root) && text(item.entry) && !isAbsolute(item.entry) && !item.entry.split(/[\\/]/).includes('..') && (item.config === undefined || object(item.config)))) throw new Error('Configure adapter IDs (letters, digits, - and _) with absolute installation roots and relative entries.')
   if (new Set(value.adapters.map(item => item.id)).size !== value.adapters.length) throw new Error('Adapter IDs must be unique.')
   if (value.embedding !== undefined && (!object(value.embedding) || !text(value.embedding.module) || !isAbsolute(value.embedding.module) || !object(value.embedding.options))) throw new Error('Configure an absolute embedding module and explicit options.')
+  const server = object(value.embedding) ? value.embedding.server : undefined
+  if (server !== undefined) {
+    const home = resolve(value.home)
+    const installed = (path: unknown) => text(path) && isAbsolute(path) && resolve(path).startsWith(home + sep)
+    if (!object(server) || Object.keys(server).some(key => !['binary', 'model', 'modelSha256', 'modelName', 'port'].includes(key)) || !installed(server.binary) || !installed(server.model) || typeof server.modelSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(server.modelSha256) || typeof server.modelName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(server.modelName) || !Number.isInteger(server.port) || Number(server.port) < 1024 || Number(server.port) > 65535 || server.port === listen.port) throw new Error('Configure embedding.server with the llama-server binary and model installed in the Kipster home, the model SHA-256 and name, and a free port from 1024 to 65535.')
+  }
   if (value.transcription !== undefined && (!object(value.transcription) || !text(value.transcription.module) || !isAbsolute(value.transcription.module) || !object(value.transcription.options))) throw new Error('Configure an absolute transcription module and explicit options.')
   if (value.environment !== undefined && (!object(value.environment) || !Object.entries(value.environment).every(([key, item]) => envName(key) && typeof item === 'string'))) throw new Error('Environment must contain explicit string values.')
   if (value.executionLimit !== undefined && (!Number.isSafeInteger(value.executionLimit) || Number(value.executionLimit) < 1 || Number(value.executionLimit) > 1000)) throw new Error('Execution limit must be between 1 and 1000.')

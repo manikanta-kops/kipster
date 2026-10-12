@@ -8,7 +8,7 @@ import {Postgres} from '../dist/platform/postgres/public.js'
 import {openRuntime,TextDispatcher,startTextServer,textPublicationHost} from '../dist/runtime.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-const profile={id: 'ollama', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}
+const profile={id: 'fixture-provider', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}
 
 test('relationships preserve evidence and history under correction, republish, CAS and replay', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl),dbName=`kipster_relationships_${randomUUID().replaceAll('-','')}`

@@ -1,3 +1,5 @@
+import type { EmbeddingServerStatus } from './embedding/supervisor.js'
+
 const sensitive = /password|passwd|secret|token|credential|authorization|api.?key|database.?url|taskdata.?url|pguser/i
 
 /** Preserve diagnostic causes without exposing private host/provider configuration. */
@@ -24,4 +26,16 @@ export function safeHostError(error: unknown, ...sources: unknown[]): string {
   for (const secret of [...secrets].sort((a, b) => b.length - a.length)) message = message.replaceAll(secret, '[redacted]')
   message = message.replace(/\b(password|passwd|token|secret|api[_-]?key)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi, '$1=[redacted]')
   return message.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '').slice(0, 8192)
+}
+
+/** Host diagnostics for the supervised embedding server, from a running host's status. */
+export function embeddingServerDiagnostic(status: EmbeddingServerStatus | undefined): { status: 'ok' | 'unavailable' | 'not-probed'; message: string } {
+  switch (status?.state) {
+    case 'ready': return { status: 'ok', message: `Embedding server (llama-server) is ready on port ${status.port}${status.reused ? ', reusing the Kipster server already running there' : ''}.` }
+    case 'starting': return { status: 'not-probed', message: `Embedding server (llama-server) is starting${status.port ? ` on port ${status.port}` : ''}.` }
+    case 'restarting': return { status: 'unavailable', message: `Embedding server (llama-server) is restarting, attempt ${status.attempt}: ${status.reason}. Memory search is unavailable meanwhile.` }
+    case 'failed': return { status: 'unavailable', message: `Embedding server (llama-server) failed: ${status.reason}. Memory search is unavailable; inspect logs/embedding-server.log.` }
+    case 'stopped': return { status: 'not-probed', message: 'Embedding server (llama-server) is stopped.' }
+    default: return { status: 'not-probed', message: 'Embedding server (llama-server) is configured; the running host starts it.' }
+  }
 }

@@ -8,7 +8,7 @@ import {Postgres} from '../dist/platform/postgres/public.js'
 import {openRuntime} from '../dist/runtime.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-const profile={id: 'ollama', contractMajor: 1,model:'fixture-embedding'}
+const profile={id: 'fixture-provider', contractMajor: 1,model:'fixture-embedding'}
 test('bounded retrieval keeps current conflicts, independent publications and generation safety', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl), dbName=`kipster_retrieval_${randomUUID().replaceAll('-','')}`
   await admin.query(`CREATE DATABASE "${dbName}"`)
@@ -100,7 +100,7 @@ test('bounded retrieval keeps current conflicts, independent publications and ge
     waitQuery=true
     const search=runtime.memory.search(rootAgentId,null,'harbor access')
     await started
-    await runtime.db.query(`INSERT INTO kipster.memory_embedding_generations(installation_id,generation,provider,model,dimension) VALUES ($1,2,'ollama','new-model',2)`,[installationId])
+    await runtime.db.query(`INSERT INTO kipster.memory_embedding_generations(installation_id,generation,provider,model,dimension) VALUES ($1,2,'fixture-provider','new-model',2)`,[installationId])
     await runtime.db.query(`UPDATE kipster.memory_profiles SET generation=2,model='new-model' WHERE installation_id=$1`,[installationId])
     releaseQuery()
     const raced=await search

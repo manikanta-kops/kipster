@@ -16,7 +16,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // Sleep consolidation against real PostgreSQL with the deterministic fixture adapter. Learned memories come from
 // real extraction; their vectors are chosen per text so that tests decide which memories are nearest. The fixture's
 // scripted answers stand in for the model, whose judgment is outside these tests.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value

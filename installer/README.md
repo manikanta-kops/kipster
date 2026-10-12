@@ -20,6 +20,16 @@ modules identify their packaged providers. The installer rewrites provider roots
 through `current`, preserving IDs and options. With no configuration file,
 `KIPSTER_DATABASE_URL` supplies the database, and Codex is the default adapter.
 
+For memory search, install and update download Kipster's pinned llama.cpp
+`llama-server` build for this platform and the EmbeddingGemma 2 Q8 model into
+`<home>/embedding`, verify their SHA-256 and write the `embedding` entry of
+host.json. They skip files that are already present and verified, and never use
+a llama.cpp or Ollama installed elsewhere. This happens only once the
+`@kipster/embedding-llama-cpp` package has a release on the channel. Until then,
+on a platform without a build, or when the download fails, installation
+completes, memory works without search, and the result's `embedding` field says
+why.
+
 ```sh
 chmod 600 /absolute/path/host-input.json
 kipster install --home /absolute/path/kipster --config /absolute/path/host-input.json --maintenance-config /absolute/path/maintenance.json

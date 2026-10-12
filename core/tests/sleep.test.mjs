@@ -14,7 +14,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 
 // Sleep scheduling and the forgetting step against real PostgreSQL with the deterministic fixture adapter.
 // The wall clock is injected; times are local to the host, as sleep times are.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value

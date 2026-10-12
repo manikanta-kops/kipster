@@ -3,7 +3,6 @@
 "@kipster/installer": patch
 "@kipster/claude-cli": patch
 "@kipster/codex-cli": patch
-"@kipster/embedding-ollama": patch
 "@kipster/transcription-spokenly": patch
 ---
 

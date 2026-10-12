@@ -16,7 +16,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // maintenance-capable fixture. The fixture proves Core mechanics only;
 // production provider termination, embedding quality and semantic judgment
 // are outside these tests.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value

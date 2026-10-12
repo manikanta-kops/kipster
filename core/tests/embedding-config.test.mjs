@@ -27,7 +27,7 @@ test('embedding modules and provider objects are validated at load', async () =>
     assert.deepEqual(await boundedEmbed(provider, 'hello', 100), [1])
     const config = {version:1,home:directory,databaseUrl:'postgresql://kipster@localhost/unused',listen:{host:'127.0.0.1',port:1234,allowedHosts:[],allowedOrigins:[]},adapters:[]}
     assert.equal(validateHostConfig({...config,embedding:{module,options:{}}}).embedding.module,module)
-    for (const embedding of [{module:'relative',options:{}},{module,options:[]},{provider:'ollama',model:'old'}]) assert.throws(()=>validateHostConfig({...config,embedding}))
+    for (const embedding of [{module:'relative',options:{}},{module,options:[]},{provider:'fixture-provider',model:'old'}]) assert.throws(()=>validateHostConfig({...config,embedding}))
   } finally { await rm(directory,{recursive:true,force:true}) }
 })
 
@@ -45,7 +45,7 @@ test('provider generation switches preserve vector compatibility', {skip:noDatab
   const url=new URL(adminUrl);url.pathname=`/${dbName}`
   const home=await mkdtemp(join(tmpdir(),'kipster-embedding-config-'))
   let runtime
-  const a={id: 'ollama', contractMajor: 1,model:'fixture-a'}
+  const a={id: 'fixture-provider', contractMajor: 1,model:'fixture-a'}
   const b={...a,model:'fixture-b'}
   let releaseIndex, indexStarted, releaseQuery, queryStarted
   const oldEmbedder={async embed(text){
@@ -86,7 +86,7 @@ test('provider generation switches preserve vector compatibility', {skip:noDatab
     assert.equal(indexed.ready,2)
     assert.equal((await runtime.memory.search(rootAgentId,null,'Amsterdam office'))[0].retrieval,'vector')
     const rows=(await runtime.db.query(`SELECT generation,provider,model,dimension FROM kipster.memory_embedding_generations WHERE installation_id=$1 ORDER BY generation`,[installationId])).rows
-    assert.deepEqual(rows.map(row=>[Number(row.generation),row.provider,row.model,row.dimension]),[[1,'ollama','fixture-a',2],[2,'ollama','fixture-b',2]])
+    assert.deepEqual(rows.map(row=>[Number(row.generation),row.provider,row.model,row.dimension]),[[1,'fixture-provider','fixture-a',2],[2,'fixture-provider','fixture-b',2]])
     const active=(await runtime.db.query(`SELECT generation,model,dimension FROM kipster.memory_profiles WHERE installation_id=$1`,[installationId])).rows[0]
     assert.deepEqual([Number(active.generation),active.model,active.dimension],[2,'fixture-b',2])
     assert.equal((await runtime.db.query(`SELECT status FROM kipster.memory_index_intents WHERE memory_id=$1 AND source_revision=1 AND generation=2`,[blocked.id])).rows[0].status,'stale')

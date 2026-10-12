@@ -14,7 +14,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // Memory strength, reinforcement, decay and forgetting mechanics against real PostgreSQL with the deterministic
 // fixture adapter. Agent clocks are advanced directly where a test needs many active days. Forgetting happens
 // during sleep, driven by an injected wall clock that starts at noon on a fixed local day.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value
