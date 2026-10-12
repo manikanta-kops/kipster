@@ -185,6 +185,19 @@ count (0-30, default 6). The nightly model and the counts belong to the
 installation. The interface has a Memory view
 to read, edit and delete cards.
 
+- The view lists current cards of the installation and every organization,
+  each with its organization and sources, and replaced cards on demand. It
+  reloads when opened and after its own actions; cards publish no live event.
+- An edit changes a current card's type, subject, statement or details and
+  marks it confirmed. A replaced card cannot be edited.
+- Deleting a card removes it with its sources and embedding. Messages stay, and
+  a card it replaced keeps its `valid_to`.
+- The owner and Kip, through the administration catalog's `memory` area, have
+  the same card actions. The view does not create cards or change `core`.
+- Kip's card edits and deletes take an `operationId` like other catalog
+  writes: a repeat changes nothing again. Their receipts keep the card ID and a
+  digest of the request, never the card's text.
+
 ## 9. Not in this version
 
 A reranker, keyword search, per-message embeddings, a separate memory agent,

@@ -119,6 +119,190 @@ const canonical = (value: unknown): string =>
       : v,
   )
 
+type Card = {
+  id: string
+  type: string
+  subject: string
+  statement: string
+  details: Body
+  confirmed: boolean
+  core: boolean
+  organizationId: string | null
+  validFrom: string
+  validTo: string | null
+  replacedBy: string | null
+  createdAt: string
+  updatedAt: string
+  embedded: boolean
+  sources: { threadId: string; messageId: string }[]
+}
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Memory cards with Core's list, read, edit and delete rules. Cards of a deleted organization are gone. */
+function memoryCards(organizations: Organization[]) {
+  const learned = '2026-10-11T02:00:00.000Z'
+  const card = (
+    n: number,
+    fields: Partial<Card> & Pick<Card, 'type' | 'subject' | 'statement'>,
+  ): Card => ({
+    id: id(60 + n),
+    details: {},
+    confirmed: false,
+    core: false,
+    organizationId: null,
+    validFrom: learned,
+    validTo: null,
+    replacedBy: null,
+    createdAt: learned,
+    updatedAt: `2026-10-11T02:00:0${n}.000Z`,
+    embedded: true,
+    sources: [{ threadId: id(90), messageId: id(91 + n) }],
+    ...fields,
+  })
+  const cards: Card[] = [
+    card(0, {
+      type: 'preference',
+      subject: 'user',
+      statement: 'Loves steak',
+      validTo: '2026-10-11T02:00:05.000Z',
+      replacedBy: id(65),
+    }),
+    card(1, {
+      type: 'person',
+      subject: 'Priya',
+      statement: 'User’s sister',
+      details: { relation: 'sister' },
+    }),
+    card(2, {
+      type: 'routine',
+      subject: 'launch review',
+      statement: 'Launch review every Friday',
+      details: { every: 'week', day: 'Fri' },
+      organizationId: id(10),
+      confirmed: true,
+    }),
+    card(3, {
+      type: 'goal',
+      subject: 'portfolio',
+      statement: 'Refresh the studio portfolio before December',
+      details: { due: '2026-12-01' },
+      organizationId: id(11),
+    }),
+    card(4, {
+      type: 'event',
+      subject: 'user',
+      statement: 'Dentist on 13 Oct 2026 at 3 pm',
+      details: { date: '2026-10-13', time: '15:00' },
+      confirmed: true,
+    }),
+    card(5, {
+      type: 'preference',
+      subject: 'user',
+      statement: 'Vegetarian since Oct 2026',
+      confirmed: true,
+      core: true,
+    }),
+  ]
+  const live = () =>
+    cards.filter(
+      (c) =>
+        !c.organizationId ||
+        organizations.some(
+          (o) => o.id === c.organizationId && o.lifecycle !== 'deleted',
+        ),
+    )
+  const find = (value: string) =>
+    live().find((c) => c.id === value) ?? missing('Card')
+  const order = (a: Card, b: Card) =>
+    b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
+  const cardText = (value: unknown, name: string, max: number) =>
+    typeof value === 'string' &&
+    value.trim() &&
+    value.length <= max &&
+    !value.includes('\0')
+      ? value.trim()
+      : invalid(`Invalid card ${name}`)
+  return {
+    async route(request: Request, url: URL): Promise<Response | undefined> {
+      const path = url.pathname,
+        method = request.method
+      if (path === '/v1/memory/cards' && method === 'GET') {
+        const ended = url.searchParams.get('ended'),
+          limit = url.searchParams.get('limit'),
+          cursor = url.searchParams.get('cursor')
+        if (ended !== null && ended !== 'true' && ended !== 'false')
+          invalid('Invalid ended filter')
+        if (
+          limit !== null &&
+          (!/^[1-9]\d{0,2}$/.test(limit) || Number(limit) > 200)
+        )
+          invalid('Invalid card page limit')
+        const all = live().sort(order)
+        const after = cursor ? all.findIndex((c) => c.id === cursor) : -1
+        if (cursor && (!uuid.test(cursor) || after < 0))
+          invalid('Invalid card cursor')
+        const size = Number(limit ?? 50)
+        const rest = all
+          .slice(after + 1)
+          .filter((c) => ended === 'true' || !c.validTo)
+        const page = rest.slice(0, size)
+        return json({
+          version: 1,
+          cards: structuredClone(page),
+          nextCursor: rest.length > size ? page.at(-1)!.id : null,
+        })
+      }
+      const match = /^\/v1\/memory\/cards\/([0-9a-f-]{36})$/.exec(path)
+      if (!match) return undefined
+      const cardId = match[1]
+      if (!uuid.test(cardId)) missing('Card')
+      if (method === 'GET')
+        return json({ version: 1, card: structuredClone(find(cardId)) })
+      if (method === 'DELETE') {
+        const index = cards.indexOf(live().find((c) => c.id === cardId)!)
+        if (index >= 0) {
+          cards.splice(index, 1)
+          for (const c of cards)
+            if (c.replacedBy === cardId) c.replacedBy = null
+        }
+        return json({ version: 1, cardId, deleted: index >= 0 })
+      }
+      if (method !== 'PUT') return undefined
+      const body = object(await request.json())
+      if (body.version !== 1) invalid()
+      keys(body, ['version', 'type', 'subject', 'statement', 'details'])
+      const edit: Partial<Card> = {}
+      if (body.type !== undefined)
+        edit.type = cardText(body.type, 'type', 40).toLowerCase()
+      if (body.subject !== undefined)
+        edit.subject = cardText(body.subject, 'subject', 200)
+      if (body.statement !== undefined)
+        edit.statement = cardText(body.statement, 'statement', 2000)
+      if (body.details !== undefined) {
+        const details = object(body.details)
+        if (new TextEncoder().encode(JSON.stringify(details)).length > 4096)
+          invalid('Invalid card details')
+        edit.details = details
+      }
+      if (!Object.keys(edit).length)
+        invalid('Invalid card edit: nothing to change')
+      const current = find(cardId)
+      if (current.validTo)
+        conflict('Card was replaced; only a current card can be edited')
+      const changed = (Object.keys(edit) as (keyof Card)[]).some(
+        (key) => canonical(edit[key]) !== canonical(current[key]),
+      )
+      if (changed || !current.confirmed)
+        Object.assign(current, edit, {
+          confirmed: true,
+          embedded: current.embedded && !changed,
+          updatedAt: new Date().toISOString(),
+        })
+      return json({ version: 1, card: structuredClone(current) })
+    },
+  }
+}
+
 export function createAdministration(options: Options = {}) {
   let serial = 100,
     localCursor = 0
@@ -243,6 +427,7 @@ export function createAdministration(options: Options = {}) {
     searchCardCount: 50,
     searchChunkCount: 30,
   } as const
+  const cards = memoryCards(organizations)
   const permissions = {
     revision: 0,
     mode: 'auto',
@@ -433,6 +618,8 @@ export function createAdministration(options: Options = {}) {
       method = request.method
     if (method === 'GET' && path === '/v1/bootstrap') return json(bootstrap())
     if (method === 'GET' && path === '/v1/directory') return json(directory())
+    const memory = await cards.route(request, url)
+    if (memory) return memory
     if (method === 'GET' && path === '/v1/settings')
       return json({
         version: 1,

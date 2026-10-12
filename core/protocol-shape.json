@@ -313,6 +313,17 @@
         "agentId": {"type":"string","min":1}
       }
     },
+    "memoryCardUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "type": {"type":"optional","of":{"type":"string","min":1,"max":40}},
+        "subject": {"type":"optional","of":{"type":"string","min":1,"max":200}},
+        "statement": {"type":"optional","of":{"type":"string","min":1,"max":2000}},
+        "details": {"type":"optional","of":{"type":"record"}}
+      }
+    },
     "nightlyModel": {
       "type": "object",
       "exact": true,
@@ -1547,6 +1558,55 @@
         "alreadyApplied": {"type":"boolean"},
         "membership": {"ref":"directoryMembership"}
       }
+    },
+    "memoryCard": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "type": {"type":"string","min":1},
+        "subject": {"type":"string","min":1},
+        "statement": {"type":"string","min":1},
+        "details": {"type":"record"},
+        "confirmed": {"type":"boolean"},
+        "core": {"type":"boolean"},
+        "organizationId": {"type":"nullable","of":{"type":"string","min":1}},
+        "validFrom": {"type":"string","format":"utc-timestamp"},
+        "validTo": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}},
+        "replacedBy": {"type":"nullable","of":{"type":"string","min":1}},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"},
+        "embedded": {"type":"boolean"},
+        "sources": {"type":"array","items":{"ref":"memoryCardSource"}}
+      }
+    },
+    "memoryCardPage": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "cards": {"type":"array","items":{"ref":"memoryCard"}},
+        "nextCursor": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "memoryCardRemoval": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "cardId": {"type":"string","min":1},
+        "deleted": {"type":"boolean"}
+      }
+    },
+    "memoryCardResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"card":{"ref":"memoryCard"}}
+    },
+    "memoryCardSource": {
+      "type": "object",
+      "exact": false,
+      "fields": {"threadId":{"type":"string","min":1},"messageId":{"type":"string","min":1}}
     },
     "message": {
       "type": "object",

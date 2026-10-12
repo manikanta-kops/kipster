@@ -10,7 +10,9 @@ import type { UpdatesService } from '../modules/updates/public.js'
 import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
 import { updateChannel, updateInstall, updateMode } from '../protocol/updates.js'
-import { array, boolean, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
+import { memoryCardUpdate } from '../protocol/memory.js'
+import { deleteCard, editCard, listCards, readCard } from './memory-cards.js'
+import { array, boolean, boundedInteger, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
 
 /** What the administration tools need from the dispatcher that runs the calling attempt. */
 export interface AdministrationToolHost {
@@ -35,6 +37,7 @@ const areas = {
   adapters: 'Execution adapters and the models they offer.',
   permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access, and the actions the person always allows.',
   learning: 'Memory: on or off and the nightly sleep time, for the installation and each kip; the nightly model; how many core cards every turn loads and how many cards and thread chunks a turn\'s search adds.',
+  memory: 'Memory cards: the facts about the person every kip shares, learned each night from what the person said. Read, edit or delete them; messages stay.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
   operations: 'The state and result of an earlier change, by its operationId.',
@@ -314,6 +317,26 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     area: 'learning', kind: 'write', input: fields({ agentId: id }, agentLearningUpdate),
     description: "Turn memory on or off for one kip, or set its own sleep time (\"HH:MM\"); a null sleepTime uses the installation default.",
     run: ({ host, caller, args }) => { const { agentId, ...update } = args; return host.learning.setAgent(caller, agentId, update) },
+  }),
+  'memory.cards_list': operation({
+    area: 'memory', kind: 'read', input: fields({ ended: optional(boolean()), limit: optional(boundedInteger(1, 200)), cursor: optional(id) }),
+    description: 'List memory cards of the installation and every workspace, newest first, each with its type, subject, statement, details, confirmed (the person said it) or inferred, core (loaded on every turn), organizationId (null for an installation card), valid dates and source messages. ended true also lists replaced cards. limit is 1-200 (default 50); pass nextCursor as cursor for the next page.',
+    run: async ({ host, caller, args }) => ({ version: 1, ...await listCards(host.db, caller, args) }),
+  }),
+  'memory.card_get': operation({
+    area: 'memory', kind: 'read', input: fields({ cardId: id }),
+    description: 'Read one memory card with its source messages.',
+    run: async ({ host, caller, args }) => ({ version: 1, card: await readCard(host.db, caller, args.cardId) }),
+  }),
+  'memory.card_update': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }, memoryCardUpdate),
+    description: 'Correct a current memory card when the person asks: type, subject, statement or details (a JSON object); omitted fields are unchanged. The card becomes confirmed. A replaced card cannot be edited; edit its replacement. A repeat with the same operationId changes nothing and returns the card as it is now.',
+    run: async ({ host, caller, operationId, args }) => { const { cardId, ...edit } = args; return recorded(operationId, { version: 1, ...await editCard(host.db, caller, cardId, edit, operationId) }) },
+  }),
+  'memory.card_delete': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }),
+    description: 'Delete a memory card the person wants forgotten, with its sources and embedding. The messages it was learned from stay. deleted is false when it was already gone; a repeat with the same operationId returns the first outcome.',
+    run: async ({ host, caller, operationId, args }) => recorded(operationId, { version: 1, ...await deleteCard(host.db, caller, args.cardId, operationId) }),
   }),
   'interface.get': operation({
     area: 'interface', kind: 'read', input: none,

@@ -56,8 +56,9 @@ Reconnects and reloads restore saved state without dispatching work.
   typed-name confirmation. The archive panel tracks progress and waiting cleanup;
   deletion can wait for confirmed provider termination. The root admin is protected.
 - **Settings:** saved and effective execution settings, adapter readiness,
-  organization instructions, learning switches and sleep times. Effective values
-  show their source; saves change only edited fields.
+  organization instructions, and Memory: switches, sleep times, the nightly
+  model, per-turn counts and a Cards view to read, edit and delete memory cards.
+  Effective values show their source; saves change only edited fields.
 - **Software updates:** a sidebar pill opens Settings → Updates. It shows the
   versions, **Check for updates**, one **Update** button and an **Update
   automatically** switch shared through Core. Update installs a managed backend

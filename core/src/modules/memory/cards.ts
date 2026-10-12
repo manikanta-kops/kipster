@@ -135,7 +135,8 @@ export class CardService {
   async list(options: { scope?: CardScope; ended?: boolean; limit?: number; cursor?: string | null } = {}, client: Postgres | SqlClient = this.db): Promise<{ cards: Card[]; nextCursor: string | null }> {
     const scope = options.scope ?? 'all'
     const limit = Math.min(Math.max(1, options.limit ?? 50), CARD_LIMITS.page)
-    const after = options.cursor ? (await client.query<{ updated_at: Date; id: string }>('SELECT updated_at, id FROM kipster.cards WHERE id=$1 AND installation_id=$2', [options.cursor, this.installationId])).rows[0] : undefined
+    // As text, so the cursor keeps the microseconds a Date would drop and cards saved in one transaction are not skipped.
+    const after = options.cursor ? (await client.query<{ updated_at: string; id: string }>('SELECT updated_at::text AS updated_at, id FROM kipster.cards WHERE id=$1 AND installation_id=$2', [options.cursor, this.installationId])).rows[0] : undefined
     if (options.cursor && !after) throw new Error('Invalid card cursor')
     const rows = (await client.query<CardRow>(`SELECT ${cardColumns} FROM kipster.cards c WHERE c.installation_id=$1 AND ${scopeSql(scope, '$2')}
       AND ($3 OR c.valid_to IS NULL) AND ($4::timestamptz IS NULL OR (c.updated_at, c.id) < ($4, $5::uuid))
