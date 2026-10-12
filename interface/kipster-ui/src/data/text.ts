@@ -40,6 +40,8 @@ export type Bootstrap = Scope & {
     notificationActions?: boolean
     documents?: boolean
     permissionModes?: boolean
+    /** Core lists, reads, edits and deletes memory cards. */
+    memoryCards?: boolean
   }
 }
 export type Summary = {
@@ -527,6 +529,9 @@ export class TextClient {
             ) &&
             ['undefined', 'boolean'].includes(
               typeof data.capabilities.documents,
+            ) &&
+            ['undefined', 'boolean'].includes(
+              typeof data.capabilities.memoryCards,
             ))),
     )
     return data as Bootstrap

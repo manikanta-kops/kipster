@@ -2388,6 +2388,7 @@ export function Workspace({
               initialTab={settingsInitialTab}
               versions={identity}
               permissionModes={identity.capabilities?.permissionModes === true}
+              memoryCards={identity.capabilities?.memoryCards === true}
               manage={
                 <Management
                   data={view}

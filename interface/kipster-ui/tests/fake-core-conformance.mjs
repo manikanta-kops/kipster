@@ -501,6 +501,7 @@ test('memory cards list, read, edit and delete like Core', async (t) => {
     assert.equal(response.status, status, `${method} ${path}`)
     assert.equal(protocol.stableError.parse(await response.json()).code, code)
   }
+  assert.equal((await json('/v1/bootstrap')).capabilities.memoryCards, true)
   const current = await json('/v1/memory/cards', protocol.memoryCardPage)
   assert.ok(current.cards.length)
   assert.ok(current.cards.every((card) => card.validTo === null))
