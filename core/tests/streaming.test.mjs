@@ -74,7 +74,7 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [runtime.bootstrap.rootAgentId, JSON.stringify({ adapterId: 'test-adapter', modelId: 'test-model' })])
     const adapter = fixture()
     let block = true
-    dispatcher = new TextDispatcher(runtime, adapter, undefined, { async afterOutput(id) {
+    dispatcher = new TextDispatcher(runtime, adapter, { async afterOutput(id) {
       if (id === 'one' && block) { block = false; await new Promise(resolve => { releaseWrite = resolve }) }
     } })
     server = await startTextServer(runtime, actor, { host: '127.0.0.1', port: 0, dispatcher })

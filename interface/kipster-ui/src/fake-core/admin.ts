@@ -589,7 +589,7 @@ export function createAdministration(options: Options = {}) {
         step: op.finish ? 'cleanup' : null,
         waitingFor:
           op.state === 'waiting'
-            ? `Waiting for the ${op.kind.startsWith('agent.') ? "agent's" : "organization's"} work to end: 1 runs and 0 memory tasks`
+            ? `Waiting for the ${op.kind.startsWith('agent.') ? "agent's" : "organization's"} work to end: 1 runs`
             : null,
         result: op.receipt,
         error: null,

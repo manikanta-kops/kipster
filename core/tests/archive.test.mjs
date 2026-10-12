@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
-import { MAINTENANCE_SWEEP_JOB_ID, SleepService } from '../dist/modules/memory/public.js'
 import { readEvents } from '../dist/modules/synchronization/public.js'
 import { agentResult, directorySnapshot } from '../dist/protocol/admin.js'
 import { stableError } from '../dist/protocol/text.js'
@@ -43,7 +42,6 @@ async function setup(t, { learning = false } = {}) {
   const vectors = new Map()
   const runtime = await openRuntime({ connectionString: url.href, home, names, executionLimit: 6, ...(learning ? { clock: () => time.now } : {}),
     embedding: { ...profile, async embed(text) { return vectors.get(text) ?? [0, 0, 1] } } })
-  await runtime.memory.stopIndexing()
   const { installationId, ownerId, organizationId, rootAgentId } = runtime.bootstrap
   const actor = { installationId, personId: ownerId }
   const executions = [], cancels = []
@@ -186,7 +184,7 @@ test('archiving stops the agent\'s work, fails a waiting parent\'s delegation an
 async function belongings(ctx, file) {
   const directory = await ctx.ok('GET', '/v1/directory')
   const settings = (await ctx.ok('GET', '/v1/settings')).agents.find(item => item.id === ctx.scout)
-  const memory = (await ctx.db.query('SELECT id, kind, text, revision, updated_at FROM kipster.memory_records WHERE owner_id=$1 ORDER BY id', [ctx.scout])).rows
+  const memory = (await ctx.db.query('SELECT day, summary, thread_ids, updated_at FROM kipster.diary WHERE agent_id=$1 ORDER BY day', [ctx.scout])).rows
   const tree = async directory => (await Promise.all((await readdir(directory, { withFileTypes: true })).map(async entry => {
     const path = join(directory, entry.name)
     return entry.isDirectory() ? tree(path) : [[path, createHash('sha256').update(await readFile(path)).digest('hex')]]
@@ -207,7 +205,7 @@ test('restoring brings the agent back unchanged: stopped work stays stopped, Ret
   const group = (await ctx.ok('POST', `/v1/organizations/${ctx.organizationId}/groups`, { version: 1, operationId: randomUUID(), name: 'Research' })).group
   const membership = (await ctx.ok('GET', '/v1/directory')).memberships.find(item => item.agentId === ctx.scout)
   await ctx.ok('POST', `/v1/groups/${group.id}/appearances`, { version: 1, operationId: randomUUID(), membershipId: membership.id })
-  await ctx.runtime.memory.save(ctx.scout, 'fact', 'The desk opens at nine', [{ authorId: ctx.scout }])
+  await ctx.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,summary) VALUES ($1,'2026-01-09',$2,'Opened the desk at nine')", [ctx.scout, ctx.installationId])
   // Scout writes and publishes a file, then its next run fails.
   const writer = await ctx.running(ctx.scout, 'Write the notes')
   const output = await writer.call('artifacts_write', { name: 'notes.txt', content: 'Quarterly notes' })
@@ -301,56 +299,12 @@ test('the admin agent cannot be archived; operation IDs are receipts; only the o
   ctx.finish(adminRun)
 })
 
-test('learning and sleep skip an archived agent and resume after a restore', { skip: noDatabase, timeout: 120000 }, async t => {
+test('memory is not in effect for an archived agent and resumes after a restore', { skip: noDatabase, timeout: 120000 }, async t => {
   const ctx = await setup(t, { learning: true })
-  await ctx.runtime.learning.setAgent(ctx.actor, ctx.root, { enabled: false })
-  const sleep = new SleepService(ctx.db, ctx.installationId, ctx.runtime.home.identity)
-  const sleeps = () => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.memory_sleeps WHERE agent_id=$1', [ctx.scout])
   const learns = async () => (await ctx.ok('GET', '/v1/settings/learning')).agents.find(item => item.agentId === ctx.scout).effective
-  const handled = new Set()
-  /** A finished conversation of Scout whose extraction is handed to the adapter; `answer` scripts what it learned. */
-  const extraction = async text => {
-    const run = await ctx.running(ctx.scout, `Please note: ${text}`)
-    ctx.finish(run, 'Noted.')
-    await ctx.settled(run.runId, 'completed')
-    await ctx.db.transaction(async client => { await ctx.runtime.jobs.send(client, MAINTENANCE_SWEEP_JOB_ID) })
-    const found = await until(() => ctx.executions.find(e => e.context.kind === 'maintenance' && e.context.maintenance.sourceRunId === run.runId && !handled.has(e)), Boolean, 'extraction')
-    handled.add(found)
-    const entry = (await row(ctx.db, 'SELECT manifest FROM kipster.maintenance_sources WHERE run_id=$1', [run.runId])).manifest.entries[0]
-    const answer = JSON.stringify({ candidates: [{ kind: 'fact', text, subject: 'office', author_id: entry.author_id, author_class: entry.author_class, citations: [{ message_id: entry.message_id, revision: entry.revision, parts_hash: entry.parts_sha256, excerpt: 'Please note' }] }] })
-    return {
-      source: run.runId,
-      async answer() {
-        const attemptId = found.context.attemptId
-        found.handle.release({ kind: 'text', attemptId, messageId: 'output', text: answer, final: true })
-        found.handle.release({ kind: 'ended', attemptId, confirmed: true })
-        await until(async () => (await row(ctx.db, 'SELECT state FROM kipster.maintenance_runs WHERE id=$1', [found.context.runId]))?.state, state => ['completed', 'failed'].includes(state), 'extraction settled')
-      },
-    }
-  }
-  const learned = text => row(ctx.db, 'SELECT id FROM kipster.memory_records WHERE owner_id=$1 AND text=$2', [ctx.scout, text])
   assert.equal(await learns(), true)
-
-  // An extraction in flight when the agent is archived learns nothing.
-  const inFlight = await extraction('The office opens at nine')
-  await ctx.lifecycle('archive')
-  // Restoring before the old provider answers must not revive pre-archive learning.
-  await ctx.lifecycle('restore')
-  await inFlight.answer()
-  assert.equal(await learned('The office opens at nine'), undefined)
-  assert.equal((await row(ctx.db, 'SELECT status FROM kipster.maintenance_sources WHERE run_id=$1', [inFlight.source])).status, 'fenced')
   await ctx.lifecycle('archive')
   assert.equal(await learns(), false)
-  // No sleep begins while it is archived.
-  ctx.time.now = new Date(2026, 0, 11, 12)
-  await sleep.run(ctx.time.now)
-  assert.equal(await sleeps(), 0)
-
   await ctx.lifecycle('restore')
   assert.equal(await learns(), true)
-  const next = await extraction('Parking is behind the office')
-  await next.answer()
-  assert.ok(await learned('Parking is behind the office'), 'learning resumes')
-  assert.equal((await sleep.run(ctx.time.now)).started, 1)
-  assert.equal(await sleeps(), 1, 'sleep resumes')
 })

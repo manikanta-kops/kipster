@@ -297,7 +297,7 @@ test('prequeued replies stay out of earlier execution context', { skip: noDataba
     const claimGate = new Promise(resolve => { releaseClaim = resolve })
     const claimSeen = new Promise(resolve => { claimed = resolve })
     let rootRunId
-    dispatcher = new TextDispatcher(runtime, adapter, undefined, { afterClaim: async runId => { if (runId === rootRunId) { claimed(); await claimGate } } })
+    dispatcher = new TextDispatcher(runtime, adapter, { afterClaim: async runId => { if (runId === rootRunId) { claimed(); await claimGate } } })
     server = await startTextServer(runtime, { installationId: ids.installationId, personId: ids.ownerId }, { host: '127.0.0.1', port: 0 })
     const post = async (path, data) => { const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(data) }); assert.ok(response.ok); return response.json() }
     const context = { kind: 'installation', installationId: ids.installationId }

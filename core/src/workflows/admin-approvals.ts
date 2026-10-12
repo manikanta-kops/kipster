@@ -19,7 +19,7 @@ export async function requestAdminApproval(db: Postgres, caller: AgentCaller, ca
   if (!target) throw new Error('Target not found')
   const operationId = `${caller.attemptId}:${callId}`
   const effect = action === 'agent.archive' ? 'Archive this agent and stop its work. Chats, memory and files stay; the agent can be restored.'
-    : organization ? 'Permanently remove this organization’s chats, shared resources and organization-homed learning. Global agents and independently owned resources stay.'
+    : organization ? 'Permanently remove this organization’s chats, shared resources and organization memory. Global agents and independently owned resources stay.'
       : `Permanently remove this archived agent’s chats, memory, files and provider sessions. Organization publications stay. ${copyFilesToOrganizations ? 'Copy files shown in organization chats into those organizations.' : 'Do not make additional organization file copies.'}`
   const card = await askInteraction(db, caller.attemptId, callId, {
     kind: 'approval', prompt: `${action === 'agent.archive' ? 'Archive' : 'Permanently delete'} ${target.display_name}?`,

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
-import { boundedEmbed, sameProfile, vectorLiteral, type MemoryService } from '../memory/public.js'
+import { boundedEmbed, sameProfile, vectorLiteral, type EmbeddingProfile } from './profile.js'
 import { isLive } from '../identity/public.js'
 
 type Target = { kind:'agent'|'organization'; ownerId:string }
@@ -60,12 +60,12 @@ export async function deleteOwnerCollections(client:SqlClient,installationId:str
   return rows.length
 }
 
-/** Core-owned vector collections. No collection is an implicit memory retrieval source. */
+/** Core-owned vector collections. No collection is a memory search source. */
 export class VectorService {
   private timer:ReturnType<typeof setTimeout>|null=null
   private active:Promise<void>|null=null
   private stopped=false
-  constructor(readonly db:Postgres,readonly installationId:string,readonly memory:MemoryService){}
+  constructor(readonly db:Postgres,readonly installationId:string,readonly embedding:EmbeddingProfile){embedding.onRebuild(()=>this.wakeIndexing())}
   startIndexing():void {this.stopped=false;this.wakeIndexing()}
   wakeIndexing():void {if(this.stopped)return;if(this.timer)clearTimeout(this.timer);this.timer=setTimeout(()=>{this.timer=null;void this.loop()},0);this.timer.unref()}
   private async loop():Promise<void> {if(this.active||this.stopped)return;this.active=(async()=>{try{await this.indexPending(2)}catch{/* Durable intents remain retryable. */}})();await this.active;this.active=null;if(!this.stopped){this.timer=setTimeout(()=>{this.timer=null;void this.loop()},5000);this.timer.unref()}}
@@ -101,9 +101,9 @@ export class VectorService {
     if(!await isLive(client,this.installationId,owner.kind,owner.ownerId,lock))throw new Error('Vector owner unavailable')
   }
   private async profile(client:SqlClient,lock:boolean,requireConfigured=true):Promise<Profile> {
-    const p=(await client.query<Profile>(`SELECT generation,dimension,provider,model FROM kipster.memory_profiles WHERE installation_id=$1 ${lock?'FOR SHARE':''}`,[this.installationId])).rows[0]
+    const p=(await client.query<Profile>(`SELECT generation,dimension,provider,model FROM kipster.embedding_profiles WHERE installation_id=$1 ${lock?'FOR SHARE':''}`,[this.installationId])).rows[0]
     if(!p)throw new Error('Embedding profile unavailable')
-    const configured=this.memory.embeddingConfig().profile
+    const configured=this.embedding.embeddingConfig().profile
     if(requireConfigured&&!sameProfile(p,configured))throw new Error('Embedding profile changed; restart or reconfigure runtime')
     return p
   }
@@ -210,7 +210,7 @@ export class VectorService {
     }
     const row=(await this.db.query<{id:string;record_key:string;text:string;metadata:Input;revision:number;source_hash:string;status:string|null;failure:string|null}>(`SELECT r.id,r.record_key,r.text,r.metadata,r.revision,r.source_hash,i.status,i.failure FROM kipster.vector_records r
       JOIN kipster.vector_collections c ON c.id=r.collection_id
-      LEFT JOIN kipster.memory_profiles p ON p.installation_id=c.installation_id
+      LEFT JOIN kipster.embedding_profiles p ON p.installation_id=c.installation_id
       LEFT JOIN kipster.vector_index_intents i ON i.record_id=r.id AND i.source_revision=r.revision AND i.source_hash=r.source_hash AND i.generation=p.generation
       WHERE c.id=$1 AND c.installation_id=$2 AND c.owner_kind=$3 AND c.owner_id=$4 AND r.record_key=$5`,[collection.id,this.installationId,owner.kind,owner.ownerId,input.key])).rows[0]
     return {owner,collectionId:collection.id,record:row?{id:row.id,key:row.record_key,text:row.text,metadata:row.metadata,revision:row.revision,sourceHash:row.source_hash,indexStatus:row.status??'pending',failure:row.failure}:null}
@@ -218,12 +218,12 @@ export class VectorService {
   private async search(attemptId:string,incarnation:string,owner:Target,input:Input):Promise<unknown>{
     const collectionId=id(input.collectionId),query=input.query as string,limit=input.limit===undefined?10:integer(input.limit,1,20)
     const first=(await this.db.query<Profile & {collection_revision:string}>(`SELECT p.generation,p.dimension,p.provider,p.model,c.revision AS collection_revision
-      FROM kipster.vector_collections c JOIN kipster.memory_profiles p ON p.installation_id=c.installation_id
+      FROM kipster.vector_collections c JOIN kipster.embedding_profiles p ON p.installation_id=c.installation_id
       WHERE c.id=$1 AND c.installation_id=$2 AND c.owner_kind=$3 AND c.owner_id=$4`,[collectionId,this.installationId,owner.kind,owner.ownerId])).rows[0]
     if(!first)throw new Error('Vector collection not found')
     const token=cursor(input.cursor),queryHash=hash(query)
     if(token&&(token.collectionId!==collectionId||token.queryHash!==queryHash||token.generation!==first.generation||token.revision!==first.collection_revision||typeof token.distance!=='number'||!Number.isFinite(token.distance)||typeof token.id!=='string'||!uuid.test(token.id)))throw new Error('Vector pagination invalidated')
-    const configured=this.memory.embeddingConfig()
+    const configured=this.embedding.embeddingConfig()
     if(!sameProfile(first,configured.profile))throw new Error('Embedding profile changed; restart or reconfigure runtime')
     let vector:string|undefined,availability:'ready'|'pending'|'failed'='pending'
     if(first.dimension!==null){
@@ -234,7 +234,7 @@ export class VectorService {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
       await client.query("SET LOCAL transaction_timeout='5s'")
       const final=(await client.query<Profile & {collection_revision:string}>(`SELECT p.generation,p.dimension,p.provider,p.model,c.revision AS collection_revision FROM kipster.vector_collections c
-        JOIN kipster.memory_profiles p ON p.installation_id=c.installation_id WHERE c.id=$1 AND c.installation_id=$2 AND c.owner_kind=$3 AND c.owner_id=$4`,[collectionId,this.installationId,owner.kind,owner.ownerId])).rows[0]
+        JOIN kipster.embedding_profiles p ON p.installation_id=c.installation_id WHERE c.id=$1 AND c.installation_id=$2 AND c.owner_kind=$3 AND c.owner_id=$4`,[collectionId,this.installationId,owner.kind,owner.ownerId])).rows[0]
       if(!final||final.generation!==first.generation||final.collection_revision!==first.collection_revision||!sameProfile(final,first)||final.dimension!==first.dimension)throw new Error('Vector pagination invalidated')
       const pending=(await client.query<{pending:string;failed:string;total:string}>(`SELECT count(*) FILTER (WHERE i.status IN ('pending','processing') OR i.status IS NULL)::text AS pending,
         count(*) FILTER (WHERE i.status='failed')::text AS failed,count(*)::text AS total
@@ -252,7 +252,7 @@ export class VectorService {
     })
     await this.db.transaction(client=>this.guard(client,attemptId,incarnation,owner,false))
     const current=(await this.db.query<Profile & {collection_revision:string}>(`SELECT p.generation,p.dimension,p.provider,p.model,c.revision AS collection_revision FROM kipster.vector_collections c
-      JOIN kipster.memory_profiles p ON p.installation_id=c.installation_id WHERE c.id=$1`,[collectionId])).rows[0]
+      JOIN kipster.embedding_profiles p ON p.installation_id=c.installation_id WHERE c.id=$1`,[collectionId])).rows[0]
     if(!current||current.generation!==first.generation||current.collection_revision!==first.collection_revision||!sameProfile(current,first))throw new Error('Vector pagination invalidated')
     return result
   }
@@ -260,13 +260,13 @@ export class VectorService {
     integer(limit,1,20)
     const counts={processed:0,ready:0,failed:0,stale:0},deadline=Date.now()+30000,seen:string[]=[]
     for(let n=0;n<limit&&Date.now()<deadline;n++){
-      const configured=this.memory.embeddingConfig(),leaseOwner=randomUUID()
+      const configured=this.embedding.embeddingConfig(),leaseOwner=randomUUID()
       const claimed=await this.db.transaction(async client=>{
         await client.query("SET LOCAL transaction_timeout='5s'")
         const row=(await client.query<{record_id:string;source_revision:number;source_hash:string;generation:string;provider:string;model:string;text:string;owner_kind:'agent'|'organization';owner_id:string}>(`SELECT i.record_id,i.source_revision,i.source_hash,i.generation,i.provider,i.model,s.text,c.owner_kind,c.owner_id FROM kipster.vector_index_intents i
           JOIN kipster.vector_sources s ON s.record_id=i.record_id AND s.revision=i.source_revision
           JOIN kipster.vector_records r ON r.id=i.record_id JOIN kipster.vector_collections c ON c.id=r.collection_id
-          JOIN kipster.memory_profiles p ON p.installation_id=c.installation_id AND p.generation=i.generation AND p.provider=i.provider AND p.model=i.model
+          JOIN kipster.embedding_profiles p ON p.installation_id=c.installation_id AND p.generation=i.generation AND p.provider=i.provider AND p.model=i.model
           WHERE c.installation_id=$1 AND p.provider=$4 AND p.model=$5 AND NOT(i.record_id=ANY($3::uuid[]))
           AND ((i.status IN ('pending','failed') AND (i.next_attempt_at<=now() OR $2)) OR (i.status='processing' AND i.lease_until<now()))
           AND CASE c.owner_kind WHEN 'agent' THEN kipster.live_agent(c.owner_id) ELSE kipster.live_organization(c.owner_id) END
@@ -283,7 +283,7 @@ export class VectorService {
         await client.query("SET LOCAL transaction_timeout='5s'")
         // A lease that ends after its owner stopped being live writes nothing; it is picked up again once the owner is live.
         if(!await isLive(client,this.installationId,claimed.owner_kind,claimed.owner_id))return 'stale'
-        const profile=(await client.query<Profile>('SELECT generation,dimension,provider,model FROM kipster.memory_profiles WHERE installation_id=$1 FOR UPDATE',[this.installationId])).rows[0]
+        const profile=(await client.query<Profile>('SELECT generation,dimension,provider,model FROM kipster.embedding_profiles WHERE installation_id=$1 FOR UPDATE',[this.installationId])).rows[0]
         const collection=(await client.query<{id:string}>(`SELECT c.id FROM kipster.vector_collections c JOIN kipster.vector_records r ON r.collection_id=c.id WHERE r.id=$1 AND c.installation_id=$2 FOR NO KEY UPDATE OF c`,[claimed.record_id,this.installationId])).rows[0]
         const record=(await client.query<{revision:number;source_hash:string}>(`SELECT revision,source_hash FROM kipster.vector_records WHERE id=$1 FOR NO KEY UPDATE`,[claimed.record_id])).rows[0]
         const lease=(await client.query<{status:string;lease_owner:string|null;valid:boolean}>(`SELECT status,lease_owner,lease_until>now() AS valid FROM kipster.vector_index_intents WHERE record_id=$1 AND source_revision=$2 AND generation=$3 FOR UPDATE`,[claimed.record_id,claimed.source_revision,claimed.generation])).rows[0]
@@ -294,7 +294,7 @@ export class VectorService {
         if(failure){await client.query("UPDATE kipster.vector_index_intents SET status='failed',failure=$4,lease_owner=NULL,lease_until=NULL,next_attempt_at=now()+interval '30 seconds' WHERE record_id=$1 AND source_revision=$2 AND generation=$3",[claimed.record_id,claimed.source_revision,claimed.generation,failure.slice(0,500)]);await client.query('UPDATE kipster.vector_collections SET revision=revision+1 WHERE id=$1',[collection.id]);return 'failed'}
         const dimension=vector!.slice(1,-1).split(',').length
         if(profile.dimension!==null&&profile.dimension!==dimension){await client.query("UPDATE kipster.vector_index_intents SET status='failed',failure='Embedding dimension mismatch',lease_owner=NULL,lease_until=NULL,next_attempt_at=now()+interval '30 seconds' WHERE record_id=$1 AND source_revision=$2 AND generation=$3",[claimed.record_id,claimed.source_revision,claimed.generation]);await client.query('UPDATE kipster.vector_collections SET revision=revision+1 WHERE id=$1',[collection.id]);return 'failed'}
-        if(profile.dimension===null){await client.query('UPDATE kipster.memory_profiles SET dimension=$2 WHERE installation_id=$1',[this.installationId,dimension]);await client.query('UPDATE kipster.memory_embedding_generations SET dimension=$3 WHERE installation_id=$1 AND generation=$2',[this.installationId,claimed.generation,dimension])}
+        if(profile.dimension===null){await client.query('UPDATE kipster.embedding_profiles SET dimension=$2 WHERE installation_id=$1',[this.installationId,dimension]);await client.query('UPDATE kipster.embedding_generations SET dimension=$3 WHERE installation_id=$1 AND generation=$2',[this.installationId,claimed.generation,dimension])}
         await client.query("UPDATE kipster.vector_index_intents SET status='ready',failure=NULL,embedding=$4::vector,dimension=$5,lease_owner=NULL,lease_until=NULL,updated_at=now() WHERE record_id=$1 AND source_revision=$2 AND generation=$3",[claimed.record_id,claimed.source_revision,claimed.generation,vector,dimension])
         await client.query('UPDATE kipster.vector_collections SET revision=revision+1 WHERE id=$1',[collection.id])
         return 'ready'
@@ -304,3 +304,4 @@ export class VectorService {
     return counts
   }
 }
+export { EmbeddingProfile, boundedEmbed, sameProfile, vectorLiteral, type StoredEmbeddingProfile } from './profile.js'

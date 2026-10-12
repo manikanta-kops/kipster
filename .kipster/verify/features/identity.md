@@ -4,7 +4,7 @@
 
 - Global soul.md, identity.md and AGENTS.md files.
 - Editable identity guidance, compare-and-swap writes, backups and restore.
-- Memory, provenance and learned identity promotion remain Core capabilities.
+- Kip memory (decision record 10) is stored in Core and has no screen yet.
 
 ## How to get to it (user point of view)
 

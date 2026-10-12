@@ -66,7 +66,7 @@ test('Core works as a packed package outside repository resolution', { timeout: 
 
   await t.test('all exports have shipped JavaScript and declarations; private files stay private', async () => {
     assert.equal(lstatSync(installedRoot).isSymbolicLink(), false)
-    assert.deepEqual(Object.keys(installed.exports).sort(), ['./adapter', './client', './embedding', './host', './maintenance', './protocol', './runtime', './transcription'])
+    assert.deepEqual(Object.keys(installed.exports).sort(), ['./adapter', './client', './embedding', './host', './protocol', './runtime', './transcription'])
     for (const entry of Object.values(installed.exports)) {
       assert.ok(entry.types.endsWith('.d.ts'))
       assert.ok(entry.import.endsWith('.js'))
@@ -152,17 +152,6 @@ test('Core works as a packed package outside repository resolution', { timeout: 
       b.record();
       assert.deepEqual(second, ['fixture used the supplied host']);
     `], consumer, 10_000)
-  })
-
-  await t.test('packed maintenance entry ships reads plus intent-append without starting the runtime', async () => {
-    await run(process.execPath, ['--import', guard, '--input-type=module', '-e', `
-      import assert from 'node:assert/strict';
-      import * as maintenance from '@kipster/core/maintenance';
-      assert.deepEqual(Object.keys(maintenance).sort(), ['inspect', 'inspectRun', 'list', 'requestAction', 'status']);
-      for (const entry of Object.values(maintenance)) assert.equal(typeof entry, 'function');
-      await assert.rejects(maintenance.status({ connectionString: 'postgresql://127.0.0.1:1/none' }));
-      console.log('maintenance surface verified');
-    `], consumer, 30_000)
   })
 
   await t.test('packed concrete text adapter uses public context, handle and host tool', async () => {

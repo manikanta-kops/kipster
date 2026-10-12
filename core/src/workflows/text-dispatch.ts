@@ -3,8 +3,7 @@ import { administrationReceipts } from '../modules/administration/public.js'
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { randomUUID } from 'node:crypto'
-import { recoveryCompatible } from '../adapter-api/index.js'
-import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle, MaintenanceExecutionContext, MaintenanceCapableAdapter, RecoveryReference } from '../adapter-api/index.js'
+import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle } from '../adapter-api/index.js'
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
 import { acceptsType } from '../transcription/index.js'
@@ -16,14 +15,12 @@ import { administrationTool } from './admin-tools.js'
 import { executionTools, toolGuidance } from './agent-tools.js'
 import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
-import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, resolveAgentSettings, type Catalog } from '../modules/settings/public.js'
+import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
 import { publishThreadChange, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
 import { askInteraction, interactionRecord, type InteractionInput } from '../modules/work/public.js'
 import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
-import { MaintenanceService, SleepService, MAINTENANCE_LIMITS, MAINTENANCE_INSTRUCTIONS_V1, MAINTENANCE_SWEEP_JOB_ID, CONSOLIDATION, consolidationPrompt, promotionPrompt, consolidationOutputSchema, extractionOutputSchema, PROMOTION_OUTPUT_SCHEMA } from '../modules/memory/public.js'
-import type { MaintenanceSettleMode, MaintenanceSource, SleepRunClaim } from '../modules/memory/public.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
 
@@ -32,10 +29,9 @@ const REPROBE_INTERVAL_MS = 30000
 /** How often stopped attempts this process drives are checked for adapter cancellation, after a fence committed anywhere. */
 const CANCELLATION_DELIVERY_MS = 5000
 
-export interface MemoryContextPort { read(agentId: string, organizationId: string | null, threadId: string, query?: string): Promise<readonly string[]> }
 export interface ControlInput { operationId: string; context: Context; chatId: string; threadId: string; runId: string; attemptId?: string; action: 'stop'|'resume'|'retry'|'cancel-queued'|'steer' }
 export interface ControlReceipt { version: 1; operationId: string; outcome: 'accepted'|'unsupported'|'rejected'; reason: string; runId: string; threadId: string; state: string }
-export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterMaintenanceClaim?(sourceRunId: string): Promise<void>; afterMaintenanceIssue?(runId: string): Promise<void>; afterStartupRecovery?(): Promise<void>; afterMaintenanceProvider?(runId: string): Promise<void>; afterMaintenanceSettlement?(runId: string, outcome: string): Promise<void>; maintenanceFailed?(error: unknown): void | Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void> }
+export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterStartupRecovery?(): Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void> }
 const transcriptionFailures=new Set(['unavailable','timeout','cancelled','invalid-input','output-limit','provider-error'])
 function normalizedTranscription(value:unknown,provider:string):{status:'succeeded'|'no-speech';text:string;provider:string}|{status:'unavailable';reason:string;provider:string}{
   const row=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
@@ -61,11 +57,10 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
   })
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'memoryTool' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'isMaintenanceAttempt' | 'adminTool' | 'documentTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
-      if (await dispatcher.isMaintenanceAttempt?.(request.attemptId)) throw new Error('Maintenance tools denied')
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
       if (request.name === 'conversation_publish') {
@@ -94,25 +89,16 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
         if (args.grant !== undefined && !request.callId.startsWith('native:')) throw new Error('Invalid interaction fields')
         return dispatcher.askToolInteraction(request.attemptId, request.callId, { ...args, kind } as unknown as InteractionInput)
       }
-      // Agent and memory tools keep their Core names, such as `memory.relationship_get` for `memory_relationship_get`.
+      // Agent tools keep their Core names, such as `agents.delegate` for `agents_delegate`.
       if (/^agents_(list|get|delegate|delegation_status)$/.test(request.name)) return dispatcher.agentTool(request.attemptId,request.callId,request.name.replace('_','.'),args)
       if ((request.name === 'admin_operations' || request.name === 'admin_call') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
-      if (request.name.startsWith('memory_')) return dispatcher.memoryTool(request.attemptId, request.callId, request.name.replace('_','.'), args)
-      if (request.name === 'data_space') return dispatcher.structuredTool(request.attemptId, request.callId, args)
-      if (request.name === 'vectors_space') return dispatcher.vectorTool(request.attemptId, request.callId, args)
+      if (request.name === 'data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
+      if (request.name === 'vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
       const document = /^documents_(create|list|read|edit|delete)$/.exec(request.name)
       if (document && dispatcher.documentTool) return dispatcher.documentTool(request.attemptId, request.callId, `documents.${document[1]}`, args)
       throw new Error('Unsupported Kipster tool')
     },
   }
-}
-async function within<T>(operation: Promise<T>, milliseconds: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([operation, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), milliseconds)
-    })])
-  } finally { clearTimeout(timer) }
 }
 
 interface RunRow { id: string; thread_id: string; chat_id: string; input_message_id: string; state: string; queue_position: string; current_attempt_id: string | null; installation_id: string; caller_id: string; stop_requested: boolean; continuation_interaction_id: string | null; queue_hold: boolean; queue_generation: string; retry_continue_generation: string | null }
@@ -171,15 +157,9 @@ export class TextDispatcher {
   private readonly toolFlights = new Map<string,{artifactId:string;result:Promise<unknown>}>()
   /** Attempts whose adapter cancellation is in flight. */
   private readonly cancelling = new Set<string>()
-  private readonly maintenance: MaintenanceService
   /** Administration operations run only while this dispatcher coordinates. Register their kinds before start(). */
   readonly operations: OperationEngine
-  private maintenanceTimer: ReturnType<typeof setInterval> | null = null
   private cancellationTimer: ReturnType<typeof setInterval> | null = null
-  private maintenanceTicking = false
-  private directMaintenanceReady = false
-  /** Generations pinned by attempts whose provider end is unconfirmed. */
-  private readonly retainedRoutes = new Map<string, () => void>()
   /** Last valid readiness of a direct adapter, and why it is unavailable (null while available). */
   private directReadiness: AdapterReadiness | undefined
   private directReason: string | null = null
@@ -190,11 +170,10 @@ export class TextDispatcher {
   private readonly probedAt = new Map<string, number>()
   private readonly reprobes = new Map<string, Promise<void>>()
   /** `hostCatalog`, when given, is the catalog of a direct adapter; otherwise its readiness report supplies it. */
-  constructor(private readonly runtime: Runtime, private readonly adapter: TextExecutionAdapter | AdapterRegistry, private readonly memory?: MemoryContextPort, private readonly hooks: DispatchHooks = {}, private readonly hostCatalog: Catalog | null = null) {
-    this.maintenance = new MaintenanceService(runtime.db, runtime.bootstrap.installationId, runtime.home.identity)
+  constructor(private readonly runtime: Runtime, private readonly adapter: TextExecutionAdapter | AdapterRegistry, private readonly hooks: DispatchHooks = {}, private readonly hostCatalog: Catalog | null = null) {
     this.operations = new OperationEngine(runtime, hooks, () => this.deliverCancellations())
-    this.operations.register('agent.delete', agentDeletionSteps({ runtime, maintenance: this.maintenance, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
-    this.operations.register('organization.delete', organizationDeletionSteps({ runtime, maintenance: this.maintenance, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
+    this.operations.register('agent.delete', agentDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
+    this.operations.register('organization.delete', organizationDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
   }
 
   /**
@@ -232,10 +211,6 @@ export class TextDispatcher {
       else this.directReason = notReadyReason(report)
     } catch (error) { this.directReason = boundedReason(error instanceof Error ? error.message : 'Adapter readiness failed') }
     finally { if (timer) clearTimeout(timer) }
-    const direct = adapter as Partial<MaintenanceCapableAdapter>
-    const ready = this.directReason === null ? this.directReadiness : undefined
-    this.directMaintenanceReady = !!ready && !!direct.durableReconcile && !!direct.recoveryVersions?.length && !!direct.recoveryStateScopes?.length &&
-      ready.catalog.capabilities.maintenance === true && !!ready.recoveryVersions?.length && !!ready.recoveryStateScopes?.length
   }
 
   /** The adapters this dispatcher routes to, including unavailable ones with their reason. */
@@ -284,40 +259,6 @@ export class TextDispatcher {
     this.reprobes.set(adapterId, probe)
     await probe
     return true
-  }
-
-  /** Maintenance attempts expose zero tools; the Core host denies every call. */
-  async isMaintenanceAttempt(attemptId: string): Promise<boolean> {
-    const found = (await this.runtime.db.query(
-      `SELECT 1 FROM kipster.attempts a JOIN kipster.maintenance_runs r ON r.id=a.intent_id WHERE a.id=$1`, [attemptId])).rows.length
-    return found > 0
-  }
-
-  /** Maintenance needs the memory service that commits write to; learning switches gate each source. */
-  private maintenanceActive(): boolean { return !!this.runtime.memory }
-
-  /** Text reserves capacity only while some available adapter can run maintenance. The check is
-   * coordinator-wide, not per source agent: a source whose agent uses another adapter fails preparation. */
-  private maintenanceServable(): boolean {
-    return this.maintenanceActive() && (this.adapter instanceof AdapterRegistry ? this.adapter.maintenanceCapable() : this.directMaintenanceReady)
-  }
-
-  /** Maintenance transition under the capacity lock. Transitions that free a permit
-   * or clear the reservation wake text held back while maintenance was due. */
-  private maintenanceTx<T>(work: (client: SqlClient) => Promise<T>, released: (result: T) => boolean = () => true): Promise<T> {
-    const installationId = this.runtime.bootstrap.installationId
-    return this.runtime.db.transaction(async client => {
-      await lockCapacity(client, installationId)
-      const result = await work(client)
-      if (released(result)) await wakeEligible(client, this.runtime, installationId)
-      return result
-    })
-  }
-
-  private releaseRetainedRoute(attemptId: string): void {
-    const release = this.retainedRoutes.get(attemptId)
-    this.retainedRoutes.delete(attemptId)
-    release?.()
   }
 
   private track(work: Promise<void>): void {
@@ -440,8 +381,6 @@ export class TextDispatcher {
     if (this.lock !== lock) throw new Error('Coordinator lock lost during startup')
     this.started = true
     await this.coordinate()
-    this.maintenanceTimer = setInterval(() => { void this.maintenanceTick() }, MAINTENANCE_LIMITS.scannerTickMs)
-    this.maintenanceTimer.unref?.()
     // Runs whether or not this process coordinates: it drives its own attempts either way.
     this.cancellationTimer = setInterval(() => { void this.deliverCancellations().catch(() => undefined) }, CANCELLATION_DELIVERY_MS)
     this.cancellationTimer.unref?.()
@@ -477,9 +416,7 @@ export class TextDispatcher {
     if (this.stopped) return
     this.coordinating = true
     await this.runtime.jobs.work(async id => {
-      const work = id === MAINTENANCE_SWEEP_JOB_ID
-        ? this.processMaintenanceSweep().catch(error => this.reportMaintenanceFailure(this.runtime.bootstrap.installationId, error))
-        : this.process(id)
+      const work = this.process(id)
       this.active.add(work)
       try { await work } finally { this.active.delete(work) }
     })
@@ -579,11 +516,6 @@ export class TextDispatcher {
           }
         }
         await wakeEligible(client, this.runtime, installationId)
-        const service = new MaintenanceService(this.runtime.db, installationId)
-        await service.fenceInterruptedIssued(client, { exclude: [...this.live] })
-        await service.expireUnissuedClaims(client, this.runtime.jobs, { all: true })
-        await service.reapIntents(client)
-        if (this.maintenanceActive() && await service.learningEnabled(client)) await this.runtime.jobs.send(client, MAINTENANCE_SWEEP_JOB_ID)
       }
     })
     await reconcileInterruptedDelegations(this.runtime.db)
@@ -700,7 +632,6 @@ export class TextDispatcher {
     await this.hooks.afterClaim?.(runId)
     await this.prepareVoice(runId, context, attempt.id)
     let execution: ExecutionContext
-    let recalled: readonly string[] = []
     let route: { adapter: TextExecutionAdapter; generationId?: string; incarnation?: string; installationDigest?: string; installationRoot?: string; supportedOptions?: readonly string[]; release(attemptId: string): void } | undefined
     try {
       const resolve = () => resolveSettings(this.runtime.db, this.runtime.home, context.actor, context.agentId, context.context.kind === 'organization' ? context.context.organizationId : null, this.catalog())
@@ -724,10 +655,6 @@ export class TextDispatcher {
       }))).filter(part=>part!==null)})))
       const outputDirectory=await this.runtime.artifacts.outputDirectory(context.agentId,context.threadId,attempt.id)
       const organizationId=context.context.kind === 'organization' ? context.context.organizationId : null
-      const triggerText=history.messages.find(message=>message.messageId===context.inputMessageId)?.text??''
-      let memory: readonly string[] = []
-      if (this.memory) memory = await this.memory.read(context.agentId,organizationId,context.threadId,triggerText)
-      else if (this.runtime.memory) ({ excerpts: memory, memoryIds: recalled } = await this.runtime.memory.recall(context.agentId,organizationId,triggerText))
       const interactionRows = (await this.runtime.db.query<{ id:string }>("SELECT id FROM kipster.interactions WHERE run_id=$1 AND state='settled' ORDER BY created_at,id",[runId])).rows
       const settledInteractions = await Promise.all(interactionRows.map(row=>interactionRecord(this.runtime.db,row.id)))
       const interactions = settledInteractions.filter(item=>item.response).map(item=>({id:item.id,kind:item.kind,prompt:item.prompt,options:item.options,freeText:item.freeText,...(item.proposalId?{proposalId:item.proposalId}:{}),...(item.proposal?{proposal:item.proposal}:{}),response:{actorId:item.response!.actorId,answer:item.response!.answer,acceptedAt:item.response!.acceptedAt}}))
@@ -736,11 +663,11 @@ export class TextDispatcher {
       const delegationResults=delegationRows.map(row=>({id:row.id,recipientAgentId:row.recipient_agent_id,request:row.request,state:row.state,...(row.result!==null?{result:row.result}:{}),...(row.failure!==null?{failure:row.failure}:{})}))
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
-      const tools = executionTools({ organization: organizationId !== null, memory: !!this.runtime.memory, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
       const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, skillsSection(administrationEnabled ? [adminSkill] : [])].filter(Boolean).join('\n\n')
-      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, memory, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
       const previous = (await this.runtime.db.query<{ provider_metadata: { threadId?: unknown; providerStateScope?: unknown } }>(`SELECT a.provider_metadata FROM kipster.attempts a
@@ -761,12 +688,9 @@ export class TextDispatcher {
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
       if (row.state !== 'preparing' || row.current_attempt_id !== attempt.id || !await isHead(client, row)) return false
       const held = (await client.query<{ count: string }>('SELECT count(*) FROM kipster.owned_permits WHERE installation_id=$1', [row.installation_id])).rows[0]!
-      const maintenanceDue = this.maintenanceServable()
-        ? await new MaintenanceService(this.runtime.db, row.installation_id).maintenanceDue(client)
-        : false
       paused = !await this.mayCoordinate(client)
       updatePaused = ceiling === 0
-      if (paused || ceiling - Number(held.count) < (maintenanceDue ? 2 : 1)) {
+      if (paused || ceiling - Number(held.count) < 1) {
         await client.query('UPDATE kipster.attempts SET state=$2 WHERE id=$1 AND state=$3', [attempt.id, 'settled', 'preparing'])
         await client.query('UPDATE kipster.work_intents SET state=$2 WHERE id=$1 AND state=$3', [runId, 'queued', 'preparing'])
         await client.query('UPDATE kipster.text_runs SET state=$2,current_attempt_id=NULL,revision=revision+1 WHERE id=$1', [runId, 'queued'])
@@ -774,10 +698,8 @@ export class TextDispatcher {
         return false
       }
       if (!await issueAttempt(client, attempt)) return false
-      if (this.runtime.memory) await new MaintenanceService(this.runtime.db, row.installation_id).recordActivity(client, context.agentId, recalled, this.runtime.clock())
       if (route?.generationId) await client.query('UPDATE kipster.attempts SET adapter_id=$2,adapter_generation_id=$3,runner_incarnation=$4,adapter_installation_digest=$5,adapter_installation_root=$6 WHERE id=$1', [attempt.id, route.adapter.id, route.generationId, route.incarnation, route.installationDigest, route.installationRoot])
       await client.query('INSERT INTO kipster.owned_permits(attempt_id,installation_id) VALUES ($1,$2)', [attempt.id, row.installation_id])
-      await client.query('UPDATE kipster.execution_permits SET maintenance_counter=LEAST(maintenance_counter+1,1000000) WHERE installation_id=$1', [row.installation_id])
       await client.query('UPDATE kipster.text_runs SET state=$2,revision=revision+1 WHERE id=$1', [runId, 'running'])
       await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'work-changed', runId, await workRevision(client, runId), await workRecord(client, runId), 'running', null)
       return true
@@ -831,462 +753,6 @@ export class TextDispatcher {
     }
   }
 
-  private async processMaintenanceSweep(restarted = false): Promise<void> {
-    if (this.stopped || !this.coordinating) return
-    // Skipping sources of agents that stopped learning can clear a reservation that held back text.
-    const claim = await this.maintenanceTx(async client => {
-      if (!await this.mayCoordinate(client)) return null
-      return await this.maintenance.claimSleepRun(client, this.incarnation, this.maintenanceActive())
-        ?? this.maintenance.claimSource(client, this.incarnation, this.maintenanceActive())
-    }, result => !!result && 'skipped' in result && typeof result.skipped === 'number' && result.skipped > 0)
-    if (!claim || 'refused' in claim) return
-    if ('sleepRun' in claim) {
-      try {
-        await this.driveSleepRun(claim.sleepRun, claim.attempt)
-      } catch (error) {
-        await this.maintenanceTx(client => this.maintenance.failSleepRun(client, this.runtime.jobs, claim.sleepRun.runId, claim.attempt, error instanceof Error ? error.message : 'Preparation failed'))
-      }
-      return
-    }
-    try {
-      await this.hooks.afterMaintenanceClaim?.(claim.source.runId)
-      await this.driveMaintenanceClaim(claim.source, claim.runId, claim.attempt, restarted)
-    } catch (error) {
-      await this.failMaintenancePreparation(claim.source, claim.runId, claim.attempt, error instanceof Error ? error.message : 'Preparation failed')
-    }
-  }
-
-  private async failMaintenancePreparation(source: MaintenanceSource, runId: string, attempt: Attempt, reason: string): Promise<void> {
-    await this.maintenanceTx(client => this.maintenance.failPreparation(client, this.runtime.jobs, runId, attempt, source.runId, source.revision, reason))
-  }
-
-  private async driveMaintenanceClaim(source: MaintenanceSource, runId: string, attempt: Attempt, restarted: boolean): Promise<void> {
-    const fail = (reason: string): Promise<void> => this.failMaintenancePreparation(source, runId, attempt, reason)
-    const organizationId = source.contextKind === 'organization' ? source.contextId : null
-    const resolve = () => resolveAgentSettings(this.runtime.db, this.runtime.home, this.runtime.bootstrap.installationId, source.agentId, organizationId, this.catalog())
-    let resolved = await resolve()
-    if (resolved.status === 'incompatible' && resolved.settings.adapterId && await this.reprobe(resolved.settings.adapterId)) resolved = await resolve()
-    if ('reason' in resolved) return fail(`Execution configuration: ${resolved.reason}`)
-    const { adapterId, modelId } = resolved.settings
-    if (!adapterId || !modelId) return fail('Execution configuration: Adapter and model must be configured')
-    let route: { adapter: TextExecutionAdapter; generationId?: string; installationDigest?: string; incarnation?: string; installationRoot?: string; supportedOptions?: readonly string[]; release(attemptId: string): void } | undefined
-    if (this.adapter instanceof AdapterRegistry) route = this.adapter.selected(adapterId, attempt.id, 'maintenance')
-    else if (this.directMaintenanceReady && adapterId === this.adapter.id) route = { adapter: this.adapter, release() {} }
-    if (!route) return fail('Selected adapter unavailable for maintenance')
-    const selected = route
-    let issued = false
-    let recaptured = false
-    try {
-      const unsupported = Object.keys(resolved.settings.options ?? {}).filter(key => !(selected.supportedOptions ?? []).includes(key))
-      if (unsupported.length) return await fail(`Unsupported execution option: ${unsupported.join(', ')}`)
-      let recoveryVersions: readonly number[] | undefined
-      if (this.adapter instanceof AdapterRegistry) recoveryVersions = this.adapter.recoveryVersions(adapterId)
-      else {
-        const direct = selected.adapter as Partial<MaintenanceCapableAdapter>
-        if (typeof direct.durableReconcile === 'function' && Array.isArray(direct.recoveryVersions) && direct.recoveryVersions.length) recoveryVersions = direct.recoveryVersions
-      }
-      if (!recoveryVersions?.length) return await fail('Adapter durable recovery unavailable')
-      const recoveryVersion = Math.max(...recoveryVersions)
-      const verified = await this.runtime.db.transaction(async client => this.maintenance.verifiedSourceTexts(client, source))
-      if ('mismatch' in verified) {
-        recaptured = await this.maintenanceTx(client => this.maintenance.recaptureStaleSource(client, this.runtime.jobs, runId, attempt, source, !restarted))
-        return
-      }
-      const prompt = `${MAINTENANCE_INSTRUCTIONS_V1}\n\nFrozen source messages:\n${verified.map(entry => `--- message_id=${entry.messageId} revision=${entry.revision} parts_hash=${entry.partsHash} author_id=${entry.authorId} author_class=${entry.authorClass} position=${entry.position} ---\n${entry.text}`).join('\n')}`
-      const execution: MaintenanceExecutionContext = {
-        kind: 'maintenance', runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation,
-        organizationId, agentId: source.agentId,
-        maintenance: {
-          task: 'extract', sourceRunId: source.runId, sourceRevision: source.revision, contextKind: source.contextKind, contextId: source.contextId,
-          instructions: prompt,
-          sources: verified.map(entry => ({
-            messageId: entry.messageId, position: entry.position, revision: entry.revision, partsHash: entry.partsHash,
-            authorId: entry.authorId, authorClass: entry.authorClass, text: entry.text,
-          })),
-          outputSchema: extractionOutputSchema(verified),
-          settings: {
-            adapterId, modelId,
-            ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}),
-            ...(resolved.settings.options ? { options: resolved.settings.options } : {}),
-          },
-        },
-      }
-      // Without the coordinator lock the claim is refunded unissued.
-      const outcome = await this.maintenanceTx(async client => {
-        const result = await this.maintenance.issueMaintenance(client, this.runtime.jobs, runId, attempt, source.runId, source.revision,
-          this.incarnation, await this.mayCoordinate(client), adapterId, recoveryVersion, selected.generationId, selected.installationDigest, selected.incarnation, selected.installationRoot)
-        if ('issued' in result) this.live.add(attempt.id)
-        return result
-      }, result => 'refused' in result).catch(error => { this.live.delete(attempt.id); throw error })
-      if ('refused' in outcome) return
-      issued = true
-      await this.hooks.afterMaintenanceIssue?.(runId)
-      await this.executeMaintenanceAttempt(selected, execution, attempt)
-    } finally {
-      this.live.delete(attempt.id)
-      // Before issue no provider was contacted; afterwards the attempt owns the route.
-      if (!issued) selected.release(attempt.id)
-    }
-    if (recaptured) await this.processMaintenanceSweep(true)
-  }
-
-  /** Prepares and issues one sleep run, a consolidation or an identity promotion, with the agent's own configured
-   * model. Memories changed since the freeze are left out. A consolidation with no new memory left, or a promotion whose
-   * identity.md changed since the freeze, fails without a model call. */
-  private async driveSleepRun(sleepRun: SleepRunClaim, attempt: Attempt): Promise<void> {
-    const { runId, agentId } = sleepRun
-    const fail = (reason: string): Promise<void> => this.maintenanceTx(client => this.maintenance.failSleepRun(client, this.runtime.jobs, runId, attempt, reason))
-    const resolve = () => resolveAgentSettings(this.runtime.db, this.runtime.home, this.runtime.bootstrap.installationId, agentId, null, this.catalog())
-    let resolved = await resolve()
-    if (resolved.status === 'incompatible' && resolved.settings.adapterId && await this.reprobe(resolved.settings.adapterId)) resolved = await resolve()
-    if ('reason' in resolved) return fail(`Execution configuration: ${resolved.reason}`)
-    const { adapterId, modelId } = resolved.settings
-    if (!adapterId || !modelId) return fail('Execution configuration: Adapter and model must be configured')
-    let route: { adapter: TextExecutionAdapter; generationId?: string; installationDigest?: string; incarnation?: string; installationRoot?: string; supportedOptions?: readonly string[]; release(attemptId: string): void } | undefined
-    if (this.adapter instanceof AdapterRegistry) route = this.adapter.selected(adapterId, attempt.id, 'maintenance')
-    else if (this.directMaintenanceReady && adapterId === this.adapter.id) route = { adapter: this.adapter, release() {} }
-    if (!route) return fail('Selected adapter unavailable for maintenance')
-    const selected = route
-    let issued = false
-    try {
-      const unsupported = Object.keys(resolved.settings.options ?? {}).filter(key => !(selected.supportedOptions ?? []).includes(key))
-      if (unsupported.length) return await fail(`Unsupported execution option: ${unsupported.join(', ')}`)
-      const direct = selected.adapter as Partial<MaintenanceCapableAdapter>
-      const recoveryVersions = this.adapter instanceof AdapterRegistry ? this.adapter.recoveryVersions(adapterId)
-        : typeof direct.durableReconcile === 'function' ? direct.recoveryVersions : undefined
-      if (!recoveryVersions?.length) return await fail('Adapter durable recovery unavailable')
-      const settings = {
-        adapterId, modelId,
-        ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}),
-        ...(resolved.settings.options ? { options: resolved.settings.options } : {}),
-      }
-      const installationId = this.runtime.bootstrap.installationId
-      let maintenance: MaintenanceExecutionContext['maintenance']
-      if (sleepRun.taskKind === 'identity') {
-        const { input } = sleepRun
-        const prompt = await this.runtime.db.transaction(client => promotionPrompt(client, this.runtime.home.identity, installationId, agentId, input))
-        if (!prompt) return await fail('identity.md changed')
-        maintenance = { task: 'identity', ...prompt, outputSchema: PROMOTION_OUTPUT_SCHEMA, settings }
-      } else {
-        const { input } = sleepRun
-        const prompt = await this.runtime.db.transaction(client => consolidationPrompt(client, installationId, agentId, input))
-        if (!prompt) return await fail('inputs changed')
-        maintenance = { task: 'consolidate', ...prompt, lessonsMax: CONSOLIDATION.lessons, outputSchema: consolidationOutputSchema(prompt.memories, prompt.pairs, CONSOLIDATION.lessons), settings }
-      }
-      const execution: MaintenanceExecutionContext = {
-        kind: 'maintenance', runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation,
-        organizationId: null, agentId, maintenance,
-      }
-      const outcome = await this.maintenanceTx(async client => {
-        const result = await this.maintenance.issueSleepRun(client, this.runtime.jobs, runId, attempt, this.incarnation, await this.mayCoordinate(client),
-          adapterId, Math.max(...recoveryVersions), selected.generationId, selected.installationDigest, selected.incarnation, selected.installationRoot)
-        if ('issued' in result) this.live.add(attempt.id)
-        return result
-      }, result => 'refused' in result).catch(error => { this.live.delete(attempt.id); throw error })
-      if ('refused' in outcome) return
-      issued = true
-      await this.hooks.afterMaintenanceIssue?.(runId)
-      await this.executeMaintenanceAttempt(selected, execution, attempt)
-    } finally {
-      this.live.delete(attempt.id)
-      if (!issued) selected.release(attempt.id)
-    }
-  }
-
-  private async executeMaintenanceAttempt(route: { adapter: TextExecutionAdapter; release(attemptId: string): void }, execution: MaintenanceExecutionContext, attempt: Attempt): Promise<void> {
-    const attemptId = attempt.id
-    const finish = async (mode: MaintenanceSettleMode): Promise<void> => {
-      let retain = true
-      try {
-        const settled = await this.maintenanceTx(client => this.maintenance.settleMaintenance(client, this.runtime.jobs, attempt, this.incarnation, mode),
-          result => result.outcome !== 'recovery' && result.outcome !== 'noop')
-        retain = settled.outcome === 'recovery'
-        await this.hooks.afterMaintenanceSettlement?.(attempt.intentId, settled.outcome)
-      } finally {
-        this.handles.delete(attemptId)
-        // Only a settled confirmed end may drain the pinned adapter generation.
-        if (retain) this.retainedRoutes.set(attemptId, () => route.release(attemptId))
-        else route.release(attemptId)
-      }
-    }
-    let handle: ExecutionHandle
-    try {
-      handle = await within((route.adapter as MaintenanceCapableAdapter).execute(execution), MAINTENANCE_LIMITS.executeHandshakeMs, 'Maintenance execute handshake timed out')
-    } catch (error) {
-      await finish({ kind: 'unknown', message: error instanceof Error ? error.message : 'Maintenance dispatch outcome unknown' })
-      return
-    }
-    this.handles.set(attemptId, handle)
-    const started = Date.now()
-    let events = 0
-    let receivedBytes = 0
-    try {
-      const iterator = handle.events[Symbol.asyncIterator]()
-      while (true) {
-        const remaining = MAINTENANCE_LIMITS.attemptDeadlineMs - (Date.now() - started)
-        if (remaining <= 0) break
-        const idleMs = Math.min(MAINTENANCE_LIMITS.idleStreamMs, remaining)
-        let next: IteratorResult<ExecutionEvent>
-        try {
-          next = await within(iterator.next(), idleMs, 'idle')
-        } catch {
-          break
-        }
-        if (next.done) {
-          await finish({ kind: 'unknown', message: 'Provider stream ended without a terminal observation' })
-          return
-        }
-        const event = next.value
-        if (event.attemptId !== attemptId) continue
-        events++
-        if (events > MAINTENANCE_LIMITS.maxEvents) break
-        if (event.kind === 'provider') {
-          await this.runtime.db.transaction(async client => { await this.maintenance.recordMaintenanceProvider(client, attempt, event) })
-          await this.hooks.afterMaintenanceProvider?.(attempt.intentId)
-        } else if (event.kind === 'text') {
-          receivedBytes += Buffer.byteLength(event.text, 'utf8')
-          if (receivedBytes > MAINTENANCE_LIMITS.maxReceivedTextBytes) break
-          if (!event.final) {
-            await this.runtime.db.transaction(async client => { await this.maintenance.markOutputInvalid(client, attempt, 'unexpected_stream_text') })
-          } else {
-            await this.runtime.db.transaction(async client => { await this.maintenance.stageMaintenanceOutput(client, attempt, event.text) })
-          }
-        } else if (event.kind === 'ended') {
-          await finish({ kind: 'extract' })
-          return
-        } else if (event.kind === 'failed') {
-          await finish(event.confirmedEnded ? { kind: 'failed_confirmed', message: event.message } : { kind: 'unknown', message: event.message })
-          return
-        } else {
-          await this.runtime.db.transaction(async client => { await this.maintenance.markOutputInvalid(client, attempt, 'unsupported_event') })
-        }
-      }
-      // Worker-side timeout or event cap: cancel within deadline, then classify.
-      let confirmed = false
-      try {
-        const result = await within(handle.cancel(), MAINTENANCE_LIMITS.cancelAckMs, 'cancel ack timed out')
-        confirmed = result.confirmedEnded === true
-      } catch { confirmed = false }
-      await finish(confirmed ? { kind: 'failed_confirmed', message: 'worker timeout; provider confirmed end' } : { kind: 'unknown', message: 'worker timeout without confirmed end' })
-    } catch (error) {
-      await finish({ kind: 'unknown', message: error instanceof Error ? error.message : 'Provider outcome unknown' })
-    }
-  }
-
-  /** One timer tick; ticks never overlap. Never rejects: failures are reported and the
-   * next tick retries from durable state. close() waits for a tick in progress. */
-  maintenanceTick(): Promise<void> {
-    if (this.stopped || !this.coordinating || this.maintenanceTicking) return Promise.resolve()
-    this.maintenanceTicking = true
-    const tick = this.runMaintenanceTick()
-      .catch(error => this.reportMaintenanceFailure(this.runtime.bootstrap.installationId, error))
-      .finally(() => { this.maintenanceTicking = false })
-    this.track(tick)
-    return tick
-  }
-
-  private async runMaintenanceTick(): Promise<void> {
-    let pump = false
-    let sweep = false
-    const clean: MaintenanceService[] = []
-    const ids = await this.runtime.db.query<{ installation_id: string }>('SELECT installation_id FROM kipster.bootstrap ORDER BY installation_id')
-    for (const { installation_id: installationId } of ids.rows) {
-      if (this.stopped || !this.coordinating) return
-      const primary = installationId === this.runtime.bootstrap.installationId
-      const service = primary ? this.maintenance : new MaintenanceService(this.runtime.db, installationId)
-      const active = this.maintenanceActive() && await service.learningEnabled()
-      // Without learning, only leftover intents, claims and preparations are settled.
-      if (!active && !await service.needsUpkeep()) continue
-      if (primary) { pump = true; sweep = active }
-      await this.runtime.db.transaction(async client => {
-        await lockCapacity(client, installationId)
-        if (!await this.mayCoordinate(client)) return
-        await service.reapIntents(client)
-        const skipped = await service.skipNotLearning(client)
-        const swept = await service.expireUnissuedClaims(client, this.runtime.jobs)
-        if (skipped || swept.expired || swept.orphaned) await wakeEligible(client, this.runtime, installationId)
-      })
-      try {
-        if (active) await service.tickScanner(this.runtime.jobs)
-        // Sleep also runs without the installation switch, to record unfinished sleeps as skipped.
-        if (this.maintenanceActive()) await new SleepService(this.runtime.db, installationId, this.runtime.home.identity).run(this.runtime.clock())
-      } catch (error) { await this.reportMaintenanceFailure(installationId, error); continue }
-      clean.push(service)
-    }
-    if (this.stopped) return
-    for (const service of clean) await service.clearFailure()
-    if (!pump) return
-    await this.pumpMaintenance()
-    if (sweep) await this.runtime.db.transaction(async client => { await this.runtime.jobs.send(client, MAINTENANCE_SWEEP_JOB_ID) })
-  }
-
-  /** Observer failures, synchronous or asynchronous, cannot stop the coordinator. */
-  private async reportMaintenanceFailure(installationId: string, error: unknown): Promise<void> {
-    void Promise.resolve().then(() => this.hooks.maintenanceFailed?.(error)).catch(() => undefined)
-    if (this.stopped) return
-    await new MaintenanceService(this.runtime.db, installationId).recordFailure(error).catch(() => undefined)
-  }
-
-  /** Execute claimed operator intents. Timer-driven; tests may call directly. */
-  async pumpMaintenance(): Promise<number> {
-    let executed = 0
-    for (let i = 0; i < 10 && !this.stopped && this.coordinating; i++) {
-      const intent = await this.runtime.db.transaction(async client => {
-        await lockCapacity(client, this.runtime.bootstrap.installationId)
-        return await this.mayCoordinate(client) ? this.maintenance.claimIntent(client) : null
-      })
-      if (!intent) break
-      executed++
-      await this.executeMaintenanceIntent(intent)
-    }
-    return executed
-  }
-
-  private async executeMaintenanceIntent(intent: { opId: string; action: string; sourceRunId: string | null; sourceRevision: number | null; runId: string | null; reason: string | null }): Promise<void> {
-    if (intent.action === 'skip-source' && intent.sourceRunId) {
-      await this.maintenanceTx(async client => {
-        const skipped = await this.maintenance.skipSource(client, this.runtime.jobs, intent.sourceRunId!, intent.sourceRevision ?? undefined)
-        await this.maintenance.completeIntent(client, intent.opId, 'done' in skipped ? 'done' : 'rejected', skipped)
-        return skipped
-      }, skipped => 'done' in skipped)
-      return
-    }
-    if (intent.action === 'requeue-source' && intent.sourceRunId) {
-      await this.maintenanceTx(async client => {
-        const requeued = await this.maintenance.requeueSource(client, this.runtime.jobs, intent.sourceRunId!, intent.sourceRevision ?? undefined)
-        await this.maintenance.completeIntent(client, intent.opId, 'done' in requeued ? 'done' : 'rejected', requeued)
-      }, () => false)
-      return
-    }
-    if ((intent.action === 'cancel' || intent.action === 'reconcile') && intent.runId) {
-      await this.executeRunIntent(intent.opId, intent.action, intent.runId)
-      return
-    }
-    await this.maintenanceTx(client => this.maintenance.completeIntent(client, intent.opId, 'rejected', { conflict: 'malformed intent target' }), () => false)
-  }
-
-  private async executeRunIntent(opId: string, action: string, runId: string): Promise<void> {
-    const installationId = this.runtime.bootstrap.installationId
-    const target = await this.runtime.db.transaction(async client => {
-      await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-      const run = (await client.query<{ state: string; current_attempt_id: string | null; adapter_id: string | null; recovery_ref: RecoveryReference | null }>(
-        'SELECT state, current_attempt_id, adapter_id, recovery_ref FROM kipster.maintenance_runs WHERE id=$1 AND installation_id=$2',
-        [runId, installationId])).rows[0]
-      if (!run || !run.current_attempt_id) return null
-      const attempt = (await client.query<{ generation: string; incarnation: string; state: string }>(
-        'SELECT generation, incarnation, state FROM kipster.attempts WHERE id=$1', [run.current_attempt_id])).rows[0]
-      if (!attempt) return null
-      return { state: run.state, attemptId: run.current_attempt_id, generation: Number(attempt.generation), incarnation: attempt.incarnation, attemptState: attempt.state, adapterId: run.adapter_id, recoveryRef: run.recovery_ref }
-    })
-    const complete = async (state: 'done' | 'rejected', result: unknown): Promise<void> => {
-      await this.maintenanceTx(client => this.maintenance.completeIntent(client, opId, state, result), () => false)
-    }
-    if (!target || target.state === 'completed' || target.state === 'failed') {
-      await complete('rejected', { conflict: 'run terminal or missing' })
-      return
-    }
-    if (target.state === 'preparing') {
-      await complete('rejected', { conflict: 'run not issued' })
-      return
-    }
-    if (action === 'cancel') {
-      if (target.state === 'recovery-needed') {
-        await this.maintenanceTx(async client => {
-          await this.maintenance.settleCancelUnknown(client, runId, target.attemptId)
-          await this.maintenance.completeIntent(client, opId, 'done', { unknown: 'run already uncertain' })
-        }, () => false)
-        return
-      }
-      const handle = target.incarnation === this.incarnation ? this.handles.get(target.attemptId) : undefined
-      if (!handle) {
-        await complete('done', { unknown: 'not owned by this coordinator' })
-        return
-      }
-      let confirmed = false
-      try {
-        const result = await within(handle.cancel(), MAINTENANCE_LIMITS.cancelAckMs, 'cancel ack timed out')
-        confirmed = result.confirmedEnded === true
-      } catch { confirmed = false }
-      const fenced = await this.maintenanceTx(async client => {
-        if (confirmed) {
-          const settled = await this.maintenance.settleCancelConfirmed(client, this.runtime.jobs, runId, target.attemptId, this.incarnation)
-          await this.maintenance.completeIntent(client, opId, 'done', 'fenced' in settled ? { cancelled: 'confirmed' } : { unknown: 'run state changed' })
-          return 'fenced' in settled
-        }
-        await this.maintenance.settleCancelUnknown(client, runId, target.attemptId)
-        await this.maintenance.completeIntent(client, opId, 'done', { unknown: 'cancel outcome unconfirmed' })
-        return false
-      }, released => released)
-      if (fenced) this.releaseRetainedRoute(target.attemptId)
-      return
-    }
-    // Reconcile: read-only and freely repeatable; terminalization needs fresh confirmation.
-    const live = target.incarnation === this.incarnation ? this.handles.get(target.attemptId) : undefined
-    if (target.state === 'running' && live) {
-      let outcome: 'active' | 'ended' | 'unknown' = 'unknown'
-      try {
-        outcome = await within(live.reconcile(), MAINTENANCE_LIMITS.reconcileMs, 'reconcile timed out')
-      } catch { outcome = 'unknown' }
-      await this.maintenanceTx(async client => {
-        await this.maintenance.touchReconcile(client, runId)
-        if (outcome !== 'ended') {
-          await this.maintenance.completeIntent(client, opId, 'done', { unknown: outcome })
-          return false
-        }
-        const settled = await this.maintenance.settleMaintenance(client, this.runtime.jobs,
-          { id: target.attemptId, intentId: runId, generation: target.generation, incarnation: target.incarnation, state: 'issued' },
-          this.incarnation, { kind: 'failed_confirmed', message: 'live reconcile reported ended' })
-        await this.maintenance.completeIntent(client, opId, 'done', settled.outcome === 'noop' ? { unknown: 'run state changed' } : { ended: true })
-        return settled.outcome !== 'noop'
-      }, released => released)
-      return
-    }
-    if (target.state === 'running') {
-      await complete('done', { unknown: 'not owned by this coordinator' })
-      return
-    }
-    const ref = target.recoveryRef
-    const completeRef = ref && typeof ref === 'object' && ref.adapterId === target.adapterId && ref.contractMajor === 1 &&
-      Number.isSafeInteger(ref.recoveryVersion) && typeof ref.stateScope === 'string' && ref.providerIds &&
-      typeof ref.providerIds === 'object' && Object.keys(ref.providerIds).length ? ref as RecoveryReference : null
-    let outcome: 'active' | 'ended' | 'unknown' = 'unknown'
-    let evidence = 'recovery impaired'
-    if (completeRef && target.adapterId) {
-      try {
-        if (this.adapter instanceof AdapterRegistry) {
-          const result = await this.adapter.durableReconcile(target.adapterId, completeRef)
-          outcome = result.outcome
-          evidence = result.evidence
-        } else if (this.adapter.id === target.adapterId) {
-          const direct = this.adapter as Partial<MaintenanceCapableAdapter>
-          if (typeof direct.durableReconcile === 'function' && recoveryCompatible(direct.recoveryVersions, direct.recoveryStateScopes, completeRef)) {
-            const result = await within(direct.durableReconcile({ recoveryRef: completeRef }), MAINTENANCE_LIMITS.reconcileMs, 'reconcile timed out')
-            outcome = result.outcome
-            evidence = result.evidence
-          } else {
-            evidence = 'incompatible recovery identity'
-          }
-        } else {
-          evidence = 'adapter unavailable'
-        }
-      } catch (error) {
-        outcome = 'unknown'
-        evidence = error instanceof Error ? error.message.slice(0, 500) : 'reconcile failed'
-      }
-    }
-    const ended = await this.maintenanceTx(async client => {
-      await this.maintenance.touchReconcile(client, runId)
-      if (outcome !== 'ended') {
-        await this.maintenance.completeIntent(client, opId, 'done', { unknown: evidence })
-        return false
-      }
-      const settled = await this.maintenance.settleReconcileEnded(client, this.runtime.jobs, runId, evidence)
-      await this.maintenance.completeIntent(client, opId, 'done', 'noop' in settled ? { unknown: 'run state changed' } : { ended: true, evidence })
-      return !('noop' in settled)
-    }, released => released)
-    if (ended) this.releaseRetainedRoute(target.attemptId)
-  }
-
   private async recordProvider(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'provider' }>): Promise<void> {
     await this.runtime.db.query(`UPDATE kipster.attempts a SET provider_metadata=provider_metadata || $5::jsonb
       FROM kipster.work_intents i,kipster.text_runs r WHERE a.id=$1 AND a.intent_id=$2 AND a.generation=$3 AND a.incarnation=$4
@@ -1313,15 +779,6 @@ export class TextDispatcher {
   async askToolInteraction(attemptId: string, callId: string, input: InteractionInput): Promise<{ status: 'pending'; interactionId: string }> {
     const record = await askInteraction(this.runtime.db, attemptId, callId, input)
     return { status: 'pending', interactionId: record.id }
-  }
-
-  async memoryTool(attemptId:string,callId:string,name:string,args:unknown):Promise<unknown> {
-    if(['memory.link','memory.relationship_get','memory.relationship_list','memory.relationship_update','memory.unlink'].includes(name)){
-      if(!this.runtime.relationships)throw new Error('Memory relationships unavailable')
-      return this.runtime.relationships.invoke(attemptId,this.incarnation,callId,name,args)
-    }
-    if (!this.runtime.memory) throw new Error('Memory embedding profile is not configured')
-    return this.runtime.memory.invoke(attemptId,callId,name,args,this.incarnation)
   }
 
   async structuredTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
@@ -1506,11 +963,6 @@ export class TextDispatcher {
       }
       const releaseRetryHold = nextState === 'completed' && row.retry_continue_generation !== null && row.retry_continue_generation === row.queue_generation
       await client.query('UPDATE kipster.text_runs SET state=$2,queue_hold=$3,failure=$4,retry_continue_generation=$5,cancel_delivery=CASE WHEN stop_requested THEN $6 ELSE cancel_delivery END,revision=revision+1 WHERE id=$1', [attempt.intentId, nextState, releaseRetryHold ? false : row.queue_hold || !['completed','queued','waiting'].includes(nextState), failure, releaseRetryHold || ['failed','cancelled','recovery-needed'].includes(nextState) ? null : row.retry_continue_generation,uncertain?'uncertain':'confirmed-ended'])
-      if (nextState === 'completed' && this.maintenanceActive()) {
-        await new MaintenanceService(this.runtime.db, context.actor.installationId).enqueueFromSettlement(client, this.runtime.jobs,
-          attempt.intentId, context.agentId, context.context.kind,
-          context.context.kind === 'organization' ? context.context.organizationId : context.context.installationId, context.threadId)
-      }
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])
       await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, 'work-changed', attempt.intentId, await workRevision(client, attempt.intentId), await workRecord(client, attempt.intentId), nextState, null)
       if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState)) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
@@ -1552,10 +1004,6 @@ export class TextDispatcher {
           }
         }
         await wakeEligible(client, this.runtime, installationId)
-        const service = new MaintenanceService(this.runtime.db, installationId)
-        await service.fenceInterruptedIssued(client, { incarnation: this.incarnation })
-        await service.expireUnissuedClaims(client, this.runtime.jobs, { all: true, incarnation: this.incarnation })
-        await service.reapIntents(client)
       }
     })
     await reconcileInterruptedDelegations(this.runtime.db)
@@ -1573,7 +1021,6 @@ export class TextDispatcher {
     this.stopped = true
     this.stopAdapterUpdates?.()
     this.wakeRelock?.()
-    if (this.maintenanceTimer) { clearInterval(this.maintenanceTimer); this.maintenanceTimer = null }
     if (this.cancellationTimer) { clearInterval(this.cancellationTimer); this.cancellationTimer = null }
     if (this.startPromise) await this.startPromise.catch(() => undefined)
     for(const controller of this.voiceControllers.values())controller.abort()

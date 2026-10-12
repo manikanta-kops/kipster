@@ -33,7 +33,7 @@ const steps = [
 
 const runtime = await openRuntime({ connectionString: url, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' } })
 const adapter = { id: 'unused', version: '1', contractMajor: 1, async execute() { throw new Error('unused') }, async close() {} }
-const dispatcher = new TextDispatcher(runtime, adapter, undefined, {
+const dispatcher = new TextDispatcher(runtime, adapter, {
   async afterOperationStep(operationId, step) { if (at('after', step, batches.get(step))) await die() },
 })
 dispatcher.operations.register('test.steps', steps)

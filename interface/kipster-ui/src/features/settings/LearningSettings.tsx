@@ -48,16 +48,14 @@ export function LearningPage({
           labelId={switchId}
           sub={
             learning.available
-              ? 'Kips learn from completed conversations and tidy what they learned while they sleep. Off by default.'
-              : 'Learning needs an embedding profile configured in Kipster Core.'
+              ? 'Kips remember your conversations across chats. Each night, while they sleep, new conversation becomes searchable. Off by default.'
+              : 'Kips remember your conversations across chats. Searching memory by meaning needs an embedding provider configured in Kipster Core. Off by default.'
           }
           control={
             <Switch
               labelId={switchId}
               on={learning.enabled}
-              disabled={
-                state === 'saving' || (!learning.available && !learning.enabled)
-              }
+              disabled={state === 'saving'}
               change={(on) => void run({ enabled: on })}
             />
           }

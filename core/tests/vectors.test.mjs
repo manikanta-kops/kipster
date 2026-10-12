@@ -10,7 +10,7 @@ import { VectorService } from '../dist/modules/vectors/public.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
 test('vector input rejects non-JSON metadata before database access',async()=>{
-  const service=new VectorService({query(){throw Error('database was reached')}},randomUUID(),{})
+  const service=new VectorService({query(){throw Error('database was reached')}},randomUUID(),{onRebuild(){}})
   await assert.rejects(service.invoke(randomUUID(),randomUUID(),'invalid',{operation:'upsert',target:{kind:'agent',ownerId:randomUUID()},collectionId:randomUUID(),key:'one',expectedRevision:0,text:'valid text',metadata:{score:Infinity}}),/Invalid vector number/)
 })
 async function until(read,predicate) {for(let n=0;n<200;n++){const value=await read();if(predicate(value))return value;await new Promise(resolve=>setTimeout(resolve,20))}throw Error('Timed out')}
@@ -42,7 +42,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     const leaseBarrier=new Promise(resolve=>enteredLease=resolve)
     const embedder={async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='LEASE_BLOCK'&&++leaseCalls===1){enteredLease();await new Promise(resolve=>releaseLease=resolve)}if(fail)throw Error('provider offline');return text.includes('north')||text==='BLOCK'?[1,0]:[0,1]}}
     runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'One',rootAgent:'Agent'},embedding:{id: 'ollama', contractMajor: 1,model:'fixture-one',...embedder}})
-    await runtime.vectors.stopIndexing();await runtime.memory.stopIndexing()
+    await runtime.vectors.stopIndexing()
     const ids=runtime.bootstrap,otherAgent=randomUUID(),otherOrg=randomUUID()
     await runtime.home.provisionAgent(otherAgent)
     await runtime.db.query("INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,'Other',true)",[otherAgent,ids.installationId])
@@ -59,9 +59,9 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope,target:{context,chatId:chat},mode:'root',parts:[{kind:'text',text:'Build a vector collection'}]})
     await dispatcher.start()
     await until(()=>adapter.contexts.length,n=>n===1)
-    assert.equal(adapter.contexts[0].tools.some(tool=>tool.name==='vectors_space'),true)
+    assert.equal(adapter.contexts[0].tools.some(tool=>tool.name==='vector_collections'),true)
     const attempt=adapter.contexts[0].attemptId,host=textPublicationHost(dispatcher),target={kind:'agent',ownerId:ids.rootAgentId}
-    const call=(callId,input)=>host.invokeTool({attemptId:attempt,callId,name:'vectors_space',arguments:{target,...input}})
+    const call=(callId,input)=>host.invokeTool({attemptId:attempt,callId,name:'vector_collections',arguments:{target,...input}})
     await runtime.db.query('UPDATE kipster.agents SET provisioned=false WHERE id=$1',[otherAgent])
     await assert.rejects(call('unavailable-owner',{operation:'create',target:{kind:'agent',ownerId:otherAgent},name:'denied_owner'}),/owner unavailable/)
     await runtime.db.query('UPDATE kipster.agents SET provisioned=true WHERE id=$1',[otherAgent])
@@ -105,7 +105,6 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.deepEqual(record,duplicate)
     assert.equal((await call('get',{operation:'get',collectionId,key:'doc-1'})).record.indexStatus,'pending')
     assert.equal((await call('search-pending',{operation:'search',collectionId,query:'north'})).availability,'pending')
-    assert.deepEqual(await runtime.memory.context(ids.rootAgentId,ids.organizationId,'north'),[])
     fail=true
     assert.equal((await runtime.vectors.indexPending(1)).failed,1)
     assert.equal((await call('get-failed',{operation:'get',collectionId,key:'doc-1'})).record.indexStatus,'failed')
@@ -142,12 +141,12 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal(org.owner.kind,'organization')
     await runtime.db.query("CREATE FUNCTION kipster.reject_vector_rebuild() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'vector rebuild rejected'; END $$")
     await runtime.db.query('CREATE TRIGGER reject_vector_rebuild BEFORE INSERT ON kipster.vector_index_intents FOR EACH ROW EXECUTE FUNCTION kipster.reject_vector_rebuild()')
-    await assert.rejects(runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(){return [0,1]} }),/vector rebuild rejected/)
-    assert.equal(Number((await runtime.db.query('SELECT generation FROM kipster.memory_profiles WHERE installation_id=$1',[ids.installationId])).rows[0].generation),1)
-    assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.memory_embedding_generations WHERE installation_id=$1',[ids.installationId])).rows[0].n,1)
+    await assert.rejects(runtime.embedding.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(){return [0,1]} }),/vector rebuild rejected/)
+    assert.equal(Number((await runtime.db.query('SELECT generation FROM kipster.embedding_profiles WHERE installation_id=$1',[ids.installationId])).rows[0].generation),1)
+    assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.embedding_generations WHERE installation_id=$1',[ids.installationId])).rows[0].n,1)
     await runtime.db.query('DROP TRIGGER reject_vector_rebuild ON kipster.vector_index_intents')
     await runtime.db.query('DROP FUNCTION kipster.reject_vector_rebuild()')
-    const newGeneration=await runtime.memory.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(text){if(text==='QUERY_BLOCK'){enteredQuery();await new Promise(resolve=>releaseQuery=resolve)}return [0,1]} })
+    const newGeneration=await runtime.embedding.activateRebuild(ids.ownerId,1,{ id: 'ollama', contractMajor: 1,model:'fixture-two', async embed(text){if(text==='QUERY_BLOCK'){enteredQuery();await new Promise(resolve=>releaseQuery=resolve)}return [0,1]} })
     assert.equal(newGeneration,2)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.vector_index_intents WHERE generation=2')).rows[0].n,2)
     const rebuilding=await call('rebuilding',{operation:'search',collectionId,query:'south'})
@@ -157,7 +156,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal((await call('rebuilt',{operation:'search',collectionId,query:'south'})).results.length,2)
     const queryDuringChange=call('query-changing',{operation:'search',collectionId,query:'QUERY_BLOCK'}).then(()=>null,error=>error)
     await queryBarrier
-    assert.equal(await runtime.memory.activateRebuild(ids.ownerId,2,{ id: 'ollama', contractMajor: 1,model:'fixture-three', async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}return [0,1]} }),3)
+    assert.equal(await runtime.embedding.activateRebuild(ids.ownerId,2,{ id: 'ollama', contractMajor: 1,model:'fixture-three', async embed(text){if(text==='BLOCK'){entered();await new Promise(resolve=>release=resolve)}if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}return [0,1]} }),3)
     releaseQuery()
     assert.match((await queryDuringChange).message,/pagination invalidated/)
     assert.equal((await runtime.vectors.indexPending(2)).ready,2)
@@ -181,7 +180,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await rowBarrier
     const concurrentUpsert=call('concurrent-upsert',{operation:'upsert',collectionId,key:'doc-1',expectedRevision:2,text:'south changed'})
     await new Promise(resolve=>setTimeout(resolve,80))
-    const concurrentActivation=runtime.memory.activateRebuild(ids.ownerId,3,{ id: 'ollama', contractMajor: 1,model:'fixture-four', async embed(text){if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}if(text==='QUERY_OWNER'){enteredOwnerQuery();await new Promise(resolve=>releaseOwnerQuery=resolve)}return [0,1]} })
+    const concurrentActivation=runtime.embedding.activateRebuild(ids.ownerId,3,{ id: 'ollama', contractMajor: 1,model:'fixture-four', async embed(text){if(text==='COLLECTION_BLOCK'){enteredCollection();await new Promise(resolve=>releaseCollection=resolve)}if(text==='QUERY_STOP'){enteredStopQuery();await new Promise(resolve=>releaseStopQuery=resolve)}if(text==='QUERY_OWNER'){enteredOwnerQuery();await new Promise(resolve=>releaseOwnerQuery=resolve)}return [0,1]} })
     unlockRecord();await rowBlocker
     const overlap=await Promise.allSettled([concurrentUpsert,concurrentActivation])
     assert.equal(overlap[0].status,'fulfilled')
@@ -231,7 +230,7 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     adapter.handles[1].emit({kind:'ended',attemptId:parentAttempt,confirmed:true})
     const childContext=await until(()=>adapter.contexts.find(item=>item.agentId===otherAgent),Boolean)
     const childAttempt=childContext.attemptId
-    const delegated=await host.invokeTool({attemptId:childAttempt,callId:'delegated-vector',name:'vectors_space',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'delegated'}})
+    const delegated=await host.invokeTool({attemptId:childAttempt,callId:'delegated-vector',name:'vector_collections',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'delegated'}})
     assert.equal(delegated.actorId,otherAgent)
     assert.equal(delegated.owner.ownerId,ids.rootAgentId)
     adapter.handles[adapter.contexts.indexOf(childContext)].emit({kind:'ended',attemptId:childAttempt,confirmed:true})
