@@ -13,3 +13,13 @@ export function validateEmbeddingProvider(value: unknown): asserts value is Embe
 export function validateEmbeddingVector(value: unknown): asserts value is readonly number[] {
   if (!Array.isArray(value) || !value.length || value.length > 16000 || Array.from(value).some(item => typeof item !== 'number' || !Number.isFinite(item)) || value.every(item => item === 0)) throw new Error('Embedding provider returned an invalid vector')
 }
+
+/** EmbeddingGemma 2 search query, as its model card's SearchQuery prompt formats it. */
+export function embeddingQuery(text: string): string {
+  return `task: search result | query: ${text}`
+}
+
+/** EmbeddingGemma 2 document, such as a thread chunk, card or diary page. Without a title the model card uses `none`. */
+export function embeddingDocument(text: string, title?: string): string {
+  return `title: ${title?.trim() || 'none'} | text: ${text}`
+}

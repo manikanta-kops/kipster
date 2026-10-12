@@ -2,7 +2,7 @@ import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } fro
 import { fixtureAdapter } from '../.build/tests/fixtures/deterministic-adapter.js'
 const [mode, connectionString, home] = process.argv.slice(2)
 const pause = async stage => { process.send({ stage }); await new Promise(() => {}) }
-const runtime = await openRuntime({ connectionString, home, ...(mode === 'index' ? { embedding: { id: 'ollama', contractMajor: 1, model: 'fixture-embedding', embed: () => pause('index') } } : {}) })
+const runtime = await openRuntime({ connectionString, home, ...(mode === 'index' ? { embedding: { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding', embed: () => pause('index') } } : {}) })
 if (mode !== 'index') {
  let dispatcher
  const base = fixtureAdapter({ now: () => new Date().toISOString(), invokeTool: request => textPublicationHost(dispatcher).invokeTool(request) })

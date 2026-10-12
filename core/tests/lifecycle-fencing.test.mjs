@@ -16,7 +16,7 @@ import { adminUrl, noDatabase, taskDataRole } from './support/database.mjs'
 // locks the owner row after the capacity lock; every writer locks its owner too, so a write commits
 // before the change and is then stopped, or it waits for the change and is refused.
 
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 const stream = bytes => (async function* () { yield bytes })()
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }

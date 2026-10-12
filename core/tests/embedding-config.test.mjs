@@ -27,7 +27,7 @@ test('embedding modules and provider objects are validated at load', async () =>
     assert.deepEqual(await boundedEmbed(provider, 'hello', 100), [1])
     const config = {version:1,home:directory,databaseUrl:'postgresql://kipster@localhost/unused',listen:{host:'127.0.0.1',port:1234,allowedHosts:[],allowedOrigins:[]},adapters:[]}
     assert.equal(validateHostConfig({...config,embedding:{module,options:{}}}).embedding.module,module)
-    for (const embedding of [{module:'relative',options:{}},{module,options:[]},{provider:'ollama',model:'old'}]) assert.throws(()=>validateHostConfig({...config,embedding}))
+    for (const embedding of [{module:'relative',options:{}},{module,options:[]},{provider:'fixture-provider',model:'old'}]) assert.throws(()=>validateHostConfig({...config,embedding}))
   } finally { await rm(directory,{recursive:true,force:true}) }
 })
 
@@ -45,7 +45,7 @@ test('provider generation switches record each generation and are owner-only', {
   const url=new URL(adminUrl);url.pathname=`/${dbName}`
   const home=await mkdtemp(join(tmpdir(),'kipster-embedding-config-'))
   let runtime
-  const a={id: 'ollama', contractMajor: 1,model:'fixture-a'}
+  const a={id: 'fixture-provider', contractMajor: 1,model:'fixture-a'}
   const b={...a,model:'fixture-b'}
   const embedder={async embed(){return [1,0]}}
   try {
@@ -59,8 +59,8 @@ test('provider generation switches record each generation and are owner-only', {
     const oldProfile=new EmbeddingProfile(runtime.db,installationId,{...a,...embedder})
     await assert.rejects(oldProfile.activateRebuild(ownerId,2,{ ...a, ...embedder }),/generation conflict/)
     const rows=(await runtime.db.query(`SELECT generation,provider,model FROM kipster.embedding_generations WHERE installation_id=$1 ORDER BY generation`,[installationId])).rows
-    assert.deepEqual(rows.map(row=>[Number(row.generation),row.provider,row.model]),[[1,'ollama','fixture-a'],[2,'ollama','fixture-b']])
-    assert.deepEqual(runtime.embedding.embeddingConfig().profile,{provider:'ollama',model:'fixture-b'})
+    assert.deepEqual(rows.map(row=>[Number(row.generation),row.provider,row.model]),[[1,'fixture-provider','fixture-a'],[2,'fixture-provider','fixture-b']])
+    assert.deepEqual(runtime.embedding.embeddingConfig().profile,{provider:'fixture-provider',model:'fixture-b'})
     await runtime.close();runtime=null
     runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Root'},embedding:{...b,...embedder}})
     assert.equal((await runtime.db.query('SELECT generation FROM kipster.embedding_profiles')).rows[0].generation,'2')

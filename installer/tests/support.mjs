@@ -13,7 +13,8 @@ export const repository = fileURLToPath(new URL('../..', import.meta.url))
 export const cli = join(repository, 'installer/src/cli.mjs')
 export const adminUrl = process.env.KIPSTER_TEST_DATABASE_URL
 export const noDatabase = adminUrl ? false : 'Run npm run test:postgres for real PostgreSQL tests.'
-export const hooks = { platformCheck: async () => {} }
+// Tests never download the real embedding runtime; null stands for a platform without one.
+export const hooks = { platformCheck: async () => {}, embedding: { manifest: null } }
 export async function database(t) {
   const name = 'installer_' + randomUUID().replaceAll('-', '')
   const role = 'owner_' + randomUUID().replaceAll('-', '')
@@ -58,7 +59,7 @@ export async function configuration(t, home, databaseUrl, extras = {}) {
   t.after(async () => { try { await hostCommand(join(home, 'current'), 'stop', home, runtimeEnvironment(config)) } catch {} })
   return { config, path, maintenancePath }
 }
-export async function catalogs(t, { versions = ['0.1.0', '0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.6.0'], real = false } = {}) {
+export async function catalogs(t, { versions = ['0.1.0', '0.2.0', '0.3.0', '0.4.0', '0.5.0', '0.6.0'], real = false, adapters = ['codex-cli', 'embedding-llama-cpp', 'transcription-spokenly'] } = {}) {
   const root = await directory(t, 'kpi-catalog-'), packages = {}, files = new Map()
   const catalogs = { stable: { schemaVersion: 1, packages: {} }, next: { schemaVersion: 1, packages: {} }, releases: { schemaVersion: 1, packages } }
   const requests = []
@@ -96,7 +97,7 @@ export async function catalogs(t, { versions = ['0.1.0', '0.2.0', '0.3.0', '0.4.
     return entry
   }
   for (const version of versions) await pack('core', version, real ? join(repository, 'core') : null)
-  for (const name of ['codex-cli', 'embedding-ollama', 'transcription-spokenly']) await pack(name, '0.1.0', real ? join(repository, 'adapters', name) : null)
+  for (const name of adapters) await pack(name, '0.1.0', real ? join(repository, 'adapters', name) : null)
   // Copy only the shipped installer files, avoiding recursive tests/workspaces.
   const installerSource = join(root, 'installer-source')
   await mkdir(installerSource)

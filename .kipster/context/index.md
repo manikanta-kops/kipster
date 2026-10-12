@@ -29,7 +29,7 @@
 - [Adapters](../../adapters/README.md): read for provider package boundaries and Core contracts.
 - [Codex adapter](../../adapters/codex-cli/README.md): read before Codex adapter code changes; use fake CLI tests only in factory work.
 - [Claude adapter](../../adapters/claude-cli/README.md): read before Claude adapter code changes; no owner credentials in verification.
-- [Embedding adapter](../../adapters/embedding-ollama/README.md): read before embedding provider configuration or implementation.
+- [Embedding adapter](../../adapters/embedding-llama-cpp/README.md): read before embedding provider configuration or implementation.
 - [Transcription adapter](../../adapters/transcription-spokenly/README.md): read before voice conversion or provider behavior.
 - [Installer](../../installer/README.md): read before installer/updater changes and disposable database tests.
 - [Verification guide](../verify/README.md): read before navigating or driving a factory-provided instance.

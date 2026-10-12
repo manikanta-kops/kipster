@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, open } from 'node:fs/promises'
+import { access, mkdir, open, readFile } from 'node:fs/promises'
 import { constants, realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -10,11 +10,12 @@ import { openRuntime, startTextServer, TextDispatcher, textPublicationHost, Adap
 import type { TranscriptionProvider } from './transcription/index.js'
 import { MigrationHistoryError, Postgres } from './platform/postgres/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
+import { EmbeddingServerSupervisor, supervisedEmbeddingProvider } from './embedding/supervisor.js'
 import { boundedEmbed } from './modules/memory/public.js'
 import { readHostConfig, type HostConfig } from './host-config.js'
 import { playground, playgroundNames } from './starter/playground.js'
 import { control, ownControl, type HostStatus } from './host-control.js'
-import { safeHostError } from './host-diagnostics.js'
+import { embeddingServerDiagnostic, safeHostError } from './host-diagnostics.js'
 export { readHostConfig, validateHostConfig } from './host-config.js'
 export { control, ownControl, recoverStoppedControl } from './host-control.js'
 
@@ -31,22 +32,31 @@ async function transcription(config: HostConfig, signal?: AbortSignal): Promise<
   if (provider.contractMajor !== 1 || typeof provider.readiness !== 'function' || typeof provider.close !== 'function' || !Array.isArray(provider.inputTypes)) throw new Error('Transcription contract is incompatible.')
   return provider
 }
-export async function loadEmbeddingProvider(config: HostConfig): Promise<EmbeddingProvider | undefined> {
-  if (!config.embedding) return undefined
-  const module = await import(pathToFileURL(config.embedding.module).href) as { createEmbeddingProvider?: (options: unknown) => EmbeddingProvider }
+async function embeddingFactory(config: NonNullable<HostConfig['embedding']>): Promise<(options: unknown) => EmbeddingProvider> {
+  const module = await import(pathToFileURL(config.module).href) as { createEmbeddingProvider?: (options: unknown) => EmbeddingProvider }
   if (typeof module.createEmbeddingProvider !== 'function') throw new Error('Configured embedding package must export createEmbeddingProvider.')
-  const provider = module.createEmbeddingProvider(config.embedding.options)
+  return module.createEmbeddingProvider
+}
+/** Loads the configured provider. With `embedding.server`, requests go to the server the supervisor runs. */
+export async function loadEmbeddingProvider(config: Pick<HostConfig, 'embedding'>, supervisor?: EmbeddingServerSupervisor): Promise<EmbeddingProvider | undefined> {
+  if (!config.embedding) return undefined
+  const create = await embeddingFactory(config.embedding)
+  if (config.embedding.server) {
+    if (!supervisor) throw new Error('The configured embedding server is not running.')
+    return supervisedEmbeddingProvider(supervisor, create, config.embedding.options, config.embedding.server.port)
+  }
+  const provider = create(config.embedding.options)
   validateEmbeddingProvider(provider)
   return provider
 }
-async function runtime(config: HostConfig, providers: boolean, signal?: AbortSignal): Promise<Runtime> {
+async function runtime(config: HostConfig, providers: boolean, signal?: AbortSignal, embeddingServer?: EmbeddingServerSupervisor): Promise<Runtime> {
   const provider = providers ? await transcription(config, signal) : undefined
   try {
     signal?.throwIfAborted()
     return await openRuntime({ connectionString: config.databaseUrl, home: config.home, names: playgroundNames, starter: await playground(),
       ...(config.taskDataUrl ? { taskDataConnectionString: config.taskDataUrl } : {}),
       ...(config.executionLimit ? { executionLimit: config.executionLimit } : {}),
-      ...(providers && config.embedding ? { embedding: (await loadEmbeddingProvider(config))! } : {}),
+      ...(providers && config.embedding ? { embedding: (await loadEmbeddingProvider(config, embeddingServer))! } : {}),
       ...(provider ? { transcription: provider } : {}),
       ...(config.updates ? { updates: config.updates } : {}),
       onError: error => { console.error(`A Core background operation failed: ${safeHostError(error, config, process.env)}`) },
@@ -61,7 +71,7 @@ export async function serve(config: HostConfig): Promise<void> {
   let requestStop!: () => void
   const stopped = new Promise<void>(resolve => { requestStop = resolve })
   const abort = new AbortController()
-  let core: Runtime | undefined, registry: AdapterRegistry | undefined, dispatcher: TextDispatcher | undefined, server: TextServer | undefined
+  let core: Runtime | undefined, registry: AdapterRegistry | undefined, dispatcher: TextDispatcher | undefined, server: TextServer | undefined, embeddingServer: EmbeddingServerSupervisor | undefined
   let force: ReturnType<typeof setTimeout> | undefined
   let dispatcherClosing: Promise<void> | undefined
   const beginShutdown = () => {
@@ -80,7 +90,15 @@ export async function serve(config: HostConfig): Promise<void> {
   const deadline = setTimeout(() => { console.error('Host startup exceeded 60 seconds. Inspect dependencies and the stale ownership directory.'); process.exit(1) }, 60000)
   try {
     if (abort.signal.aborted) return
-    core = await runtime(config, true, abort.signal)
+    if (config.embedding?.server) {
+      embeddingServer = new EmbeddingServerSupervisor({ home: config.home, config: config.embedding.server, log: message => console.log(message), onStatus: value => {
+        status.embedding = value
+        if (value.state === 'failed') console.error(`Embedding server failed: ${value.reason} Memory search is unavailable.`)
+      } })
+      await embeddingServer.start()
+    }
+    if (abort.signal.aborted) return
+    core = await runtime(config, true, abort.signal, embeddingServer)
     if (abort.signal.aborted) return
     registry = new AdapterRegistry({ now: () => core!.clock().toISOString(), invokeTool: request => textPublicationHost(dispatcher!).invokeTool(request) }, join(config.home, 'adapter-generations'))
     await mkdir(join(config.home, 'adapter-generations'), { recursive: true, mode: 0o700 })
@@ -109,7 +127,7 @@ export async function serve(config: HostConfig): Promise<void> {
     beginShutdown()
     let failure: unknown
     try {
-      for (const close of [() => server?.close(), () => dispatcherClosing, () => registry?.close(), () => core?.close(), () => owner.close()]) {
+      for (const close of [() => server?.close(), () => dispatcherClosing, () => registry?.close(), () => core?.close(), () => embeddingServer?.close(), () => owner.close()]) {
         try { await close() } catch (error) { failure ??= error }
       }
     } finally { if (!failure) clearTimeout(force); process.off('SIGTERM', beginShutdown); process.off('SIGINT', beginShutdown) }
@@ -143,19 +161,40 @@ export async function doctor(config: HostConfig, probe = false): Promise<Diagnos
     add('pgvector', result.rows[0]!.vector ? 'ok' : 'unavailable', result.rows[0]!.vector ? `pgvector ${result.rows[0]!.vector} is installed.` : 'Install pgvector in the configured database before setup.')
   } catch { add('postgresql', 'unavailable', 'Verify databaseUrl, the server, database and credentials. No credential value is printed.') }
   finally { await db?.close() }
-  try { const status = await control(config.home, 'status'); add('host', status ? 'ok' : 'not-configured', status ? `Configured host is ${'state' in status ? status.state : 'stopping'}.` : 'Configured host is stopped.') }
+  let running: HostStatus | undefined
+  try {
+    const status = await control(config.home, 'status')
+    if (status && 'state' in status) running = status
+    add('host', status ? 'ok' : 'not-configured', status ? `Configured host is ${'state' in status ? status.state : 'stopping'}.` : 'Configured host is stopped.')
+  }
   catch { add('host', 'unavailable', 'Ownership is incomplete, inaccessible or stale. Inspect the configured home before manual cleanup; no process was signalled.') }
   for (const adapter of config.adapters) {
     try { await access(join(adapter.root, adapter.entry), constants.R_OK); add(`adapter:${adapter.id}`, 'not-probed', 'Entry is readable. Readiness requires an explicit provider probe or host startup.') }
     catch { add(`adapter:${adapter.id}`, 'unavailable', 'Install the configured adapter package and verify its entry relative to the installation root.') }
   }
   if (!config.adapters.length) add('adapters', 'not-configured', 'Configure an execution adapter; source data remains readable without one.')
-  add('embedding', config.embedding ? 'not-probed' : 'not-configured', config.embedding ? 'Configured module; no embedding request made by passive checks.' : 'Configure an embedding service to enable indexed memory.')
+  const embeddingServer = config.embedding?.server
+  if (embeddingServer) {
+    try {
+      await access(embeddingServer.binary, constants.X_OK); await access(embeddingServer.model, constants.R_OK)
+      const row = embeddingServerDiagnostic(running?.embedding)
+      add('embedding', row.status, row.message)
+    } catch { add('embedding', 'unavailable', 'The installed llama-server or embedding model is missing. Reinstall or update Kipster; memory search is unavailable meanwhile.') }
+  } else add('embedding', config.embedding ? 'not-probed' : 'not-configured', config.embedding ? 'Configured module; no embedding request made by passive checks.' : 'Configure an embedding service to enable indexed memory.')
   add('transcription', config.transcription ? 'not-probed' : 'not-configured', config.transcription ? 'Configured module; passive checks do not invoke the provider or request microphone access.' : 'Voice recording/transcription is unavailable until explicitly configured.')
   if (probe) {
     environment(config)
-    if (config.embedding) {
-      try { await boundedEmbed((await loadEmbeddingProvider(config))!, 'Kipster readiness probe', 10000); add('embedding-probe', 'ok', 'Explicit synthetic embedding request succeeded.') }
+    if (embeddingServer && running?.embedding?.state !== 'ready') add('embedding-probe', 'unavailable', 'The embedding server is not ready. Start the host, which runs it, and check the embedding row.')
+    else if (config.embedding) {
+      try {
+        let provider: EmbeddingProvider
+        if (embeddingServer && running?.embedding?.state === 'ready') {
+          const apiKey = (await readFile(join(config.home, 'embedding', 'api-key'), 'utf8')).trim()
+          provider = (await embeddingFactory(config.embedding))({ ...config.embedding.options, endpoint: `http://127.0.0.1:${running.embedding.port}`, model: embeddingServer.modelName, apiKey })
+          validateEmbeddingProvider(provider)
+        } else provider = (await loadEmbeddingProvider(config))!
+        await boundedEmbed(provider, 'Kipster readiness probe', 10000); add('embedding-probe', 'ok', 'Explicit synthetic embedding request succeeded.')
+      }
       catch { add('embedding-probe', 'unavailable', 'Explicit embedding request failed. Verify endpoint/model/provider credentials.') }
     }
     let provider: TranscriptionProvider | undefined

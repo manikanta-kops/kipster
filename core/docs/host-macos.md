@@ -63,11 +63,38 @@ the adapter's configuration/authentication guide; provider sign-in requires the 
 own adapter and model use it with its default model. Change settings through
 Kipster after discovery.
 
-Configure memory with `embedding: { "module": "/absolute/path/to/embedding-ollama/dist/index.js",
-"options": { "endpoint": "http://127.0.0.1:11434", "model": "nomic-embed-text" } }`
-when that model is installed. An optional `apiKeyEnv` in options names a bearer-token
-environment variable. Changing the provider ID or model re-embeds all retained memory
-and vector text on the next start; searches use only the new generation.
+Memory search uses Kipster's own llama.cpp `llama-server` with EmbeddingGemma 2.
+The installer downloads both into `<home>/embedding` and writes:
+
+```json
+"embedding": {
+  "module": "<home>/current/node_modules/@kipster/embedding-llama-cpp/dist/index.js",
+  "options": {},
+  "server": {
+    "binary": "<home>/embedding/llama.cpp/b11565/llama-server",
+    "model": "<home>/embedding/models/embeddinggemma-2-Q8_0.gguf",
+    "modelSha256": "<SHA-256 of the model>",
+    "modelName": "embeddinggemma-2-Q8_0",
+    "port": 43180
+  }
+}
+```
+
+The binary and model must be inside the home; Core never starts or uses a
+llama.cpp or Ollama installed elsewhere. When the host runs, Core checks the
+model's SHA-256 and starts the server on 127.0.0.1 in embedding mode with an
+8,192-token context, with no inherited environment. A server on the port recorded
+in `<home>/embedding/server.json` that refuses a wrong key, accepts the key in
+`<home>/embedding/api-key` and serves the model is reused and left running when
+Core stops. Anything else on that port makes Core pick and record a free port. A
+crashed server restarts with backoff (1 s, doubling to 60 s, up to 8 attempts);
+Core stops the server it started when it stops. `doctor` shows the status:
+configured, starting, ready, restarting with the attempt and reason, or failed
+with the reason. Server output goes to `logs/embedding-server.log`. Without the
+server, memory works without search.
+
+A host can instead name another package with `embedding: { "module", "options" }`
+and no `server`; Core then calls that package directly.
 
 Configure Spokenly with `transcription: { "module": "/absolute/path/to/adapter/dist/index.js",
 "options": { "executable": "/absolute/path/to/spokenly",

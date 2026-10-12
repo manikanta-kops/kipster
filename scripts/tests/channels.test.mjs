@@ -41,14 +41,14 @@ test('channels select independently per package by semver, including stable fall
     release('core', '0.3.0-next.9'), release('codex-cli', '0.3.0-next.10'),
     release('core', '0.3.0', { date: '2026-09-01T09:00:00Z' }), release('codex-cli', '0.2.0'),
     release('core', '0.2.0', { date: '2026-10-03T09:00:00Z' }), release('ui', '0.1.0-next.12'),
-    release('embedding-ollama', '0.2.0'),
+    release('embedding-llama-cpp', '0.2.0'),
   ])
   const stable = site['v1/stable.json'].packages, next = site['v1/next.json'].packages
   assert.equal(stable['@kipster/core'].version, '0.3.0')
   assert.equal(next['@kipster/core'].version, '0.3.0')
   assert.equal(next['@kipster/codex-cli'].version, '0.3.0-next.10')
   assert.equal(stable['@kipster/codex-cli'].version, '0.2.0')
-  assert.equal(next['@kipster/embedding-ollama'].version, '0.2.0')
+  assert.equal(next['@kipster/embedding-llama-cpp'].version, '0.2.0')
   assert.equal(next['@kipster/ui'].version, '0.1.0-next.12')
   assert.equal(stable['@kipster/ui'], undefined)
   assert.deepEqual(site['v1/releases.json'].packages['@kipster/core'].map(entry => entry.version), ['0.3.0', '0.3.0-next.9', '0.2.0'])

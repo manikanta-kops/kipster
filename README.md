@@ -34,7 +34,7 @@ can talk to Core, and any provider with an adapter can do the work.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture-dark.png">
-  <img src="docs/assets/architecture-light.png" alt="Interfaces: macOS desktop app and web app (built), mobile app and robots or devices (planned). Core: conversations, memory, files, work and delegation, kips and organization. Adapters: AI agents Codex CLI (built), Claude Code, Pi and Muse CLI (planned); voice and memory Spokenly and Ollama (built), Wispr Flow and ElevenLabs (planned)." width="100%">
+  <img src="docs/assets/architecture-light.png" alt="Interfaces: macOS desktop app and web app (built), mobile app and robots or devices (planned). Core: conversations, memory, files, work and delegation, kips and organization. Adapters: AI agents Codex CLI (built), Claude Code, Pi and Muse CLI (planned); voice and memory Spokenly and llama.cpp (built), Wispr Flow and ElevenLabs (planned)." width="100%">
 </picture>
 
 ## Status
@@ -47,7 +47,7 @@ Early development. Not yet a supported release. Setup instructions are coming so
 | --- | --- |
 | [`core/`](core) | Core, the Kipster protocol and the adapter contract |
 | [`interface/`](interface) | The Kipster app for macOS and the web |
-| [`adapters/`](adapters) | Provider adapters: Codex CLI, Spokenly, Ollama |
+| [`adapters/`](adapters) | Provider adapters: Codex CLI, Spokenly, llama.cpp embeddings |
 | [`installer/`](installer) | macOS backend installer, updater and rollback command |
 | [`docs/`](docs) | Architecture, design decisions and [releasing](docs/releasing.md) |
 
