@@ -13,7 +13,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 
 // Organization home of learned memories, against real PostgreSQL with the deterministic fixture adapter.
 // One agent works in organizations A and B and in the installation context.
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
   let value

@@ -9,7 +9,7 @@ import { openRuntime } from '../dist/runtime.js'
 import { MemoryService } from '../dist/modules/memory/public.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-const profile={id: 'ollama', contractMajor: 1,model:'fixture-embedding'}
+const profile={id: 'fixture-provider', contractMajor: 1,model:'fixture-embedding'}
 
 test('memory survives restart; revisions fence stale vectors; organization publication is explicit', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl)
@@ -112,7 +112,7 @@ test('memory survives restart; revisions fence stale vectors; organization publi
     await runtime.db.query(`UPDATE kipster.memory_index_intents i SET status='stale' FROM kipster.memory_records m WHERE m.id=i.memory_id AND m.text LIKE 'Irrelevant fixture %'`)
     assert.equal((await runtime.memory.search(rootAgentId,null,'semantic-query')).at(0)?.record.id,one.id)
     assert.equal((await runtime.memory.search(rootAgentId,null,'semantic-query')).at(0)?.retrieval,'vector')
-    await runtime.db.query(`INSERT INTO kipster.memory_embedding_generations(installation_id,generation,provider,model,dimension) VALUES ($1,2,'ollama',$2,2)`,[installationId,profile.model])
+    await runtime.db.query(`INSERT INTO kipster.memory_embedding_generations(installation_id,generation,provider,model,dimension) VALUES ($1,2,'fixture-provider',$2,2)`,[installationId,profile.model])
     await runtime.db.query('UPDATE kipster.memory_profiles SET generation=2 WHERE installation_id=$1',[installationId])
     assert.equal((await runtime.memory.search(rootAgentId,null,'Amsterdam ten')).at(0)?.retrieval,'lexical')
     const restartIntent=await runtime.memory.save(rootAgentId,'fact','Haarlem desk opens early',[{authorId:rootAgentId}])

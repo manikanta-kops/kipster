@@ -16,7 +16,7 @@ import { adminUrl } from '../support/database.mjs'
 // and Learned sections are scripted by the story, so scenarios test what Core does with them, never model quality.
 
 const fixture = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const dimensions = 512
 const terminalSources = ['committed', 'skipped', 'fenced', 'superseded', 'source_deleted']
 
