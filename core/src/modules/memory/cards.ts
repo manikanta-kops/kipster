@@ -190,12 +190,14 @@ export class CardService {
   }
 }
 
+const diaryKey = `agent_id::text || '/' || day::text || '/' || COALESCE(organization_id::text, '')`
 /** Embedding inputs of the rows saved without one. */
-const pending = {
+const pending: Record<'thread_chunks' | 'cards' | 'diary', { key: string; select: string; where: string; ready?: string }> = {
   thread_chunks: { key: 'id', select: `id::text AS key, title, text, updated_at::text AS updated_at FROM kipster.thread_chunks`, where: 'id::text' },
   cards: { key: 'id', select: `id::text AS key, type || ': ' || subject AS title, statement || CASE WHEN details = '{}'::jsonb THEN '' ELSE E'\\n' || details::text END AS text, updated_at::text AS updated_at FROM kipster.cards`, where: 'id::text' },
-  diary: { key: 'agent_id, day', select: `agent_id::text || '/' || day::text AS key, to_char(day, 'Dy DD Mon YYYY') AS title, summary AS text, updated_at::text AS updated_at FROM kipster.diary`, where: `agent_id::text || '/' || day::text` },
-} as const
+  // A page owing a rebuild has no summary to embed yet.
+  diary: { key: 'agent_id, day, organization_id', select: `${diaryKey} AS key, to_char(day, 'Dy DD Mon YYYY') AS title, summary AS text, updated_at::text AS updated_at FROM kipster.diary`, where: diaryKey, ready: 'summary IS NOT NULL' },
+}
 
 /**
  * Embeds every chunk, card and diary page of the installation saved without an embedding, with the document prompt
@@ -209,7 +211,7 @@ export async function embedPending(db: Postgres, installationId: string, embeddi
     const skipped = new Set<string>()
     while (!signal?.aborted) {
       const rows = (await db.query<{ key: string; title: string; text: string; updated_at: string }>(
-        `SELECT ${source.select} WHERE installation_id=$1 AND embedding IS NULL AND NOT (${source.where} = ANY($2::text[])) ORDER BY updated_at, ${source.key} LIMIT $3`,
+        `SELECT ${source.select} WHERE installation_id=$1 AND embedding IS NULL AND ${source.ready ?? 'true'} AND NOT (${source.where} = ANY($2::text[])) ORDER BY updated_at, ${source.key} LIMIT $3`,
         [installationId, [...skipped], EMBED_BATCH])).rows
       if (!rows.length) break
       for (const row of rows) {
@@ -246,7 +248,7 @@ async function embedRow(db: Postgres, installationId: string, embedding: Embeddi
   try { values = await boundedEmbed(embedder, embeddingDocument(row.text.slice(0, EMBEDDING_TEXT_MAX), row.title), timeoutMs) }
   catch { return 'failed' }
   try {
-    const saved = await db.query(`UPDATE kipster.${table} SET embedding=$3::vector, embedding_model=$4 WHERE installation_id=$1 AND ${pending[table].where}=$2 AND embedding IS NULL AND updated_at=$5::timestamptz`,
+    const saved = await db.query(`UPDATE kipster.${table} SET embedding=$3::vector, embedding_model=$4 WHERE installation_id=$1 AND ${pending[table].where}=$2 AND embedding IS NULL AND ${pending[table].ready ?? 'true'} AND updated_at=$5::timestamptz`,
       [installationId, row.key, vectorLiteral(values), profile.model, row.updated_at])
     return saved.rowCount ? 'saved' : 'skipped'
   } catch { return 'skipped' /* A vector of another dimension cannot be stored. */ }

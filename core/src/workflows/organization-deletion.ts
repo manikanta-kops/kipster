@@ -86,7 +86,7 @@ export function organizationDeletionSteps(host: OrganizationDeletionHost): Opera
       return { status: 'done' }
     }),
 
-    // 5. Its organization cards and any thread chunk left in it; cards learned outside it survive.
+    // 5. Its organization cards and any thread chunk or diary page left in it; cards learned outside it survive.
     step('delete-memory', async (client, operation) => {
       const [installationId, organizationId] = organization(operation)
       await lockInstallation(client, installationId)

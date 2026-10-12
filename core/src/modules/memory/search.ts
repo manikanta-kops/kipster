@@ -22,9 +22,10 @@ export const MEMORY_READ = {
 } as const
 
 /**
- * Whose thread chunks and diary pages a read covers. `agents` null covers every agent. Chunks and threads are limited to
- * installation threads plus one organization's (`organizationId`, null for none), or cover every organization (`all`).
- * `exclude` leaves out one thread, such as the current one, which is already in the history.
+ * Whose thread chunks and diary pages a read covers. `agents` null covers every agent. Chunks, diary pages and threads
+ * are limited to installation threads plus one organization's (`organizationId`, null for none), or cover every
+ * organization (`all`). `exclude` leaves out one thread, such as the current one, which is already in the history: its
+ * chunks, and a diary page that covers no other thread.
  */
 export interface ThreadScope { agents: readonly string[] | null; organizations: { organizationId: string | null } | 'all'; exclude?: string | null }
 /** A time range: `from` inclusive, `to` exclusive. Diary pages match by host local day. */
@@ -32,7 +33,7 @@ export interface MemoryRange { from: Date | null; to: Date | null }
 
 export type MemoryItem =
   | { kind: 'chunk'; id: string; threadId: string; agentId: string; organizationId: string | null; fromPosition: number; toPosition: number; startedAt: string; endedAt: string; title: string; text: string }
-  | { kind: 'diary'; agentId: string; day: string; threadIds: string[]; summary: string }
+  | { kind: 'diary'; agentId: string; organizationId: string | null; day: string; threadIds: string[]; summary: string }
 export type SearchResult = { status: 'ok'; cards: Card[]; items: MemoryItem[] } | { status: 'unavailable'; reason: string }
 
 /** The agent's memory switch, and whether it is Kip, the main kip (the root administration agent). */
@@ -42,12 +43,14 @@ export async function memoryAccess(client: Postgres | SqlClient, agentId: string
   return { enabled: row?.enabled === true, kip: row?.kip === true }
 }
 
-const threadScopeSql = (table: string, agents: string, organization: string, exclude: string): string => [
+/** SQL condition: a thread chunk (`ch`) or diary page (`d`) is in the scope. A diary page belongs to one context, as its
+ * threads' chunks do; one whose only thread is the excluded one adds nothing to the history. Its thread IDs are deduplicated. */
+const threadScopeSql = (table: 'ch' | 'd', agents: string, organization: string, exclude: string): string => [
   `(${agents}::uuid[] IS NULL OR ${table}.agent_id = ANY(${agents}::uuid[]))`,
-  ...(table === 'd' ? [] : [
-    `(${organization}::text = 'all' OR ${table}.organization_id IS NULL OR ${table}.organization_id::text = ${organization}::text)`,
-    `(${exclude}::uuid IS NULL OR ${table}.thread_id <> ${exclude}::uuid)`,
-  ]),
+  `(${organization}::text = 'all' OR ${table}.organization_id IS NULL OR ${table}.organization_id::text = ${organization}::text)`,
+  table === 'd'
+    ? `(${exclude}::uuid IS NULL OR d.thread_ids <> ARRAY[${exclude}::uuid])`
+    : `(${exclude}::uuid IS NULL OR ch.thread_id <> ${exclude}::uuid)`,
 ].join(' AND ')
 const threadScopeValues = (scope: ThreadScope): [string[] | null, string | null, string | null] =>
   [scope.agents ? [...scope.agents] : null, scope.organizations === 'all' ? 'all' : scope.organizations.organizationId, scope.exclude ?? null]
@@ -82,14 +85,14 @@ export async function searchMemory(db: Postgres, installationId: string, embeddi
            WHERE ch.installation_id=$1 AND ch.embedding IS NOT NULL AND ch.embedding_model=$2 AND ${threadScopeSql('ch', '$4', '$5', '$6')}
              AND ($7::timestamptz IS NULL OR ch.ended_at >= $7) AND ($8::timestamptz IS NULL OR ch.started_at < $8)
            UNION ALL
-           SELECT 'diary', NULL, NULL, d.agent_id, NULL, NULL, NULL, NULL, NULL, d.day::text, d.thread_ids, NULL, d.summary, d.embedding <=> $3::vector
+           SELECT 'diary', NULL, NULL, d.agent_id, d.organization_id, NULL, NULL, NULL, NULL, d.day::text, d.thread_ids, NULL, d.summary, d.embedding <=> $3::vector
            FROM kipster.diary d
-           WHERE d.installation_id=$1 AND d.embedding IS NOT NULL AND d.embedding_model=$2 AND ${threadScopeSql('d', '$4', '$5', '$6')}
+           WHERE d.installation_id=$1 AND d.summary IS NOT NULL AND d.embedding IS NOT NULL AND d.embedding_model=$2 AND ${threadScopeSql('d', '$4', '$5', '$6')}
              AND ($9::date IS NULL OR d.day >= $9::date) AND ($10::date IS NULL OR d.day <= $10::date)
-         ) items ORDER BY distance, kind, id, agent_id, day LIMIT $11`,
+         ) items ORDER BY distance, kind, id, agent_id, day, organization_id LIMIT $11`,
         [installationId, profile.model, vector, ...threadScopeValues(search.threads), from, to, fromDay, toDay, search.itemCount])).rows.map((row): MemoryItem => row.kind === 'chunk'
           ? { kind: 'chunk', id: row.id!, threadId: row.thread_id!, agentId: row.agent_id, organizationId: row.organization_id, fromPosition: Number(row.from_position), toPosition: Number(row.to_position), startedAt: row.started_at!.toISOString(), endedAt: row.ended_at!.toISOString(), title: row.title!, text: row.text }
-          : { kind: 'diary', agentId: row.agent_id, day: row.day!, threadIds: row.thread_ids ?? [], summary: row.text })
+          : { kind: 'diary', agentId: row.agent_id, organizationId: row.organization_id, day: row.day!, threadIds: row.thread_ids ?? [], summary: row.text })
       return { status: 'ok' as const, cards, items }
     })
   } catch {

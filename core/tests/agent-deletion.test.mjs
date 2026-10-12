@@ -300,7 +300,8 @@ async function assertRemoved(ctx, data, events, { copies }) {
   }
 
   // Memory derived from its threads goes: chunks, processing state, card sources, cards left with no
-  // source and its diary. Root's thread keeps its memory, and its diary page loses only the removed thread.
+  // source and its diary. Root's thread keeps its memory; its diary page loses the removed thread, and its
+  // summary and embedding with it, until the next nightly run rebuilds it from Root's thread.
   const memory = data.memory
   const rows = async (sql, params = []) => (await ctx.db.query(sql, params)).rows
   assert.deepEqual(await rows('SELECT id, embedding IS NOT NULL AS embedded FROM kipster.thread_chunks'), [{ id: memory.rootChunk, embedded: true }])
@@ -310,7 +311,7 @@ async function assertRemoved(ctx, data, events, { copies }) {
   assert.deepEqual(await sources(memory.sharedCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
   assert.deepEqual(await sources(memory.rootCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
   assert.deepEqual(await rows('SELECT replaced_by, valid_to IS NOT NULL AS ended FROM kipster.cards WHERE id=$1', [memory.endedCard]), [{ replaced_by: null, ended: true }])
-  assert.deepEqual(await rows("SELECT agent_id, day::text AS day, thread_ids FROM kipster.diary"), [{ agent_id: ctx.root, day: '2026-10-11', thread_ids: [data.parent.threadId] }])
+  assert.deepEqual(await rows("SELECT agent_id, day::text AS day, thread_ids, summary, embedding IS NULL AS unembedded FROM kipster.diary"), [{ agent_id: ctx.root, day: '2026-10-11', thread_ids: [data.parent.threadId], summary: null, unembedded: true }])
 
   // Vectors, task data, home, identity backups.
   assert.equal(await exists(join(home, 'agents', scout)), false)

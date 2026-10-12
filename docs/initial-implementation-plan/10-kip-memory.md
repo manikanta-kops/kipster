@@ -45,8 +45,8 @@ cards                id, type, subject, statement, details, confirmed, core,
                      organization_id, valid_from, valid_to, replaced_by,
                      created_at, updated_at, embedding vector(768), embedding_model
 card_sources         card_id, thread_id, message_id
-diary                agent_id, day, summary, thread_ids, embedding vector(768),
-                     embedding_model
+diary                agent_id, day, organization_id, summary, thread_ids,
+                     embedding vector(768), embedding_model
 ```
 
 - `type` is free text. Suggested types: fact, preference, person, goal,
@@ -62,11 +62,18 @@ diary                agent_id, day, summary, thread_ids, embedding vector(768),
   last messages, for date-range search); chunks, diary pages and thread state
   have `updated_at`, and chunks and diary pages `created_at`. `embedding` and
   `embedding_model` are nullable: rows are saved first and embedded later.
+- A diary page belongs to one context, like the thread chunks of its threads:
+  one page per agent, day and organization, with no organization for
+  installation threads.
 - Deleting a thread removes its chunks, its thread state and its card sources,
-  deletes every card left with no source and removes the thread from diary
-  pages; a page left with no thread is deleted. Deleting an agent removes its
-  chunks and diary, and deleting an organization removes its cards. Cards of
-  other threads stay; a card replaced by a deleted card keeps its `valid_to`.
+  and deletes every card left with no source. Every diary page it contributed
+  to loses the thread, its summary and its embedding in the same transaction:
+  a page left with no thread is deleted, and a page with other threads owes a
+  rebuild. Until the next nightly run writes it again from the remaining
+  threads' messages of that day, never from the old summary, it is not
+  searched. Deleting an agent removes its chunks and diary, and deleting an
+  organization removes its cards, chunks and diary pages. Cards of other
+  threads stay; a card replaced by a deleted card keeps its `valid_to`.
 - Vector collections keep the installation's embedding profile in
   `embedding_profiles` and `embedding_generations`.
 
@@ -101,9 +108,13 @@ messages, using Kip's model unless the nightly-model setting names another:
 3. Propose card changes from the user's own messages, each compared with the
    nearest existing cards: add, update, replace or skip. Every card change
    records its source messages.
-4. Write one diary page for each day covered: a short summary and its thread IDs.
+4. Write one diary page for each day covered, in the thread's context: a short
+   summary and its thread IDs. Pages owing a rebuild are written first.
 5. End replaced cards, and re-pick the core cards up to the core card count.
-6. Embed the new and changed chunks, cards and diary pages.
+6. Embed the new and changed chunks, cards and diary pages. Rows still waiting
+   for an embedding make the night due, so an idle night repairs them; a
+   night whose only work is embedding finishes even when the provider fails,
+   and the rows wait for the next night.
 7. Advance a thread's `processed_position` only after its results are saved.
 
 A thread's chunks, card changes, sources, diary contribution and processed
@@ -130,8 +141,10 @@ In order:
 
 Limits are counts, never cut mid-item: 60 core cards, and 10 cards plus 6 thread
 chunks from search. Each is a setting. Diary pages are ranked with the thread
-chunks and share their count, and the current thread's chunks are left out: its
-history is already there.
+chunks and share their count, and are visible where their context's chunks are.
+The current thread's chunks are left out: its history is already there. So is a
+diary page that covers only the current thread; a page that also covers other
+threads stays.
 
 Without the embedding runtime, core cards, the unprocessed-threads line and
 reading threads still work, and search reports that it is unavailable.
