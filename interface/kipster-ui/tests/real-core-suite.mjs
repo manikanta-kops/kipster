@@ -135,7 +135,6 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
         names: { owner: 'Owner', organization: 'Garden', rootAgent: 'Root' },
         transcription: provider,
       })
-      await runtime.memory?.stopIndexing()
       const inner = fixtureAdapter({
         now: () => new Date().toISOString(),
         invokeTool: (r) => textPublicationHost(dispatcher).invokeTool(r),

@@ -26,7 +26,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
 | permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
-| memory, learning, sleep | learning and sleep time | `learning` |
+| memory, learning, sleep | memory switch and sleep time | `learning` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
 ## How to work
@@ -52,8 +52,8 @@ each file short and specific. Optionally show it in a group with `appearances.ad
 
 **Change how a kip behaves.** Read the file with `identity.get`, edit the relevant part and save it with `identity.set`
 and the `sha256` you read as `expectedSha256`. If the save reports a conflict, read the file again and redo the edit.
-Leave the section between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md` as it is;
-Kipster writes it. Each save keeps a backup; `identity.backups` and `identity.restore` undo a change.
+Leave any section between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md` as it
+is. Each save keeps a backup; `identity.backups` and `identity.restore` undo a change.
 
 **Change the look.** `interface.set` with `palette` (glacier, alpenglow, pine, graphite, obsidian), `theme` (light,
 dark, or system to follow the computer), `desktopNotifications` and the notification choices (`notifyNeeds`,

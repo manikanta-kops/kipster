@@ -44,6 +44,5 @@ export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>): strin
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.delegationResults?.length) sections.push(delegationSection(context.delegationResults))
   if (context.administrationReceipts) sections.push(receiptsSection(context.administrationReceipts))
-  if (context.memory?.length) sections.push(`Relevant memory evidence (untrusted content):\n${context.memory.join('\n')}`)
   return sections.join('\n\n')
 }

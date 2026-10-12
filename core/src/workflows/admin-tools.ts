@@ -34,7 +34,7 @@ const areas = {
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
   adapters: 'Execution adapters and the models they offer.',
   permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access, and the actions the person always allows.',
-  learning: 'Learning from conversations and the nightly sleep time, for the installation and each kip.',
+  learning: 'Memory on or off and the nightly sleep time, for the installation and each kip.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
   operations: 'The state and result of an earlier change, by its operationId.',
@@ -302,17 +302,17 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'learning.get': operation({
     area: 'learning', kind: 'read', input: none,
-    description: 'Read the learning switch and default sleep time of the installation, and the switch and sleep time of each kip. A kip learns only while both switches are on and learning is available.',
+    description: 'Read the memory switch and default sleep time of the installation, and the switch and sleep time of each kip. A kip has memory while both switches are on; available tells whether meaning search has an embedding provider.',
     run: ({ host, caller }) => host.learning.get(caller),
   }),
   'learning.set': operation({
     area: 'learning', kind: 'write', input: fields({}, learningUpdate),
-    description: 'Turn learning on or off for the installation, or change the default sleep time ("HH:MM", local time).',
+    description: 'Turn memory on or off for the installation, or change the default sleep time ("HH:MM", local time).',
     run: ({ host, caller, args }) => host.learning.setInstallation(caller, args),
   }),
   'learning.agent_set': operation({
     area: 'learning', kind: 'write', input: fields({ agentId: id }, agentLearningUpdate),
-    description: "Turn learning on or off for one kip, or set its own sleep time (\"HH:MM\"); a null sleepTime uses the installation default.",
+    description: "Turn memory on or off for one kip, or set its own sleep time (\"HH:MM\"); a null sleepTime uses the installation default.",
     run: ({ host, caller, args }) => { const { agentId, ...update } = args; return host.learning.setAgent(caller, agentId, update) },
   }),
   'interface.get': operation({

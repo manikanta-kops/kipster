@@ -3,7 +3,7 @@ import type { SqlClient } from '../platform/postgres/public.js'
 import { tombstoneAgent, type Operation } from '../modules/administration/public.js'
 import { removeThreads } from '../modules/conversations/public.js'
 import { removeThreadDocuments } from '../modules/documents/public.js'
-import type { MaintenanceService } from '../modules/memory/public.js'
+import { deleteAgentMemory, removeThreadMemory } from '../modules/memory/public.js'
 import { dropOwnerTaskData } from '../modules/structured/public.js'
 import { deleteOwnerCollections } from '../modules/vectors/public.js'
 import { lockInstallation } from '../modules/work/public.js'
@@ -15,7 +15,6 @@ export const AGENT_DELETION_BATCH = { threads: 5, copies: 20, forget: 500, memor
 export type ForgetOutcome = 'forgotten' | 'unsupported' | 'unavailable'
 export interface AgentDeletionHost {
   readonly runtime: Runtime
-  readonly maintenance: MaintenanceService
   /** Asks the adapter that ran the provider threads to forget them; a null adapter ID is the direct adapter. Returns the adapter's ID too. */
   forgetProviderState(adapterId: string | null, threadIds: readonly string[]): Promise<{ outcome: ForgetOutcome; adapterId: string | null }>
 }
@@ -39,16 +38,15 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
   const agent = (operation: Operation): [string, string] => [operation.installationId, operation.targetId]
   const step = (name: string, run: (client: SqlClient, operation: Operation) => Promise<StepOutcome>): OperationStep => ({ name, run })
   return [
-    // 1. Nothing may still write: the work in its chats, the work it delegated from them, and its memory tasks.
+    // 1. Nothing may still write: the work in its chats and the work it delegated from them.
     step('wait-for-work', async (client, operation) => {
-      const counts = (await client.query<{ runs: number; tasks: number }>(`WITH removed AS (${agentThreads})
+      const counts = (await client.query<{ runs: number }>(`WITH removed AS (${agentThreads})
         SELECT (SELECT count(*)::int FROM kipster.text_runs r
             WHERE (r.thread_id IN (SELECT id FROM removed) OR r.id IN (SELECT d.child_run_id FROM kipster.delegations d JOIN kipster.text_runs p ON p.id=d.parent_run_id WHERE p.thread_id IN (SELECT id FROM removed)))
               AND (r.state IN ('queued','preparing','running','waiting','cancellation-requested','recovery-needed')
-                OR EXISTS (SELECT 1 FROM kipster.owned_permits o JOIN kipster.attempts a ON a.id=o.attempt_id WHERE a.intent_id=r.id))) AS runs,
-          (SELECT count(*)::int FROM kipster.maintenance_runs WHERE installation_id=$1 AND agent_id=$2 AND state IN ('queued','preparing','running','recovery-needed')) AS tasks`,
+                OR EXISTS (SELECT 1 FROM kipster.owned_permits o JOIN kipster.attempts a ON a.id=o.attempt_id WHERE a.intent_id=r.id))) AS runs`,
         agent(operation))).rows[0]!
-      if (counts.runs || counts.tasks) return { status: 'wait', reason: `Waiting for the agent's work to end: ${counts.runs} runs and ${counts.tasks} memory tasks` }
+      if (counts.runs) return { status: 'wait', reason: `Waiting for the agent's work to end: ${counts.runs} runs` }
       return { status: 'done' }
     }),
 
@@ -72,15 +70,11 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
       return { status: 'done', result: { files: copies } }
     }),
 
-    // 3. Provider state of the removed conversations and of its memory tasks, collected before their rows go.
+    // 3. Provider state of the removed conversations, collected before their rows go.
     step('forget-provider-state', async (client, operation) => {
       const rows = (await client.query<{ adapter_id: string | null; thread_id: string }>(`WITH removed AS (${agentThreads})
         SELECT a.adapter_id, a.provider_metadata->>'threadId' AS thread_id FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id
           WHERE r.thread_id IN (SELECT id FROM removed) AND a.provider_metadata ? 'threadId'
-        UNION SELECT a.adapter_id, a.provider_metadata->>'threadId' FROM kipster.attempts a JOIN kipster.maintenance_runs m ON m.id=a.intent_id
-          WHERE m.installation_id=$1 AND m.agent_id=$2 AND a.provider_metadata ? 'threadId'
-        UNION SELECT m.adapter_id, m.recovery_ref->'providerIds'->>'threadId' FROM kipster.maintenance_runs m
-          WHERE m.installation_id=$1 AND m.agent_id=$2 AND m.recovery_ref->'providerIds' ? 'threadId'
         ORDER BY 1, 2`, agent(operation))).rows
       const byAdapter = new Map<string | null, string[]>()
       for (const row of rows) byAdapter.set(row.adapter_id, [...byAdapter.get(row.adapter_id) ?? [], row.thread_id])
@@ -104,9 +98,8 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
       await lockInstallation(client, installationId)
       const batch = (await client.query<{ id: string }>(`SELECT t.id FROM kipster.threads t WHERE t.id IN (${agentThreads}) ORDER BY t.internal, t.id LIMIT $3`,
         [installationId, agentId, AGENT_DELETION_BATCH.threads])).rows.map(row => row.id)
-      await removeThreads(client, installationId, batch, async (threadId, messageIds) => {
-        for (const messageId of messageIds) await host.maintenance.purgeMessageEvidence(client, messageId)
-        await host.maintenance.purgeThreadContext(client, threadId)
+      await removeThreads(client, installationId, batch, async threadId => {
+        await removeThreadMemory(client, [threadId])
         await removeThreadDocuments(client, installationId, threadId)
       })
       if (batch.length === AGENT_DELETION_BATCH.threads) return { status: 'more' }
@@ -114,12 +107,11 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
       return { status: 'done' }
     }),
 
-    // 5. Its memory and learning state.
+    // 5. Its thread chunks and diary. Shared cards learned in its chats went with their sources.
     step('delete-memory', async (client, operation) => {
       const [installationId, agentId] = agent(operation)
       await lockInstallation(client, installationId)
-      if (await host.maintenance.deleteAgentMemories(client, agentId, AGENT_DELETION_BATCH.memories) === AGENT_DELETION_BATCH.memories) return { status: 'more' }
-      await host.maintenance.purgeAgentBrain(client, agentId)
+      if (await deleteAgentMemory(client, agentId, AGENT_DELETION_BATCH.memories) === AGENT_DELETION_BATCH.memories) return { status: 'more' }
       return { status: 'done' }
     }),
 

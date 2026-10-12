@@ -51,7 +51,7 @@ try {
       },
     },
   })
-  await runtime.memory.stopIndexing()
+  await runtime.vectors.stopIndexing()
   const { installationId, ownerId, organizationId, rootAgentId } =
     runtime.bootstrap
   const actor = { installationId, personId: ownerId }

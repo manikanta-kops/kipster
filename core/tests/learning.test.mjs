@@ -7,13 +7,12 @@ import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { resolveDirectChat, acceptText } from '../dist/modules/conversations/public.js'
-import { MaintenanceService } from '../dist/modules/memory/public.js'
 import { snapshot, readEvents } from '../dist/modules/synchronization/public.js'
 import { agentLearningResult, learningSettings, textEvent } from '../dist/protocol/index.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-// Learning switch mechanics against real PostgreSQL with the deterministic fixture adapter.
+// Memory switch mechanics against real PostgreSQL with the deterministic fixture adapter.
 const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
 
 async function until(read, predicate, label) {
@@ -25,11 +24,6 @@ async function until(read, predicate, label) {
   }
   throw new Error(`Timed out: ${label} (last value: ${JSON.stringify(value)?.slice(0, 200)})`)
 }
-function deferred() {
-  let resolve
-  const promise = new Promise(res => { resolve = res })
-  return { promise, resolve }
-}
 const count = async (db, sql, params = []) => Number((await db.query(sql, params)).rows[0].n)
 
 async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
@@ -40,7 +34,6 @@ async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
   url.pathname = `/${database}`
   const home = await mkdtemp(join(tmpdir(), 'kipster-learning-home-'))
   const runtime = await openRuntime({ connectionString: url.href, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }, ...(executionLimit ? { executionLimit } : {}), ...(embedding ? { embedding: { ...profile, async embed() { return [1, 0] } } } : {}) })
-  await runtime.memory?.stopIndexing()
   const actor = { installationId: runtime.bootstrap.installationId, personId: runtime.bootstrap.ownerId }
   const context = { kind: 'installation', installationId: actor.installationId }
   const agentId = runtime.bootstrap.rootAgentId
@@ -49,7 +42,7 @@ async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
   const executions = []
   let dispatcher
   const inner = fixtureAdapter({ now: () => new Date().toISOString(), invokeTool: request => textPublicationHost(dispatcher).invokeTool(request) })
-  dispatcher = new TextDispatcher(runtime, { ...inner, async execute(value) { const handle = await inner.execute(value); executions.push({ context: value, handle }); return handle } }, undefined, hooks)
+  dispatcher = new TextDispatcher(runtime, { ...inner, async execute(value) { const handle = await inner.execute(value); executions.push({ context: value, handle }); return handle } }, hooks)
   const servers = []
   const holders = []
   const releases = []
@@ -87,82 +80,43 @@ async function completeTextRun(ctx, text) {
   await until(async () => (await ctx.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [saved.runId])).rows[0]?.state, state => state === 'completed', `run completed ${saved.runId}`)
   return saved
 }
-const sources = (ctx, runId) => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.maintenance_sources WHERE run_id=$1', [runId])
-const source = async (ctx, runId) => (await ctx.db.query('SELECT status, status_reason FROM kipster.maintenance_sources WHERE run_id=$1', [runId])).rows[0]
-const maintenanceCalls = ctx => ctx.executions.filter(e => e.context.kind === 'maintenance').length
+const memoryRows = ctx => count(ctx.db, `SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.cards) + (SELECT count(*) FROM kipster.diary)
+  + (SELECT count(*) FROM kipster.memory_thread_state) AS n`)
 
-test('learning is off for the installation and on for each agent by default, and captures nothing', { skip: noDatabase }, async t => {
+test('memory is off for the installation and on for each agent by default', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   await ctx.dispatcher.start()
   assert.deepEqual(await ctx.runtime.learning.get(ctx.actor), {
     enabled: false, sleepTime: '01:00', revision: 0, available: true,
     agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: false }],
   })
-  const saved = await completeTextRun(ctx, 'The team meets on Tuesdays')
-  assert.equal(await sources(ctx, saved.runId), 0)
-  assert.equal(maintenanceCalls(ctx), 0)
+  await completeTextRun(ctx, 'The team meets on Tuesdays')
+  assert.equal(await memoryRows(ctx), 0)
 })
 
-test('enabling learning without an embedding profile fails clearly and changes nothing', { skip: noDatabase }, async t => {
+test('memory turns on without an embedding provider, and available reports that none is configured', { skip: noDatabase }, async t => {
   const ctx = await setup(t, { embedding: false })
   const scope = { kind: 'application', installationId: ctx.actor.installationId, callerId: ctx.actor.personId }
   const start = (await snapshot(ctx.db, scope)).cursor
-  await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { enabled: true }), /An embedding profile is required for learning/)
   const call = await ctx.serve(ctx.actor)
-  const refused = await call('PUT', '/v1/settings/learning', { version: 1, enabled: true })
-  assert.equal(refused.status, 400)
-  assert.equal(refused.data.message, 'An embedding profile is required for learning')
-  const state = learningSettings.parse((await call('GET', '/v1/settings/learning')).data)
-  assert.equal(state.enabled, false)
-  assert.equal(state.available, false)
-  assert.deepEqual(state.agents.map(agent => agent.effective), [false])
-  assert.equal((await readEvents(ctx.db, scope, start)).events.length, 0)
+  const enabled = await call('PUT', '/v1/settings/learning', { version: 1, enabled: true })
+  assert.equal(enabled.status, 200)
+  assert.deepEqual(learningSettings.parse(enabled.data), { version: 1, enabled: true, sleepTime: '01:00', revision: 1, available: false, agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }] })
+  assert.deepEqual((await readEvents(ctx.db, scope, start)).events.map(event => event.type), ['learning-changed'])
 })
 
-test('an agent switched off captures nothing while the installation learns', { skip: noDatabase }, async t => {
-  const gate = deferred()
-  t.after(() => gate.resolve())
-  const ctx = await setup(t, { hooks: { afterMaintenanceClaim: () => gate.promise } })
+test('with memory on, kips run turns without the removed memory tools or memory context', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
   await ctx.dispatcher.start()
   await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: true })
-  await ctx.runtime.learning.setAgent(ctx.actor, ctx.agentId, { enabled: false })
-  const off = await completeTextRun(ctx, 'Invoices go out on the first')
-  assert.equal(await sources(ctx, off.runId), 0)
-  await ctx.runtime.learning.setAgent(ctx.actor, ctx.agentId, { enabled: true })
-  const on = await completeTextRun(ctx, 'Invoices are due in thirty days')
-  await until(() => sources(ctx, on.runId), n => n === 1, 'source captured once learning is on')
-  assert.equal(await sources(ctx, off.runId), 0)
+  await completeTextRun(ctx, 'Remember that the office opens at nine')
+  const [execution] = ctx.executions
+  assert.equal(execution.context.memory, undefined)
+  const tools = execution.context.tools.map(tool => tool.name)
+  assert.deepEqual(tools.filter(name => name.startsWith('memory_')), [])
+  assert.ok(tools.includes('vector_collections'))
+  assert.equal(await memoryRows(ctx), 0)
 })
-
-for (const target of ['installation', 'agent']) {
-  test(`switching learning off for the ${target} skips queued work at claim and issue without a model call`, { skip: noDatabase }, async t => {
-    const gate = deferred()
-    t.after(() => gate.resolve())
-    const ctx = await setup(t, { hooks: { afterMaintenanceClaim: () => gate.promise } })
-    await ctx.dispatcher.start()
-    const learning = ctx.runtime.learning
-    const setSwitch = enabled => target === 'installation' ? learning.setInstallation(ctx.actor, { enabled }) : learning.setAgent(ctx.actor, ctx.agentId, { enabled })
-    await learning.setInstallation(ctx.actor, { enabled: true })
-    const claimed = await completeTextRun(ctx, 'The Lisbon office opens at nine')
-    await until(async () => (await source(ctx, claimed.runId))?.status, status => status === 'claimed', 'first source claimed')
-    const queued = await completeTextRun(ctx, 'The Porto office opens at ten')
-    assert.equal((await source(ctx, queued.runId)).status, 'ready')
-    await setSwitch(false)
-    assert.deepEqual(await until(() => source(ctx, queued.runId), row => row.status !== 'ready', 'queued source settles'), { status: 'skipped', status_reason: 'learning_disabled' })
-    gate.resolve()
-    assert.deepEqual(await until(() => source(ctx, claimed.runId), row => row.status !== 'claimed', 'claimed source settles'), { status: 'skipped', status_reason: 'learning_disabled' })
-    assert.equal(maintenanceCalls(ctx), 0)
-    assert.equal(await count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.owned_permits'), 0)
-    const service = new MaintenanceService(ctx.db, ctx.actor.installationId)
-    assert.deepEqual(await ctx.db.transaction(client => service.requeueSource(client, ctx.runtime.jobs, queued.runId, 1)), { conflict: 'learning disabled' })
-    // Turning learning back on does not revive skipped work.
-    await setSwitch(true)
-    await new Promise(resolve => setTimeout(resolve, 1000))
-    assert.equal((await source(ctx, queued.runId)).status, 'skipped')
-    assert.equal((await source(ctx, claimed.runId)).status, 'skipped')
-    assert.equal(maintenanceCalls(ctx), 0)
-  })
-}
 
 test('owners read and update the switches and sleep times over HTTP, others are denied, and each change emits one event', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
@@ -216,62 +170,4 @@ test('owners read and update the switches and sleep times over HTTP, others are 
     ['learning-changed', ctx.agentId, 3, { target: 'agent', enabled: true, sleepTime: null }],
     ['learning-changed', ctx.agentId, 4, { target: 'agent', enabled: false, sleepTime: null }],
   ])
-})
-
-test('with learning off, a leftover ready source neither holds back text nor is learned later', { skip: noDatabase }, async t => {
-  const ctx = await setup(t, { executionLimit: 1 })
-  await ctx.dispatcher.start()
-  const earlier = await completeTextRun(ctx, 'The Oslo office opens at eight')
-  // A source left ready while learning was off, as after a lost sweep hint or an upgrade.
-  const service = new MaintenanceService(ctx.db, ctx.actor.installationId)
-  const thread = (await ctx.db.query('SELECT thread_id FROM kipster.text_runs WHERE id=$1', [earlier.runId])).rows[0].thread_id
-  await ctx.db.query('UPDATE kipster.installations SET learning_enabled=true WHERE id=$1', [ctx.actor.installationId])
-  await ctx.db.transaction(client => service.allocateSource(client, ctx.runtime.jobs, earlier.runId, ctx.agentId, 'installation', ctx.actor.installationId, thread, false))
-  await ctx.db.query('UPDATE kipster.installations SET learning_enabled=false WHERE id=$1', [ctx.actor.installationId])
-  await ctx.db.query('UPDATE kipster.execution_permits SET maintenance_counter=100 WHERE installation_id=$1', [ctx.actor.installationId])
-  assert.equal((await source(ctx, earlier.runId)).status, 'ready')
-  const later = await completeTextRun(ctx, 'The Bergen office opens at nine')
-  assert.equal(await sources(ctx, later.runId), 0)
-  await ctx.dispatcher.maintenanceTick()
-  assert.deepEqual(await source(ctx, earlier.runId), { status: 'skipped', status_reason: 'learning_disabled' })
-  await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: true })
-  await new Promise(resolve => setTimeout(resolve, 1000))
-  assert.equal((await source(ctx, earlier.runId)).status, 'skipped')
-  assert.equal(maintenanceCalls(ctx), 0)
-})
-
-test('switching learning off waits for an extraction commit that already passed its gate', { skip: noDatabase }, async t => {
-  const ctx = await setup(t)
-  await ctx.dispatcher.start()
-  await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: true })
-  const fact = 'The Tromso office opens at seven'
-  const saved = await completeTextRun(ctx, fact)
-  const maintenance = await until(() => ctx.executions.find(e => e.context.kind === 'maintenance'), Boolean, 'maintenance execution')
-  const input = (await ctx.db.query('SELECT manifest FROM kipster.maintenance_sources WHERE run_id=$1', [saved.runId])).rows[0].manifest.entries[0]
-  const memories = () => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.memory_records WHERE scope='agent'`)
-  const waiting = like => until(() => count(ctx.db, `SELECT count(*)::int AS n FROM pg_catalog.pg_stat_activity WHERE datname=current_database()
-    AND wait_event_type='Lock' AND query LIKE $1`, [like]), n => n >= 1, `waiting on ${like}`)
-  // Hold the commit after its learning gate: it waits on the embedding profile while holding the capacity lock.
-  const blocker = ctx.holder()
-  const held = deferred()
-  const release = deferred()
-  ctx.releases.push(release)
-  const holding = blocker.transaction(async client => {
-    await client.query('SELECT 1 FROM kipster.memory_profiles FOR UPDATE')
-    held.resolve()
-    await release.promise
-  })
-  await held.promise
-  const attemptId = maintenance.context.attemptId
-  maintenance.handle.release({ kind: 'provider', attemptId, threadId: 'fixture-thread', processId: 4242, providerStateScope: 'shared-codex-home', workingDirectory: '/tmp/fixture', modelId: 'fixture-model' })
-  maintenance.handle.release({ kind: 'text', attemptId, messageId: 'output', text: JSON.stringify({ candidates: [{ kind: 'fact', text: fact, subject: 'office hours', author_id: input.author_id, author_class: input.author_class, citations: [{ message_id: input.message_id, revision: input.revision, parts_hash: input.parts_sha256, excerpt: fact }] }] }), final: true })
-  maintenance.handle.release({ kind: 'ended', attemptId, confirmed: true })
-  await waiting('%FROM kipster.memory_profiles WHERE installation_id=$1 FOR SHARE%')
-  const switched = ctx.runtime.learning.setAgent(ctx.actor, ctx.agentId, { enabled: false }).then(async () => memories())
-  await waiting('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE')
-  release.resolve()
-  await holding
-  assert.equal(await switched, 1, 'the commit linearizes before the switch returns')
-  await until(() => source(ctx, saved.runId), row => row.status === 'committed', 'source committed')
-  assert.equal(await memories(), 1)
 })

@@ -9,7 +9,6 @@ import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } fro
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { compareVersions, UpdatesService, UPDATE_CHECK_INTERVAL_MS, UPDATE_PICKUP_TIMEOUT_MS } from '../dist/modules/updates/public.js'
 import { writeUpdateFile } from '../dist/modules/updates/files.js'
-import { MaintenanceService } from '../dist/modules/memory/public.js'
 import { resolveDirectChat, acceptText } from '../dist/modules/conversations/public.js'
 import { snapshot, readEvents } from '../dist/modules/synchronization/public.js'
 import { updateSettings, updateStatus, textEvent, stableError, updaterRequest, updaterStatusFile } from '../dist/protocol/index.js'
@@ -513,7 +512,7 @@ test('the automatic idle check shares the execution lock, and concurrent schedul
   assert.equal((await ctx.runtime.db.query('SELECT count(*)::int AS n FROM kipster.update_requests')).rows[0].n, 1)
 })
 
-test('automatic updates wait for running work, and the persisted gate blocks text and maintenance until completion', { skip: noDatabase }, async t => {
+test('automatic updates wait for running work, and the persisted gate blocks text until completion', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   const { runtime, actor } = ctx
   const agentId = runtime.bootstrap.rootAgentId, context = { kind: 'installation', installationId: actor.installationId }
@@ -536,12 +535,6 @@ test('automatic updates wait for running work, and the persisted gate blocks tex
   await runtime.updates.tick()
   const request = await ctx.request()
   const second = await say('Wait until after the update')
-  const maintenance = new MaintenanceService(runtime.db, actor.installationId)
-  await runtime.db.transaction(async client => {
-    await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [actor.installationId])
-    assert.equal((await maintenance.claimSource(client, randomUUID(), true)).refused, 'update_in_progress')
-    assert.equal((await maintenance.claimSleepRun(client, randomUUID(), true)).refused, 'update_in_progress')
-  })
   await new Promise(resolve => setTimeout(resolve, 750))
   assert.equal(executions.some(item => item.context.runId === second.runId), false)
   assert.equal((await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [second.runId])).rows[0].state, 'queued')
@@ -563,7 +556,7 @@ for (const completion of ['updater result', 'pickup timeout']) test(`a manual up
   let dispatcher
   const executions = []
   const inner = fixtureAdapter({ now: () => new Date().toISOString(), invokeTool: request => textPublicationHost(dispatcher).invokeTool(request) })
-  dispatcher = new TextDispatcher(runtime, { ...inner, async execute(value) { const handle = await inner.execute(value); executions.push({ context: value, handle }); return handle } }, undefined,
+  dispatcher = new TextDispatcher(runtime, { ...inner, async execute(value) { const handle = await inner.execute(value); executions.push({ context: value, handle }); return handle } },
     { async afterClaim() { claimed(); await preparation } })
   ctx.closers.push(async () => { release(); await dispatcher.close() })
   await dispatcher.start()

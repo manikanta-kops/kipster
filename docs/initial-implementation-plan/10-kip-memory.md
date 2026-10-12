@@ -57,6 +57,18 @@ diary                agent_id, day, summary, thread_ids, embedding vector(768),
 - `core` marks the cards loaded on every turn.
 - `valid_to` empty means still true. A replaced card keeps its row, gets
   `valid_to` and points to its replacement through `replaced_by`.
+- Columns beyond the sketch: every table carries `installation_id`;
+  `thread_chunks` has `started_at` and `ended_at` (the times of its first and
+  last messages, for date-range search); chunks, diary pages and thread state
+  have `updated_at`, and chunks and diary pages `created_at`. `embedding` and
+  `embedding_model` are nullable: rows are saved first and embedded later.
+- Deleting a thread removes its chunks, its thread state and its card sources,
+  deletes every card left with no source and removes the thread from diary
+  pages; a page left with no thread is deleted. Deleting an agent removes its
+  chunks and diary, and deleting an organization removes its cards. Cards of
+  other threads stay; a card replaced by a deleted card keeps its `valid_to`.
+- Vector collections keep the installation's embedding profile in
+  `embedding_profiles` and `embedding_generations`.
 
 Example, after a day with three threads:
 
