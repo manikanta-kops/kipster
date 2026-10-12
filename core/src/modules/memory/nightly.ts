@@ -381,7 +381,15 @@ export class NightlyMemory {
     await this.db.transaction(async client => {
       const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
       if (!owned.rows.length) throw new NightlyDeferred('Another process runs this agent now')
-      await client.query(`UPDATE kipster.cards SET core = (id = ANY($2::uuid[])) WHERE installation_id=$1 AND (core OR id = ANY($2::uuid[]))`, [this.installationId, chosen])
+      // Cards may change while the model ranks them. A chosen card replaced meanwhile passes its place to its current
+      // replacement; ended, deleted and organization cards are never core.
+      await client.query('SELECT 1 FROM kipster.cards WHERE installation_id=$1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [this.installationId, chosen])
+      const current = (await client.query<{ id: string }>(`WITH RECURSIVE chain(id) AS (SELECT id FROM kipster.cards WHERE installation_id=$1 AND id = ANY($2::uuid[])
+          UNION SELECT c.replaced_by FROM chain JOIN kipster.cards c ON c.id=chain.id WHERE c.replaced_by IS NOT NULL)
+        SELECT c.id FROM chain JOIN kipster.cards c ON c.id=chain.id WHERE c.installation_id=$1 AND c.valid_to IS NULL AND c.organization_id IS NULL`,
+      [this.installationId, chosen])).rows.map(row => row.id)
+      await client.query(`UPDATE kipster.cards SET core = (id = ANY($2::uuid[]) AND valid_to IS NULL AND organization_id IS NULL)
+        WHERE installation_id=$1 AND (core OR id = ANY($2::uuid[]))`, [this.installationId, current])
     })
   }
 }

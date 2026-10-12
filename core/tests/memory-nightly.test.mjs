@@ -522,6 +522,52 @@ test('a failed core re-pick is caught up by the retry, though its threads were s
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-14', failure: null, repick: false }])
 })
 
+test('a card replaced or deleted while the model ranks the core cards is never made core again', { skip: noDatabase }, async t => {
+  const pending = []
+  const ctx = await setup(t, {
+    script: context => {
+      const { step, instructions } = context.maintenance
+      if (step === 'core') return new Promise(resolve => pending.push(() => resolve({ core: [[...instructions.matchAll(/^\[(k\d+)\] fact \| user \| Old fact/gm)][0][1]] })))
+      if (step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
+      return quiet(context)
+    },
+  })
+  const source = await ctx.thread([{ author: 'user', text: 'Old fact' }])
+  await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [source, ctx.installationId])
+  const sources = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [source])).map(row => ({ threadId: source, messageId: row.id }))
+  const old = await ctx.cards.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, sources)
+  await ctx.db.query('UPDATE kipster.cards SET core=true')
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 1 })
+  await ctx.thread([{ author: 'user', text: 'A new fact' }])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const dispatcher = ctx.dispatcher()
+  await dispatcher.start()
+  const core = () => ctx.rows('SELECT statement, valid_to IS NOT NULL AS ended FROM kipster.cards WHERE core')
+
+  // Replaced: the ranked card's place goes to its current replacement.
+  let tick = dispatcher.nightlyTick()
+  while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
+  const refined = await ctx.cards.replace(old, { type: 'fact', subject: 'user', statement: 'Refined fact' }, sources)
+  assert.equal((await ctx.cards.get(old)).core, false)
+  pending.shift()()
+  await tick
+  assert.deepEqual(await core(), [{ statement: 'Refined fact', ended: false }])
+  assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-13', failure: null, repick: false }])
+
+  // Deleted: no card takes its place until the next re-pick.
+  await ctx.db.query(`UPDATE kipster.cards SET statement='Old fact' WHERE id=$1`, [refined])
+  await ctx.db.query('UPDATE kipster.memory_nights SET repick=true')
+  ctx.clock.now = at('01:30', '2026-10-14')
+  tick = dispatcher.nightlyTick()
+  while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.equal(await ctx.cards.delete([refined]), 1)
+  pending.shift()()
+  await tick
+  assert.deepEqual(await core(), [])
+  assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-14', failure: null, repick: false }])
+  assert.deepEqual((await ctx.rows('SELECT statement, core FROM kipster.cards WHERE id=$1', [old])), [{ statement: 'Old fact', core: false }])
+})
+
 test('a former owner\'s late answer or failure neither saves nor changes the new owner\'s claim', { skip: noDatabase }, async t => {
   const pending = []
   const ctx = await setup(t, {
