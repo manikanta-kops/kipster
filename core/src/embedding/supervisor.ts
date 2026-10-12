@@ -179,15 +179,19 @@ export class EmbeddingServerSupervisor {
       this.#wake = () => { clearTimeout(timer); this.#wake = undefined; resolve() }
     })
   }
-  async #request(port: number, path: string, timeoutMs = 2000): Promise<{ status: number; body: unknown }> {
-    const response = await fetch(`http://${host}:${port}${path}`, { headers: { authorization: `Bearer ${this.#key}` }, signal: AbortSignal.timeout(timeoutMs) })
+  async #request(port: number, path: string, key = this.#key, timeoutMs = 2000): Promise<{ status: number; body: unknown }> {
+    const response = await fetch(`http://${host}:${port}${path}`, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(timeoutMs) })
     let body: unknown
     try { body = await response.json() } catch { body = undefined }
     return { status: response.status, body }
   }
-  /** True when the server answers with Kipster's key and serves the expected model. */
+  /**
+   * True when the server refuses a wrong key, answers Kipster's key and serves the expected model.
+   * Answering the key alone proves nothing: a server without a key accepts any.
+   */
   async #ours(port: number): Promise<boolean> {
     try {
+      if ((await this.#request(port, '/v1/models', randomBytes(32).toString('hex'))).status !== 401) return false
       const { status, body } = await this.#request(port, '/v1/models')
       const models = (body as { data?: { id?: unknown }[] } | undefined)?.data
       return status === 200 && Array.isArray(models) && models.some(item => item?.id === this.model)

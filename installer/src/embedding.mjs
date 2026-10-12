@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { access, constants, lstat, open, readdir, readlink, rename, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { digest, exists, json, privateDirectory, save, syncDirectory } from './files.mjs'
 import { run } from './process.mjs'
 
@@ -66,17 +66,35 @@ export async function downloadVerified(url, destination, expected, { timeout = 3
   } finally { await rm(temporary, { force: true }) }
 }
 
-async function verifiedTree(root) {
-  for (const entry of await readdir(root, { withFileTypes: true })) {
-    const path = join(root, entry.name)
+const markerName = '.kipster-release.json'
+/**
+ * Every file of an extracted release with its SHA-256 and mode, and every link with its target.
+ * Throws when a link leads outside the release or an entry is neither file, directory nor link.
+ */
+async function releaseFiles(root, directory = root, files = {}) {
+  for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)) {
+    const path = join(directory, entry.name), name = relative(root, path)
+    if (name === markerName) continue
     if (entry.isSymbolicLink()) {
       const target = await readlink(path)
       if (isAbsolute(target) || !resolve(dirname(path), target).startsWith(root + sep)) throw new Error('The llama.cpp archive links outside its directory.')
-    } else if (entry.isDirectory()) await verifiedTree(path)
-    else if (!entry.isFile()) throw new Error('The llama.cpp archive contains an unsupported file type.')
+      files[name] = { link: target }
+    } else if (entry.isDirectory()) await releaseFiles(root, path, files)
+    else if (entry.isFile()) files[name] = { sha256: (await digest(path)).sha256, mode: (await lstat(path)).mode & 0o777 }
+    else throw new Error('The llama.cpp archive contains an unsupported file type.')
   }
+  return files
 }
-/** Extracts the release directory with the server and its shared libraries, then moves it into place. */
+/** True when the release for this asset is installed and every file, mode and link is as extracted. */
+async function intactRelease(directory, asset) {
+  try {
+    const marker = await json(join(directory, markerName))
+    if (marker.sha256 !== asset.sha256 || !marker.files?.['llama-server']) return false
+    await access(join(directory, 'llama-server'), constants.X_OK)
+    return JSON.stringify(await releaseFiles(directory)) === JSON.stringify(marker.files)
+  } catch { return false }
+}
+/** Extracts the release directory with the server and its shared libraries, moves it into place and returns its files. */
 async function extract(archive, destination, top) {
   const entries = (await run('tar', ['-tzf', archive], { label: 'List llama.cpp archive' })).split('\n').filter(Boolean)
   if (!entries.length || entries.some(name => isAbsolute(name) || name.split('/').includes('..') || !(name === top + '/' || name.startsWith(top + '/')))) throw new Error('The llama.cpp archive has an unexpected layout.')
@@ -85,19 +103,21 @@ async function extract(archive, destination, top) {
   try {
     await run('tar', ['-xzf', archive, '-C', staging, '--no-same-owner'], { label: 'Extract llama.cpp archive', timeout: 300000 })
     const extracted = join(staging, top)
-    await verifiedTree(extracted)
+    const files = await releaseFiles(extracted)
     const binary = await lstat(join(extracted, 'llama-server'))
     if (!binary.isFile()) throw new Error('The llama.cpp archive has no llama-server.')
     await access(join(extracted, 'llama-server'), constants.X_OK)
     await rm(destination, { recursive: true, force: true })
     await rename(extracted, destination)
     await syncDirectory(dirname(destination))
+    return files
   } finally { await rm(staging, { recursive: true, force: true }) }
 }
 
 /**
  * Installs the pinned llama-server build for this platform and the model under <home>/embedding,
- * skipping what is already present and verified. Returns the host.json server entry, or why
+ * skipping what is already present and verified. A release whose files, modes or links changed
+ * since extraction is downloaded and extracted again. Returns the host.json server entry, or why
  * memory search is unavailable on this platform.
  */
 export async function installEmbeddingRuntime(home, { manifest = embeddingRuntime, platform = process.platform, arch = process.arch } = {}) {
@@ -105,14 +125,13 @@ export async function installEmbeddingRuntime(home, { manifest = embeddingRuntim
   if (!asset) return { available: false, reason: `llama.cpp publishes no ${platform}-${arch} build for Kipster's pinned release, so memory search is unavailable on this platform. Memory keeps working without search.` }
   const root = join(home, 'embedding')
   for (const path of [root, join(root, 'llama.cpp'), join(root, 'models')]) await privateDirectory(path)
-  const directory = join(root, 'llama.cpp', manifest.server.build), marker = join(directory, '.kipster-release.json')
-  const installed = await exists(marker) && (await json(marker)).sha256 === asset.sha256 && await exists(join(directory, 'llama-server'))
-  if (!installed) {
+  const directory = join(root, 'llama.cpp', manifest.server.build)
+  if (!await intactRelease(directory, asset)) {
     const archive = join(root, 'llama.cpp', asset.name)
     try {
       await downloadVerified(asset.url, archive, asset)
-      await extract(archive, directory, manifest.server.directory)
-      await save(marker, { name: asset.name, sha256: asset.sha256 })
+      const files = await extract(archive, directory, manifest.server.directory)
+      await save(join(directory, markerName), { name: asset.name, sha256: asset.sha256, files })
     } finally { await rm(archive, { force: true }) }
   }
   const model = join(root, 'models', manifest.model.file)
@@ -124,7 +143,7 @@ export async function installEmbeddingRuntime(home, { manifest = embeddingRuntim
 export async function installedEmbeddingRuntime(home, { manifest = embeddingRuntime, platform = process.platform, arch = process.arch } = {}) {
   const asset = serverAsset(manifest, platform, arch)
   if (!asset) return null
-  const directory = join(home, 'embedding/llama.cpp', manifest.server.build), marker = join(directory, '.kipster-release.json'), model = join(home, 'embedding/models', manifest.model.file)
+  const directory = join(home, 'embedding/llama.cpp', manifest.server.build), marker = join(directory, markerName), model = join(home, 'embedding/models', manifest.model.file)
   if (!await exists(marker) || (await json(marker)).sha256 !== asset.sha256 || !await exists(join(directory, 'llama-server')) || !await exists(model) || (await lstat(model)).size !== manifest.model.size) return null
   // Core verifies the model's SHA-256 before it starts the server.
   return { binary: join(directory, 'llama-server'), model, modelSha256: manifest.model.sha256, modelName: manifest.model.name, port: manifest.port }

@@ -83,8 +83,8 @@ The installer downloads both into `<home>/embedding` and writes:
 The binary and model must be inside the home; Core never starts or uses a
 llama.cpp or Ollama installed elsewhere. When the host runs, Core checks the
 model's SHA-256 and starts the server on 127.0.0.1 in embedding mode with an
-8,192-token context, with no inherited environment. A server that answers on the
-port recorded in `<home>/embedding/server.json` with the key in
+8,192-token context, with no inherited environment. A server on the port recorded
+in `<home>/embedding/server.json` that refuses a wrong key, accepts the key in
 `<home>/embedding/api-key` and serves the model is reused and left running when
 Core stops. Anything else on that port makes Core pick and record a free port. A
 crashed server restarts with backoff (1 s, doubling to 60 s, up to 8 attempts);

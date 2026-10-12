@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { createServer } from 'node:http'
-import { mkdir, readFile, readdir, readlink, stat, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, readlink, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { downloadVerified, embeddingRuntime, installEmbeddingRuntime, serverAsset, withEmbedding } from '../src/embedding.mjs'
 import { install } from '../src/installer.mjs'
@@ -77,6 +77,34 @@ test('installs the platform build with its libraries and the model, then reuses 
   await installEmbeddingRuntime(home, { manifest, platform: 'linux', arch: 'x64' })
   assert.deepEqual(requests.slice(2), ['/model.gguf'], 'a changed model is downloaded again')
   assert.equal(await readFile(installed.server.model, 'utf8'), 'tiny fake model')
+})
+
+test('a release whose server, libraries, modes or links changed is downloaded and extracted again', async t => {
+  const home = await directory(t), { manifest, requests } = await fixture(t)
+  const options = { manifest, platform: 'darwin', arch: 'arm64' }
+  const installed = await installEmbeddingRuntime(home, options), release = join(home, 'embedding/llama.cpp/b0')
+  const downloads = () => requests.filter(url => url === '/server.tar.gz').length
+  const changes = [
+    ['a changed server', () => writeFile(installed.server.binary, '#!/bin/sh\necho corrupted\n')],
+    ['a changed shared library', () => writeFile(join(release, 'libllama.0.1.dylib'), 'corrupted library')],
+    ['a server that is no longer executable', () => chmod(installed.server.binary, 0o600)],
+    ['a removed shared library', () => rm(join(release, 'libllama.0.1.dylib'))],
+    ['a retargeted link', async () => { await rm(join(release, 'libllama.0.dylib')); await writeFile(join(release, 'other.dylib'), 'x'); await symlink('other.dylib', join(release, 'libllama.0.dylib')) }],
+    ['an added file', () => writeFile(join(release, 'libextra.dylib'), 'extra')],
+    ['a marker without its file list', async () => { const marker = await json(join(release, '.kipster-release.json')); delete marker.files; await writeFile(join(release, '.kipster-release.json'), JSON.stringify(marker)) }],
+  ]
+  for (const [index, [label, change]] of changes.entries()) {
+    await change()
+    assert.deepEqual(await installEmbeddingRuntime(home, options), installed, label)
+    assert.equal(downloads(), index + 2, `${label} is downloaded again`)
+    assert.equal(await run(installed.server.binary, []), 'fake llama-server', `${label} is repaired`)
+    assert.equal((await stat(installed.server.binary)).mode & 0o777, 0o755)
+    assert.equal(await readFile(join(release, 'libllama.0.1.dylib'), 'utf8'), 'shared library')
+    assert.equal(await readlink(join(release, 'libllama.0.dylib')), 'libllama.0.1.dylib')
+    assert.deepEqual((await readdir(release)).sort(), ['.kipster-release.json', 'libllama.0.1.dylib', 'libllama.0.dylib', 'llama-server'])
+  }
+  await installEmbeddingRuntime(home, options)
+  assert.equal(downloads(), changes.length + 1, 'an intact release is reused')
 })
 
 test('rejects a checksum mismatch and leaves nothing behind', async t => {

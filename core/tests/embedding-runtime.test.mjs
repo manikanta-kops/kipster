@@ -99,7 +99,7 @@ test('picks and records another port when a foreign program holds the recorded o
   assert.deepEqual(supervisor.status(), { state: 'ready', port, reused: false })
   assert.equal(JSON.parse(await readFile(supervisor.stateFile, 'utf8')).port, port)
   assert.deepEqual((await launches()).map(launch => launch.port), [port])
-  assert.deepEqual(seen, [['GET', '/health'], ['GET', '/v1/models']], 'the foreign server is only probed')
+  assert.deepEqual(seen, [['GET', '/health'], ['GET', '/v1/models'], ['GET', '/v1/models']], 'the foreign server is only probed, with a wrong key and with Kipster\'s')
   await supervisor.close()
   assert.equal(await accepting(port), false)
   assert.equal(await accepting(config.port), true, 'the foreign server is untouched')
@@ -111,6 +111,29 @@ test('picks and records another port when a foreign program holds the recorded o
   const { supervisor: again } = supervise(t, home, config)
   await again.start()
   assert.notEqual(Number(new URL(await again.whenReady()).port), port)
+})
+
+test('a server without a key that serves the same model is foreign and never receives embeddings', async t => {
+  const { home, config, launches } = await installed(t)
+  const seen = []
+  // Any key is accepted, so answering Kipster's key does not make it Kipster's server.
+  const keyless = createServer((request, response) => {
+    seen.push([request.method, request.url])
+    response.writeHead(200, { 'content-type': 'application/json' })
+    response.end(JSON.stringify(request.url === '/v1/models' ? { object: 'list', data: [{ id: model, object: 'model' }] } : { status: 'ok' }))
+  })
+  await new Promise(resolve => keyless.listen(config.port, '127.0.0.1', resolve))
+  t.after(() => { keyless.closeAllConnections(); return new Promise(resolve => keyless.close(resolve)) })
+  const { supervisor } = supervise(t, home, config)
+  const create = options => ({ id: 'llama-cpp', model: options.model, contractMajor: 1, async embed(text) { const response = await fetch(`${options.endpoint}/v1/embeddings`, { method: 'POST', headers: { authorization: `Bearer ${options.apiKey}` }, body: JSON.stringify({ input: text }) }); return (await response.json()).data[0].embedding } })
+  const provider = supervisedEmbeddingProvider(supervisor, create, {}, config.port)
+  await supervisor.start()
+  assert.equal((await provider.embed('query', new AbortController().signal)).length, 768)
+  const port = supervisor.status().port
+  assert.notEqual(port, config.port)
+  assert.deepEqual(supervisor.status(), { state: 'ready', port, reused: false })
+  assert.deepEqual((await launches()).map(launch => launch.port), [port])
+  assert.deepEqual(seen, [['GET', '/health'], ['GET', '/v1/models']], 'the keyless server is only probed with a wrong key')
 })
 
 test('restarts a crashed server with exponential backoff and reports each attempt', async t => {
