@@ -60,8 +60,8 @@ older cursors require a snapshot. Canonical messages and work are not pruned.
 | Import | Contents |
 | --- | --- |
 | `@kipster/core/protocol` | JSON value types and runtime text submission, receipt, read, snapshot, directory and event parsers. |
-| `@kipster/core/client` | JSON types and `defineClientOptions` for HTTP(S) URL configuration. |
-| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions of the execution, opt-in maintenance context for the steps of Kip memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
+| `@kipster/core/client` | JSON types, `defineClientOptions` for HTTP(S) URL configuration and `createClient(options, fetch?)`, which reads bootstrap and calls the plugin routes. |
+| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions and extra MCP servers (`mcpServers`) of the execution, opt-in maintenance context for the steps of Kip memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
 | `@kipster/core/transcription` | Replaceable provider contract for derived audio text; no provider is selected by importing it. |
 | `@kipster/core/runtime` | Node-only `openRuntime`, `AdapterRegistry`, `TextDispatcher`, `textPublicationHost` and `startTextServer`. All startup is explicit. |
 
@@ -459,6 +459,24 @@ The memory tools (`memoryTool`) are offered only while the agent has memory on, 
 - `memory_forget(cardId | query)`: deletes visible cards, current or ended, with their sources and embeddings; messages stay. A query matches statement or subject case-insensitively and deletes at most 20 cards; with more matches it deletes none and returns the candidates.
 
 A kip's tools see installation cards plus the current organization's, and its own threads in installation and current-organization chats; a delegated thread belongs to the kip whose chat holds it. Kip, the root administration agent, sees every card and every kip's threads through its tools, and only Kip may pass `agent` to read one kip; from any other kip it is refused.
+
+## Plugins
+
+Core relays the person's [Kipster Plugins](https://github.com/manikanta-kops/kipster-plugins) server, its control API v1, to interfaces. Bootstrap advertises `capabilities.plugins`; a Core without the flag reads as `false` (`bootstrap` in `@kipster/core/protocol`). While plugins are off, every route below answers `503 plugins-unavailable`. Responses are the plugin server's JSON with `version: 1` added and may gain fields; errors keep the plugin server's `code`, such as `unknown-plugin` or `invalid-label`. Requests take an optional `version: 1`. Paths are in `pluginPaths`, codes in `pluginErrorCodes`.
+
+| Route | Shapes |
+| --- | --- |
+| `GET /v1/plugins` | `pluginList` |
+| `GET /v1/plugins/{id}` | `pluginResult`: the summary with its accounts |
+| `POST /v1/plugins/{id}/sign-in` | `pluginSignInRequest` `{ address?, returnAddress? }` → `pluginSignInStart` |
+| `GET /v1/plugins/sign-ins/{id}` | `pluginSignInStatus`: `pending`, `completed` with the account or `failed` with a `code` |
+| `GET /v1/plugins/accounts[?plugin=]` | `pluginAccountList` |
+| `PATCH /v1/plugins/accounts/{id}` | `pluginAccountRename` `{ label }` → `pluginAccountResult` |
+| `PUT /v1/plugins/{id}/default-account` | `pluginDefaultAccountWrite` `{ account }` → `pluginDefaultAccount` |
+| `DELETE /v1/plugins/{id}/default-account` | `pluginDefaultAccount` |
+| `DELETE /v1/plugins/accounts/{id}` | `pluginAccountRemoval` |
+
+`GET /plugins/callback` needs no Kipster session: it is the sign-in return address for a browser that reaches Core rather than the plugin server, and forwards its query unchanged to the plugin server's `/callback`. Core refuses a `returnAddress` other than that route on its own origin with `return-address-refused`. The plugin server's `loopback-only`, `invalid-return-address` and `needs-client-metadata-document` explain why it refused a return address or sign-in method.
 
 ## Boundaries
 

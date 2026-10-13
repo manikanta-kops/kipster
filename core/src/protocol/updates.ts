@@ -1,20 +1,9 @@
-import { array, boolean, boundedInteger, boundedString, integer, literal, nonempty, nullable, object, optional, record, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
+import { array, boolean, boundedInteger, boundedString, fallback, integer, literal, nonempty, nullable, object, optional, preserve, string, union, utcTimestamp, type Infer } from './schema.js'
 
 export const updateChannel = union(literal('stable'), literal('next'))
 export const updateMode = union(literal('automatic'), literal('notify'))
 export type UpdateChannel = Infer<typeof updateChannel>
 export type UpdateMode = Infer<typeof updateMode>
-
-/** Response readers retain an unknown value as a neutral fallback, never as permission to act. */
-function fallback<const T extends readonly string[]>(...values: T): Schema<T[number] | 'unknown'> {
-  return { describe: () => union(...values.map(literal), string()).describe(), parse(value, path = '$') {
-    const parsed = string().parse(value, path)
-    return values.includes(parsed) ? parsed as T[number] : 'unknown'
-  } }
-}
-function preserve<T extends object>(schema: Schema<T>): Schema<T & Record<string, unknown>> {
-  return { describe: () => schema.describe(), parse: (value, path) => ({ ...record().parse(value, path), ...schema.parse(value, path) }) }
-}
 
 export const channelFileAsset = preserve(object({ name: nonempty(), url: nonempty(), size: integer(), sha256: nonempty() }, false))
 /** Channel entries, including additive metadata, pass through to clients unchanged. */

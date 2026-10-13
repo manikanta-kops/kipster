@@ -57,3 +57,15 @@ export function object<const S extends Shape>(shape: S, exact = true): Schema<Fr
 export function union<const S extends readonly Schema<unknown>[]>(...choices: S): Schema<Infer<S[number]>> {
   return { describe: () => ({ type: 'union', of: choices.map(choice => choice.describe()) }), parse(v, p = '$') { for (const choice of choices) { try { return choice.parse(v, p) as Infer<S[number]> } catch (error) { if (!(error instanceof TypeError)) throw error } } return invalid(p) } }
 }
+
+/** Response readers retain an unknown value as a neutral fallback, never as permission to act. */
+export function fallback<const T extends readonly string[]>(...values: T): Schema<T[number] | 'unknown'> {
+  return { describe: () => union(...values.map(literal), string()).describe(), parse(value, path = '$') {
+    const parsed = string().parse(value, path)
+    return values.includes(parsed) ? parsed as T[number] : 'unknown'
+  } }
+}
+/** Keeps an open object's fields that the schema does not name, for responses passed through unchanged. */
+export function preserve<T extends object>(schema: Schema<T>): Schema<T & Record<string, unknown>> {
+  return { describe: () => schema.describe(), parse: (value, path) => ({ ...record().parse(value, path), ...schema.parse(value, path) }) }
+}

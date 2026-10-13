@@ -173,6 +173,20 @@ export const textEvent = union(
 )
 export type TextEvent = Infer<typeof textEvent>
 
+/** Features this Core offers. Flags newer than `voiceRecording` are absent from a Core that predates them; `plugins` then reads as false. */
+const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memoryCards: optional(boolean()),
+  /** Kipster Plugins are ready: the `/v1/plugins` routes answer instead of returning 503 `plugins-unavailable`. */
+  plugins: optional(boolean()) }, false)
+export const bootstrapCapabilities: Schema<Omit<Infer<typeof bootstrapFlags>, 'plugins'> & { plugins: boolean }> = { describe: () => bootstrapFlags.describe(), parse(value, path = '$') {
+  const parsed = bootstrapFlags.parse(value, path)
+  return { ...parsed, plugins: parsed.plugins ?? false }
+} }
+export type BootstrapCapabilities = Infer<typeof bootstrapCapabilities>
+/** `GET /v1/bootstrap`: who the caller is, the protocol numbers this Core serves and its capabilities. */
+export const bootstrap = object({ version: literal(1), coreVersion: nonempty(), protocol: object({ current: boundedInteger(1, 1000000), oldest: boundedInteger(1, 1000000) }, false),
+  installationId: id, callerId: id, organizationId: id, rootAgentId: id, capabilities: bootstrapCapabilities }, false)
+export type Bootstrap = Infer<typeof bootstrap>
+
 /** Validation alone is insufficient: caller and context authorization precede receipt lookup. */
 export function receiptKey(scope: CallerScope, submissionId: string): string {
   return JSON.stringify([scope.installationId, scope.callerId, submissionId])

@@ -31,6 +31,15 @@ export interface ToolDefinition {
  */
 export type PermissionMode = 'supervised' | 'acceptEdits' | 'auto' | 'fullAccess'
 
+/** An MCP server an execution may use besides Kipster's own tools. Send `bearerToken` as `Authorization: Bearer`. */
+export interface ExecutionMcpServer {
+  /** Unique within the execution; suits provider server names (lowercase letters, digits and hyphens). */
+  readonly name: string
+  /** Streamable HTTP endpoint. */
+  readonly url: string
+  readonly bearerToken: string
+}
+
 /** Provisional normalized text execution; provider session restoration is unspecified. */
 export interface TextExecutionContext {
   /** Missing kind is a text context; adapters must throw on unknown kinds. */
@@ -67,6 +76,12 @@ export interface TextExecutionContext {
   readonly memory?: readonly string[]
   /** Kipster tools this execution may call. `instructions` already explain how to use them. */
   readonly tools?: readonly ToolDefinition[]
+  /**
+   * Extra MCP servers for this execution, such as the person's connected plugins. Add them next to Kipster's own
+   * tools for this execution only; keep the token out of logs and provider-visible text. Present only for
+   * conversation executions; an adapter that ignores it still works without them.
+   */
+  readonly mcpServers?: readonly ExecutionMcpServer[]
   /** Saved operation results from earlier attempts of this logical run; factual, untrusted context. */
   readonly administrationReceipts?: { readonly receipts: readonly unknown[]; readonly hasMore: boolean }
   readonly settings?: { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
@@ -126,6 +141,7 @@ export interface MaintenanceExecutionContext {
   readonly prompt?: never
   readonly memory?: never
   readonly tools?: never
+  readonly mcpServers?: never
   readonly triggerMessageId?: never
   readonly interactions?: never
   readonly continuation?: never
