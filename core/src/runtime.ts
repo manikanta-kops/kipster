@@ -11,11 +11,11 @@ import { EmbeddingProfile, VectorService } from './modules/vectors/public.js'
 import { UpdatesService } from './modules/updates/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import type { TranscriptionProvider } from './transcription/index.js'
-import type { PluginServerEndpoint } from './plugins/supervisor.js'
+import type { PluginServerControl, PluginServerEndpoint } from './plugins/supervisor.js'
 export { startTextServer, type TextServer } from './transport/http/text.js'
 export { TextDispatcher, textPublicationHost, type DispatchHooks } from './workflows/text-dispatch.js'
 export type { TranscriptionProvider, TranscriptionResult } from './transcription/index.js'
-export type { PluginServerEndpoint } from './plugins/supervisor.js'
+export type { PluginServerControl, PluginServerEndpoint } from './plugins/supervisor.js'
 export { AdapterRegistry } from './workflows/adapter-registry.js'
 
 export async function loadMigrations(): Promise<{ version: string; sql: string }[]> {
@@ -46,6 +46,7 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/memory/migrations/024_kip_memory.sql',
     './modules/memory/migrations/025_memory_nightly.sql',
     './modules/memory/migrations/026_diary_context.sql',
+    './modules/administration/migrations/027_plugins_update_approvals.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }
@@ -80,7 +81,9 @@ export async function openRuntime(config: { connectionString: string; taskDataCo
     }
     const clock = config.clock ?? (() => new Date())
     const coreVersion = config.updates?.coreVersion ?? (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
-    updates = new UpdatesService(db, ids.installationId, home.root, coreVersion, { ...config.updates, clock, onError: observe })
+    // A supervisor the runtime can restart also gets plugins releases installed; a bare endpoint is only used.
+    const control = config.plugins && 'restart' in config.plugins && 'settled' in config.plugins ? config.plugins as PluginServerControl : undefined
+    updates = new UpdatesService(db, ids.installationId, home.root, coreVersion, { ...config.updates, clock, onError: observe, ...(control ? { plugins: control } : {}) })
     await updates.initialize()
     const updateService = updates
     await jobs.start()

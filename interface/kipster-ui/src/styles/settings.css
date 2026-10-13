@@ -372,7 +372,8 @@
   color: var(--link);
   font-weight: 550;
 }
-.set-text > small.bad {
+.set-text > small.bad,
+.set-text > small > .set-line.bad {
   color: color-mix(in oklab, var(--danger) 80%, var(--label));
 }
 .set-line {

@@ -72,7 +72,10 @@ Reconnects and reloads restore saved state without dispatching work.
   first, after confirming that running kip work stops, then offers **Restart to
   update** for the app. Signed desktop apps check at launch and every 12 hours,
   download in the background, and install on restart or automatic quit.
-  Unmanaged backends show instructions to update on their host. Builds whose
+  Unmanaged backends show instructions to update on their host. When Core
+  runs a plugin server, a **Kipster Plugins** row shows its version and an
+  **Install** button for a newer release, which restarts only the plugin
+  server; automatic mode installs it right away. Builds whose
   version contains `-next.` add a Testing section: channel, app and backend
   version pins, backup restores and update status. Demo, development and
   unsigned builds never check for app updates.

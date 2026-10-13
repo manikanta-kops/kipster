@@ -77,11 +77,29 @@ export async function requestPermissionsApproval(db: Postgres, caller: AgentCall
   return { status: card.state, interactionId: card.id, operationId }
 }
 
-/** The approved install of an answered card that has not started yet, with the operation ID that makes starting it idempotent. */
-export async function approvedInstall(db: Postgres, actor: TrustedActor, interactionId: string): Promise<{ operationId: string; install: InstallRequest } | null> {
-  const row = (await db.query<{ options: InstallRequest; operation_id: string }>(`SELECT a.options, a.operation_id FROM kipster.admin_approvals a JOIN kipster.interactions i ON i.id=a.interaction_id
-    WHERE a.interaction_id=$1 AND a.installation_id=$2 AND a.action='update.install' AND a.result IS NULL AND i.state='settled' AND i.answer->>'kind'='approve'`, [interactionId, actor.installationId])).rows[0]
-  return row ? { operationId: row.operation_id, install: row.options } : null
+/**
+ * Asks the owner to approve installing a Kipster Plugins release. `currentVersion` is the running plugins version.
+ * Installing restarts only the plugin server; the install starts after the answer commits.
+ */
+export async function requestPluginsInstallApproval(db: Postgres, caller: AgentCaller, callId: string, target: string, currentVersion: string | null): Promise<unknown> {
+  const operationId = `${caller.attemptId}:${callId}`
+  const card = await askInteraction(db, caller.attemptId, callId, {
+    kind: 'approval', prompt: `Install Kipster Plugins ${target}?`,
+    proposalId: randomUUID(),
+    proposal: `Kipster Plugins: ${currentVersion ?? 'unknown'} → ${target}\nOnly the plugin server restarts; kips cannot use plugins for a moment. Kipster and running work keep going.`,
+  }, async (client, interactionId) => {
+    await authorizeAdministration(client, caller, true)
+    await client.query(`INSERT INTO kipster.admin_approvals(interaction_id,installation_id,action,target_id,target_name,options,operation_id)
+      VALUES ($1,$2,'update.plugins-install',$2,$3,$4::jsonb,$5)`, [interactionId, caller.installationId, `Kipster Plugins ${target}`, JSON.stringify({ target }), operationId])
+  })
+  return { status: card.state, interactionId: card.id, operationId }
+}
+
+/** The approved Core or plugins install of an answered card that has not started yet, with the operation ID that makes starting it idempotent. */
+export async function approvedInstall(db: Postgres, actor: TrustedActor, interactionId: string): Promise<{ operationId: string; install: InstallRequest; plugins: boolean } | null> {
+  const row = (await db.query<{ options: InstallRequest; operation_id: string; action: string }>(`SELECT a.options, a.operation_id, a.action FROM kipster.admin_approvals a JOIN kipster.interactions i ON i.id=a.interaction_id
+    WHERE a.interaction_id=$1 AND a.installation_id=$2 AND a.action IN ('update.install','update.plugins-install') AND a.result IS NULL AND i.state='settled' AND i.answer->>'kind'='approve'`, [interactionId, actor.installationId])).rows[0]
+  return row ? { operationId: row.operation_id, install: row.options, plugins: row.action === 'update.plugins-install' } : null
 }
 
 /** Records how the approved install request ended: the update status, or why Core refused it. */
@@ -91,10 +109,10 @@ export async function recordInstall(db: Postgres, interactionId: string, result:
 
 /** The human answer and the bound lifecycle transition commit together, including the cleanup job. */
 export async function applyAdminApproval(client: SqlClient, jobs: Jobs, actor: TrustedActor, card: InteractionRecord): Promise<void> {
-  const binding = (await client.query<{ action: Action | 'update.install' | 'permissions.set'; target_id: string; options: { copyFilesToOrganizations: boolean; mode?: PermissionMode }; operation_id: string; result: unknown }>(
+  const binding = (await client.query<{ action: Action | 'update.install' | 'update.plugins-install' | 'permissions.set'; target_id: string; options: { copyFilesToOrganizations: boolean; mode?: PermissionMode }; operation_id: string; result: unknown }>(
     'SELECT * FROM kipster.admin_approvals WHERE interaction_id=$1 AND installation_id=$2 FOR UPDATE', [card.id, actor.installationId])).rows[0]
   // An install starts after the answer commits; see `approvedInstall`.
-  if (!binding || binding.result || binding.action === 'update.install') return
+  if (!binding || binding.result || binding.action === 'update.install' || binding.action === 'update.plugins-install') return
   if (binding.action === 'permissions.set') {
     const saved = await savePermissions(client, actor, binding.options.mode!)
     await client.query('UPDATE kipster.admin_approvals SET result=$2::jsonb WHERE interaction_id=$1', [card.id, JSON.stringify({ operationId: binding.operation_id, ...saved })])

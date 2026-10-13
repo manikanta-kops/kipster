@@ -1,4 +1,4 @@
-import { requestAdminApproval, requestInstallApproval, requestPermissionsApproval } from './admin-approvals.js'
+import { requestAdminApproval, requestInstallApproval, requestPermissionsApproval, requestPluginsInstallApproval } from './admin-approvals.js'
 import type { Postgres } from '../platform/postgres/public.js'
 import type { Jobs } from '../platform/jobs/public.js'
 import { MAX_IDENTITY_BYTES, MAX_ORGANIZATION_INSTRUCTIONS_BYTES, type Home, type IdentityFileName } from '../platform/home/public.js'
@@ -9,7 +9,7 @@ import type { LearningService } from '../modules/memory/public.js'
 import type { UpdatesService } from '../modules/updates/public.js'
 import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
-import { updateChannel, updateInstall, updateMode } from '../protocol/updates.js'
+import { updateChannel, updateInstall, updateMode, updatePluginsInstall } from '../protocol/updates.js'
 import { memoryCardUpdate } from '../protocol/memory.js'
 import { pluginAccountRename } from '../protocol/plugins.js'
 import { PluginControlClient, PluginRouteError } from '../plugins/client.js'
@@ -44,7 +44,7 @@ const areas = {
   learning: 'Memory: on or off and the nightly sleep time, for the installation and each kip; the nightly model; how many core cards every turn loads and how many cards and thread chunks a turn\'s search adds.',
   memory: 'Memory cards: the facts about the person every kip shares, learned each night from what the person said. Read, edit or delete them; messages stay.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
-  updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
+  updates: 'Software updates of Kipster Core and Kipster Plugins: channel, automatic or notify mode, checks, installs and pins.',
   plugins: 'Kipster Plugins: the services kips can use, signing in to them, and the signed-in accounts with their names and the default account of each plugin.',
   operations: 'The state and result of an earlier change, by its operationId.',
 } as const
@@ -361,12 +361,12 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'updates.get': operation({
     area: 'updates', kind: 'read', input: none,
-    description: 'Read the update channel and mode, the running and available Core versions, any pin, the install state and the kept backups.',
+    description: 'Read the update channel and mode, the running and available Core versions, any pin, the install state and the kept backups. With a plugin server, plugins has the running and available Kipster Plugins versions and their install state.',
     run: ({ host, caller }) => host.updates.get(caller),
   }),
   'updates.settings_set': operation({
     area: 'updates', kind: 'write', receipt: true, input: fields({ channel: optional(updateChannel), mode: optional(updateMode) }),
-    description: 'Change the update channel (stable, or next for early builds) or mode (automatic installs at night, notify only tells). Omitted values are unchanged.',
+    description: 'Change the update channel (stable, or next for early builds) or mode (automatic installs Core at night and Kipster Plugins right away, notify only tells). Omitted values are unchanged.',
     async run({ host, caller, operationId, args }) {
       const current = await host.updates.settings(caller)
       const channel = args.channel ?? current.channel, mode = args.mode ?? current.mode
@@ -375,7 +375,7 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'updates.check': operation({
     area: 'updates', kind: 'write', input: none,
-    description: 'Check the update channel for a newer Core now and return the update status.',
+    description: 'Check the update channel for a newer Core and Kipster Plugins now and return the update status.',
     run: ({ host, caller }) => host.updates.check(caller),
   }),
   'updates.install': operation({
@@ -384,6 +384,14 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     run({ host, caller, callId, args }) {
       host.updates.checkInstall(args)
       return requestInstallApproval(host.db, caller, callId, args, host.updates.coreVersion)
+    },
+  }),
+  'updates.plugins_install': operation({
+    area: 'updates', kind: 'approval', input: fields({}, updatePluginsInstall),
+    description: 'Ask the owner to approve installing the Kipster Plugins version that updates.get shows in plugins.available. Only the plugin server restarts; Kipster and running work keep going.',
+    run({ host, caller, callId, args }) {
+      host.updates.checkPluginsInstall(args)
+      return requestPluginsInstallApproval(host.db, caller, callId, args.target, host.updates.pluginsVersion)
     },
   }),
   'updates.unpin': operation({

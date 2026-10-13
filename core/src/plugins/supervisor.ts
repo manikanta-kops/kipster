@@ -1,8 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { access, chmod, constants, mkdir, open, readFile, rename, writeFile } from 'node:fs/promises'
+import { access, chmod, constants, mkdir, open, readFile, realpath, rename, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { compareVersions } from '../platform/semver/public.js'
 
 export type PluginServerStatus =
   | { state: 'configured' }
@@ -14,6 +15,28 @@ export type PluginServerStatus =
 /** How later Core work reaches the plugin server: an endpoint only while it is ready. */
 export interface PluginServerEndpoint {
   endpoint(): { url: string; token: string } | undefined
+}
+/** What Core's update check needs to install a plugins release and restart only the plugin server. */
+export interface PluginServerControl extends PluginServerEndpoint {
+  /** Core's files for the server, `<home>/plugins-host`; Core installs plugins releases under `versions/` with `current` naming one. */
+  readonly directory: string
+  /** The `@kipster/plugins` version of the module the server runs, or null when its package cannot be read. */
+  readonly packageVersion: string | null
+  restart(module?: string): Promise<void>
+  /** The next status that ends a start: ready, restarting after a failed launch, failed or stopped. */
+  settled(): Promise<PluginServerStatus>
+}
+export const pluginsPackageName = '@kipster/plugins'
+/** The server module inside an installation directory of the `@kipster/plugins` package. */
+export const pluginServerModule = (installation: string) => join(installation, 'node_modules', pluginsPackageName, 'dist/server/cli.js')
+/** The `@kipster/plugins` version of a `dist/server/cli.js` module, or null when it has no readable package. */
+export async function pluginModuleVersion(module: string): Promise<string | null> {
+  try {
+    const manifest = JSON.parse(await readFile(resolve(module, '../../../package.json'), 'utf8')) as { name?: unknown; version?: unknown }
+    if (manifest.name !== pluginsPackageName || typeof manifest.version !== 'string') return null
+    compareVersions(manifest.version, manifest.version)
+    return manifest.version
+  } catch { return null }
 }
 export interface PluginServerOptions {
   home: string
@@ -56,12 +79,16 @@ async function freePort(): Promise<number> {
 class Incompatible extends Error {}
 
 /**
- * Runs the `@kipster/plugins` server named by host.json. It listens on loopback with a bearer
- * token Core keeps in `<home>/plugins-host`; plugins are off whenever it is not ready.
+ * Runs the `@kipster/plugins` server named by host.json, or the newer release Core installed in
+ * `<home>/plugins-host/current`. It listens on loopback with a bearer token Core keeps in
+ * `<home>/plugins-host`; plugins are off whenever it is not ready.
  */
-export class PluginServerSupervisor implements PluginServerEndpoint {
+export class PluginServerSupervisor implements PluginServerControl {
   #status: PluginServerStatus = { state: 'configured' }
+  #configured: string
   #module: string
+  #version: string | null = null
+  readonly #watchers = new Set<(status: PluginServerStatus) => void>()
   #child: ChildProcess | undefined
   #closing = false
   #stopping = false
@@ -76,11 +103,14 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
   constructor(options: PluginServerOptions) {
     this.#options = { backoff: { initialMs: 1000, maxMs: 60000, attempts: 8 }, readyTimeoutMs: 30000, stableMs: 60000, reservedPorts: [], ...options }
     this.#reserved = new Set(this.#options.reservedPorts)
-    this.#module = options.module
+    this.#configured = this.#module = options.module
     this.#directory = join(options.home, 'plugins-host')
   }
   get status(): PluginServerStatus { return this.#status }
+  /** The module the server runs: the configured one, or Core's installed release when that is newer. */
   get module(): string { return this.#module }
+  get packageVersion(): string | null { return this.#version }
+  get directory(): string { return this.#directory }
   endpoint(): { url: string; token: string } | undefined {
     const status = this.#status
     return status.state === 'ready' && this.#token ? { url: `http://${host}:${status.port}`, token: this.#token } : undefined
@@ -88,7 +118,10 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
 
   /** Checks the module and token, then runs the server in the background. Failures become status. */
   start(): Promise<void> { return this.#serial(() => this.#begin()) }
-  /** Stops only this server and starts it again, from `module` when given (for example after an update). */
+  /**
+   * Stops only this server and starts it again, replacing the configured module when given. It starts the newer of
+   * the configured module and Core's installed release, so switching `current` and restarting runs that release.
+   */
   restart(module?: string): Promise<void> {
     if (this.#closing) return Promise.resolve()
     // The old server's endpoint ends now, not when its process has exited.
@@ -96,8 +129,19 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
     this.#halt()
     return this.#serial(async () => {
       await this.#stopped()
-      if (module !== undefined) this.#module = module
+      if (module !== undefined) this.#configured = module
       await this.#begin()
+    })
+  }
+  settled(): Promise<PluginServerStatus> {
+    if (this.#closing) return Promise.resolve({ state: 'stopped' })
+    return new Promise(resolve => {
+      const watcher = (status: PluginServerStatus) => {
+        if (!['ready', 'restarting', 'failed', 'stopped'].includes(status.state)) return
+        this.#watchers.delete(watcher)
+        resolve(status)
+      }
+      this.#watchers.add(watcher)
     })
   }
   close(): Promise<void> {
@@ -149,8 +193,23 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
     if (this.#status.state === 'stopped' && this.#closing) return
     this.#status = status
     this.#options.onStatus?.(status)
+    for (const watcher of [...this.#watchers]) watcher(status)
+  }
+  /** The configured module, or the release in `current` when its version is newer. An unreadable release is ignored. */
+  async #choose(): Promise<void> {
+    const configured = await pluginModuleVersion(this.#configured)
+    let installed: { module: string; version: string } | undefined
+    try {
+      const module = await realpath(pluginServerModule(join(this.#directory, 'current')))
+      const version = await pluginModuleVersion(module)
+      if (version !== null) installed = { module, version }
+    } catch { /* No release installed by Core. */ }
+    const useInstalled = installed && (configured === null || compareVersions(installed.version, configured) > 0)
+    this.#module = useInstalled ? installed!.module : this.#configured
+    this.#version = useInstalled ? installed!.version : configured
   }
   async #prepare(): Promise<void> {
+    await this.#choose()
     try { await access(this.#module, constants.R_OK) } catch { throw new Error(`The plugin server module is missing: ${this.#module}`) }
     await mkdir(this.#directory, { recursive: true, mode: 0o700 })
     await chmod(this.#directory, 0o700)

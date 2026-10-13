@@ -1,6 +1,7 @@
 import {
   updateCheck,
   updateInstall,
+  updatePluginsInstall,
   updateSettings,
   updateSettingsWrite,
   updateUnpin,
@@ -18,9 +19,22 @@ import { body, json, record, text, WireError } from './wire.ts'
 const now = () => new Date().toISOString()
 const clone = <T>(value: T): T => structuredClone(value)
 type Mutable<T> = { -readonly [K in keyof T]: T[K] }
-type FakeUpdateStatus = Mutable<Omit<UpdateStatus, 'core'>> & {
+type FakePlugins = Mutable<NonNullable<UpdateStatus['plugins']>>
+type FakeUpdateStatus = Mutable<Omit<UpdateStatus, 'core' | 'plugins'>> & {
   core: Mutable<UpdateStatus['core']>
+  plugins?: FakePlugins
 }
+type ReleasePackage = '@kipster/core' | '@kipster/ui' | '@kipster/plugins'
+const pluginScenarios = [
+  'absent',
+  'current',
+  'available',
+  'installing',
+  'installed',
+  'rolled-back',
+  'failed',
+  'unknown-version',
+]
 export function createFakeUpdates(options: {
   emit: (
     type: string,
@@ -31,6 +45,8 @@ export function createFakeUpdates(options: {
   release: () => { coreVersion: string; protocol: ProtocolRange }
   installed: (release: { coreVersion: string; protocol: ProtocolRange }) => void
   disconnect: (ms: number) => void
+  /** Whether the host runs a plugin server; status reports `plugins` only then. */
+  pluginServer: () => boolean
 }) {
   const entry = (
     pkg: string,
@@ -44,18 +60,20 @@ export function createFakeUpdates(options: {
     notes: `Kipster ${version}\nSmall improvements and fixes.`,
     publishedAt: '2026-10-02T09:00:00Z',
     files: [],
-    ...(pkg === '@kipster/core'
-      ? { protocolRange: { oldest: protocol, current: protocol } }
-      : {
-          protocol,
-          updater: signed
-            ? {
-                platform: 'darwin-aarch64',
-                url: `https://example.invalid/Kipster-${version}.app.tar.gz`,
-                signature: 'demo-signature',
-              }
-            : null,
-        }),
+    ...(pkg === '@kipster/plugins'
+      ? {}
+      : pkg === '@kipster/core'
+        ? { protocolRange: { oldest: protocol, current: protocol } }
+        : {
+            protocol,
+            updater: signed
+              ? {
+                  platform: 'darwin-aarch64',
+                  url: `https://example.invalid/Kipster-${version}.app.tar.gz`,
+                  signature: 'demo-signature',
+                }
+              : null,
+          }),
   })
   const releases = {
     schemaVersion: 1 as const,
@@ -74,7 +92,12 @@ export function createFakeUpdates(options: {
         entry('@kipster/ui', '0.6.0', appProtocol, false),
         entry('@kipster/ui', '0.0.0'),
       ],
-    },
+      '@kipster/plugins': [
+        entry('@kipster/plugins', '0.9.0-next.1'),
+        entry('@kipster/plugins', '0.8.0'),
+        entry('@kipster/plugins', '0.7.0'),
+      ],
+    } as Record<ReleasePackage, ChannelEntry[]>,
   }
   let revision = 0
   let status: FakeUpdateStatus
@@ -89,6 +112,8 @@ export function createFakeUpdates(options: {
   }
   let from: string
   let target: string | null
+  /** False while a scenario hides the plugin server. */
+  let pluginsShown: boolean
   const operations = new Map<string, { input: string; response: unknown }>()
   const installs: unknown[] = []
   function reset() {
@@ -109,7 +134,15 @@ export function createFakeUpdates(options: {
         lastResult: null,
         backups: [],
       },
+      plugins: {
+        version: '0.8.0',
+        available: null,
+        state: 'idle',
+        error: null,
+        lastResult: null,
+      },
     }
+    pluginsShown = true
     app = {
       version: '0.0.0',
       pinned: null,
@@ -125,7 +158,7 @@ export function createFakeUpdates(options: {
     installs.length = 0
   }
   reset()
-  const latest = (pkg: '@kipster/core' | '@kipster/ui') =>
+  const latest = (pkg: ReleasePackage) =>
     releases.packages[pkg].find(
       (release) => status.channel === 'next' || !release.prerelease,
     )!
@@ -149,7 +182,106 @@ export function createFakeUpdates(options: {
     )
   const snapshot = () => {
     status.core.version = options.release().coreVersion
-    return clone(status)
+    const copy = clone(status)
+    if (!pluginsShown || !options.pluginServer()) delete copy.plugins
+    return copy
+  }
+  const plugins = () => {
+    if (!pluginsShown || !options.pluginServer() || !status.plugins)
+      throw new WireError(
+        409,
+        'update-not-available',
+        'This host does not run a plugin server',
+      )
+    return status.plugins
+  }
+  /** The selected channel's plugins release, when newer than the running one. */
+  const pluginsRelease = () => {
+    const release = latest('@kipster/plugins')
+    const version = status.plugins?.version
+    return !version || compareVersions(release.version, version) > 0
+      ? release
+      : null
+  }
+  /** Automatic mode installs a newer plugins release right away. */
+  function autoInstallPlugins() {
+    const current = status.plugins
+    if (
+      current?.available &&
+      status.mode === 'automatic' &&
+      status.core.managed &&
+      !['installing', 'failed'].includes(current.state) &&
+      current.lastResult?.to !== current.available.version
+    )
+      current.state = 'installing'
+  }
+  function settlePlugins(outcome: 'installed' | 'rolled-back' | 'failed') {
+    const current = status.plugins
+    if (!current) throw new Error('Invalid plugins update state')
+    const to = current.available?.version ?? latest('@kipster/plugins').version
+    current.lastResult = { from: current.version, to, outcome, at: now() }
+    // Like Core, a rollback is a failure too: the previous version runs again.
+    current.state = outcome === 'installed' ? 'idle' : 'failed'
+    current.error =
+      outcome === 'rolled-back'
+        ? `Kipster Plugins ${to} did not start; ${current.version ?? 'the previous version'} runs again`
+        : outcome === 'failed'
+          ? 'Kipster Plugins could not be installed. Try again.'
+          : null
+    if (outcome === 'installed') {
+      current.version = to
+      current.available = null
+    }
+  }
+  /** Finishes an accepted plugins install on the demo clock. */
+  function tick() {
+    if (status.plugins?.state !== 'installing') return
+    settlePlugins('installed')
+    changed()
+  }
+  function pluginsScenario(value: unknown) {
+    if (typeof value === 'string') {
+      if (!pluginScenarios.includes(value))
+        throw new Error('Invalid plugins update state')
+      pluginsShown = value !== 'absent'
+      if (value === 'absent') return
+      const release = latest('@kipster/plugins')
+      const older =
+        releases.packages['@kipster/plugins'].find(
+          (entry) => compareVersions(entry.version, release.version) < 0,
+        )?.version ?? '0.0.0'
+      status.plugins = {
+        version:
+          value === 'current'
+            ? release.version
+            : value === 'unknown-version'
+              ? null
+              : older,
+        available: value === 'current' ? null : release,
+        state: value === 'installing' ? 'installing' : 'idle',
+        error: null,
+        lastResult: null,
+      }
+      if (['installed', 'rolled-back', 'failed'].includes(value))
+        settlePlugins(value as 'installed' | 'rolled-back' | 'failed')
+      return
+    }
+    const patch = record(value)
+    if (patch.available) parseChannelEntry(patch.available)
+    pluginsShown = true
+    status.plugins = parseUpdateStatus({
+      ...status,
+      plugins: {
+        ...(status.plugins ?? {
+          version: null,
+          available: null,
+          state: 'idle',
+          error: null,
+          lastResult: null,
+        }),
+        ...patch,
+      },
+    }).plugins as FakePlugins
   }
   const inspect = () => ({
     status: snapshot(),
@@ -301,6 +433,7 @@ export function createFakeUpdates(options: {
       if (typeof core.version === 'string')
         options.installed({ ...options.release(), coreVersion: core.version })
     }
+    if (input.plugins !== undefined) pluginsScenario(input.plugins)
     if (input.backups)
       status.core.backups = clone(
         input.backups,
@@ -337,6 +470,7 @@ export function createFakeUpdates(options: {
         '/v1/updates',
         '/v1/updates/check',
         '/v1/updates/install',
+        '/v1/updates/plugins/install',
         '/v1/updates/unpin',
       ].includes(path)
     )
@@ -368,6 +502,10 @@ export function createFakeUpdates(options: {
         status.mode === 'automatic'
           ? 'scheduled'
           : 'idle'
+      if (status.plugins && status.plugins.state !== 'installing') {
+        status.plugins.available = pluginsRelease()
+        autoInstallPlugins()
+      }
       changed()
       return json(snapshot())
     }
@@ -381,6 +519,18 @@ export function createFakeUpdates(options: {
           'update-unmanaged',
           'Software installation requires a managed updater on this host',
         )
+    } else if (
+      request.method === 'POST' &&
+      path === '/v1/updates/plugins/install'
+    ) {
+      updatePluginsInstall.parse(input)
+      if (!status.core.managed)
+        throw new WireError(
+          409,
+          'update-unmanaged',
+          'Software installation requires a managed updater on this host',
+        )
+      plugins()
     } else if (request.method === 'POST' && path === '/v1/updates/unpin')
       updateUnpin.parse(input)
     else throw new WireError(404, 'not-found', 'Route not found')
@@ -407,8 +557,11 @@ export function createFakeUpdates(options: {
         status.checkedAt = null
         status.core.available = null
         if (status.core.state !== 'installing') status.core.error = null
+        if (status.plugins && status.plugins.state !== 'installing')
+          status.plugins.available = null
       }
       if (status.core.state !== 'installing') status.core.state = waitingState()
+      autoInstallPlugins()
       changed()
       response = { version: 1, channel: status.channel, mode: status.mode }
     } else if (request.method === 'POST' && path === '/v1/updates/unpin') {
@@ -476,6 +629,36 @@ export function createFakeUpdates(options: {
       installs.push(clone(input))
       changed()
       response = snapshot()
+    } else if (
+      request.method === 'POST' &&
+      path === '/v1/updates/plugins/install'
+    ) {
+      const current = plugins()
+      if (status.core.state === 'installing' || current.state === 'installing')
+        throw new WireError(
+          409,
+          'update-in-progress',
+          'An update request is already in progress',
+        )
+      if (input.target === current.version)
+        throw new WireError(
+          409,
+          'update-already-installed',
+          'The target Kipster Plugins version is already installed',
+        )
+      const release = pluginsRelease()
+      if (release?.version !== input.target)
+        throw new WireError(
+          409,
+          'update-not-available',
+          "The target is not the selected channel's Kipster Plugins release",
+        )
+      current.available = release
+      current.state = 'installing'
+      current.error = null
+      installs.push(clone(input))
+      changed()
+      response = snapshot()
     } else throw new WireError(404, 'not-found', 'Route not found')
     operations.set(operationId, {
       input: signature,
@@ -483,5 +666,5 @@ export function createFakeUpdates(options: {
     })
     return json(response)
   }
-  return { control, inspect, snapshot, handle, reset }
+  return { control, inspect, snapshot, handle, reset, tick }
 }

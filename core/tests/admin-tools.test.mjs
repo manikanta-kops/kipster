@@ -1,5 +1,6 @@
 import test from 'node:test'
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
@@ -49,7 +50,7 @@ async function until(read, match, label) {
 const count = async (db, sql, values) => Number((await db.query(sql, values)).rows[0].n)
 
 /** A runtime with an HTTP server for the owner and a dispatcher that runs the fixture adapter. */
-async function setup(t, updates) {
+async function setup(t, updates, plugins) {
   const admin = new Postgres(adminUrl)
   const name = `kipster_admin_tools_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${name}"`)
@@ -63,7 +64,7 @@ async function setup(t, updates) {
     await admin.close().catch(() => undefined)
     await rm(home, { recursive: true, force: true })
   })
-  const runtime = await openRuntime({ connectionString: url.href, home, names, executionLimit: 4, ...(updates ? { updates } : {}) })
+  const runtime = await openRuntime({ connectionString: url.href, home, names, executionLimit: 4, ...(updates ? { updates } : {}), ...(plugins ? { plugins: plugins(home) } : {}) })
   closers.push(() => runtime.close())
   const { installationId, ownerId, organizationId, rootAgentId } = runtime.bootstrap
   const executions = []
@@ -602,7 +603,7 @@ test('the catalog lists every operation by area and describes its arguments', { 
   assert.deepEqual(listing.areas.map(area => area.area), ['directory', 'organizations', 'agents', 'identity', 'memberships', 'groups', 'settings', 'adapters', 'permissions', 'learning', 'memory', 'interface', 'updates', 'plugins', 'operations'])
   const listed = listing.areas.flatMap(area => area.operations.map(item => item.operation))
   for (const name of toolNames) assert.ok(listed.includes(name.slice('admin.'.length)), name)
-  for (const name of ['identity.set', 'learning.agent_set', 'interface.set', 'updates.install', 'updates.settings_set']) assert.ok(listed.includes(name), name)
+  for (const name of ['identity.set', 'learning.agent_set', 'interface.set', 'updates.install', 'updates.plugins_install', 'updates.settings_set']) assert.ok(listed.includes(name), name)
   assert.deepEqual((await run.tool('area', 'admin_operations', { area: 'interface' })).areas.map(area => area.operations.map(item => item.operation)), [['interface.get', 'interface.set']])
 
   const identity = await run.tool('describe', 'admin_operations', { operation: 'identity.set' })
@@ -749,6 +750,46 @@ test('a declined full access request leaves the permission mode unchanged', { sk
   const answer = await ctx.call('POST', '/v1/work/interactions/answer', { version: 1, operationId: randomUUID(), interactionId: card.id, threadId: run.threadId, runId: run.runId, attemptId: run.context.attemptId, proposalId: card.proposal_id, answer: { kind: 'decline' } })
   assert.equal(answer.data.outcome, 'accepted')
   assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] })
+  run.handle.release({ kind: 'ended', attemptId: run.context.attemptId, confirmed: true })
+})
+
+test('installing a Kipster Plugins release waits for the owner, then starts once', { skip: noDatabase, timeout: 60000 }, async t => {
+  // The channel names a plugins release whose download is missing, so the approved install starts and then fails.
+  const channel = createServer((request, response) => {
+    const port = channel.address().port
+    if (request.url !== '/v1/stable.json') { response.writeHead(404).end(); return }
+    response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ schemaVersion: 1, packages: { '@kipster/plugins': {
+      package: '@kipster/plugins', version: '0.3.0', prerelease: false, notes: '', publishedAt: '2026-10-02T09:00:00Z',
+      files: [{ name: 'kipster-plugins-0.3.0.tgz', url: `http://127.0.0.1:${port}/missing.tgz`, size: 10, sha256: 'a'.repeat(64) }] } } }))
+  })
+  await new Promise(resolve => channel.listen(0, '127.0.0.1', resolve))
+  t.after(() => new Promise(resolve => channel.close(resolve)))
+  const restarts = []
+  const plugins = home => ({ directory: join(home, 'plugins-host'), packageVersion: '0.2.0', endpoint: () => undefined,
+    async restart() { restarts.push('restart') }, async settled() { return { state: 'ready', port: 1 } } })
+  const ctx = await setup(t, { managed: true, coreVersion: '1.2.0', channelUrl: `http://127.0.0.1:${channel.address().port}/v1/` }, plugins)
+  await ctx.ok('PUT', '/v1/settings/updates', { version: 1, operationId: randomUUID(), channel: 'stable', mode: 'notify' })
+  assert.equal((await ctx.ok('POST', '/v1/updates/check', { version: 1 })).plugins.available.version, '0.3.0')
+  const run = await ctx.start()
+  await assert.rejects(run.tool('same', 'admin.updates.plugins_install', { target: '0.2.0' }), /already installed/)
+  await assert.rejects(run.tool('older', 'admin.updates.plugins_install', { target: '0.1.0' }), /older version/)
+  const requested = await run.tool('install', 'admin.updates.plugins_install', { target: '0.3.0' })
+  assert.equal(requested.status, 'pending')
+  const card = (await ctx.db.query('SELECT * FROM kipster.interactions WHERE id=$1', [requested.interactionId])).rows[0]
+  assert.equal(card.prompt, 'Install Kipster Plugins 0.3.0?')
+  assert.match(card.proposal, /0\.2\.0 → 0\.3\.0/)
+  assert.equal((await ctx.ok('GET', '/v1/updates')).plugins.state, 'idle', 'nothing installs before the owner answers')
+  const answer = () => ctx.call('POST', '/v1/work/interactions/answer', { version: 1, operationId: randomUUID(), interactionId: card.id, threadId: run.threadId, runId: run.runId, attemptId: run.context.attemptId, proposalId: card.proposal_id, answer: { kind: 'approve' } })
+  assert.equal((await answer()).data.outcome, 'accepted')
+  const binding = (await ctx.db.query('SELECT result FROM kipster.admin_approvals WHERE interaction_id=$1', [card.id])).rows[0]
+  assert.equal(binding.result.plugins.state, 'installing')
+  assert.equal((await ctx.db.query("SELECT count(*)::int AS n FROM kipster.admin_operations WHERE kind='updates.plugins_install'")).rows[0].n, 1)
+  assert.equal((await answer()).data.outcome, 'rejected')
+  let status
+  for (let n = 0; n < 200 && (status = await ctx.ok('GET', '/v1/updates')).plugins.state === 'installing'; n++) await new Promise(resolve => setTimeout(resolve, 25))
+  assert.equal(status.plugins.state, 'failed')
+  assert.match(status.plugins.error, /HTTP 404/)
+  assert.deepEqual(restarts, [], 'a failed download never restarts the plugin server')
   run.handle.release({ kind: 'ended', attemptId: run.context.attemptId, confirmed: true })
 })
 
