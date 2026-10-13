@@ -31,6 +31,13 @@ on a platform without a build, or when the download fails, installation
 completes, memory works without search, and the result's `embedding` field says
 why.
 
+Plugins work the same way. Once the channel has a `@kipster/plugins` release,
+install and update add `plugins: { "module": "<home>/current/node_modules/@kipster/plugins/dist/server/cli.js" }`
+to host.json and install the package with its npm dependencies (lifecycle scripts
+disabled) from the verified channel tarball. Until then host.json has no `plugins`
+entry and the result's `plugins` field says why. An installation whose host.json
+names `@kipster/plugins` does not update while its channel lacks that release.
+
 ```sh
 chmod 600 /absolute/path/host-input.json
 kipster install --home /absolute/path/kipster --config /absolute/path/host-input.json --maintenance-config /absolute/path/maintenance.json

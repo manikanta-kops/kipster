@@ -5,6 +5,8 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repository = 'manikanta-kops/kipster'
+/** Repositories that release one Kipster package each, outside the main repository. */
+export const packageRepositories = [{ repository: 'manikanta-kops/kipster-plugins', packages: ['@kipster/plugins'] }]
 const root = fileURLToPath(new URL('..', import.meta.url))
 
 function semver(version) {
@@ -130,12 +132,28 @@ export async function generateChannels(releases, readMetadata, log = console.err
 
 const gh = args => execFileSync('gh', ['api', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
 
-export async function channelsFromGitHub(repo = repository, api = gh, log = console.error) {
+async function releasesFrom(repo, api, owns) {
   requireValue(/^[\w.-]+\/[\w.-]+$/.test(repo), 'Expected an owner/repository name.')
   const releases = JSON.parse(await api(['--paginate', '--slurp', `repos/${repo}/releases?per_page=100`])).flat()
-  return generateChannels(releases, async asset => JSON.parse(await api([
-    '-H', 'Accept: application/octet-stream', `repos/${repo}/releases/assets/${asset.id}`,
-  ])), log)
+  const readMetadata = async asset => {
+    const metadata = JSON.parse(await api(['-H', 'Accept: application/octet-stream', `repos/${repo}/releases/assets/${asset.id}`]))
+    requireValue(owns(metadata?.package), `${repo} does not release ${metadata?.package}.`)
+    return metadata
+  }
+  return releases.map(release => ({ release, readMetadata }))
+}
+
+/**
+ * Builds the site from the main repository and each package repository. Every repository
+ * releases only its own packages. A repository that cannot be read fails the whole run, so
+ * the deployed site stays as it was instead of losing that repository's packages.
+ */
+export async function channelsFromGitHub(repo = repository, api = gh, log = console.error, repositories = packageRepositories) {
+  const external = new Set(repositories.flatMap(source => source.packages))
+  const sources = [await releasesFrom(repo, api, name => !external.has(name))]
+  for (const source of repositories) sources.push(await releasesFrom(source.repository, api, name => source.packages.includes(name)))
+  const readers = new Map(sources.flat().map(({ release, readMetadata }) => [release, readMetadata]))
+  return generateChannels([...readers.keys()], (asset, release) => readers.get(release)(asset), log)
 }
 
 export function writeSite(out, site) {
