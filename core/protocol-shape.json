@@ -382,6 +382,31 @@
         "removeAlwaysAllowed": {"type":"optional","of":{"type":"array","items":{"type":"string","min":1}}}
       }
     },
+    "pluginAccountRename": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"optional","of":{"type":"literal","value":1}},
+        "label": {"type":"string","min":1,"max":64}
+      }
+    },
+    "pluginDefaultAccountWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"optional","of":{"type":"literal","value":1}},
+        "account": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "pluginSignInRequest": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"optional","of":{"type":"literal","value":1}},
+        "address": {"type":"optional","of":{"type":"string","min":1,"max":2000}},
+        "returnAddress": {"type":"optional","of":{"type":"string","min":1,"max":2000}}
+      }
+    },
     "receiptLookup": {
       "type": "object",
       "exact": true,
@@ -692,6 +717,41 @@
       "type": "object",
       "exact": false,
       "fields": {"label":{"type":"string","min":1},"scopes":{"type":"array","items":{"ref":"approvalScope"}}}
+    },
+    "bootstrap": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "coreVersion": {"type":"string","min":1},
+        "protocol": {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "current": {"type":"integer","min":1,"max":1000000},
+            "oldest": {"type":"integer","min":1,"max":1000000}
+          }
+        },
+        "installationId": {"type":"string","min":1},
+        "callerId": {"type":"string","min":1},
+        "organizationId": {"type":"string","min":1},
+        "rootAgentId": {"type":"string","min":1},
+        "capabilities": {"ref":"bootstrapCapabilities"}
+      }
+    },
+    "bootstrapCapabilities": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "voiceRecording": {"type":"boolean"},
+        "updates": {"type":"optional","of":{"type":"boolean"}},
+        "interfacePreferences": {"type":"optional","of":{"type":"boolean"}},
+        "notificationActions": {"type":"optional","of":{"type":"boolean"}},
+        "documents": {"type":"optional","of":{"type":"boolean"}},
+        "permissionModes": {"type":"optional","of":{"type":"boolean"}},
+        "memoryCards": {"type":"optional","of":{"type":"boolean"}},
+        "plugins": {"type":"optional","of":{"type":"boolean"}}
+      }
     },
     "channelEntry": {
       "type": "object",
@@ -1740,6 +1800,245 @@
         "alwaysAllowed": {"type":"array","items":{"ref":"alwaysAllowed"}}
       }
     },
+    "pluginAccount": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "plugin": {"type":"string","min":1},
+        "label": {"type":"string"},
+        "status": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"working"},
+            {"type":"literal","value":"reconnect-needed"},
+            {"type":"string"}
+          ]
+        },
+        "isDefault": {"type":"boolean"},
+        "issuer": {"type":"optional","of":{"type":"string"}},
+        "identityVerified": {"type":"optional","of":{"type":"boolean"}},
+        "identitySource": {"type":"optional","of":{"type":"string"}},
+        "serverUrl": {"type":"optional","of":{"type":"string"}},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"optional","of":{"type":"string","format":"utc-timestamp"}}
+      }
+    },
+    "pluginAccountList": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "accounts": {"type":"array","items":{"ref":"pluginAccount"}}
+      }
+    },
+    "pluginAccountRemoval": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "removed": {"type":"boolean"},
+        "revoked": {"type":"boolean"}
+      }
+    },
+    "pluginAccountResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"account":{"ref":"pluginAccount"}}
+    },
+    "pluginDefaultAccount": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "plugin": {"type":"string","min":1},
+        "defaultAccount": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "pluginDetail": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "name": {"type":"string"},
+        "description": {"type":"optional","of":{"type":"string"}},
+        "category": {"type":"string"},
+        "website": {"type":"optional","of":{"type":"string"}},
+        "signIn": {"type":"array","items":{"ref":"pluginSignInMethod"}},
+        "available": {"type":"boolean"},
+        "unavailableReason": {"type":"optional","of":{"type":"string"}},
+        "probe": {"type":"nullable","of":{"ref":"pluginProbe"}},
+        "verification": {
+          "type": "nullable",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"literal","value":"probe"},
+              {"type":"literal","value":"account"},
+              {"type":"string"}
+            ]
+          }
+        },
+        "needsAddress": {"type":"boolean"},
+        "addressPrompt": {"type":"optional","of":{"type":"string"}},
+        "accountCount": {"type":"integer","min":0},
+        "accounts": {"type":"array","items":{"ref":"pluginAccount"}}
+      }
+    },
+    "pluginError": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "code": {"type":"string","min":1},
+        "message": {"type":"string"},
+        "requestId": {"type":"string","min":1}
+      }
+    },
+    "pluginList": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "plugins": {"type":"array","items":{"ref":"pluginSummary"}}
+      }
+    },
+    "pluginProbe": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "result": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"ok"},
+            {"type":"literal","value":"sign-in-changed"},
+            {"type":"literal","value":"needs-address"},
+            {"type":"literal","value":"needs-client-metadata-document"},
+            {"type":"literal","value":"unreachable"},
+            {"type":"literal","value":"error"},
+            {"type":"string"}
+          ]
+        },
+        "signIn": {"type":"array","items":{"ref":"pluginSignInMethod"}},
+        "checkedOn": {"type":"string"},
+        "reason": {"type":"string"}
+      }
+    },
+    "pluginResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"plugin":{"ref":"pluginDetail"}}
+    },
+    "pluginSignInStart": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "status": {"type":"literal","value":"redirect"},
+            "id": {"type":"string","min":1},
+            "method": {"ref":"pluginSignInMethod"},
+            "authorizationUrl": {"type":"string","min":1},
+            "serverUrl": {"type":"optional","of":{"type":"string"}},
+            "expiresAt": {"type":"string","format":"utc-timestamp"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "status": {"type":"literal","value":"needs-client-metadata-document"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "status": {"type":"union","of":[{"type":"string"}]}
+          }
+        }
+      ]
+    },
+    "pluginSignInStatus": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "id": {"type":"string","min":1},
+            "status": {"type":"literal","value":"pending"},
+            "plugin": {"type":"string","min":1}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "id": {"type":"string","min":1},
+            "status": {"type":"literal","value":"completed"},
+            "plugin": {"type":"string","min":1},
+            "account": {"ref":"pluginAccount"},
+            "duplicate": {"type":"boolean"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "id": {"type":"string","min":1},
+            "status": {"type":"literal","value":"failed"},
+            "plugin": {"type":"optional","of":{"type":"string","min":1}},
+            "code": {"type":"string"}
+          }
+        },
+        {
+          "type": "object",
+          "exact": false,
+          "fields": {
+            "version": {"type":"literal","value":1},
+            "id": {"type":"string","min":1},
+            "status": {"type":"union","of":[{"type":"string"}]}
+          }
+        }
+      ]
+    },
+    "pluginSummary": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "name": {"type":"string"},
+        "description": {"type":"optional","of":{"type":"string"}},
+        "category": {"type":"string"},
+        "website": {"type":"optional","of":{"type":"string"}},
+        "signIn": {"type":"array","items":{"ref":"pluginSignInMethod"}},
+        "available": {"type":"boolean"},
+        "unavailableReason": {"type":"optional","of":{"type":"string"}},
+        "probe": {"type":"nullable","of":{"ref":"pluginProbe"}},
+        "verification": {
+          "type": "nullable",
+          "of": {
+            "type": "union",
+            "of": [
+              {"type":"literal","value":"probe"},
+              {"type":"literal","value":"account"},
+              {"type":"string"}
+            ]
+          }
+        },
+        "needsAddress": {"type":"boolean"},
+        "addressPrompt": {"type":"optional","of":{"type":"string"}},
+        "accountCount": {"type":"integer","min":0}
+      }
+    },
     "queueEntry": {
       "type": "object",
       "exact": false,
@@ -2653,6 +2952,10 @@
         {"type":"literal","value":"auto"},
         {"type":"literal","value":"fullAccess"}
       ]
+    },
+    "pluginSignInMethod": {
+      "type": "union",
+      "of": [{"type":"literal","value":"dcr"},{"type":"literal","value":"cimd"},{"type":"string"}]
     },
     "removedPart": {
       "type": "object",
