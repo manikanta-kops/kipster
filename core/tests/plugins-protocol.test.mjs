@@ -66,7 +66,7 @@ test('requests are exact and take the plugin server\'s body with or without vers
 
 test('errors keep any code and the named codes and paths are stable', () => {
   assert.equal(pluginError.parse({ version: 1, code: 'unknown-plugin', message: 'Unknown plugin', requestId: 'r', detail: 1 }).code, 'unknown-plugin')
-  assert.deepEqual(Object.values(pluginErrorCodes), ['plugins-unavailable', 'invalid-return-address', 'loopback-only', 'needs-client-metadata-document', 'return-address-refused'])
+  assert.deepEqual(Object.values(pluginErrorCodes), ['plugins-unavailable', 'invalid-return-address', 'loopback-only', 'needs-client-metadata-document', 'return-address-refused', 'plugin-server-failed'])
   assert.deepEqual([pluginPaths.plugins, pluginPaths.plugin('aha'), pluginPaths.signIn('aha'), pluginPaths.signInStatus('s1'), pluginPaths.accounts(), pluginPaths.accounts('aha'), pluginPaths.account('a1'), pluginPaths.defaultAccount('aha'), pluginPaths.callback],
     ['/v1/plugins', '/v1/plugins/aha', '/v1/plugins/aha/sign-in', '/v1/plugins/sign-ins/s1', '/v1/plugins/accounts', '/v1/plugins/accounts?plugin=aha', '/v1/plugins/accounts/a1', '/v1/plugins/aha/default-account', '/plugins/callback'])
 })

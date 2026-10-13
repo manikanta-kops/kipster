@@ -29,7 +29,9 @@ instructions take precedence over older decisions.
   and follow the compatibility rules in decision record 5.1.7.
 - Kip can do everything a person can do in the interface. Keep every setting
   in Core, not in browser storage, and add each new setting or action to the
-  administration catalog in `core/src/workflows/admin-tools.ts`. Update the
+  administration catalog in `core/src/workflows/admin-tools.ts`. Plugin
+  settings and accounts live in the plugin server instead; reach them only
+  through Core's `/v1/plugins` routes and its `plugins` admin operations. Update the
   `kipster-admin` skill (`core/src/skills/kipster-admin/SKILL.md`) when its
   guidance changes. `core/tests/admin-parity.test.mjs` and the interface's
   `tests/client-storage.mjs` fail until you do.

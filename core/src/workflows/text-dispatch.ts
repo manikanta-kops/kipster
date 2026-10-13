@@ -697,7 +697,9 @@ export class TextDispatcher {
         WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
           AND (EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled') OR EXISTS (SELECT 1 FROM kipster.delegations d WHERE d.parent_attempt_id=a.id))`, [runId, attempt.id])).rows[0]?.provider_metadata
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
-      execution = { ...prepared, prompt: turnPrompt(prepared), ...(resume ? { resume } : {}) }
+      // The person's plugins while the plugin server is ready. The token stays out of the prompt, records and events.
+      const plugins = this.runtime.plugins?.endpoint()
+      execution = { ...prepared, prompt: turnPrompt(prepared), ...(resume ? { resume } : {}), ...(plugins ? { mcpServers: [{ name: 'plugins', url: `${plugins.url}/mcp`, bearerToken: plugins.token }] } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -839,7 +841,7 @@ export class TextDispatcher {
 
   /** Administration tools of the admin agent, authorized again for the calling attempt. */
   async adminTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
-    const host = { db: this.runtime.db, home: this.runtime.home, jobs: this.runtime.jobs, learning: this.runtime.learning, updates: this.runtime.updates, catalog: () => this.catalog(), refreshAdapters: () => this.refreshAdapters() }
+    const host = { db: this.runtime.db, home: this.runtime.home, jobs: this.runtime.jobs, learning: this.runtime.learning, updates: this.runtime.updates, plugins: this.runtime.plugins, catalog: () => this.catalog(), refreshAdapters: () => this.refreshAdapters() }
     return administrationTool(host, { installationId: this.runtime.bootstrap.installationId, attemptId, incarnation: this.incarnation }, callId, name, args)
   }
 
