@@ -7,12 +7,18 @@ import { dependencies, exists, initializeHome, json, locked, privateDirectory, r
 import { checkDatabase, databaseURL, postgresBinaries, postgresClient, prepareDatabase, stopDatabase } from './local-database.mjs'
 import { installEmbeddingRuntime, installedEmbeddingRuntime } from '../installer/src/embedding.mjs'
 
-/** `embedding` is the installed runtime's server entry; without one, host.json keeps its embedding settings. */
-export function configuration(home, installation, previous = {}, embedding) {
+/** The plugin server Core runs in development: this repository's installed `@kipster/plugins`. */
+export const localPluginServer = join(repository, 'node_modules/@kipster/plugins/dist/server/cli.js')
+/**
+ * `embedding` is the installed runtime's server entry; without one, host.json keeps its embedding settings.
+ * `plugins` is the plugin server module when it is installed; without one, host.json keeps its plugins entry.
+ */
+export function configuration(home, installation, previous = {}, embedding, plugins) {
   const kept = previous.embedding?.server ? previous.embedding : undefined
   return {
     ...previous,
     ...(embedding ? { embedding: { module: join(installation, 'node_modules/@kipster/embedding-llama-cpp/dist/index.js'), options: kept?.options ?? {}, server: { ...embedding, port: kept?.server.port ?? embedding.port } } } : {}),
+    ...(plugins ? { plugins: { module: plugins } } : {}),
     version: 1, home, databaseUrl: databaseURL(home), taskDataUrl: databaseURL(home, 'kipster', 'kipster_task'),
     listen: previous.listen ?? { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: ['tauri://localhost'] },
     adapters: [
@@ -23,6 +29,7 @@ export function configuration(home, installation, previous = {}, embedding) {
 }
 /** Execution adapters built from this repository; the first is the default for agents that choose none. */
 const executionAdapters = ['codex-cli', 'claude-cli']
+const pluginServer = async () => await exists(localPluginServer) ? localPluginServer : undefined
 function saved(previous, id) {
   const config = (previous.adapters ?? []).find(adapter => adapter.id === id)?.config
   return config ? { config } : {}
@@ -68,7 +75,7 @@ export async function activateBackend(home, installation, pgBin) {
   const configPath = join(home, 'host.json')
   const previous = await exists(configPath) ? await json(configPath) : undefined
   if (previous && previous.home !== home) throw new Error('host.json belongs to a different home; it was not changed.')
-  const config = configuration(home, installation, previous, await installedEmbeddingRuntime(home) ?? undefined)
+  const config = configuration(home, installation, previous, await installedEmbeddingRuntime(home) ?? undefined, await pluginServer())
   const host = await import(pathToFileURL(cli(installation)).href)
   host.validateHostConfig(config)
   const state = await host.control(home, 'status')
@@ -121,7 +128,7 @@ export async function backend(inputHome, action, { embeddings = false } = {}) {
     // Record first setup before database startup, so --stop works after an interrupted setup.
     if (!current) {
       await saveJSON(join(home, 'active.json'), { installation, pgBin })
-      if (!await exists(join(home, 'host.json'))) await saveJSON(join(home, 'host.json'), configuration(home, installation))
+      if (!await exists(join(home, 'host.json'))) await saveJSON(join(home, 'host.json'), configuration(home, installation, {}, undefined, await pluginServer()))
     }
     await prepareDatabase(home, pgBin, postgresClient(installation))
     const started = await activateBackend(home, installation, pgBin)
@@ -132,6 +139,7 @@ export async function backend(inputHome, action, { embeddings = false } = {}) {
     const config = await json(join(home, 'host.json'))
     if (config.embedding?.server) console.log('Embeddings: Core runs the downloaded llama.cpp server with EmbeddingGemma 2.')
     else if (!config.embedding) console.log('Embeddings: not downloaded, so memory search is unavailable. Run npm run backend -- --with-embeddings to download llama.cpp and EmbeddingGemma 2 into this development home.')
+    if (!config.plugins) console.log('Plugins: off, because @kipster/plugins is not installed. Run npm ci at the repository root.')
     if (!config.transcription) console.log('Voice transcription: not configured.')
     console.log('You can close this terminal. Use npm run backend -- --stop to stop this installation.')
   })

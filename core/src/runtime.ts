@@ -11,9 +11,11 @@ import { EmbeddingProfile, VectorService } from './modules/vectors/public.js'
 import { UpdatesService } from './modules/updates/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import type { TranscriptionProvider } from './transcription/index.js'
+import type { PluginServerEndpoint } from './plugins/supervisor.js'
 export { startTextServer, type TextServer } from './transport/http/text.js'
 export { TextDispatcher, textPublicationHost, type DispatchHooks } from './workflows/text-dispatch.js'
 export type { TranscriptionProvider, TranscriptionResult } from './transcription/index.js'
+export type { PluginServerEndpoint } from './plugins/supervisor.js'
 export { AdapterRegistry } from './workflows/adapter-registry.js'
 
 export async function loadMigrations(): Promise<{ version: string; sql: string }[]> {
@@ -48,8 +50,8 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }
 
-export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
-export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
+export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
+export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
   if (config.embedding) validateEmbeddingProvider(config.embedding)
   if (config.transcription && config.transcription.contractMajor !== 1) throw new Error('Invalid transcription provider contract')
   // Background failures (idle connection loss, job queue errors) are retried internally; observer failures are ignored.
@@ -85,7 +87,7 @@ export async function openRuntime(config: { connectionString: string; taskDataCo
     vectors?.startIndexing()
     artifacts.startRecovery()
     const learning = new LearningService(db, ids.installationId, !!embedding)
-    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
+    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), ...(config.plugins ? {plugins:config.plugins} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
   } catch (error) {
     const cleanup: unknown[] = []
     try { await updates?.close() } catch (failure) { cleanup.push(failure) }
