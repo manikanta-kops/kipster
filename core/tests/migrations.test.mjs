@@ -70,7 +70,7 @@ async function assertMemorySchema(db) {
 }
 
 // Seed only with SQL supported by the frozen 001–012 schema, before current Core starts.
-async function seed(db) {
+async function seed(db, firstEngine) {
   const ids = Object.fromEntries(['installationId', 'ownerId', 'organizationId', 'rootAgentId', 'chatId', 'threadId', 'messageId', 'answerId', 'memoryId', 'sleepId', 'runId', 'attemptId'].map(key => [key, randomUUID()]))
   const settings = { adapterId: 'saved-adapter', modelId: 'saved-model', options: { temperature: 0.25 } }
   const parts = [{ kind: 'text', text: 'Keep this conversation across the upgrade — café.' }]
@@ -87,6 +87,8 @@ async function seed(db) {
     await client.query("INSERT INTO kipster.direct_chats(id,installation_id,caller_id,context_kind,context_id,agent_id) VALUES ($1,$2,$3,'organization',$4,$5)", [ids.chatId, ids.installationId, ids.ownerId, ids.organizationId, ids.rootAgentId])
     await client.query('INSERT INTO kipster.threads(id,chat_id,next_message_position) VALUES ($1,$2,3)', [ids.threadId, ids.chatId])
     await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts) VALUES ($1,$2,1,$3,$4::jsonb),($5,$2,2,$6,$7::jsonb)', [ids.messageId, ids.threadId, ids.ownerId, JSON.stringify(parts), ids.answerId, ids.rootAgentId, JSON.stringify([{ kind: 'text', text: 'A saved answer.' }])])
+    // A base that already replaced the first memory engine has none of its state to seed.
+    if (!firstEngine) return
     await client.query("INSERT INTO kipster.memory_records(id,installation_id,scope,owner_id,kind,text,source_hash) VALUES ($1,$2,'agent',$3,'fact',$4,$5)", [ids.memoryId, ids.installationId, ids.rootAgentId, memoryText, checksum(memoryText)])
     await client.query('INSERT INTO kipster.memory_sources(memory_id,revision,text,source_hash) VALUES ($1,1,$2,$3)', [ids.memoryId, memoryText, checksum(memoryText)])
     // The first memory engine's other state, including a sleep run that holds an execution permit.
@@ -114,7 +116,8 @@ for (const prefixOnly of [false, true]) {
     const base = manifest.filter(file => !prefixOnly || file.number <= 12).map(file => ({ version: file.version, sql: file.contents.toString('utf8') }))
     t.diagnostic(`Base migrations read from git ${ref}${prefixOnly ? ' (001–012)' : ''}; ${base.length} applied before seeding.`)
     await fixture.db.migrate(base)
-    const saved = await seed(fixture.db)
+    const firstEngine = (await fixture.db.query("SELECT to_regclass('kipster.memory_records') IS NOT NULL AS present")).rows[0].present
+    const saved = await seed(fixture.db, firstEngine)
     const current = await loadMigrations()
     if (prefixOnly) assert.ok(current.length > base.length, 'exercise actual forward SQL, even when this PR adds no schema change')
     await fixture.db.migrate(current)
@@ -131,11 +134,13 @@ for (const prefixOnly of [false, true]) {
       assert.deepEqual(snapshot.agents.find(agent => agent.id === ids.rootAgentId).settings, settings)
       // The first memory engine is gone with its work and permits; its embedding profile stays for vector collections.
       await assertMemorySchema(runtime.db)
-      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.owned_permits')).rows[0].n, 0)
-      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.attempts WHERE id=$1', [ids.attemptId])).rows[0].n, 0)
-      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.work_intents WHERE id=$1', [ids.runId])).rows[0].n, 0)
-      assert.deepEqual((await runtime.db.query('SELECT provider,model,generation FROM kipster.embedding_profiles WHERE installation_id=$1', [ids.installationId])).rows, [{ provider: 'fixture-provider', model: 'old-model', generation: '1' }])
-      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.embedding_generations WHERE installation_id=$1', [ids.installationId])).rows[0].n, 1)
+      if (firstEngine) {
+        assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.owned_permits')).rows[0].n, 0)
+        assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.attempts WHERE id=$1', [ids.attemptId])).rows[0].n, 0)
+        assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.work_intents WHERE id=$1', [ids.runId])).rows[0].n, 0)
+        assert.deepEqual((await runtime.db.query('SELECT provider,model,generation FROM kipster.embedding_profiles WHERE installation_id=$1', [ids.installationId])).rows, [{ provider: 'fixture-provider', model: 'old-model', generation: '1' }])
+        assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.embedding_generations WHERE installation_id=$1', [ids.installationId])).rows[0].n, 1)
+      }
       assert.deepEqual(await history(runtime.db), current.map(item => ({ version: item.version, checksum: checksum(item.sql) })))
       assert.equal((await runtime.db.query('SELECT display_name FROM kipster.people WHERE id=$1', [ids.ownerId])).rows[0].display_name, 'Existing owner')
       assert.equal((await runtime.db.query("SELECT to_regnamespace('kipster_jobs') IS NOT NULL AS started")).rows[0].started, true)
