@@ -42,6 +42,8 @@ export type Bootstrap = Scope & {
     permissionModes?: boolean
     /** Core lists, reads, edits and deletes memory cards. */
     memoryCards?: boolean
+    /** Kipster Plugins are ready; absent from Cores that predate them. */
+    plugins?: boolean
   }
 }
 export type Summary = {

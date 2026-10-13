@@ -19,6 +19,7 @@ import type {
 import type { SoftwareUpdates } from '../../data/software-updates'
 import type { Scope } from '../../data/text'
 import { useCoreSettings } from '../../data/use-core-settings'
+import { createPluginsClient } from '../../data/plugins'
 import { Icon } from '../../components/Icon'
 import { NotificationSettings } from '../notifications/NotificationSettings'
 import { ArchiveSettings } from '../workspace/LifecyclePanel'
@@ -32,6 +33,7 @@ import { KipPage, KipsPage } from './KipsSettings'
 import { LearningPage } from './LearningSettings'
 import { CardPage, CardsPage } from './MemoryCards'
 import { PermissionSettings } from './PermissionSettings'
+import { PluginPage, PluginsPage } from './PluginsSettings'
 import { InstructionsPage, OrganizationPage } from './OrganizationSettings'
 import { Panel } from './Panel'
 import { Callout, Glyph } from './ui'
@@ -46,6 +48,7 @@ type PageId =
   | 'kips'
   | 'organization'
   | 'adapters'
+  | 'plugins'
   | 'permissions'
   | 'learning'
   | 'connection'
@@ -102,6 +105,12 @@ const pages: Record<
     hue: 'var(--hue-plum)',
     words: 'models providers capabilities',
   },
+  plugins: {
+    label: 'Plugins',
+    icon: 'connection',
+    hue: 'var(--hue-sky)',
+    words: 'accounts services connect sign in integrations tools',
+  },
   permissions: {
     label: 'Permissions',
     icon: 'hand',
@@ -146,6 +155,7 @@ export function CoreSettingsPanel({
   softwareUpdates,
   permissionModes = false,
   memoryCards = false,
+  plugins = false,
   initialTab,
   appearance,
   endpoint,
@@ -174,7 +184,9 @@ export function CoreSettingsPanel({
   permissionModes?: boolean
   /** Core advertises the memory card actions. */
   memoryCards?: boolean
-  initialTab?: 'workspace' | 'updates'
+  /** Core reports Kipster Plugins ready. */
+  plugins?: boolean
+  initialTab?: 'workspace' | 'updates' | 'plugins'
   appearance: Appearance
   endpoint: string
   scope: Scope
@@ -186,6 +198,7 @@ export function CoreSettingsPanel({
   const platform = useContext(PlatformContext)
   const client = useMemo(() => new CoreSettingsClient(endpoint), [endpoint])
   const settings = useCoreSettings(client, scope, updates, permissionModes)
+  const pluginsClient = useMemo(() => createPluginsClient(endpoint), [endpoint])
   const journalScope = JSON.stringify([
     client.endpoint,
     scope.installationId,
@@ -201,6 +214,7 @@ export function CoreSettingsPanel({
     kips: true,
     organization: true,
     adapters: true,
+    plugins,
     permissions: permissionModes,
     learning: true,
     connection: !!changeConnection,
@@ -213,12 +227,23 @@ export function CoreSettingsPanel({
     ],
     [
       'Workspace',
-      ['kips', 'organization', 'adapters', 'permissions', 'learning'],
+      [
+        'kips',
+        'organization',
+        'adapters',
+        'plugins',
+        'permissions',
+        'learning',
+      ],
     ],
     ['Advanced', ['connection', 'archive']],
   ]
   const [page, setPage] = useState<PageId>(() =>
-    initialTab === 'updates' && shown.updates ? 'updates' : 'kips',
+    initialTab === 'updates' && shown.updates
+      ? 'updates'
+      : initialTab === 'plugins' && shown.plugins
+        ? 'plugins'
+        : 'kips',
   )
   const [stack, setStack] = useState<Frame[]>([])
   const [query, setQuery] = useState('')
@@ -310,12 +335,22 @@ export function CoreSettingsPanel({
     directory?.agents.find((a) => a.id === agentId)?.lifecycle === 'archived'
   const workspaceView =
     workspacePages.includes(page) ||
-    (frame && !['testing'].includes(frame.kind))
+    (frame && !['testing', 'plugin'].includes(frame.kind))
 
   function content() {
     if (frame) {
       if (frame.kind === 'testing')
         return softwareUpdates && <TestingPage updates={softwareUpdates} />
+      if (frame.kind === 'plugin')
+        return (
+          plugins && (
+            <PluginPage
+              key={frame.pluginId}
+              client={pluginsClient}
+              pluginId={frame.pluginId}
+            />
+          )
+        )
       if (!ready) return null
       switch (frame.kind) {
         case 'kip':
@@ -405,6 +440,8 @@ export function CoreSettingsPanel({
         return platform?.app && <GeneralSettings app={platform.app} />
       case 'updates':
         return <UpdatesPage updates={softwareUpdates} versions={versions} />
+      case 'plugins':
+        return plugins && <PluginsPage client={pluginsClient} />
       case 'connection':
         return (
           changeConnection && (

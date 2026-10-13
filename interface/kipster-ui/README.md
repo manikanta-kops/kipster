@@ -55,6 +55,13 @@ Reconnects and reloads restore saved state without dispatching work.
   agents have read-only history and can be restored. Permanent deletion requires
   typed-name confirmation. The archive panel tracks progress and waiting cleanup;
   deletion can wait for confirmed provider termination. The root admin is protected.
+- **Plugins:** shown when Core reports `capabilities.plugins`. A searchable
+  catalogue grouped by category; a plugin's page connects accounts, asking for
+  the service's address first when needed, and renames, sets the default,
+  reconnects and disconnects them. Sign-in opens the service in a new tab and
+  returns to Core's `/plugins/callback` on the address this window uses, so it
+  needs loopback or HTTPS; Core is checked every 1.5 seconds until the sign-in
+  finishes or expires.
 - **Settings:** saved and effective execution settings, adapter readiness,
   organization instructions, and Memory: switches, sleep times, the nightly
   model, per-turn counts and a Cards view to read, edit and delete memory cards.
