@@ -26,7 +26,7 @@ export const pluginPaths = {
 
 /**
  * Error codes of the plugin routes besides the plugin server's own, which errors keep unchanged.
- * `returnAddressRefused` is Core's: a return address not on Core's own origin. `serverFailed` (502) is Core's too: the
+ * `returnAddressRefused` is Core's: a return address that is not Core's own callback. `serverFailed` (502) is Core's too: the
  * plugin server did not answer in time or answered with something Core cannot read.
  */
 export const pluginErrorCodes = {
@@ -79,7 +79,8 @@ export type PluginResult = Infer<typeof pluginResult>
 
 /**
  * Starts a sign-in. `address` answers `needsAddress`. `returnAddress` replaces the plugin server's own callback for a
- * browser that reaches Core through another address; it must be Core's `/plugins/callback` on Core's own origin.
+ * browser that reaches Core through another address; it must be Core's `/plugins/callback` on a host Core answers:
+ * its listener or one of its allowed hosts.
  */
 export const pluginSignInRequest = object({ version: requestVersion, address: optional(boundedString(1, 2000)), returnAddress: optional(boundedString(1, 2000)) })
 export type PluginSignInRequest = Infer<typeof pluginSignInRequest>
