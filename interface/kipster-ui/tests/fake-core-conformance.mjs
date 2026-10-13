@@ -1829,6 +1829,7 @@ test('Kipster Plugins updates install the channel release and refuse with stable
   await refuse(op({ target: '0.8.0' }), 409, 'update-in-progress')
   await json('/__demo/updates', undefined, 'POST', { state: 'unmanaged' })
   await refuse(op({ target: '0.8.0' }), 409, 'update-unmanaged')
+  const hidden = await json('/v1/app/snapshot', protocol.appSnapshot)
   await json('/__demo/updates', undefined, 'POST', {
     managed: true,
     state: 'idle',
@@ -1838,6 +1839,16 @@ test('Kipster Plugins updates install the channel release and refuse with stable
     'plugins' in (await json('/v1/updates', protocol.updateStatus)),
     false,
   )
+  const [absent] = (
+    await replay(
+      await request(
+        `/v1/app/events?after=${encodeURIComponent(hidden.cursor)}`,
+      ),
+      (await json('/v1/app/snapshot', protocol.appSnapshot)).cursor,
+    )
+  ).slice(-1)
+  assert.equal(absent.type, 'updates-changed')
+  assert.equal('plugins' in absent.data, false)
   await refuse(op({ target: '0.8.0' }), 409, 'update-not-available')
   for (const scenario of ['rolled-back', 'failed']) {
     await json('/__demo/updates', undefined, 'POST', { plugins: scenario })

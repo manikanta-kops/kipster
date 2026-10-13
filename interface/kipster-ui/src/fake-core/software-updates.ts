@@ -171,8 +171,9 @@ export function createFakeUpdates(options: {
     status.core.lastResult?.to !== status.core.available.version
       ? ('scheduled' as const)
       : ('idle' as const)
+  // Events carry the same projection as GET /v1/updates.
   const changed = () =>
-    options.emit('updates-changed', status, 'software-updates', ++revision)
+    options.emit('updates-changed', snapshot(), 'software-updates', ++revision)
   const appChanged = () =>
     options.emit(
       'demo-app-updates-changed',
