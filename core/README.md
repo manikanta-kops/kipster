@@ -604,9 +604,13 @@ has reached ready there: it records that version in
 `<home>/plugins-host/highest-version` (0600, raised only), and after a restore,
 rollback, channel switch or host.json edit that would run an older release, the
 plugin server fails with the reason and plugins stay off until a release at or
-above that version is installed. The update check offers only such a release. If
-Core cannot write a newer record, it stops that server and fails with the reason
-rather than run it unrecorded. An unreadable or invalid record is logged and
+above that version is installed. The update check offers only such a release.
+Before a newer release starts, Core stages its version in
+`highest-version.pending` and renames that onto the record once the server is
+ready, so a Core that stops in between still counts it. If Core cannot stage the
+version, it does not start the server; if it cannot complete the record, it stops
+the server; either way it fails with the reason. A staged version is dropped when
+its server never becomes ready. An unreadable or invalid record is logged and
 ignored until a server is ready again; a module whose version cannot be read is
 started without the check.
 Without the `plugins` entry, without the installed package, or while the server

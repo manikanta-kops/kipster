@@ -52,6 +52,8 @@ async function release(directory, version, { never = false } = {}) {
   return join(root, 'dist/server/cli.js')
 }
 const highest = root => readFile(join(root, 'plugins-host/highest-version'), 'utf8').then(text => text.trim(), () => null)
+const pendingName = 'highest-version.pending'
+const pending = root => readFile(join(root, 'plugins-host', pendingName), 'utf8').then(text => text.trim(), () => null)
 async function script(directory, name, source) {
   const path = join(directory, name)
   await writeFile(path, source)
@@ -249,6 +251,7 @@ test('records the plugin server version only once it is ready and only upward', 
   await never.start()
   await wait(() => never.status.state === 'failed')
   assert.equal(await highest(root), null, 'a server that never became ready records nothing')
+  assert.equal(await pending(root), null, 'and leaves nothing staged')
 
   const ran = supervise(t, { home: root, module: v4, testOnly }).supervisor
   await ran.start()
@@ -285,34 +288,98 @@ test('records the plugin server version only once it is ready and only upward', 
   assert.equal(await highest(root), '0.4.0')
 })
 
-test('a newer version that cannot be recorded stops the server and still refuses older ones', async t => {
-  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }, file = join(root, 'plugins-host/highest-version')
+test('a newer version that cannot be staged never starts', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }
   const v3 = await release(join(root, 'core-0.3.0'), '0.3.0'), v4 = await release(join(root, 'core-0.4.0'), '0.4.0')
   const { supervisor, statuses } = supervise(t, { home: root, module: v3, testOnly })
   await supervisor.start()
   await wait(() => supervisor.endpoint())
   assert.equal(await highest(root), '0.3.0')
 
-  // A directory at the temporary name makes the atomic write fail.
-  const temporary = `${file}.${process.pid}.tmp`
-  await mkdir(temporary)
+  // A directory at the staged name makes the write fail before 0.4.0 is spawned.
+  await mkdir(join(root, 'plugins-host', pendingName))
   await supervisor.restart(v4)
   const failed = await wait(() => supervisor.status.state === 'failed' && supervisor.status)
-  assert.match(failed.reason, /^Core could not record plugin server version 0\.4\.0 in .*highest-version \(.*EISDIR.*\), so it stopped the server; make .*plugins-host writable and restart Core$/)
+  assert.match(failed.reason, /^Core could not record plugin server version 0\.4\.0 in .*highest-version \(.*EISDIR.*\), so it did not start the server; make .*plugins-host writable and restart Core$/)
   assert.equal(supervisor.endpoint(), undefined)
-  await wait(() => children(process.pid, v4).length === 0)
-  assert.equal(supervisor.highestVersion, '0.4.0', 'counts for this process')
+  assert.deepEqual(children(process.pid, v4), [], '0.4.0 never spawned')
+  assert.equal(supervisor.highestVersion, '0.3.0')
   assert.equal(await highest(root), '0.3.0')
   assert.equal(statuses.filter(status => status.state === 'restarting').length, 0, 'not retried')
 
-  await supervisor.restart(v3)
-  assert.equal(supervisor.status.reason, 'The plugin server 0.3.0 is older than 0.4.0, which already ran with this plugin data; install @kipster/plugins 0.4.0 or newer')
-  assert.deepEqual(children(process.pid, v3), [])
-
-  await rm(temporary, { recursive: true })
+  await rm(join(root, 'plugins-host', pendingName), { recursive: true })
   await supervisor.restart(v4)
   await wait(() => supervisor.endpoint())
   assert.equal(await highest(root), '0.4.0')
+  assert.equal(await pending(root), null)
+})
+
+test('a newer version whose record cannot be completed is stopped and refuses older ones in a later Core', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }, file = join(root, 'plugins-host/highest-version')
+  const v3 = await release(join(root, 'core-0.3.0'), '0.3.0'), v4 = await release(join(root, 'core-0.4.0'), '0.4.0')
+  const first = supervise(t, { home: root, module: v3, testOnly }).supervisor
+  await first.start()
+  await wait(() => first.endpoint())
+  await first.close()
+
+  // A non-empty directory in place of the record makes the rename fail after 0.4.0 is ready.
+  await rm(file)
+  await mkdir(join(file, 'blocked'), { recursive: true })
+  const { supervisor, statuses } = supervise(t, { home: root, module: v4, testOnly })
+  await supervisor.start()
+  const failed = await wait(() => supervisor.status.state === 'failed' && supervisor.status)
+  assert.match(failed.reason, /^Core could not record plugin server version 0\.4\.0 in .*highest-version \(.*\), so it stopped the server; make .*plugins-host writable and restart Core$/)
+  assert.ok(statuses.every(status => status.state !== 'ready' && status.state !== 'restarting'))
+  assert.equal(supervisor.endpoint(), undefined)
+  await wait(() => children(process.pid, v4).length === 0)
+  assert.equal(supervisor.highestVersion, '0.4.0', 'counts for this process')
+  assert.equal(await pending(root), '0.4.0', 'and stays staged for the next')
+  assert.equal((await stat(join(root, 'plugins-host', pendingName))).mode & 0o777, 0o600)
+  await supervisor.close()
+
+  // A later Core, with no memory of the failed record, still refuses 0.3.0.
+  const later = supervise(t, { home: root, module: v3, testOnly }).supervisor
+  await later.start()
+  assert.equal(later.status.reason, 'The plugin server 0.3.0 is older than 0.4.0, which already ran with this plugin data; install @kipster/plugins 0.4.0 or newer')
+  assert.deepEqual(children(process.pid, v3), [])
+  assert.equal(later.highestVersion, '0.4.0')
+  await later.close()
+
+  await rm(file, { recursive: true })
+  const recovered = supervise(t, { home: root, module: v4, testOnly }).supervisor
+  await recovered.start()
+  await wait(() => recovered.endpoint())
+  assert.equal(await highest(root), '0.4.0')
+  assert.equal(await pending(root), null)
+  assert.equal((await stat(file)).mode & 0o777, 0o600)
+})
+
+test('a version staged by a Core that stopped while its server started still counts', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }
+  const v3 = await release(join(root, 'core-0.3.0'), '0.3.0'), v4 = await release(join(root, 'core-0.4.0'), '0.4.0'), v5 = await release(join(root, 'core-0.5.0'), '0.5.0', { never: true })
+  await mkdir(join(root, 'plugins-host'), { recursive: true })
+  await writeFile(join(root, 'plugins-host/highest-version'), '0.3.0\n')
+  await writeFile(join(root, 'plugins-host', pendingName), '0.4.0\n')
+
+  const older = supervise(t, { home: root, module: v3, testOnly }).supervisor
+  await older.start()
+  assert.match(older.status.reason, /0\.3\.0 is older than 0\.4\.0/)
+  assert.deepEqual(children(process.pid, v3), [])
+  await older.close()
+
+  // A newer server that never becomes ready leaves the earlier staged version in place.
+  const never = supervise(t, { home: root, module: v5, testOnly, readyTimeoutMs: 300, backoff: { initialMs: 10, maxMs: 10, attempts: 1 } }).supervisor
+  await never.start()
+  await wait(() => never.status.state === 'failed')
+  assert.equal(await pending(root), '0.4.0')
+  assert.equal(await highest(root), '0.3.0')
+  await never.close()
+
+  const ran = supervise(t, { home: root, module: v4, testOnly }).supervisor
+  await ran.start()
+  await wait(() => ran.endpoint())
+  assert.equal(await highest(root), '0.4.0')
+  assert.equal(await pending(root), null)
 })
 
 test('the server stops when the Core process that started it dies', async t => {
