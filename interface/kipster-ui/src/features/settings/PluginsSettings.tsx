@@ -30,6 +30,8 @@ function Availability({ plugin }: { plugin: PluginSummary }) {
       <span className="set-status danger">
         <StatusDot tone="danger" />
         Unavailable
+        {plugin.accountCount > 0 &&
+          ` · ${plural(plugin.accountCount, 'account')}`}
       </span>
     )
   if (plugin.accountCount > 0)

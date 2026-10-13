@@ -235,13 +235,16 @@ export function createFakePlugins(options: {
       duplicate: s.duplicate === true,
     }
   }
+  /** A label for a new account within the 64-character limit, numbered if the name is taken. */
   const uniqueLabel = (pluginId: string, base: string) => {
     const taken = new Set(
       accountsOf(pluginId).map((a) => a.label.toLowerCase()),
     )
-    if (!taken.has(base.toLowerCase())) return base
+    const fit = (suffix: string) =>
+      base.slice(0, 64 - suffix.length).trimEnd() + suffix
+    if (!taken.has(fit('').toLowerCase())) return fit('')
     for (let n = 2; ; n++)
-      if (!taken.has(`${base} ${n}`.toLowerCase())) return `${base} ${n}`
+      if (!taken.has(fit(` ${n}`).toLowerCase())) return fit(` ${n}`)
   }
   /**
    * Completes a pending sign-in. The provider names the account: an existing one is reconnected

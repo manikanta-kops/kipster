@@ -96,6 +96,26 @@ test('the Plugins screen lists the catalogue by category and searches it', async
   ).toBeDisabled()
 })
 
+test('a connected plugin that becomes unavailable still shows its accounts', async ({
+  page,
+}) => {
+  await page.route('**/__test-core/*/v1/plugins', async (route) => {
+    const response = await route.fetch()
+    const list = (await response.json()) as {
+      plugins: { id: string; available: boolean; unavailableReason?: string }[]
+    }
+    const notion = list.plugins.find((p) => p.id === 'notion')!
+    notion.available = false
+    notion.unavailableReason = 'Notion is down for maintenance.'
+    await route.fulfill({ response, json: list })
+  })
+  await startDemo(page)
+  await openPlugins(page)
+  const notion = settings(page).getByRole('button', { name: /^Notion/ })
+  await expect(notion).toContainText('Notion is down for maintenance.')
+  await expect(notion).toContainText('Unavailable · 2 accounts')
+})
+
 test('a person connects an account, adds a second, renames it, makes it the default and disconnects the first', async ({
   page,
 }) => {

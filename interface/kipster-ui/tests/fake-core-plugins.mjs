@@ -257,6 +257,21 @@ test('sign-ins reconnect, deny, expire and refuse return addresses and methods l
   const sentry = await signIn(addressed.id)
   assert.equal(sentry.account.label, 'acme.sentry.io')
   assert.equal(sentry.account.serverUrl, 'https://acme.sentry.io')
+
+  const longHost = `${'a'.repeat(55)}.sentry.io`
+  const labels = []
+  for (let i = 0; i < 2; i++) {
+    const long = await start('sentry', {
+      returnAddress,
+      address: `https://${longHost}`,
+    })
+    await control({ signIn: long.id, outcome: 'complete' })
+    labels.push((await signIn(long.id)).account.label)
+  }
+  assert.deepEqual(labels, [
+    longHost.slice(0, 64),
+    `${longHost.slice(0, 62)} 2`,
+  ])
 })
 
 test('accounts rename with label rules, change the default and disconnect', async (t) => {
