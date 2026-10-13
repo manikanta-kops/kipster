@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:net'
-import { cp, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startFixture } from '@kipster/plugins/fixture'
@@ -282,6 +282,36 @@ test('records the plugin server version only once it is ready and only upward', 
   await unversioned.start()
   await wait(() => unversioned.status.state === 'failed')
   assert.match(unversioned.status.reason, /not ready within/, 'started, not refused')
+  assert.equal(await highest(root), '0.4.0')
+})
+
+test('a newer version that cannot be recorded stops the server and still refuses older ones', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }, file = join(root, 'plugins-host/highest-version')
+  const v3 = await release(join(root, 'core-0.3.0'), '0.3.0'), v4 = await release(join(root, 'core-0.4.0'), '0.4.0')
+  const { supervisor, statuses } = supervise(t, { home: root, module: v3, testOnly })
+  await supervisor.start()
+  await wait(() => supervisor.endpoint())
+  assert.equal(await highest(root), '0.3.0')
+
+  // A directory at the temporary name makes the atomic write fail.
+  const temporary = `${file}.${process.pid}.tmp`
+  await mkdir(temporary)
+  await supervisor.restart(v4)
+  const failed = await wait(() => supervisor.status.state === 'failed' && supervisor.status)
+  assert.match(failed.reason, /^Core could not record plugin server version 0\.4\.0 in .*highest-version \(.*EISDIR.*\), so it stopped the server; make .*plugins-host writable and restart Core$/)
+  assert.equal(supervisor.endpoint(), undefined)
+  await wait(() => children(process.pid, v4).length === 0)
+  assert.equal(supervisor.highestVersion, '0.4.0', 'counts for this process')
+  assert.equal(await highest(root), '0.3.0')
+  assert.equal(statuses.filter(status => status.state === 'restarting').length, 0, 'not retried')
+
+  await supervisor.restart(v3)
+  assert.equal(supervisor.status.reason, 'The plugin server 0.3.0 is older than 0.4.0, which already ran with this plugin data; install @kipster/plugins 0.4.0 or newer')
+  assert.deepEqual(children(process.pid, v3), [])
+
+  await rm(temporary, { recursive: true })
+  await supervisor.restart(v4)
+  await wait(() => supervisor.endpoint())
   assert.equal(await highest(root), '0.4.0')
 })
 
