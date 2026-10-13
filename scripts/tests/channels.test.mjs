@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { channelsFromGitHub, compareVersions, generateChannels, writeSite } from '../channels.mjs'
 import { writeReleaseMetadata } from '../release.mjs'
 
-function release(name, version, { signed = false, date = '2026-10-02T09:00:00Z', draft = false } = {}) {
+function release(name, version, { signed = false, date = '2026-10-02T09:00:00Z', draft = false, repository = 'manikanta-kops/kipster' } = {}) {
   const tag = `${name}-v${version}`
   const file = name === 'ui' ? `Kipster_${version}_aarch64.dmg` : `kipster-${name}-${version}.tgz`
   const files = [{ name: file, size: 42, sha256: 'a'.repeat(64) }]
@@ -22,7 +22,7 @@ function release(name, version, { signed = false, date = '2026-10-02T09:00:00Z',
   }
   return {
     tag_name: tag, prerelease: version.split('+')[0].includes('-'), draft, published_at: date, body: `Notes for ${tag}.`, metadata,
-    assets: [...files.map(file => ({ ...file, digest: `sha256:${file.sha256}`, browser_download_url: `https://github.com/manikanta-kops/kipster/releases/download/${tag}/${file.name}` })), { name: 'release.json', id: tag }],
+    assets: [...files.map(file => ({ ...file, digest: `sha256:${file.sha256}`, browser_download_url: `https://github.com/${repository}/releases/download/${tag}/${file.name}` })), { name: 'release.json', id: tag }],
   }
 }
 
@@ -165,12 +165,65 @@ test('GitHub loader paginates all releases and downloads metadata with the authe
     const fixture = list.find(item => args.at(-1).endsWith(item.tag_name))
     return JSON.stringify(fixture.metadata)
   }
-  const site = await channelsFromGitHub('manikanta-kops/kipster', api)
+  const site = await channelsFromGitHub('manikanta-kops/kipster', api, console.error, [])
   assert.deepEqual(calls[0], ['--paginate', '--slurp', 'repos/manikanta-kops/kipster/releases?per_page=100'])
   assert.deepEqual(calls[1], ['-H', 'Accept: application/octet-stream', 'repos/manikanta-kops/kipster/releases/assets/core-v0.2.0'])
   assert.equal(Object.keys(site['v1/releases.json'].packages).length, 2)
   await assert.rejects(channelsFromGitHub('invalid/repo/extra', api), /owner\/repository/)
   await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', () => { throw new Error('GitHub unavailable') }), /GitHub unavailable/)
+})
+
+/** A fake `gh api` serving each repository's paginated releases and release.json assets. */
+function githubAPI(repositories, calls = []) {
+  return args => {
+    calls.push(args)
+    const path = args.at(-1), repo = Object.keys(repositories).find(name => path.startsWith(`repos/${name}/`))
+    if (!repo) throw new Error(`gh: Not Found (HTTP 404) for ${path}`)
+    const list = repositories[repo]
+    if (typeof list === 'function') return list(args)
+    if (args.includes('--paginate')) return JSON.stringify([list.slice(0, 1), list.slice(1)])
+    return JSON.stringify(list.find(item => path === `repos/${repo}/releases/assets/${item.tag_name}`).metadata)
+  }
+}
+
+test('the plugins repository adds @kipster/plugins beside Kipster packages on every channel', async () => {
+  const plugins = 'manikanta-kops/kipster-plugins', calls = []
+  const api = githubAPI({
+    'manikanta-kops/kipster': [release('core', '0.3.0'), release('core', '0.4.0-next.1'), release('installer', '0.2.0')],
+    [plugins]: [release('plugins', '0.2.0', { repository: plugins }), release('plugins', '0.3.0-next.20261013173333', { repository: plugins }), release('plugins', '0.1.0', { repository: plugins, draft: true })],
+  }, calls)
+  const site = await channelsFromGitHub('manikanta-kops/kipster', api, () => {})
+  assert.deepEqual(calls.filter(args => args.includes('--paginate')).map(args => args.at(-1)), ['repos/manikanta-kops/kipster/releases?per_page=100', `repos/${plugins}/releases?per_page=100`])
+  assert.ok(calls.some(args => args.at(-1) === `repos/${plugins}/releases/assets/plugins-v0.2.0`), 'plugins metadata comes from its own repository')
+  const stable = site['v1/stable.json'].packages, next = site['v1/next.json'].packages
+  assert.deepEqual(Object.keys(stable), ['@kipster/core', '@kipster/installer', '@kipster/plugins'])
+  assert.deepEqual(stable['@kipster/plugins'], {
+    package: '@kipster/plugins', version: '0.2.0', prerelease: false, notes: 'Notes for plugins-v0.2.0.', publishedAt: '2026-10-02T09:00:00Z',
+    files: [{ name: 'kipster-plugins-0.2.0.tgz', url: `https://github.com/${plugins}/releases/download/plugins-v0.2.0/kipster-plugins-0.2.0.tgz`, sha256: 'a'.repeat(64), size: 42 }],
+  })
+  assert.equal(next['@kipster/plugins'].version, '0.3.0-next.20261013173333')
+  assert.equal(next['@kipster/core'].version, '0.4.0-next.1')
+  assert.deepEqual(site['v1/releases.json'].packages['@kipster/plugins'].map(entry => entry.version), ['0.3.0-next.20261013173333', '0.2.0'])
+  // A stable plugins release is the newest on next too.
+  const promoted = await channelsFromGitHub('manikanta-kops/kipster', githubAPI({ 'manikanta-kops/kipster': [], [plugins]: [release('plugins', '0.3.0', { repository: plugins }), release('plugins', '0.3.0-next.2', { repository: plugins })] }))
+  assert.equal(promoted['v1/next.json'].packages['@kipster/plugins'].version, '0.3.0')
+  assert.equal(promoted['v1/stable.json'].packages['@kipster/plugins'].version, '0.3.0')
+  // Without plugins releases the catalogs simply omit the package.
+  const none = await channelsFromGitHub('manikanta-kops/kipster', githubAPI({ 'manikanta-kops/kipster': [release('core', '0.3.0')], [plugins]: [] }))
+  assert.equal(none['v1/stable.json'].packages['@kipster/plugins'], undefined)
+})
+
+test('an unreadable plugins repository fails the run, and each repository releases only its own packages', async () => {
+  const plugins = 'manikanta-kops/kipster-plugins', kipster = [release('core', '0.3.0')]
+  const unavailable = githubAPI({ 'manikanta-kops/kipster': kipster, [plugins]: () => { throw new Error('gh: HTTP 502') } })
+  await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', unavailable), /HTTP 502/)
+  const failedAsset = githubAPI({ 'manikanta-kops/kipster': kipster, [plugins]: args => { if (args.includes('--paginate')) return JSON.stringify([[release('plugins', '0.2.0', { repository: plugins })]]); throw new Error('gh: asset unavailable') } })
+  await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', failedAsset), /plugins-v0\.2\.0: gh: asset unavailable/)
+  const foreign = githubAPI({ 'manikanta-kops/kipster': kipster, [plugins]: [release('core', '0.9.0', { repository: plugins })] })
+  await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', foreign), /core-v0\.9\.0: manikanta-kops\/kipster-plugins does not release @kipster\/core/)
+  const claimed = githubAPI({ 'manikanta-kops/kipster': [...kipster, release('plugins', '0.2.0')], [plugins]: [] })
+  await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', claimed), /manikanta-kops\/kipster does not release @kipster\/plugins/)
+  await assert.rejects(channelsFromGitHub('manikanta-kops/kipster', githubAPI({ 'manikanta-kops/kipster': kipster }), () => {}, [{ repository: 'not a repository', packages: ['@kipster/plugins'] }]), /owner\/repository/)
 })
 
 test('build-time metadata flows through to files on disk, and existing output is preserved', async t => {
