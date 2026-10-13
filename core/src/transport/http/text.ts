@@ -221,10 +221,10 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         const row=interactionResponseCommand.parse(await body(request))
         const target={ operationId: row.operationId, interactionId: row.interactionId, threadId: row.threadId, runId: row.runId, attemptId: row.attemptId }
         const result=path.endsWith('/receipt')?await interactionReceipt(runtime.db,actor,target):await answerInteraction(runtime.db, runtime.jobs, actor, { ...target, ...(row.proposalId ? { proposalId: row.proposalId } : {}), answer: row.answer as InteractionAnswer }, (client, card) => applyAdminApproval(client, runtime.jobs, actor, card))
-        // An approved Core install starts once the answer is saved; its operation ID makes a repeated start return the first result.
+        // An approved Core or plugins install starts once the answer is saved; its operation ID makes a repeated start return the first result.
         const install = 'outcome' in result && result.outcome === 'accepted' ? await approvedInstall(runtime.db, actor, row.interactionId) : null
         if (install) {
-          try { await recordInstall(runtime.db, row.interactionId, await runtime.updates.install(actor, { version: 1, operationId: install.operationId, ...install.install })) }
+          try { await recordInstall(runtime.db, row.interactionId, install.plugins ? await runtime.updates.installPlugins(actor, { version: 1, operationId: install.operationId, target: install.install.target }) : await runtime.updates.install(actor, { version: 1, operationId: install.operationId, ...install.install })) }
           catch (error) { await recordInstall(runtime.db, row.interactionId, { error: error instanceof Error ? error.message : String(error) }) }
         }
         json(response, 200, { version: 1, operationId: row.operationId, ...result }); return

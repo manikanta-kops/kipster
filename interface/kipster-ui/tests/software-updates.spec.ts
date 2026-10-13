@@ -752,3 +752,111 @@ test('backend compatibility recovery displays an updater startup failure', async
   ).toBeVisible()
   await expect(page.getByRole('status')).toHaveCount(0)
 })
+
+const plugins = (page: Page) =>
+  updates(page).getByRole('region', { name: 'Kipster Plugins', exact: true })
+
+test('Kipster Plugins appear only when Core runs a plugin server', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openUpdates(page)
+  await expect(plugins(page)).toContainText('0.8.0')
+  await expect(plugins(page).getByRole('button')).toHaveCount(0)
+  await demo(page, '/updates', { plugins: 'absent' })
+  await expect(plugins(page)).toHaveCount(0)
+  await demo(page, '/updates', { plugins: 'unknown-version' })
+  await expect(plugins(page)).toContainText('Version unknown → 0.8.0')
+})
+
+test('Install updates Kipster Plugins without restarting the backend', async ({
+  page,
+}, info) => {
+  await startDemo(page)
+  await demo(page, '/updates', { mode: 'notify', plugins: 'available' })
+  await openUpdates(page)
+  await expect(plugins(page)).toContainText('0.7.0 → 0.8.0')
+  await expect(plugins(page)).toContainText('restarts the plugin server')
+  await capture(page, info, 'software-updates-plugins')
+  await plugins(page)
+    .getByRole('button', { name: 'Install', exact: true })
+    .click()
+  await expect(
+    plugins(page).getByRole('button', { name: 'Installing…' }),
+  ).toBeDisabled()
+  await expect
+    .poll(async () => (await demo(page, '/updates')).installs)
+    .toEqual([expect.objectContaining({ version: 1, target: '0.8.0' })])
+  await expect(page.locator('.software-update-pill')).toHaveCount(0)
+  await expect(summary(page)).toContainText('Up to date')
+  await demo(page, '/updates', { plugins: 'installed' })
+  await expect(plugins(page)).toHaveText(/0\.8\.0/)
+  await expect(plugins(page)).not.toContainText('→')
+  await expect(plugins(page).getByRole('button')).toHaveCount(0)
+})
+
+test('unmanaged hosts explain Kipster Plugins updates instead of installing', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await demo(page, '/updates', { state: 'unmanaged', plugins: 'available' })
+  await openUpdates(page)
+  await expect(plugins(page)).toContainText('0.7.0 → 0.8.0')
+  await expect(plugins(page)).toContainText(
+    'Update Kipster Plugins on its host',
+  )
+  await expect(plugins(page).getByRole('button')).toHaveCount(0)
+})
+
+test('failed and rolled-back Kipster Plugins updates show why and can be retried', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openUpdates(page)
+  await demo(page, '/updates', { plugins: 'failed' })
+  await expect(plugins(page)).toContainText(
+    'Kipster Plugins could not be installed. Try again.',
+  )
+  await expect(
+    plugins(page).getByRole('button', { name: 'Install', exact: true }),
+  ).toBeEnabled()
+  await demo(page, '/updates', { plugins: 'rolled-back' })
+  await expect(plugins(page)).toContainText(
+    'Kipster Plugins 0.8.0 did not start; 0.7.0 runs again',
+  )
+  await demo(page, '/updates', { plugins: { state: 'idle', error: null } })
+  await expect(plugins(page)).toContainText(
+    '0.8.0 didn’t start, so 0.7.0 was restored.',
+  )
+  await expect(page.locator('.software-update-pill')).toHaveCount(0)
+})
+
+test('a refused Kipster Plugins install restores the row and shows the reason', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await demo(page, '/updates', { mode: 'notify', plugins: 'available' })
+  await openUpdates(page)
+  await page.route('**/__test-core/*/v1/updates/plugins/install', (route) =>
+    route.fulfill({
+      status: 409,
+      json: {
+        version: 1,
+        code: 'update-not-available',
+        message:
+          "The target is not the selected channel's Kipster Plugins release",
+        requestId: 'plugins-test',
+      },
+    }),
+  )
+  await plugins(page)
+    .getByRole('button', { name: 'Install', exact: true })
+    .click()
+  await expect(updates(page).getByRole('alert')).toContainText(
+    'Kipster Plugins release',
+  )
+  await expect(
+    plugins(page).getByRole('button', { name: 'Install', exact: true }),
+  ).toBeEnabled()
+  expect((await demo(page, '/updates')).installs).toEqual([])
+})

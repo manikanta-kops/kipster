@@ -40,6 +40,7 @@ const routes = {
   '/v1/updates/check': ['updates.check'],
   '/v1/updates/install': ['updates.install'],
   '/v1/updates/unpin': ['updates.unpin'],
+  '/v1/updates/plugins/install': ['updates.plugins_install'],
   '/v1/settings': ['settings.list'],
   '/v1/execution-adapters': ['adapters.list'],
   '/v1/execution-adapters/refresh': ['adapters.refresh'],

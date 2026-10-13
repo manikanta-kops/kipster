@@ -1739,6 +1739,149 @@ test('unmanaged Core exposes releases without scheduling installs and refuses wi
   )
 })
 
+test('Kipster Plugins updates install the channel release and refuse with stable codes', async (t) => {
+  const { json, request } = harness(t)
+  const refuse = async (body, status, code) => {
+    const response = await request('/v1/updates/plugins/install', 'POST', body)
+    assert.equal(response.status, status)
+    assert.equal(protocol.stableError.parse(await response.json()).code, code)
+  }
+  const current = await json('/v1/updates', protocol.updateStatus)
+  assert.deepEqual(protocol.pluginsUpdateStatus.parse(current.plugins), {
+    version: '0.8.0',
+    available: null,
+    state: 'idle',
+    error: null,
+    lastResult: null,
+  })
+  await refuse(
+    protocol.updatePluginsInstall.parse(op({ target: '0.8.0' })),
+    409,
+    'update-already-installed',
+  )
+  for (const body of [
+    op(),
+    op({ target: '' }),
+    op({ target: 8 }),
+    op({ target: '0.9.0', future: true }),
+    { operationId: randomUUID(), target: '0.9.0' },
+  ])
+    await refuse(body, 400, 'invalid')
+  await json(
+    '/v1/settings/updates',
+    protocol.updateSettings,
+    'PUT',
+    op({ channel: 'stable', mode: 'notify' }),
+  )
+  await json('/__demo/updates', undefined, 'POST', { plugins: 'available' })
+  const available = await json('/v1/updates', protocol.updateStatus)
+  assert.equal(available.plugins.version, '0.7.0')
+  assert.equal(available.plugins.available.package, '@kipster/plugins')
+  assert.equal(available.plugins.available.version, '0.8.0')
+  await refuse(op({ target: '0.9.0-next.1' }), 409, 'update-not-available')
+  await refuse(op({ target: '0.6.0' }), 409, 'update-not-available')
+  await refuse(op({ target: '0.7.0' }), 409, 'update-already-installed')
+  const before = await json('/v1/app/snapshot', protocol.appSnapshot)
+  const input = protocol.updatePluginsInstall.parse(op({ target: '0.8.0' }))
+  const installing = await json(
+    '/v1/updates/plugins/install',
+    protocol.updateStatus,
+    'POST',
+    input,
+  )
+  assert.equal(installing.plugins.state, 'installing')
+  assert.equal(installing.core.state, 'idle')
+  assert.deepEqual(
+    await json(
+      '/v1/updates/plugins/install',
+      protocol.updateStatus,
+      'POST',
+      input,
+    ),
+    installing,
+  )
+  await refuse({ ...input, target: '0.7.0' }, 409, 'conflict')
+  await refuse(op({ target: '0.8.0' }), 409, 'update-in-progress')
+  assert.deepEqual((await json('/__demo/updates')).installs, [input])
+  await json('/__demo/updates', undefined, 'POST', { plugins: 'installed' })
+  const installed = await json('/v1/updates', protocol.updateStatus)
+  assert.equal(installed.plugins.version, '0.8.0')
+  assert.equal(installed.plugins.available, null)
+  assert.equal(installed.plugins.state, 'idle')
+  assert.deepEqual(
+    { ...installed.plugins.lastResult, at: undefined },
+    { from: '0.7.0', to: '0.8.0', outcome: 'installed', at: undefined },
+  )
+  const after = await json('/v1/app/snapshot', protocol.appSnapshot)
+  const events = await replay(
+    await request(`/v1/app/events?after=${encodeURIComponent(before.cursor)}`),
+    after.cursor,
+  )
+  assert.deepEqual(
+    events.map((event) => [event.type, event.data.plugins.state]),
+    [
+      ['updates-changed', 'installing'],
+      ['updates-changed', 'idle'],
+    ],
+  )
+  await json('/__demo/updates', undefined, 'POST', { state: 'installing' })
+  await json('/__demo/updates', undefined, 'POST', { plugins: 'available' })
+  await refuse(op({ target: '0.8.0' }), 409, 'update-in-progress')
+  await json('/__demo/updates', undefined, 'POST', { state: 'unmanaged' })
+  await refuse(op({ target: '0.8.0' }), 409, 'update-unmanaged')
+  const hidden = await json('/v1/app/snapshot', protocol.appSnapshot)
+  await json('/__demo/updates', undefined, 'POST', {
+    managed: true,
+    state: 'idle',
+    plugins: 'absent',
+  })
+  assert.equal(
+    'plugins' in (await json('/v1/updates', protocol.updateStatus)),
+    false,
+  )
+  const [absent] = (
+    await replay(
+      await request(
+        `/v1/app/events?after=${encodeURIComponent(hidden.cursor)}`,
+      ),
+      (await json('/v1/app/snapshot', protocol.appSnapshot)).cursor,
+    )
+  ).slice(-1)
+  assert.equal(absent.type, 'updates-changed')
+  assert.equal('plugins' in absent.data, false)
+  await refuse(op({ target: '0.8.0' }), 409, 'update-not-available')
+  for (const scenario of ['rolled-back', 'failed']) {
+    await json('/__demo/updates', undefined, 'POST', { plugins: scenario })
+    const { plugins } = await json('/v1/updates', protocol.updateStatus)
+    assert.equal(plugins.lastResult.outcome, scenario)
+    assert.equal(plugins.state, 'failed')
+    assert.ok(plugins.error)
+    assert.equal(plugins.available.version, '0.8.0')
+  }
+  await json('/__demo/updates', undefined, 'POST', {
+    plugins: 'unknown-version',
+  })
+  assert.equal(
+    (await json('/v1/updates', protocol.updateStatus)).plugins.version,
+    null,
+  )
+})
+
+test('automatic mode installs a newer Kipster Plugins release after a check', async (t) => {
+  const { json } = harness(t)
+  await json('/__demo/updates', undefined, 'POST', {
+    plugins: { version: '0.7.0' },
+  })
+  const checked = await json(
+    '/v1/updates/check',
+    protocol.updateStatus,
+    'POST',
+    { version: 1 },
+  )
+  assert.equal(checked.plugins.available.version, '0.8.0')
+  assert.equal(checked.plugins.state, 'installing')
+})
+
 test('notification previews, batch reads and clears keep pending questions', async (t) => {
   const { json, request } = harness(t)
   const bootstrap = await json('/v1/bootstrap')

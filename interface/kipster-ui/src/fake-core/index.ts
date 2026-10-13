@@ -309,6 +309,7 @@ export function createFakeCore(
         offline = false
       }, ms)
     },
+    pluginServer: () => plugins.enabled(),
   })
   const plugins = createFakePlugins({
     enabled: options.plugins ?? true,
@@ -2131,6 +2132,7 @@ export function createFakeCore(
           if (offline || disposed) return
           for (const thread of threads.values()) advance(thread)
           plugins.tick()
+          softwareUpdates.tick()
         }, options.tickMs ?? 1800)
   return {
     handle,

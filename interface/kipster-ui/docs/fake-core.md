@@ -110,9 +110,14 @@ to return to a managed host. Supply `step` for install progress and `disconnectM
 the restart outage. `core` and `backups` override status fields; `app` sets the
 simulated app’s state, version, availability or error; a version containing
 `-next.` shows the Testing section. App pinning through the UI
-stays device-local. The fake serves the shared `/v1/settings/updates` and
-`/v1/updates` routes, and emits `updates-changed`; app simulation uses a separate
-demo-only event. Neither simulation contacts the public update service.
+stays device-local. `plugins` sets the Kipster Plugins status: `absent` (no
+plugin server), `current`, `available`, `installing`, `installed`,
+`rolled-back`, `failed` or `unknown-version`, or an object of status fields.
+The fake serves the shared `/v1/settings/updates`, `/v1/updates` and
+`/v1/updates/plugins/install` routes, and emits `updates-changed`; app
+simulation uses a separate demo-only event. Status includes `plugins` while the
+plugin routes are enabled. A plugins install stays `installing` until the next
+clock tick or the `installed` scenario; a check in automatic mode starts one. Neither simulation contacts the public update service.
 
 Use Node.js 26.10.0, with the sibling Core package built, to run:
 

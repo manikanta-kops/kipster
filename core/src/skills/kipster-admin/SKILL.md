@@ -91,7 +91,9 @@ Find the card first and change only the cards they mean.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call
-`updates.install`; the person approves it and Kipster restarts.
+`updates.install`; the person approves it and Kipster restarts. `plugins` in `updates.get` shows the Kipster Plugins
+version and any newer release; in automatic mode Kipster installs it by itself. To install it in notify mode, call
+`updates.plugins_install` with that version; the person approves it and only the plugin server restarts.
 
 **Plugins.** Plugins let kips use services such as GitHub or Notion through the person's own accounts.
 `plugins.list` shows them; a plugin that is not `available` cannot be signed in to. To connect an account, call

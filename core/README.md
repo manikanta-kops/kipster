@@ -539,6 +539,24 @@ an upgrade unpinned. A restore always pins its target.
 Mutation IDs are scoped to the owner and deduplicated across restarts; changing
 the payload under an existing ID returns `conflict`.
 
+When the host runs a plugin server, the same check covers `@kipster/plugins`
+and `GET /v1/updates` adds `plugins: { version, available, state, error,
+lastResult }`: the running package version, the selected channel's release when
+newer, `idle`, `checking`, `installing` or `failed`, and the last install's
+`from`, `to`, `outcome` and `at`. Core installs plugins releases itself, without
+the updater: on a managed host, automatic mode installs a newer release right
+away, and `POST /v1/updates/plugins/install` (`{ version: 1, operationId,
+target }`) starts one in either mode, answering with `plugins.state:
+"installing"`. Core downloads the release's `.tgz`, checks its size and SHA-256
+against the channel, runs `npm install --omit=dev --ignore-scripts` with the npm
+beside its Node binary into `<home>/plugins-host/versions/<version>`, checks the
+package name and version, points `<home>/plugins-host/current` at it and
+restarts only the plugin server. When that server does not become ready,
+`current` goes back and the previous version runs again (`rolled-back`). A
+failed release is not retried automatically. Refusals use `update-unmanaged`,
+`update-in-progress`, `update-already-installed` or `update-not-available` (not
+the channel's release, an older version, or no plugin server).
+
 Core atomically writes `<home>/updates/request.json` from a durable database
 outbox. The separate updater verifies releases, manages backups, installs or
 restores, and restarts Core. It atomically writes `status.json`; Core reads it
@@ -579,6 +597,9 @@ The server stops when the host does, including when the host process dies.
 
 The server is ready once `/health` reports control API `v1` and the token opens
 `/v1`. Only then does `runtime.plugins.endpoint()` return its URL and token.
+It runs the newer of the host.json module and the release Core installed in
+`<home>/plugins-host/current`, so a Core update or restore never downgrades
+plugins.
 Without the `plugins` entry, without the installed package, or while the server
 is not ready, plugins are off and the rest of Core keeps working. `status` and
 `doctor` report the plugin server's state.

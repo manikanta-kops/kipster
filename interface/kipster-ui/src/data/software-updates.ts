@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 import {
   updateCheck,
   updateInstall,
+  updatePluginsInstall,
   updateSettingsWrite,
   updateUnpin,
 } from '@kipster/core/protocol'
@@ -147,6 +148,20 @@ export class SoftwareUpdatesClient {
       ),
     )
   }
+  /** Installs the selected channel's Kipster Plugins release; only the plugin server restarts. */
+  async installPlugins(target: string) {
+    return parseUpdateStatus(
+      await this.request(
+        '/v1/updates/plugins/install',
+        'POST',
+        updatePluginsInstall.parse({
+          version: 1,
+          operationId: crypto.randomUUID(),
+          target,
+        }),
+      ),
+    )
+  }
   async unpin() {
     return parseUpdateStatus(
       await this.request(
@@ -271,7 +286,8 @@ export class SoftwareUpdates {
       this.armInBackground()
       if (
         (status.core.managed && status.core.state === 'installing') ||
-        status.core.state === 'checking'
+        status.core.state === 'checking' ||
+        status.plugins?.state === 'installing'
       )
         this.poll()
     } catch (error) {
@@ -433,6 +449,29 @@ export class SoftwareUpdates {
       this.patch({ reconnecting: true })
     }
     this.poll()
+  }
+  /** Core keeps running while the plugin server restarts, so a refusal or lost response restores Core's status. */
+  async installPlugins(target: string) {
+    const previous = this.value.status
+    if (previous?.core.managed === false)
+      throw new TextHttpError(
+        'Software installation requires a managed updater on this host',
+        'update-unmanaged',
+      )
+    if (previous?.plugins)
+      this.patch({
+        status: {
+          ...previous,
+          plugins: { ...previous.plugins, state: 'installing', error: null },
+        },
+      })
+    try {
+      this.acceptStatus(await this.client.installPlugins(target))
+    } catch (error) {
+      this.patch({ status: previous })
+      await this.refresh()
+      throw error
+    }
   }
   async unpinBackend() {
     this.acceptStatus(await this.client.unpin())

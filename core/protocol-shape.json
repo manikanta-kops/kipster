@@ -533,6 +533,15 @@
         "confirmDataLoss": {"type":"optional","of":{"type":"boolean"}}
       }
     },
+    "updatePluginsInstall": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "target": {"type":"string","min":1,"max":200}
+      }
+    },
     "updateSettingsWrite": {
       "type": "object",
       "exact": true,
@@ -2039,6 +2048,46 @@
         "accountCount": {"type":"integer","min":0}
       }
     },
+    "pluginsUpdateStatus": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"nullable","of":{"type":"string","min":1}},
+        "available": {"type":"nullable","of":{"ref":"channelEntry"}},
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"idle"},
+            {"type":"literal","value":"checking"},
+            {"type":"literal","value":"installing"},
+            {"type":"literal","value":"failed"},
+            {"type":"string"}
+          ]
+        },
+        "error": {"type":"nullable","of":{"type":"string"}},
+        "lastResult": {
+          "type": "nullable",
+          "of": {
+            "type": "object",
+            "exact": false,
+            "fields": {
+              "from": {"type":"nullable","of":{"type":"string","min":1}},
+              "to": {"type":"string","min":1},
+              "outcome": {
+                "type": "union",
+                "of": [
+                  {"type":"literal","value":"installed"},
+                  {"type":"literal","value":"rolled-back"},
+                  {"type":"literal","value":"failed"},
+                  {"type":"string"}
+                ]
+              },
+              "at": {"type":"string","format":"utc-timestamp"}
+            }
+          }
+        }
+      }
+    },
     "queueEntry": {
       "type": "object",
       "exact": false,
@@ -2137,7 +2186,8 @@
             {"type":"literal","value":"update-already-installed"},
             {"type":"literal","value":"update-backup-required"},
             {"type":"literal","value":"update-backup-mismatch"},
-            {"type":"literal","value":"update-confirmation-required"}
+            {"type":"literal","value":"update-confirmation-required"},
+            {"type":"literal","value":"update-not-available"}
           ]
         },
         "message": {"type":"string"},
@@ -2800,7 +2850,8 @@
             },
             "backups": {"type":"array","items":{"ref":"updateBackup"}}
           }
-        }
+        },
+        "plugins": {"type":"optional","of":{"ref":"pluginsUpdateStatus"}}
       }
     },
     "updaterStatusFile": {

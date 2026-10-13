@@ -33,6 +33,15 @@ export const updateInstall = object({ version: literal(1), operationId: boundedS
 export type UpdateInstall = Infer<typeof updateInstall>
 export const updateUnpin = object({ version: literal(1), operationId: boundedString(1, 200) })
 export type UpdateUnpin = Infer<typeof updateUnpin>
+/** Installs the selected channel's `@kipster/plugins` release; Core restarts only the plugin server. */
+export const updatePluginsInstall = object({ version: literal(1), operationId: boundedString(1, 200), target: boundedString(1, 200) })
+export type UpdatePluginsInstall = Infer<typeof updatePluginsInstall>
+/** Present only when the host runs a plugin server. `version` is null while no plugin server package can be read. */
+export const pluginsUpdateStatus = object({
+  version: nullable(nonempty()), available: nullable(channelEntry), state: fallback('idle', 'checking', 'installing', 'failed'), error: nullable(string()),
+  lastResult: nullable(object({ from: nullable(nonempty()), to: nonempty(), outcome: fallback('installed', 'rolled-back', 'failed'), at: utcTimestamp() }, false)),
+}, false)
+export type PluginsUpdateStatus = Infer<typeof pluginsUpdateStatus>
 export const updateStatus = object({
   version: literal(1), channel: fallback('stable', 'next'), mode: fallback('automatic', 'notify'), checkedAt: nullable(utcTimestamp()),
   window: object({ start: literal('02:00'), end: literal('05:00') }, false),
@@ -42,6 +51,7 @@ export const updateStatus = object({
     lastResult: nullable(object({ from: nonempty(), to: nonempty(), outcome: fallback('installed', 'rolled-back', 'failed'), at: utcTimestamp() }, false)),
     backups: array(updateBackup),
   }, false),
+  plugins: optional(pluginsUpdateStatus),
 }, false)
 export type UpdateStatus = Infer<typeof updateStatus>
 
