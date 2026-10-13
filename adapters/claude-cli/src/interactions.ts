@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { TextExecutionContext } from '@kipster/core/adapter'
+import type { PluginTool } from './plugin-tools.js'
 
 type ObjectValue = Record<string, unknown>
 const object = (value: unknown): ObjectValue => value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : {}
@@ -10,9 +11,10 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null'
 }
 /** The input that defines the action. Claude regenerates labels such as a command's `description`, and WebFetch's
- * `prompt` only shapes how fetched content is summarized, so neither is part of what a person approves. */
-function action(toolName: string, input: ObjectValue): ObjectValue {
-  const ignored = toolName === 'WebFetch' ? ['description', 'prompt'] : ['description']
+ * `prompt` only shapes how fetched content is summarized, so neither is part of what a person approves. A plugin
+ * tool's arguments are all the service receives, so each one is bound. */
+function action(toolName: string, input: ObjectValue, plugin: boolean): ObjectValue {
+  const ignored = plugin ? [] : toolName === 'WebFetch' ? ['description', 'prompt'] : ['description']
   return Object.fromEntries(Object.entries(input).filter(([key]) => !ignored.includes(key)))
 }
 /** A permission prompt answered from a saved interaction or a grant, or the cards a person must answer first. */
@@ -29,8 +31,9 @@ const text = (value: unknown): string | undefined => typeof value === 'string' &
 const both: Scope[] = ['conversation', 'always']
 
 /** The card for one tool use: a one-line question with plain detail, and the broader grant the person may choose. */
-function card(toolName: string, input: ObjectValue, proposal: string): Card {
+function card(toolName: string, input: ObjectValue, proposal: string, plugin: PluginTool | undefined): Card {
   const grant = (key: string, label: string, scopes: Scope[] = both) => ({ key: `claude-cli:${key.length > 400 ? `sha256:${createHash('sha256').update(key).digest('hex')}` : key}`, label: clip(label, 200), scopes })
+  if (plugin) return { prompt: `Use ${plugin.tool} from ${plugin.plugin} with ${plugin.account}?`, grant: grant(toolName, `${plugin.plugin}: ${plugin.tool}`) }
   const command = text(input.command), path = text(input.file_path) ?? text(input.notebook_path), url = text(input.url)
   if (toolName === 'Bash' && command) return { prompt: lines(`Run \`${clip(command, 160)}\`?`, input.description, command.length > 160 ? command : undefined), grant: grant(`Bash:${command}`, `Run ${command}`) }
   if (['Edit', 'MultiEdit', 'Write', 'NotebookEdit'].includes(toolName) && path) return { prompt: lines(`Edit ${path.split('/').at(-1)}?`, path), grant: grant(`edit:${path}`, `Edit ${path}`, ['conversation']) }
@@ -49,12 +52,13 @@ function card(toolName: string, input: ObjectValue, proposal: string): Card {
 /**
  * Translates one Claude Code permission prompt. Core saves and resolves the cards: an approval is bound to the exact
  * tool and input, or covered by a grant the person chose, and each AskUserQuestion question becomes a question card
- * whose saved answer is reused.
+ * whose saved answer is reused. A plugin tool its server labels `read` runs without a card, like Kipster's own tools.
  */
-export function permissionDecision(context: TextExecutionContext, toolName: string, input: ObjectValue): Decision {
+export function permissionDecision(context: TextExecutionContext, toolName: string, input: ObjectValue, plugin?: PluginTool): Decision {
   if (toolName === 'AskUserQuestion') return questions(context, input)
-  const proposal = canonical({ tool: toolName, input: action(toolName, input) })
-  const shown = card(toolName, input, proposal)
+  if (plugin?.access === 'read') return { kind: 'answered', behavior: 'allow', updatedInput: input }
+  const proposal = canonical({ tool: toolName, input: action(toolName, input, !!plugin) })
+  const shown = card(toolName, input, proposal, plugin)
   if (context.permissionMode === 'fullAccess' || context.approvalGrants?.includes(shown.grant.key)) return { kind: 'answered', behavior: 'allow', updatedInput: input }
   const proposalId = `claude:${createHash('sha256').update(proposal).digest('hex')}`
   const saved = context.interactions?.findLast(item => item.kind === 'approval' && item.proposalId === proposalId && item.proposal === proposal)

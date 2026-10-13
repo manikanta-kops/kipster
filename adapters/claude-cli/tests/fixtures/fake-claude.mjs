@@ -1,6 +1,6 @@
 // A fake `claude` CLI: answers `auth status`, the initialize control request, and one user turn per scenario.
 // The scenario comes from the file named by FAKE_CLAUDE_MODE_FILE; every observation is appended to FAKE_CLAUDE_LOG.
-import { appendFileSync, readFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, statSync } from 'node:fs'
 import { createInterface } from 'node:readline'
 
 const args = process.argv.slice(2)
@@ -14,7 +14,7 @@ if (args[0] === 'auth') {
   process.exit(0)
 }
 const session = option('--session-id') ?? option('--resume') ?? '11111111-2222-4333-8444-555555555555'
-log({ launch: { argv: args, cwd: process.cwd(), env: process.env, pid: process.pid, instructions: option('--append-system-prompt-file') ? readFileSync(option('--append-system-prompt-file'), 'utf8') : undefined, mcp: option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')) : undefined } })
+log({ launch: { argv: args, cwd: process.cwd(), env: process.env, pid: process.pid, instructions: option('--append-system-prompt-file') ? readFileSync(option('--append-system-prompt-file'), 'utf8') : undefined, mcp: option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')) : undefined, mcpMode: option('--mcp-config') ? statSync(option('--mcp-config')).mode & 0o777 : undefined } })
 
 const config = option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')).mcpServers : {}
 let rpc = 0
@@ -73,6 +73,15 @@ const scenarios = {
   async error() { send({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error: overloaded', session_id: session }) },
   async hang() { await new Promise(() => {}) },
   async maintenance() { done({ structured_output: { candidates: [] } }) },
+  // `plugins [[tool, input], ...]`: asks permission for each plugin tool in turn until one waits for a card.
+  async plugins() {
+    for (const [name, input] of JSON.parse(mode.slice('plugins '.length))) {
+      const decision = await permission(name, input, `toolu_${name}`)
+      log({ plugin: name, decision })
+      if (decision.message === 'Waiting for the person to answer.') return
+    }
+    done()
+  },
 }
 
 let started = false
@@ -90,6 +99,6 @@ createInterface({ input: process.stdin }).on('line', line => {
   started = true
   log({ user: message.message.content })
   send({ type: 'system', subtype: 'init', session_id: session, tools: mode.startsWith('maintenance') ? (mode === 'maintenance-leak' ? ['Bash', 'StructuredOutput'] : ['StructuredOutput']) : ['Bash', 'mcp__kipster__notes_echo'], mcp_servers: [] })
-  void scenarios[mode.startsWith('maintenance') ? 'maintenance' : mode]().catch(error => { log({ error: String(error) }); process.exit(1) })
+  void scenarios[mode.startsWith('maintenance') ? 'maintenance' : mode.startsWith('plugins ') ? 'plugins' : mode]().catch(error => { log({ error: String(error) }); process.exit(1) })
 })
 process.stdin.on('end', () => process.exit(0))
