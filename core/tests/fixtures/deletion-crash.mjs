@@ -8,7 +8,7 @@ const batches = new Map()
 const runtime = await openRuntime({ connectionString: url, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' } })
 // Every run has ended; this adapter only answers for the provider state it cannot forget.
 const adapter = { id: 'deterministic-fixture', version: '1', contractMajor: 1, async execute() { throw new Error('unused') }, async close() {} }
-const dispatcher = new TextDispatcher(runtime, adapter, undefined, {
+const dispatcher = new TextDispatcher(runtime, adapter, {
   async afterOperationStep(_id, step) {
     const n = (batches.get(step) ?? 0) + 1
     batches.set(step, n)

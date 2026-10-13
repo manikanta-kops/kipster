@@ -13,8 +13,8 @@ const ids = async (client: SqlClient, sql: string, params: unknown[]): Promise<s
  * its links to removed runs are cleared, and the record is published to that thread. Every
  * application client is told with one `thread-removed` event per visible thread.
  *
- * `beforeRemove` runs for each thread once every lock is held, before any row goes; use it for the
- * memory deletion hooks. Caller holds the capacity lock. The work in the threads must have ended:
+ * `beforeRemove` runs for each thread once every lock is held, before any row goes; use it to remove
+ * what is derived from the thread, such as its memory. Caller holds the capacity lock. The work in the threads must have ended:
  * a permit still held by one of their attempts makes the removal fail.
  */
 export async function removeThreads(client: SqlClient, installationId: string, threadIds: readonly string[], beforeRemove: (threadId: string, messageIds: string[]) => Promise<void>): Promise<RemovedThread[]> {
@@ -54,13 +54,11 @@ export async function removeThreads(client: SqlClient, installationId: string, t
   await client.query('DELETE FROM kipster.work_controls WHERE thread_id = ANY($1::uuid[]) OR run_id = ANY($2::uuid[])', [present, runs])
   await client.query('DELETE FROM kipster.receipts WHERE installation_id=$1 AND receipt->>\'intentId\' = ANY($2::text[])', [installationId, runs])
 
-  // Tool receipts and staged outputs of the attempts. A relationship change another owner keeps
-  // loses only its link to the attempt.
-  for (const table of ['kipster.memory_tool_receipts', 'kipster.vector_tool_receipts', 'task_data.receipts', 'kipster.artifact_output_writes',
+  // Tool receipts and staged outputs of the attempts.
+  for (const table of ['kipster.vector_tool_receipts', 'task_data.receipts', 'kipster.artifact_output_writes',
     'kipster.artifact_publications', 'kipster.artifact_organization_copies', 'kipster.voice_tool_calls']) {
     await client.query(`DELETE FROM ${table} WHERE attempt_id = ANY($1::uuid[])`, [attempts])
   }
-  await client.query('UPDATE kipster.memory_relationship_changes SET attempt_id=NULL WHERE attempt_id = ANY($1::uuid[])', [attempts])
   await client.query('UPDATE kipster.voice_preparations SET attempt_id=NULL WHERE attempt_id = ANY($1::uuid[])', [attempts])
 
   await client.query('DELETE FROM kipster.attempts WHERE id = ANY($1::uuid[])', [attempts])

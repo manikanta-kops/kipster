@@ -71,7 +71,7 @@ async function setup(t) {
     return post('/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId: ids.installationId, callerId: ids.ownerId }, target: { context, chatId: chat.chatId }, mode: 'root', parts: [{ kind: 'text', text }] })
   }
   const dispatcher = (target, adapter, events, hooks = {}) => {
-    const created = new TextDispatcher(target, adapter, undefined, { ...hooks, coordinatorLock: (state, error) => { events.push({ state, error }) } })
+    const created = new TextDispatcher(target, adapter, { ...hooks, coordinatorLock: (state, error) => { events.push({ state, error }) } })
     opened.push(() => created.close())
     return created
   }

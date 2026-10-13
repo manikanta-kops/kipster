@@ -110,7 +110,7 @@ test('a Core without permission modes shows no Permissions settings', async ({
   await startDemo(page)
   await page.getByRole('button', { name: 'Settings', exact: true }).click()
   await expect(
-    page.getByRole('button', { name: 'Learning', exact: true }),
+    page.getByRole('button', { name: 'Memory', exact: true }),
   ).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Permissions', exact: true }),

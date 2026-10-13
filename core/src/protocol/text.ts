@@ -1,4 +1,4 @@
-import { array, boolean, boundedInteger, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
+import { array, boolean, boundedInteger, boundedString, clockTime, integer, literal, nonempty, nullable, object, optional, string, union, utcTimestamp, type Infer, type Schema } from './schema.js'
 import { directoryAgent, directoryGroup, directoryMembership, directoryOrganization, groupRemoved, membershipRemoved, organizationRemoved, settingsRecord, adaptersChange, interfacePreferencesRecord, permissionSettingsRecord } from './admin.js'
 import { updateStatus } from './updates.js'
 import { documentPart, documentRemoved, documentSummary } from './documents.js'
@@ -105,8 +105,13 @@ export const interactionResponseReceipt = union(
   object({version:literal(1),operationId:id,outcome:union(literal('accepted'),literal('rejected')),interaction:threadInteraction},false),
   object({version:literal(1),operationId:id,status:literal('unknown')},false),
 )
-/** Changes the installation learning switch, the default sleep time, or both. */
-export const learningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(clockTime()) })
+/** The model the nightly memory run uses instead of Kip's. */
+export const nightlyModel = object({ adapterId: boundedString(1, 200), modelId: boundedString(1, 200), effort: optional(boundedString(1, 200)) })
+const nightlyModelRead = object({ adapterId: nonempty(), modelId: nonempty(), effort: optional(nonempty()) }, false)
+/** Changes the installation's memory settings: the switch, the default sleep time, the nightly model (null for Kip's)
+ * and the counts of core cards and of cards and thread chunks from a turn's search. Omitted fields are unchanged. */
+export const learningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(clockTime()), nightlyModel: optional(nullable(nightlyModel)),
+  coreCardCount: optional(boundedInteger(0, 200)), searchCardCount: optional(boundedInteger(0, 50)), searchChunkCount: optional(boundedInteger(0, 30)) })
 export type LearningUpdate = Infer<typeof learningUpdate>
 /** Changes an agent's learning switch, its sleep time (null follows the installation default), or both. */
 export const agentLearningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(nullable(clockTime())) })
@@ -114,7 +119,9 @@ export type AgentLearningUpdate = Infer<typeof agentLearningUpdate>
 const agentLearningFields = { agentId: id, enabled: boolean(), sleepTime: nullable(clockTime()), revision: integer(), effective: boolean() }
 export const agentLearning = object(agentLearningFields, false)
 export const agentLearningResult = object({ version: literal(1), ...agentLearningFields }, false)
-export const learningSettings = object({ version: literal(1), enabled: boolean(), sleepTime: clockTime(), revision: integer(), available: boolean(), agents: array(agentLearning) }, false)
+export const learningSettings = object({ version: literal(1), enabled: boolean(), sleepTime: clockTime(), revision: integer(), available: boolean(), agents: array(agentLearning),
+  // Core sends these; they are optional so a client also reads a Core that predates them.
+  nightlyModel: optional(nullable(nightlyModelRead)), coreCardCount: optional(integer()), searchCardCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
 export type LearningSettings = Infer<typeof learningSettings>
 export const identityFileName = union(literal('AGENTS.md'), literal('soul.md'), literal('identity.md'))
 export const identityWrite = object({ version: literal(1), content: string(), expectedSha256: nonempty() })
@@ -125,7 +132,9 @@ export const identityFile = object({ version: literal(1), agentId: id, file: ide
 export type IdentityFile = Infer<typeof identityFile>
 export const identityBackups = object({ version: literal(1), agentId: id, file: identityFileName, backups: array(object({ id, sha256: nonempty(), size: integer(), createdAt: utcTimestamp() }, false)) }, false)
 export type IdentityBackups = Infer<typeof identityBackups>
-export const learningChange = object({ target: union(literal('installation'), literal('agent')), enabled: boolean(), sleepTime: nullable(clockTime()) }, false)
+/** An installation change also carries its nightly model and counts. */
+export const learningChange = object({ target: union(literal('installation'), literal('agent')), enabled: boolean(), sleepTime: nullable(clockTime()),
+  nightlyModel: optional(nullable(nightlyModelRead)), coreCardCount: optional(integer()), searchCardCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
 /** An agent's identity file was saved or restored; read the file again for its content. */
 export const identityChange = object({ agentId: id, file: identityFileName, sha256: nonempty() }, false)
 /** An organization's instructions were saved; read them again for their content. */

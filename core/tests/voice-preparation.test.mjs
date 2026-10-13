@@ -50,7 +50,7 @@ test('voice preparation saves derived result and preserves ordered originals and
   runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Root'},transcription:provider})
   const actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId},context={kind:'installation',installationId:actor.installationId}
   const server=await startTextServer(runtime,actor,{host:'127.0.0.1',port:0})
-  try{assert.equal((await (await fetch(server.url+'/v1/bootstrap')).json()).capabilities.voiceRecording,true)}finally{await server.close()}
+  try{const {capabilities}=await (await fetch(server.url+'/v1/bootstrap')).json();assert.equal(capabilities.voiceRecording,true);assert.equal(capabilities.memoryCards,true)}finally{await server.close()}
   const {chatId}=await resolveDirectChat(runtime.db,actor,context,runtime.bootstrap.rootAgentId)
   await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1',[runtime.bootstrap.rootAgentId,JSON.stringify({adapterId:'test-adapter',modelId:'test-model'})])
   const target={installationId:actor.installationId,callerId:actor.personId,context,chatId}
@@ -197,7 +197,7 @@ async function voiceRaceFixture(hooks){
  const target={installationId:actor.installationId,callerId:actor.personId,context,chatId},bytes=Buffer.from('RIFFtest')
  const upload=await runtime.artifacts.upload(actor,{uploadId:randomUUID(),target,name:'voice.wav',mimeType:'audio/wav',size:bytes.length,sha256:digest(bytes),purpose:'voice_note'},stream(bytes))
  const saved=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'file',artifactId:upload.artifact.id,purpose:'voice_note'}]})
- const adapter=execution(),dispatcher=new TextDispatcher(runtime,adapter,undefined,hooks);await dispatcher.start()
+ const adapter=execution(),dispatcher=new TextDispatcher(runtime,adapter,hooks);await dispatcher.start()
  return {admin,database,home,runtime,actor,context,chatId,saved,provider,adapter,dispatcher,async close(){await dispatcher.close();await runtime.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(home,{recursive:true,force:true})}}
 }
 for(const phase of ['claim','settle'])test(`Stop between voice ${phase} eligibility read and thread lock fences late result`,{skip:noDatabase},async()=>{
@@ -231,7 +231,7 @@ async function toolRaceFixture(hooks){
  const saved=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'file',artifactId:upload.artifact.id,purpose:'attachment'}]})
  const done=deferred()
  const adapter={id:'test-adapter',version:'1',contractMajor:1,async execute(ctx){return {events:(async function*(){await done.promise;yield {kind:'ended',attemptId:ctx.attemptId,confirmed:true}})(),async cancel(){return {acknowledged:true,confirmedEnded:true}},async reconcile(){return 'ended'}}},async close(){done.resolve()}}
- const dispatcher=new TextDispatcher(runtime,adapter,undefined,hooks);await dispatcher.start()
+ const dispatcher=new TextDispatcher(runtime,adapter,hooks);await dispatcher.start()
  const attemptId=await until(async()=>(await runtime.db.query('SELECT state,current_attempt_id FROM kipster.text_runs WHERE id=$1',[saved.runId])).rows[0],x=>x?.state==='running').then(x=>x.current_attempt_id)
  return {admin,database,home,runtime,actor,context,chatId,saved,provider,dispatcher,attemptId,artifactId:upload.artifact.id,async close(){done.resolve();await dispatcher.close();await runtime.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(home,{recursive:true,force:true})}}
 }
@@ -269,7 +269,7 @@ test('a coordinator lock blip keeps an in-progress transcription and dispatches 
   const upload=await runtime.artifacts.upload(actor,{uploadId:randomUUID(),target,name:'voice.wav',mimeType:'audio/wav',size:bytes.length,sha256:digest(bytes),purpose:'voice_note'},stream(bytes))
   const saved=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'file',artifactId:upload.artifact.id,purpose:'voice_note'}]})
   const events=[],adapter=execution()
-  dispatcher=new TextDispatcher(runtime,adapter,undefined,{coordinatorLock:state=>{events.push(state)}});await dispatcher.start()
+  dispatcher=new TextDispatcher(runtime,adapter,{coordinatorLock:state=>{events.push(state)}});await dispatcher.start()
   await until(async()=>calls.length,n=>n===1)
   const holder=(await admin.query(`SELECT pid FROM pg_locks WHERE locktype='advisory' AND classid=78315 AND objid=6 AND objsubid=2 AND granted AND database=(SELECT oid FROM pg_database WHERE datname=$1)`,[database])).rows[0].pid
   await admin.query('SELECT pg_terminate_backend($1)',[holder])

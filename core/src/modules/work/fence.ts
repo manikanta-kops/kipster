@@ -2,7 +2,6 @@ import type { SqlClient } from '../../platform/postgres/public.js'
 import type { Jobs } from '../../platform/jobs/public.js'
 import { publishThreadChange, interactionNotificationChanged } from '../synchronization/public.js'
 import { sealAttemptMessages, messageRecord, workRecord } from '../conversations/public.js'
-import { fenceMaintenance } from '../memory/public.js'
 import { interactionRecord } from './interactions.js'
 import { cancelDelegationTree, finishDelegation } from './delegation.js'
 
@@ -45,11 +44,11 @@ export type AffectedWork = { agentId: string } | { organizationId: string }
 /**
  * Stops the affected work as Stop does: queued runs are cancelled and stay visible, pending interactions
  * are cancelled, and running work is asked to stop; the returned attempts need adapter cancellation.
- * A stopped delegated child whose parent is not affected delivers `failure` to that parent. Queued
- * maintenance runs are cancelled too. Call it in the transaction that changes the owner's lifecycle,
- * after the capacity lock and the owner row lock, so later writers see the stop or the new lifecycle.
+ * A stopped delegated child whose parent is not affected delivers `failure` to that parent. Call it in
+ * the transaction that changes the owner's lifecycle, after the capacity lock and the owner row lock,
+ * so later writers see the stop or the new lifecycle.
  */
-export async function fenceAffectedWork(client: SqlClient, jobs: Jobs, installationId: string, affected: AffectedWork, failure: string): Promise<{ runs: string[]; cancelAttempts: string[]; maintenanceRuns: number }> {
+export async function fenceAffectedWork(client: SqlClient, jobs: Jobs, installationId: string, affected: AffectedWork, failure: string): Promise<{ runs: string[]; cancelAttempts: string[] }> {
   const byAgent = 'agentId' in affected
   const rows = (await client.query<{ id: string; parent_run_id: string | null }>(
     `SELECT r.id, d.parent_run_id FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id
@@ -84,6 +83,5 @@ export async function fenceAffectedWork(client: SqlClient, jobs: Jobs, installat
     await publishThreadChange(client, run.installation_id, run.caller_id, run.thread_id, run.chat_id, 'work-changed', run.id, record.revision, record, stopped.state, null)
     if (row.parent_run_id && !affectedRuns.has(row.parent_run_id)) await finishDelegation(client, jobs, run.id, 'failed', failure)
   }
-  const maintenanceRuns = await fenceMaintenance(client, installationId, affected, failure)
-  return { runs, cancelAttempts, maintenanceRuns }
+  return { runs, cancelAttempts }
 }

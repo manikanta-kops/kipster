@@ -52,7 +52,7 @@ Structured and vector methods are part of the Core service/API surface, exposed 
 
 ## 4. Embedding configuration and SDK boundary
 
-Use one installation-wide default embedding service/profile, configured during setup. Ollama is a possible provider; the specific model, endpoint, and provider implementation remain to be selected. Do not introduce per-agent or per-collection model override features now.
+Use one installation-wide default embedding service/profile, configured during setup. Kipster runs its own llama.cpp server with EmbeddingGemma 2 for it; see decision block 10, section 7. Do not introduce per-agent or per-collection model override features now.
 
 Recommended placement: the embedding service belongs to Kipster Core and is callable through its SDK/tool services. It does not belong to the Codex or another execution adapter. Core already exports shared contracts/helpers; this does not introduce a separate adapter SDK package, contrary to block 3's agreed simplicity.
 

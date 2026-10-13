@@ -4,6 +4,9 @@ import type {
   ExecutionAdapters,
   ExecutionSettings,
   LearningSettings,
+  LearningUpdate,
+  MemoryCard,
+  MemoryCardUpdate,
   SettingsPatch,
   SettingsRecord as CoreSettingsRecord,
 } from '@kipster/core/protocol'
@@ -48,6 +51,12 @@ export type AgentLearning = LearningSettings['agents'][number]
 export type Learning = Omit<LearningSettings, 'version' | 'agents'> & {
   agents: Record<string, AgentLearning>
 }
+/** A change of the installation's memory settings; omitted fields are unchanged. */
+export type LearningChange = Omit<LearningUpdate, 'version'>
+export type { MemoryCard } from '@kipster/core/protocol'
+/** A person's edit of a card; omitted fields are unchanged. */
+export type MemoryCardEdit = Omit<MemoryCardUpdate, 'version'>
+export type MemoryCardPage = { cards: MemoryCard[]; nextCursor: string | null }
 export type Directory = {
   organizations: Pick<DirectoryOrganization, 'id' | 'name' | 'lifecycle'>[]
   agents: Pick<DirectoryAgent, 'id' | 'name' | 'lifecycle' | 'admin'>[]
@@ -291,6 +300,52 @@ export function parseLearning(value: unknown): Learning {
   } as Learning
 }
 
+const timestamp = (value: unknown) =>
+  typeof value === 'string' && Number.isFinite(Date.parse(value))
+export function parseMemoryCard(value: unknown): MemoryCard {
+  check(
+    record(value) &&
+      typeof value.id === 'string' &&
+      typeof value.type === 'string' &&
+      typeof value.subject === 'string' &&
+      typeof value.statement === 'string' &&
+      record(value.details) &&
+      typeof value.confirmed === 'boolean' &&
+      typeof value.core === 'boolean' &&
+      (value.organizationId === null ||
+        typeof value.organizationId === 'string') &&
+      timestamp(value.validFrom) &&
+      (value.validTo === null || timestamp(value.validTo)) &&
+      (value.replacedBy === null || typeof value.replacedBy === 'string') &&
+      Array.isArray(value.sources),
+  )
+  return {
+    ...value,
+    sources: list(value.sources, (source) => {
+      check(
+        record(source) &&
+          typeof source.threadId === 'string' &&
+          typeof source.messageId === 'string',
+      )
+      return { threadId: source.threadId, messageId: source.messageId }
+    }),
+  } as MemoryCard
+}
+export function parseMemoryCardPage(value: unknown): MemoryCardPage {
+  check(
+    record(value) &&
+      (value.nextCursor === null || typeof value.nextCursor === 'string'),
+  )
+  return {
+    cards: list(value.cards, parseMemoryCard),
+    nextCursor: value.nextCursor,
+  }
+}
+function parseMemoryCardResult(value: unknown): MemoryCard {
+  check(record(value))
+  return parseMemoryCard(value.card)
+}
+
 export function parseDirectory(value: unknown): Directory {
   check(record(value))
   return {
@@ -438,18 +493,8 @@ export function mergeLearning(held: Learning | null, next: Learning): Learning {
   const agents = { ...next.agents }
   for (const [id, agent] of Object.entries(held.agents))
     if (agents[id] && agent.revision > agents[id].revision) agents[id] = agent
-  const installation =
-    held.revision > next.revision
-      ? {
-          enabled: held.enabled,
-          sleepTime: held.sleepTime,
-          revision: held.revision,
-        }
-      : {
-          enabled: next.enabled,
-          sleepTime: next.sleepTime,
-          revision: next.revision,
-        }
+  if (held.revision <= next.revision) return { ...next, agents }
+  const { agents: _, available: __, ...installation } = held
   return { ...next, ...installation, agents }
 }
 
@@ -522,7 +567,7 @@ export class CoreSettingsClient {
     this.endpoint = endpoint.replace(/\/$/, '')
   }
   private async request(
-    method: 'GET' | 'PUT' | 'POST',
+    method: 'GET' | 'PUT' | 'POST' | 'DELETE',
     path: string,
     signal: AbortSignal,
     body?: unknown,
@@ -631,10 +676,7 @@ export class CoreSettingsClient {
       await this.request('GET', '/v1/settings/learning', signal),
     )
   }
-  async saveLearning(
-    update: { enabled?: boolean; sleepTime?: string },
-    signal: AbortSignal,
-  ) {
+  async saveLearning(update: LearningChange, signal: AbortSignal) {
     return parseLearning(
       await this.request('PUT', '/v1/settings/learning', signal, {
         version: 1,
@@ -655,6 +697,49 @@ export class CoreSettingsClient {
     )
     const result = parseAgentLearning(v)
     return result
+  }
+  /** Cards newest first, replaced ones too when `ended`. */
+  async memoryCards(
+    page: { ended: boolean; cursor?: string | null },
+    signal: AbortSignal,
+  ) {
+    const query = new URLSearchParams({ ended: String(page.ended) })
+    if (page.cursor) query.set('cursor', page.cursor)
+    return parseMemoryCardPage(
+      await this.request('GET', `/v1/memory/cards?${query}`, signal),
+    )
+  }
+  async memoryCard(cardId: string, signal: AbortSignal) {
+    return parseMemoryCardResult(
+      await this.request(
+        'GET',
+        `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+        signal,
+      ),
+    )
+  }
+  async saveMemoryCard(
+    cardId: string,
+    edit: MemoryCardEdit,
+    signal: AbortSignal,
+  ) {
+    return parseMemoryCardResult(
+      await this.request(
+        'PUT',
+        `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+        signal,
+        { version: 1, ...edit },
+      ),
+    )
+  }
+  async deleteMemoryCard(cardId: string, signal: AbortSignal) {
+    const v = await this.request(
+      'DELETE',
+      `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+      signal,
+    )
+    check(record(v) && typeof v.deleted === 'boolean')
+    return v.deleted
   }
   async permissions(signal: AbortSignal) {
     return parsePermissions(

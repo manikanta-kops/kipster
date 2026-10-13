@@ -10,12 +10,12 @@ const list = [
   { name: '@kipster/core', version: '0.2.0', tag: 'core-v0.2.0' },
   { name: '@kipster/codex-cli', version: '0.1.0', tag: 'codex-cli-v0.1.0' },
   { name: '@kipster/ui', version: '0.3.0-next.20261001120000', tag: 'ui-v0.3.0-next.20261001120000' },
-  { name: '@kipster/embedding-ollama', version: '0.0.0', tag: 'embedding-ollama-v0.0.0' },
+  { name: '@kipster/embedding-llama-cpp', version: '0.0.0', tag: 'embedding-llama-cpp-v0.0.0' },
 ]
 
 test('release plan covers every workspace package; the app and the installer build on macOS', () => {
   const found = packages()
-  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/claude-cli', '@kipster/codex-cli', '@kipster/core', '@kipster/embedding-ollama', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
+  assert.deepEqual(found.map(pkg => pkg.name).sort(), ['@kipster/claude-cli', '@kipster/codex-cli', '@kipster/core', '@kipster/embedding-llama-cpp', '@kipster/installer', '@kipster/transcription-spokenly', '@kipster/ui'])
   assert.deepEqual(found.filter(pkg => pkg.runner === 'macos-latest').map(pkg => pkg.name).sort(), ['@kipster/installer', '@kipster/ui'])
   assert.deepEqual(found.filter(pkg => pkg.backend).map(pkg => pkg.name), ['@kipster/installer'])
 })

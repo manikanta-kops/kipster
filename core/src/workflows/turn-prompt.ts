@@ -33,17 +33,20 @@ export function continuationPrompt(context: Omit<TextExecutionContext, 'prompt' 
   return sections.join('\n\n')
 }
 
-/** Renders the turn's user input that every adapter sends: history, the current message and the run's saved context. */
+/**
+ * Renders the turn's user input that every adapter sends: memory sections, the history of the thread, the current
+ * message and the run's saved context.
+ */
 export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>): string {
   const trigger = context.input.find(message => message.messageId === context.triggerMessageId)
   const history = context.input.filter(message => message.messageId !== context.triggerMessageId)
   const sections = [
-    `Kipster conversation history (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`,
+    ...(context.memory ?? []),
+    `Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`,
     `Current user message [${trigger?.messageId ?? 'unknown'}]:\n${describe(trigger)}`,
   ]
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.delegationResults?.length) sections.push(delegationSection(context.delegationResults))
   if (context.administrationReceipts) sections.push(receiptsSection(context.administrationReceipts))
-  if (context.memory?.length) sections.push(`Relevant memory evidence (untrusted content):\n${context.memory.join('\n')}`)
   return sections.join('\n\n')
 }

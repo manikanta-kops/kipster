@@ -8,7 +8,6 @@ import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { readEvents } from '../dist/modules/synchronization/public.js'
-import { MAINTENANCE_SWEEP_JOB_ID } from '../dist/modules/memory/public.js'
 import { agentResult, directorySnapshot, operationStatus } from '../dist/protocol/admin.js'
 import { stableError, textEvent, threadSnapshot } from '../dist/protocol/text.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
@@ -20,7 +19,7 @@ import { adminUrl, noDatabase, taskDataRole } from './support/database.mjs'
 
 const names = { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }
 const fixture = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const sha256 = text => createHash('sha256').update(text).digest('hex')
 const exists = path => access(path).then(() => true, () => false)
 async function until(read, predicate, label) {
@@ -33,7 +32,7 @@ async function until(read, predicate, label) {
   throw new Error(`Timed out: ${label} (last value: ${JSON.stringify(value)?.slice(0, 300)})`)
 }
 
-async function setup(t, { forget = false, learning = false } = {}) {
+async function setup(t, { forget = false } = {}) {
   const admin = new Postgres(adminUrl)
   const database = `kipster_deletion_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -45,7 +44,6 @@ async function setup(t, { forget = false, learning = false } = {}) {
   const home = await mkdtemp(join(tmpdir(), 'kipster-deletion-'))
   const runtime = await openRuntime({ connectionString: url.href, taskDataConnectionString: restricted.href, home, names, executionLimit: 6,
     embedding: { ...profile, async embed() { return [0, 0, 1] } } })
-  await runtime.memory.stopIndexing()
   const { installationId, ownerId, organizationId, rootAgentId } = runtime.bootstrap
   const actor = { installationId, personId: ownerId }
   const executions = [], forgotten = []
@@ -83,7 +81,6 @@ async function setup(t, { forget = false, learning = false } = {}) {
   }
   await dispatcher.start()
   await ok('PUT', `/v1/organizations/${organizationId}/settings`, { version: 1, operationId: randomUUID(), settings: fixture })
-  if (learning) await runtime.learning.setInstallation(actor, { enabled: true })
   const create = async (name, organization = organizationId) => (await ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name, organizationId: organization })).agent.id
   const scout = await create('Scout')
   const helper = await create('Helper')
@@ -119,8 +116,8 @@ async function setup(t, { forget = false, learning = false } = {}) {
 
 /**
  * Gives Scout a chat of its own with a file it showed there, a file it never showed, an organization
- * publication, a memory, a vector collection, task data and an identity backup; and work Root
- * delegated to it, in which Scout showed a file and passed it on to Helper.
+ * publication, a vector collection, task data and an identity backup; and work Root delegated to
+ * it, in which Scout showed a file and passed it on to Helper. Both threads carry memory.
  */
 async function populate(ctx) {
   const own = await ctx.running(ctx.scout, 'Write the report')
@@ -131,11 +128,10 @@ async function populate(ctx) {
   const publication = (await own.call('artifacts_copy_to_organization', { artifactId: shown.id })).artifact
   const draft = await own.call('artifacts_write', { name: 'draft.txt', content: 'Draft only' })
   const unshown = (await own.call('artifacts_publish', { outputId: draft.outputId })).artifact
-  const memory = await own.call('memory_save', { kind: 'fact', text: 'Scout prefers short reports' })
   const target = { kind: 'agent', ownerId: ctx.scout }
-  const collection = await own.call('vectors_space', { target, operation: 'create', name: 'notes' })
-  await own.call('vectors_space', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
-  await own.call('data_space', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
+  const collection = await own.call('vector_collections', { target, operation: 'create', name: 'notes' })
+  await own.call('vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
+  await own.call('data_tables', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
   ctx.finish(own)
   await ctx.settled(own.runId, 'completed')
 
@@ -167,7 +163,51 @@ async function populate(ctx) {
   const runs = [own.runId, delegated.childRunId]
   const attempts = (await ctx.db.query('SELECT id FROM kipster.attempts WHERE intent_id = ANY($1::uuid[])', [runs])).rows.map(row => row.id)
   const messages = (await ctx.db.query('SELECT id FROM kipster.messages WHERE thread_id = ANY($1::uuid[])', [threads])).rows.map(row => row.id)
-  return { own, parent, delegated, further, shown, unshown, childFile, publication, memory, collection, threads, runs, attempts, messages }
+  const data = { own, parent, delegated, further, shown, unshown, childFile, publication, collection, threads, runs, attempts, messages }
+  return { ...data, memory: await seedMemory(ctx, data) }
+}
+
+/** A 768-dimension embedding literal. */
+const vector = value => `[${Array(768).fill(value).join(',')}]`
+
+/**
+ * Memory derived from Scout's own thread and from Root's thread: chunks, processing state, diary pages,
+ * a card learned only in Scout's thread, one learned in both, one learned only in Root's thread, and
+ * an ended card that Scout's card replaced.
+ */
+async function seedMemory(ctx, data) {
+  const { db, installationId, organizationId } = ctx
+  const input = async runId => (await db.query('SELECT input_message_id AS id FROM kipster.text_runs WHERE id=$1', [runId])).rows[0].id
+  const scoutThread = data.own.threadId, rootThread = data.parent.threadId
+  const scoutMessage = await input(data.own.runId), rootMessage = await input(data.parent.runId)
+  const chunk = async (threadId, agentId, embedded) => {
+    const id = randomUUID()
+    await db.query(`INSERT INTO kipster.thread_chunks(id,installation_id,thread_id,agent_id,organization_id,from_position,to_position,started_at,ended_at,title,text,embedding,embedding_model)
+      VALUES ($1,$2,$3,$4,$5,1,2,now(),now(),'Mon 12 Oct 2026, with a kip','The messages in full',$6::vector,$7)`, [id, installationId, threadId, agentId, organizationId, embedded ? vector(0.1) : null, embedded ? 'fixture-embedding' : null])
+    return id
+  }
+  const card = async (statement, sources, extra = {}) => {
+    const id = randomUUID()
+    await db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,details,confirmed,organization_id,valid_to,replaced_by)
+      VALUES ($1,$2,'fact','user',$3,'{}',true,$4,CASE WHEN $5::boolean THEN now() END,$6)`, [id, installationId, statement, extra.organizationId ?? null, extra.ended ?? false, extra.replacedBy ?? null])
+    for (const [threadId, messageId] of sources) await db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, installationId, threadId, messageId])
+    return id
+  }
+  const diary = (agentId, day, threadIds) => db.query('INSERT INTO kipster.diary(agent_id,day,installation_id,summary,thread_ids) VALUES ($1,$2,$3,$4,$5::uuid[])', [agentId, day, installationId, `What happened on ${day}`, threadIds])
+  const memory = {
+    scoutChunk: await chunk(scoutThread, ctx.scout, true),
+    rootChunk: await chunk(rootThread, ctx.root, true),
+    scoutCard: await card('Prefers short reports', [[scoutThread, scoutMessage]]),
+    sharedCard: await card('Works on quarterly numbers', [[scoutThread, scoutMessage], [rootThread, rootMessage]]),
+    rootCard: await card('Asks Scout for numbers', [[rootThread, rootMessage]]),
+    scoutMessage, rootMessage,
+  }
+  memory.endedCard = await card('Prefers long reports', [[rootThread, rootMessage]], { ended: true, replacedBy: memory.scoutCard })
+  for (const threadId of [scoutThread, rootThread]) await db.query('INSERT INTO kipster.memory_thread_state(thread_id,installation_id,processed_position) VALUES ($1,$2,2)', [threadId, installationId])
+  await diary(ctx.scout, '2026-10-11', [scoutThread])
+  await diary(ctx.root, '2026-10-11', [scoutThread, rootThread])
+  await diary(ctx.root, '2026-10-10', [scoutThread])
+  return memory
 }
 
 /** Every uuid column in Core's tables that still holds one of the IDs, as `table.column`. */
@@ -259,14 +299,28 @@ async function assertRemoved(ctx, data, events, { copies }) {
     assert.notEqual((await content(file.id)).status, 200)
   }
 
-  // Memory, vectors, task data, home, identity backups.
+  // Memory derived from its threads goes: chunks, processing state, card sources, cards left with no
+  // source and its diary. Root's thread keeps its memory; its diary page loses the removed thread, and its
+  // summary and embedding with it, until the next nightly run rebuilds it from Root's thread.
+  const memory = data.memory
+  const rows = async (sql, params = []) => (await ctx.db.query(sql, params)).rows
+  assert.deepEqual(await rows('SELECT id, embedding IS NOT NULL AS embedded FROM kipster.thread_chunks'), [{ id: memory.rootChunk, embedded: true }])
+  assert.deepEqual(await rows('SELECT thread_id FROM kipster.memory_thread_state'), [{ thread_id: data.parent.threadId }])
+  const sources = id => rows('SELECT thread_id, message_id FROM kipster.card_sources WHERE card_id=$1', [id])
+  assert.deepEqual(await rows('SELECT id FROM kipster.cards WHERE id=$1', [memory.scoutCard]), [])
+  assert.deepEqual(await sources(memory.sharedCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
+  assert.deepEqual(await sources(memory.rootCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
+  assert.deepEqual(await rows('SELECT replaced_by, valid_to IS NOT NULL AS ended FROM kipster.cards WHERE id=$1', [memory.endedCard]), [{ replaced_by: null, ended: true }])
+  assert.deepEqual(await rows("SELECT agent_id, day::text AS day, thread_ids, summary, embedding IS NULL AS unembedded FROM kipster.diary"), [{ agent_id: ctx.root, day: '2026-10-11', thread_ids: [data.parent.threadId], summary: null, unembedded: true }])
+
+  // Vectors, task data, home, identity backups.
   assert.equal(await exists(join(home, 'agents', scout)), false)
   assert.deepEqual(await readdir(join(home, '.trash')), [])
   const schema = `task_a_${scout.replaceAll('-', '')}`
   assert.equal((await ctx.db.query('SELECT 1 FROM pg_namespace WHERE nspname=$1', [schema])).rows.length, 0)
 
   // Nothing else points at the agent or at what was removed with it.
-  const removed = [...data.threads, ...data.runs, ...data.attempts, ...data.messages, data.own.chatId, data.shown.id, data.unshown.id, data.childFile.id, data.memory.record.id, data.collection.collectionId]
+  const removed = [...data.threads, ...data.runs, ...data.attempts, ...data.messages, data.own.chatId, data.shown.id, data.unshown.id, data.childFile.id, data.memory.scoutChunk, data.memory.scoutCard, data.collection.collectionId]
   assert.deepEqual(await references(ctx.db, removed), ['app_events.resource_id'])
   assert.deepEqual(await references(ctx.db, [scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'delegations.recipient_agent_id', 'delegations.sender_agent_id', 'messages.author_id'])
 }
@@ -412,54 +466,6 @@ test('a restart in the middle of the cleanup finishes it once', { skip: noDataba
   assert.deepEqual(await references(ctx.db, [ctx.scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'delegations.recipient_agent_id', 'delegations.sender_agent_id', 'messages.author_id'])
 })
 
-test('deletion waits for a memory task in flight and removes the agent\'s learning state', { skip: noDatabase, timeout: 120000 }, async t => {
-  const ctx = await setup(t, { forget: true, learning: true })
-  const chatId = await ctx.chat()
-  /** A conversation with Scout whose extraction is handed to the adapter, with the answer that learns `text`. */
-  const extraction = async (text, threadId) => {
-    const saved = await ctx.submit(chatId, `Please note: ${text}`)
-    ctx.finish(ctx.bind(saved.data, await ctx.execution(saved.data.runId)), 'Noted.')
-    await ctx.settled(saved.data.runId, 'completed')
-    await ctx.db.transaction(client => ctx.runtime.jobs.send(client, MAINTENANCE_SWEEP_JOB_ID))
-    const found = await until(() => ctx.executions.find(e => e.context.kind === 'maintenance' && e.context.maintenance.sourceRunId === saved.data.runId), Boolean, 'extraction')
-    const entry = (await ctx.db.query('SELECT manifest FROM kipster.maintenance_sources WHERE run_id=$1', [saved.data.runId])).rows[0].manifest.entries[0]
-    const answer = JSON.stringify({ candidates: [{ kind: 'fact', text, subject: 'office', author_id: entry.author_id, author_class: entry.author_class,
-      citations: [{ message_id: entry.message_id, revision: entry.revision, parts_hash: entry.parts_sha256, excerpt: 'Please note' }] }] })
-    const run = ctx.bind({}, found)
-    ctx.provider(run, threadId)
-    return { run, answer, runId: found.context.runId }
-  }
-  const taskEnded = runId => until(async () => (await ctx.db.query('SELECT state FROM kipster.maintenance_runs WHERE id=$1', [runId])).rows[0]?.state, state => ['completed', 'failed'].includes(state), 'memory task ended')
-  const learned = await extraction('The office opens at nine', 'codex-extraction-1')
-  learned.run.release({ kind: 'text', messageId: 'output', text: learned.answer, final: true })
-  learned.run.release({ kind: 'ended', confirmed: true })
-  await taskEnded(learned.runId)
-  const scoutRows = async () => (await ctx.db.query(`SELECT
-      (SELECT count(*)::int FROM kipster.memory_records WHERE owner_id=$1) AS memories,
-      (SELECT count(*)::int FROM kipster.maintenance_sources WHERE agent_id=$1) AS sources,
-      (SELECT count(*)::int FROM kipster.maintenance_runs WHERE agent_id=$1) AS tasks,
-      (SELECT count(*)::int FROM kipster.maintenance_candidate_claims WHERE owner_id=$1) AS claims,
-      (SELECT count(*)::int FROM kipster.memory_activity WHERE agent_id=$1) AS activity`, [ctx.scout])).rows[0]
-  assert.deepEqual(await scoutRows(), { memories: 1, sources: 1, tasks: 1, claims: 1, activity: 1 })
-
-  // A second extraction is in flight when Scout is archived and deleted.
-  const pending = await extraction('The lobby is quiet', 'codex-extraction-2')
-  await ctx.ok('POST', `/v1/agents/${ctx.scout}/archive`, { version: 1, operationId: randomUUID() })
-  const operationId = randomUUID()
-  assert.equal((await ctx.remove(ctx.scout, {}, operationId)).status, 200)
-  const waiting = await until(() => ctx.ok('GET', `/v1/operations/${operationId}`), value => value.state === 'waiting', 'waiting operation')
-  assert.match(waiting.waitingFor, /0 runs and 1 memory tasks/)
-  pending.run.release({ kind: 'text', messageId: 'output', text: pending.answer, final: true })
-  pending.run.release({ kind: 'ended', confirmed: true })
-  const done = await ctx.operation(operationId)
-  assert.equal(done.state, 'succeeded', JSON.stringify(done))
-  assert.deepEqual(done.result.providerState, { forgotten: 2, residue: [] })
-  assert.deepEqual(ctx.forgotten.flat().sort(), ['codex-extraction-1', 'codex-extraction-2'])
-  assert.deepEqual(await scoutRows(), { memories: 0, sources: 0, tasks: 0, claims: 0, activity: 0 })
-  assert.equal((await ctx.db.query(`SELECT count(*)::int AS n FROM kipster.memory_records WHERE text='The lobby is quiet'`)).rows[0].n, 0)
-  assert.deepEqual(await references(ctx.db, [ctx.scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id'])
-})
-
 test('organization deletion fences work, removes owned resources and preserves global agents and other organizations', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t, { forget: true })
   const data = await populate(ctx)
@@ -469,9 +475,17 @@ test('organization deletion fences work, removes owned resources and preserves g
   const running = await ctx.running(ctx.helper, 'Work before deletion')
   const deletionCursor = await ctx.cursor()
   const shared = { kind: 'organization', ownerId: ctx.organizationId }
-  const sharedCollection = await running.call('vectors_space', { target: shared, operation: 'create', name: 'shared_notes' })
-  await running.call('data_space', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
-  const publishedMemory = await ctx.runtime.memory.publish(ctx.scout, ctx.organizationId, data.memory.record.id, 1)
+  const sharedCollection = await running.call('vector_collections', { target: shared, operation: 'create', name: 'shared_notes' })
+  await running.call('data_tables', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
+  // Cards learned in the other organization's thread: one carries the deleted organization, one is global.
+  const otherMessage = (await ctx.db.query('SELECT input_message_id AS id FROM kipster.text_runs WHERE id=$1', [other.runId])).rows[0].id
+  const card = async organizationId => {
+    const id = randomUUID()
+    await ctx.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,organization_id) VALUES ($1,$2,'fact','user','Works with Scout',$3)`, [id, ctx.installationId, organizationId])
+    await ctx.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, ctx.installationId, other.threadId, otherMessage])
+    return id
+  }
+  const organizationCard = await card(ctx.organizationId), globalCard = await card(null)
   const stranger = await ctx.serve({ installationId: ctx.installationId, personId: randomUUID() })
   assert.equal((await stranger('DELETE', `/v1/organizations/${ctx.organizationId}`, { version: 1, operationId: randomUUID() })).status, 403)
 
@@ -495,10 +509,12 @@ test('organization deletion fences work, removes owned resources and preserves g
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2', [second, ctx.scout])).rows[0].n, 1)
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.vector_collections WHERE id=$1', [sharedCollection.collectionId])).rows[0].n, 0)
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM pg_namespace WHERE nspname=$1', [`task_o_${ctx.organizationId.replaceAll('-', '')}`])).rows[0].n, 0)
-  assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.memory_records WHERE id=$1', [publishedMemory.id])).rows[0].n, 0)
+  // Its cards and the memory of its threads are gone; the global card stays.
+  assert.deepEqual((await ctx.db.query('SELECT id FROM kipster.cards ORDER BY id')).rows, [{ id: globalCard }])
+  assert.notEqual(organizationCard, globalCard)
+  for (const table of ['thread_chunks', 'memory_thread_state', 'diary']) assert.equal((await ctx.db.query(`SELECT count(*)::int n FROM kipster.${table}`)).rows[0].n, 0, table)
   assert.equal(await exists(join(ctx.home, 'organizations', ctx.organizationId)), false)
   assert.equal(await exists(join(ctx.home, 'agents', ctx.scout)), true)
-  assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.memory_records WHERE id=$1',[data.memory.record.id])).rows[0].n,1)
   assert.equal((await ctx.db.query("SELECT count(*)::int n FROM kipster.artifacts WHERE owner_kind='organization' AND owner_id=$1", [ctx.organizationId])).rows[0].n, 0)
   assert.ok((await ctx.db.query("SELECT count(*)::int n FROM kipster.artifacts WHERE owner_kind='agent' AND owner_id=$1", [ctx.scout])).rows[0].n > 0)
   ctx.finish(other)
@@ -524,53 +540,6 @@ test('organization cleanup survives SIGKILL at destructive boundaries without re
   assert.equal((await ctx.db.query('SELECT lifecycle FROM kipster.organizations WHERE id=$1', [ctx.organizationId])).rows[0].lifecycle, 'deleted')
   assert.equal(await exists(join(ctx.home, 'organizations', ctx.organizationId)), false)
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.organizations')).rows[0].n, 1)
-})
-
-test('organization deletion waits for extraction and removes homed learning without deleting the agent', { skip: noDatabase, timeout: 120000 }, async t => {
-  const ctx = await setup(t, { forget: true, learning: true })
-  const chatId = await ctx.chat()
-  /** A conversation with Scout whose extraction is handed to the adapter, with the answer that learns `text`. */
-  const extraction = async (text, threadId) => {
-    const saved = await ctx.submit(chatId, `Please note: ${text}`)
-    ctx.finish(ctx.bind(saved.data, await ctx.execution(saved.data.runId)), 'Noted.')
-    await ctx.settled(saved.data.runId, 'completed')
-    await ctx.db.transaction(client => ctx.runtime.jobs.send(client, MAINTENANCE_SWEEP_JOB_ID))
-    const found = await until(() => ctx.executions.find(e => e.context.kind === 'maintenance' && e.context.maintenance.sourceRunId === saved.data.runId), Boolean, 'extraction')
-    const entry = (await ctx.db.query('SELECT manifest FROM kipster.maintenance_sources WHERE run_id=$1', [saved.data.runId])).rows[0].manifest.entries[0]
-    const answer = JSON.stringify({ candidates: [{ kind: 'fact', text, subject: 'office', author_id: entry.author_id, author_class: entry.author_class,
-      citations: [{ message_id: entry.message_id, revision: entry.revision, parts_hash: entry.parts_sha256, excerpt: 'Please note' }] }] })
-    const run = ctx.bind({}, found)
-    ctx.provider(run, threadId)
-    return { run, answer, runId: found.context.runId }
-  }
-  const taskEnded = runId => until(async () => (await ctx.db.query('SELECT state FROM kipster.maintenance_runs WHERE id=$1', [runId])).rows[0]?.state, state => ['completed', 'failed'].includes(state), 'memory task ended')
-  const learned = await extraction('The office opens at nine', 'codex-extraction-1')
-  learned.run.release({ kind: 'text', messageId: 'output', text: learned.answer, final: true })
-  learned.run.release({ kind: 'ended', confirmed: true })
-  await taskEnded(learned.runId)
-  const scoutRows = async () => (await ctx.db.query(`SELECT
-      (SELECT count(*)::int FROM kipster.memory_records WHERE owner_id=$1) AS memories,
-      (SELECT count(*)::int FROM kipster.maintenance_sources WHERE agent_id=$1) AS sources,
-      (SELECT count(*)::int FROM kipster.maintenance_runs WHERE agent_id=$1) AS tasks,
-      (SELECT count(*)::int FROM kipster.maintenance_candidate_claims WHERE owner_id=$1) AS claims,
-      (SELECT count(*)::int FROM kipster.memory_activity WHERE agent_id=$1) AS activity`, [ctx.scout])).rows[0]
-  assert.deepEqual(await scoutRows(), { memories: 1, sources: 1, tasks: 1, claims: 1, activity: 1 })
-
-  // A second extraction is in flight when Scout is archived and deleted.
-  const pending = await extraction('The lobby is quiet', 'codex-extraction-2')
-  const operationId = randomUUID()
-  assert.equal((await ctx.call('DELETE', `/v1/organizations/${ctx.organizationId}`, {version:1,operationId})).status, 200)
-  const waiting = await until(() => ctx.ok('GET', `/v1/operations/${operationId}`), value => value.state === 'waiting', 'waiting operation')
-  assert.match(waiting.waitingFor, /0 runs and 1 memory tasks/)
-  pending.run.release({ kind: 'text', messageId: 'output', text: pending.answer, final: true })
-  pending.run.release({ kind: 'ended', confirmed: true })
-  const done = await ctx.operation(operationId)
-  assert.equal(done.state, 'succeeded', JSON.stringify(done))
-  assert.deepEqual(done.result.providerState, { forgotten: 2, residue: [] })
-  assert.deepEqual(ctx.forgotten.flat().sort(), ['codex-extraction-1', 'codex-extraction-2'])
-  assert.deepEqual(await scoutRows(), { memories: 0, sources: 0, tasks: 0, claims: 0, activity: 1 })
-  assert.equal((await ctx.db.query(`SELECT count(*)::int AS n FROM kipster.memory_records WHERE text='The lobby is quiet'`)).rows[0].n, 0)
-  assert.equal((await ctx.db.query('SELECT lifecycle FROM kipster.agents WHERE id=$1',[ctx.scout])).rows[0].lifecycle, 'active')
 })
 
 test('a selected file-copy destination that begins deletion cannot receive a late organization copy', { skip: noDatabase, timeout: 90000 }, async t => {

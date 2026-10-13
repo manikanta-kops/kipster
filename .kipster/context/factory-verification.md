@@ -48,7 +48,7 @@ test wrappers before changing it. It runs the local equivalents of CI:
   against that ref. A missing trusted ref fails; never substitute HEAD or skip it.
 - Root script tests, Core migration gate with `KIPSTER_MIGRATION_BASE=origin/next`,
   script tests, typecheck, package boundaries, protocol shape and base compatibility.
-- Core PostgreSQL unit/memory scenario suite and package-consumer tests.
+- Core PostgreSQL unit suite and package-consumer tests.
 - All four adapters' typechecks and fake CLI/HTTP tests.
 - Installer PostgreSQL tests, including launcher tests; on macOS, the CI ad hoc
   backend app build. This writes a new build artifact only, never installed jobs.

@@ -35,9 +35,43 @@ async function database(t) {
   return { db, connectionString: url.href, home }
 }
 
+const retiredMemoryTables = ['memory_records', 'memory_sources', 'memory_provenance', 'memory_index_intents', 'memory_tool_receipts', 'memory_relationship_owner_versions',
+  'memory_relationships', 'memory_relationship_changes', 'memory_relationship_evidence', 'maintenance_sources', 'maintenance_candidate_claims', 'maintenance_scheduler',
+  'memory_activity', 'memory_sleeps', 'maintenance_runs', 'maintenance_operator_intents', 'memory_promotions', 'memory_profiles', 'memory_embedding_generations']
+const embedded = { thread_chunks: ['embedding'], cards: ['embedding'], diary: ['embedding'] }
+
+/** The Kip memory schema of decision record 10 is present and the first engine's tables are gone. */
+async function assertMemorySchema(db) {
+  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='kipster' AND (table_name LIKE 'memory%' OR table_name LIKE 'maintenance%' OR table_name IN ('thread_chunks','cards','card_sources','diary','embedding_profiles','embedding_generations')) ORDER BY table_name")).rows.map(row => row.table_name)
+  assert.deepEqual(tables, ['card_sources', 'cards', 'diary', 'embedding_generations', 'embedding_profiles', 'memory_calls', 'memory_nights', 'memory_thread_state', 'thread_chunks'])
+  const owned = (await db.query("SELECT table_name FROM information_schema.columns WHERE table_schema='kipster' AND column_name='installation_id' AND is_nullable='NO' AND table_name IN ('memory_thread_state','thread_chunks','cards','card_sources','diary','memory_nights','memory_calls') ORDER BY table_name")).rows.map(row => row.table_name)
+  assert.deepEqual(owned, ['card_sources', 'cards', 'diary', 'memory_calls', 'memory_nights', 'memory_thread_state', 'thread_chunks'])
+  for (const name of retiredMemoryTables) assert.equal((await db.query('SELECT to_regclass($1) AS name', [`kipster.${name}`])).rows[0].name, null, name)
+  assert.equal((await db.query("SELECT to_regprocedure('kipster.memory_strength(real,integer,bigint)') AS name")).rows[0].name, null)
+  assert.equal((await db.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='kipster' AND column_name='maintenance_counter'")).rows[0].n, 0)
+  for (const [table, columns] of Object.entries(embedded)) for (const column of columns) {
+    const row = (await db.query(`SELECT format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS required FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attname=$2`, [`kipster.${table}`, column])).rows[0]
+    assert.deepEqual(row, { type: 'vector(768)', required: false }, `${table}.${column}`)
+    const model = (await db.query('SELECT a.attnotnull AS required FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attname=$2', [`kipster.${table}`, 'embedding_model'])).rows[0]
+    assert.deepEqual(model, { required: false }, `${table}.embedding_model`)
+  }
+  const hnsw = (await db.query("SELECT tablename FROM pg_indexes WHERE schemaname='kipster' AND indexdef LIKE '%USING hnsw (embedding vector_cosine_ops)%' ORDER BY tablename")).rows.map(row => row.tablename)
+  assert.deepEqual(hnsw, ['cards', 'diary', 'thread_chunks'])
+  const current = (await db.query("SELECT indexdef FROM pg_indexes WHERE schemaname='kipster' AND indexname IN ('cards_current','cards_core') ORDER BY indexname")).rows.map(row => row.indexdef)
+  assert.match(current[0], /WHERE \(\(valid_to IS NULL\) AND core\)/)
+  assert.match(current[1], /WHERE \(valid_to IS NULL\)/)
+  // A diary page belongs to one context; a null summary marks a page owing a rebuild.
+  const diary = (await db.query(`SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema='kipster' AND table_name='diary' AND column_name IN ('organization_id','summary') ORDER BY column_name`)).rows
+  assert.deepEqual(diary, [{ column_name: 'organization_id', data_type: 'uuid', is_nullable: 'YES' }, { column_name: 'summary', data_type: 'text', is_nullable: 'YES' }])
+  const keys = (await db.query(`SELECT conname, pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='kipster.diary'::regclass AND contype IN ('p','u','f') ORDER BY conname`)).rows
+  assert.deepEqual(keys.filter(key => key.conname === 'diary_page'), [{ conname: 'diary_page', definition: 'UNIQUE NULLS NOT DISTINCT (agent_id, day, organization_id)' }])
+  assert.ok(keys.some(key => /FOREIGN KEY \(organization_id\) REFERENCES kipster\.organizations\(id\) ON DELETE CASCADE/.test(key.definition)))
+  assert.ok(!keys.some(key => key.conname === 'diary_pkey'))
+}
+
 // Seed only with SQL supported by the frozen 001–012 schema, before current Core starts.
 async function seed(db) {
-  const ids = Object.fromEntries(['installationId', 'ownerId', 'organizationId', 'rootAgentId', 'chatId', 'threadId', 'messageId', 'answerId', 'memoryId'].map(key => [key, randomUUID()]))
+  const ids = Object.fromEntries(['installationId', 'ownerId', 'organizationId', 'rootAgentId', 'chatId', 'threadId', 'messageId', 'answerId', 'memoryId', 'sleepId', 'runId', 'attemptId'].map(key => [key, randomUUID()]))
   const settings = { adapterId: 'saved-adapter', modelId: 'saved-model', options: { temperature: 0.25 } }
   const parts = [{ kind: 'text', text: 'Keep this conversation across the upgrade — café.' }]
   const memoryText = 'A retained fact from before the upgrade.'
@@ -55,12 +89,25 @@ async function seed(db) {
     await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts) VALUES ($1,$2,1,$3,$4::jsonb),($5,$2,2,$6,$7::jsonb)', [ids.messageId, ids.threadId, ids.ownerId, JSON.stringify(parts), ids.answerId, ids.rootAgentId, JSON.stringify([{ kind: 'text', text: 'A saved answer.' }])])
     await client.query("INSERT INTO kipster.memory_records(id,installation_id,scope,owner_id,kind,text,source_hash) VALUES ($1,$2,'agent',$3,'fact',$4,$5)", [ids.memoryId, ids.installationId, ids.rootAgentId, memoryText, checksum(memoryText)])
     await client.query('INSERT INTO kipster.memory_sources(memory_id,revision,text,source_hash) VALUES ($1,1,$2,$3)', [ids.memoryId, memoryText, checksum(memoryText)])
+    // The first memory engine's other state, including a sleep run that holds an execution permit.
+    await client.query("INSERT INTO kipster.memory_profiles(installation_id,provider,model) VALUES ($1,'fixture-provider','old-model')", [ids.installationId])
+    await client.query("INSERT INTO kipster.memory_embedding_generations(installation_id,generation,provider,model) VALUES ($1,1,'fixture-provider','old-model')", [ids.installationId])
+    await client.query('INSERT INTO kipster.memory_provenance(id,memory_id,source_thread_id,author_id) VALUES ($1,$2,$3,$4)', [randomUUID(), ids.memoryId, ids.threadId, ids.ownerId])
+    await client.query("INSERT INTO kipster.memory_index_intents(memory_id,source_revision,source_hash,generation,status,embedding,dimension) VALUES ($1,1,$2,1,'ready','[1,0]',2)", [ids.memoryId, checksum(memoryText)])
+    await client.query("INSERT INTO kipster.memory_activity(agent_id,active_days,active_on) VALUES ($1,3,'2026-10-01')", [ids.rootAgentId])
+    await client.query("INSERT INTO kipster.memory_sleeps(id,agent_id,sleep_on,step) VALUES ($1,$2,'2026-10-01','consolidate')", [ids.sleepId, ids.rootAgentId])
+    await client.query("INSERT INTO kipster.work_intents(id,installation_id,state,generation) VALUES ($1,$2,'issued',1)", [ids.runId, ids.installationId])
+    await client.query("INSERT INTO kipster.attempts(id,intent_id,generation,incarnation,state) VALUES ($1,$2,1,$3,'issued')", [ids.attemptId, ids.runId, randomUUID()])
+    await client.query("INSERT INTO kipster.maintenance_runs(id,installation_id,agent_id,state,current_attempt_id,task_kind,sleep_id,input) VALUES ($1,$2,$3,'running',$4,'consolidate',$5,'{}'::jsonb)", [ids.runId, ids.installationId, ids.rootAgentId, ids.attemptId, ids.sleepId])
+    await client.query('INSERT INTO kipster.execution_permits(installation_id,maintenance_counter) VALUES ($1,7)', [ids.installationId])
+    await client.query('INSERT INTO kipster.owned_permits(attempt_id,installation_id) VALUES ($1,$2)', [ids.attemptId, ids.installationId])
+    await client.query("INSERT INTO kipster.memory_promotions(agent_id,memories) VALUES ($1,'[]'::jsonb)", [ids.rootAgentId])
   })
   return { ids, settings, parts, memoryText }
 }
 
 for (const prefixOnly of [false, true]) {
-  test(prefixOnly ? 'a populated frozen 001–012 database applies a real SQL suffix and starts Core' : 'a populated PR-base database upgrades with this branch and Core reads the retained data', { skip: noDatabase }, async t => {
+  test(prefixOnly ? 'a populated frozen 001–012 database applies a real SQL suffix and starts Core' : 'a populated PR-base database with old memory upgrades with this branch and Core reads the retained data', { skip: noDatabase }, async t => {
     const fixture = await database(t)
     const ref = process.env.KIPSTER_MIGRATION_BASE ?? 'origin/next'
     const manifest = await readMigrationManifest(root, ref)
@@ -73,7 +120,7 @@ for (const prefixOnly of [false, true]) {
     await fixture.db.migrate(current)
     const runtime = await openRuntime({ ...fixture, names: { owner: 'New name', organization: 'New name', rootAgent: 'New name' } })
     try {
-      const { ids, settings, parts, memoryText } = saved
+      const { ids, settings, parts } = saved
       assert.deepEqual(runtime.bootstrap, { installationId: ids.installationId, ownerId: ids.ownerId, organizationId: ids.organizationId, rootAgentId: ids.rootAgentId })
       const actor = await trustedOwner(runtime.db)
       assert.deepEqual(actor, { installationId: ids.installationId, personId: ids.ownerId })
@@ -82,13 +129,58 @@ for (const prefixOnly of [false, true]) {
       assert.deepEqual((await messageRecord(runtime.db, ids.answerId)).parts, [{ kind: 'text', text: 'A saved answer.' }])
       const snapshot = await readSettings(runtime.db, actor)
       assert.deepEqual(snapshot.agents.find(agent => agent.id === ids.rootAgentId).settings, settings)
-      assert.deepEqual((await runtime.db.query('SELECT text,source_hash FROM kipster.memory_records WHERE id=$1', [ids.memoryId])).rows, [{ text: memoryText, source_hash: checksum(memoryText) }])
+      // The first memory engine is gone with its work and permits; its embedding profile stays for vector collections.
+      await assertMemorySchema(runtime.db)
+      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.owned_permits')).rows[0].n, 0)
+      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.attempts WHERE id=$1', [ids.attemptId])).rows[0].n, 0)
+      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.work_intents WHERE id=$1', [ids.runId])).rows[0].n, 0)
+      assert.deepEqual((await runtime.db.query('SELECT provider,model,generation FROM kipster.embedding_profiles WHERE installation_id=$1', [ids.installationId])).rows, [{ provider: 'fixture-provider', model: 'old-model', generation: '1' }])
+      assert.deepEqual((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.embedding_generations WHERE installation_id=$1', [ids.installationId])).rows[0].n, 1)
       assert.deepEqual(await history(runtime.db), current.map(item => ({ version: item.version, checksum: checksum(item.sql) })))
       assert.equal((await runtime.db.query('SELECT display_name FROM kipster.people WHERE id=$1', [ids.ownerId])).rows[0].display_name, 'Existing owner')
       assert.equal((await runtime.db.query("SELECT to_regnamespace('kipster_jobs') IS NOT NULL AS started")).rows[0].started, true)
     } finally { await runtime.close() }
   })
 }
+
+test('a fresh database gets the Kip memory schema and none of the first engine', { skip: noDatabase }, async t => {
+  const fixture = await database(t)
+  await fixture.db.migrate(await loadMigrations())
+  await assertMemorySchema(fixture.db)
+})
+
+test('an upgrade from the 025 diary keeps single-context pages in their context and deletes pages that mix contexts', { skip: noDatabase }, async t => {
+  const fixture = await database(t)
+  const migrations = await loadMigrations()
+  await fixture.db.migrate(migrations.filter(item => Number(item.version.slice(0, 3)) <= 25))
+  const id = () => randomUUID()
+  const [installation, owner, agent, organization, homeChat, orgChat, home, work, gone] = Array.from({ length: 9 }, id)
+  await fixture.db.transaction(async client => {
+    await client.query('INSERT INTO kipster.installations(id) VALUES ($1)', [installation])
+    await client.query('INSERT INTO kipster.people(id,installation_id,display_name) VALUES ($1,$2,$3)', [owner, installation, 'Owner'])
+    await client.query('INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)', [agent, installation, 'Kip'])
+    await client.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)', [organization, installation, 'Garden'])
+    await client.query("INSERT INTO kipster.direct_chats(id,installation_id,caller_id,context_kind,context_id,agent_id) VALUES ($1,$2,$3,'installation',$2,$4),($5,$2,$3,'organization',$6,$4)", [homeChat, installation, owner, agent, orgChat, organization])
+    await client.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2),($3,$4)', [home, homeChat, work, orgChat])
+    const page = (day, threadIds) => client.query('INSERT INTO kipster.diary(agent_id,day,installation_id,summary,thread_ids,embedding,embedding_model) VALUES ($1,$2,$3,$4,$5::uuid[],$6::vector,$7)',
+      [agent, day, installation, `Page of ${day}`, threadIds, `[${new Array(768).fill(0.1).join(',')}]`, 'fake-gemma'])
+    await page('2026-10-01', [home])
+    await page('2026-10-02', [work, work])
+    await page('2026-10-03', [home, work])
+    await page('2026-10-04', [gone])
+  })
+  await fixture.db.migrate(migrations)
+  const pages = (await fixture.db.query('SELECT day::text AS day, organization_id, summary, thread_ids, embedding_model FROM kipster.diary ORDER BY day')).rows
+  assert.deepEqual(pages, [
+    { day: '2026-10-01', organization_id: null, summary: 'Page of 2026-10-01', thread_ids: [home], embedding_model: 'fake-gemma' },
+    { day: '2026-10-02', organization_id: organization, summary: 'Page of 2026-10-02', thread_ids: [work, work], embedding_model: 'fake-gemma' },
+  ], 'a mixed page and a page of no surviving thread are deleted')
+  // The day now has a page per context, and one page per context only.
+  await fixture.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,organization_id,summary,thread_ids) VALUES ($1,'2026-10-01',$2,$3,'Garden page',ARRAY[$4::uuid])", [agent, installation, organization, work])
+  await assert.rejects(fixture.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,summary) VALUES ($1,'2026-10-01',$2,'Second installation page')", [agent, installation]), /diary_page/)
+  await assert.rejects(fixture.db.query("UPDATE kipster.diary SET summary=NULL WHERE day='2026-10-02'"), /diary_owed_unembedded/, 'a page owing a rebuild has no embedding')
+  await assertMemorySchema(fixture.db)
+})
 
 for (const kind of ['newer', 'changed', 'out-of-prefix']) {
   test(`migration, runtime and host plainly refuse ${kind} history before applying SQL`, { skip: noDatabase }, async t => {

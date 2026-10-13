@@ -19,8 +19,7 @@ test('capacity-one delegation routes exact child question and internal result ba
   const home=await mkdtemp(join(tmpdir(),'kipster-delegate-'))
   let runtime,dispatcher,server
   try{
-    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Agent A'},executionLimit:1,embedding:{id: 'ollama', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}})
-    await runtime.memory.stopIndexing()
+    runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Agent A'},executionLimit:1,embedding:{id: 'fixture-provider', contractMajor: 1,model:'fixture-embedding',async embed(){return [1,0]}}})
     const a=runtime.bootstrap.rootAgentId,b=randomUUID(),hidden=randomUUID(),org=runtime.bootstrap.organizationId,actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId}
     await runtime.home.provisionAgent(b)
     await runtime.home.provisionAgent(hidden)
@@ -56,9 +55,6 @@ test('capacity-one delegation routes exact child question and internal result ba
     assert.equal(child.agentId,b)
     assert.equal(child.runId,first.childRunId)
     assert.equal(child.organizationId,org)
-    const memory=await dispatcher.memoryTool(child.attemptId,'memory-b','memory.save',{kind:'fact',text:'Agent B remembers the review'})
-    assert.equal(memory.status,'completed')
-    assert.equal((await runtime.db.query('SELECT owner_id FROM kipster.memory_records WHERE id=$1',[memory.record.id])).rows[0].owner_id,b)
     const written=await dispatcher.writeArtifactTool(child.attemptId,'write-b','review.txt','B wrote this')
     const published=await dispatcher.publishArtifactTool(child.attemptId,'publish-b',written.outputId)
     assert.equal((await runtime.db.query('SELECT owner_id FROM kipster.artifacts WHERE id=$1',[published.artifact.id])).rows[0].owner_id,b)

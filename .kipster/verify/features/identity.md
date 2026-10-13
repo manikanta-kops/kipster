@@ -4,11 +4,13 @@
 
 - Global soul.md, identity.md and AGENTS.md files.
 - Editable identity guidance, compare-and-swap writes, backups and restore.
-- Memory, provenance and learned identity promotion remain Core capabilities.
+- Kip memory (decision record 10), stored in Core: the Settings Memory section and its Cards view.
 
 ## How to get to it (user point of view)
 
 Settings → Kips selects a kip. Its file rows open identity/soul/instructions editors and saved backups. Identity belongs to the global kip across memberships.
+
+Settings → Memory has the learning switch, default sleep time, nightly model and per-turn card and conversation counts, plus a row per kip opening its own switch and sleep time. Its Cards row opens the cards every kip shares, to list, read, edit and delete them. Cards appear only when bootstrap advertises `capabilities.memoryCards`.
 
 ## Driving it
 
@@ -20,4 +22,4 @@ Settings → Kips selects a kip. Its file rows open identity/soul/instructions e
 
 Use APP_URL and EVIDENCE_DIR from [the verification guide](../README.md). Each command saves a screenshot, trace and JSON verdict.
 
-This command is read-only and proves neither editing nor restore UI. Inspect the identity editor in IdentityFiles.tsx when extending driving. Do not read provider-home AGENTS.md or owner files. No embedding provider is configured, so memory recall, learning and promotion cannot be driven here; isolated Core database tests exercise them with fixtures. Preserve owner-authored text outside Learned markers.
+This command is read-only and proves neither editing nor restore UI. Inspect the identity editor in IdentityFiles.tsx when extending driving. Do not read provider-home AGENTS.md or owner files. No embedding provider is configured, so memory search is unavailable here, and the seeded instance has no cards until a night's run or fixture adds them: prove nightly-derived cards and search with Core database tests or fixtures. Preserve owner-authored text outside Learned markers.

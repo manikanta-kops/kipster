@@ -1,20 +1,27 @@
 import { useId, useState } from 'react'
-import type { Directory } from '../../data/core-settings'
+import type {
+  Directory,
+  Learning,
+  LearningChange,
+} from '../../data/core-settings'
 import type { Settings } from './ExecutionSettings'
 import { KipAvatar, type KipLook } from './KipAvatar'
 import { ActionRow, Block, Row, SaveRow, Switch } from './ui'
 import { useSheet } from './sheet'
-import { clockTime, errorText } from './format'
+import { clockTime, effortLabel, errorText } from './format'
 
 type State = 'idle' | 'saving' | { error: string }
 
-/** The installation switch, the default sleep time and each kip's summary. */
+/** The installation switch, the default sleep time, the nightly model and counts, cards and each kip's summary. */
 export function LearningPage({
   settings,
   look,
+  memoryCards,
 }: {
   settings: Settings
   look: (agentId: string) => KipLook
+  /** Core advertises the memory card actions; older Cores show no Cards. */
+  memoryCards: boolean
 }) {
   const learning = settings.learning!
   const directory: Directory = settings.directory!
@@ -40,7 +47,7 @@ export function LearningPage({
   return (
     <>
       <Block
-        region="Learning"
+        region="Memory"
         foot="Daily, in this device’s local time. Kips can use their own."
       >
         <Row
@@ -48,16 +55,14 @@ export function LearningPage({
           labelId={switchId}
           sub={
             learning.available
-              ? 'Kips learn from completed conversations and tidy what they learned while they sleep. Off by default.'
-              : 'Learning needs an embedding profile configured in Kipster Core.'
+              ? 'Kips remember your conversations across chats. Each night, while they sleep, new conversation becomes searchable. Off by default.'
+              : 'Kips remember your conversations across chats. Searching memory by meaning needs an embedding provider configured in Kipster Core. Off by default.'
           }
           control={
             <Switch
               labelId={switchId}
               on={learning.enabled}
-              disabled={
-                state === 'saving' || (!learning.available && !learning.enabled)
-              }
+              disabled={state === 'saving'}
               change={(on) => void run({ enabled: on })}
             />
           }
@@ -98,6 +103,22 @@ export function LearningPage({
         <p role="alert" className="set-alert">
           Not saved: {state.error}
         </p>
+      )}
+      {learning.coreCardCount !== undefined && (
+        <>
+          <NightlyModel settings={settings} />
+          <MemoryCounts settings={settings} learning={learning} />
+        </>
+      )}
+      {memoryCards && (
+        <Block>
+          <Row
+            label="Cards"
+            sub="What kips remember about you. Read, correct or delete it."
+            chevron
+            onClick={() => push({ kind: 'cards', title: 'Cards' })}
+          />
+        </Block>
       )}
       {agents.length > 0 && (
         <Block
@@ -161,8 +182,8 @@ export function KipLearning({
   const chosenTime = time ?? agent.sleepTime ?? learning.sleepTime
   const changed = !!time && time !== (agent.sleepTime ?? learning.sleepTime)
   return (
-    <section aria-label="Kip learning" className="set-block">
-      <h4 className="set-label">Learning</h4>
+    <section aria-label="Kip memory" className="set-block">
+      <h4 className="set-label">Memory</h4>
       <div className="set-group">
         <Row
           label="Learn from conversations"
@@ -234,5 +255,223 @@ export function KipLearning({
         </p>
       )}
     </section>
+  )
+}
+
+const modelKey = (adapterId: string, modelId: string) =>
+  JSON.stringify([adapterId, modelId])
+
+/** The model of the nightly memory run: Kip's, or one the adapters offer. Saved when chosen. */
+function NightlyModel({ settings }: { settings: Settings }) {
+  const learning = settings.learning!
+  const chosen = learning.nightlyModel ?? null
+  const [state, setState] = useState<State>('idle')
+  const adapters = settings.adapters?.adapters ?? []
+  const options = adapters.flatMap((adapter) =>
+    adapter.models.map((model) => ({
+      key: modelKey(adapter.id, model.id),
+      label: `${adapter.id} · ${model.id}${adapter.available ? '' : ' (unavailable)'}`,
+      model: { adapterId: adapter.id, modelId: model.id },
+      efforts: model.efforts,
+    })),
+  )
+  const current = chosen && modelKey(chosen.adapterId, chosen.modelId)
+  const listed = options.find((option) => option.key === current)
+  const efforts = listed?.efforts ?? []
+  const save = async (change: LearningChange) => {
+    setState('saving')
+    try {
+      await settings.saveLearning(change)
+      setState('idle')
+    } catch (error) {
+      setState({ error: errorText(error) })
+    }
+  }
+  return (
+    <>
+      <Block
+        label="Nightly"
+        foot="Each night this model turns new conversation into memory. Kip’s model is used unless you choose another."
+      >
+        <Row
+          label="Nightly model"
+          control={
+            <select
+              aria-label="Nightly model"
+              value={current ?? ''}
+              disabled={state === 'saving'}
+              onChange={(e) => {
+                const option = options.find((o) => o.key === e.target.value)
+                void save({ nightlyModel: option ? option.model : null })
+              }}
+            >
+              <option value="">Kip’s model</option>
+              {chosen && !listed && (
+                <option value={current!}>
+                  {chosen.adapterId} · {chosen.modelId} (unavailable)
+                </option>
+              )}
+              {options.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          }
+        />
+        {chosen && (efforts.length > 0 || chosen.effort) && (
+          <Row
+            label="Nightly effort"
+            control={
+              <select
+                aria-label="Nightly effort"
+                value={chosen.effort ?? ''}
+                disabled={state === 'saving'}
+                onChange={(e) =>
+                  void save({
+                    nightlyModel: {
+                      adapterId: chosen.adapterId,
+                      modelId: chosen.modelId,
+                      ...(e.target.value ? { effort: e.target.value } : {}),
+                    },
+                  })
+                }
+              >
+                <option value="">Model default</option>
+                {chosen.effort && !efforts.includes(chosen.effort) && (
+                  <option value={chosen.effort}>
+                    {effortLabel(chosen.effort)} (unavailable)
+                  </option>
+                )}
+                {efforts.map((effort) => (
+                  <option key={effort} value={effort}>
+                    {effortLabel(effort)}
+                  </option>
+                ))}
+              </select>
+            }
+          />
+        )}
+      </Block>
+      {typeof state === 'object' && (
+        <p role="alert" className="set-alert">
+          Not saved: {state.error}
+        </p>
+      )}
+    </>
+  )
+}
+
+const counts = [
+  {
+    key: 'coreCardCount',
+    label: 'Core cards',
+    sub: 'Loaded into every turn',
+    max: 200,
+  },
+  {
+    key: 'searchCardCount',
+    label: 'Cards from search',
+    sub: 'Added when a message matches them by meaning',
+    max: 50,
+  },
+  {
+    key: 'searchChunkCount',
+    label: 'Conversation pieces from search',
+    sub: 'Parts of earlier chats added the same way',
+    max: 30,
+  },
+] as const
+type Count = (typeof counts)[number]['key']
+
+/** How many core cards, cards and conversation pieces each turn gets, saved together. */
+function MemoryCounts({
+  settings,
+  learning,
+}: {
+  settings: Settings
+  learning: Learning
+}) {
+  const [draft, setDraft] = useState<Partial<Record<Count, string>>>({})
+  const [state, setState] = useState<State>('idle')
+  const saved = (key: Count) => String(learning[key] ?? '')
+  const changed = counts.filter(
+    ({ key }) => draft[key] !== undefined && draft[key] !== saved(key),
+  )
+  const invalid = changed.filter(({ key, max }) => {
+    const value = Number(draft[key])
+    return !/^\d+$/.test(draft[key]!) || value > max
+  })
+  const save = async () => {
+    setState('saving')
+    try {
+      await settings.saveLearning(
+        Object.fromEntries(
+          changed.map(({ key }) => [key, Number(draft[key])]),
+        ) as LearningChange,
+      )
+      setDraft({})
+      setState('idle')
+    } catch (error) {
+      setState({ error: errorText(error) })
+    }
+  }
+  return (
+    <>
+      <Block
+        label="Each turn"
+        foot="Counted in whole items. Defaults are 60, 10 and 6."
+      >
+        {counts.map(({ key, label, sub, max }) => (
+          <Row
+            key={key}
+            label={label}
+            sub={`${sub}, 0 to ${max}`}
+            subTone={
+              invalid.some((item) => item.key === key) ? 'bad' : undefined
+            }
+            changed={changed.some((item) => item.key === key)}
+            control={
+              <input
+                type="number"
+                className="set-field set-number"
+                aria-label={label}
+                min={0}
+                max={max}
+                step={1}
+                value={draft[key] ?? saved(key)}
+                disabled={state === 'saving'}
+                onChange={(e) =>
+                  setDraft((old) => ({ ...old, [key]: e.target.value }))
+                }
+              />
+            }
+          />
+        ))}
+        {(changed.length > 0 || state === 'saving') && (
+          <SaveRow state={state === 'saving' ? 'saving' : 'dirty'}>
+            {state !== 'saving' && (
+              <>
+                <button className="set-button" onClick={() => setDraft({})}>
+                  Discard
+                </button>
+                <button
+                  className="set-button primary"
+                  disabled={invalid.length > 0}
+                  onClick={() => void save()}
+                >
+                  Save
+                </button>
+              </>
+            )}
+          </SaveRow>
+        )}
+      </Block>
+      {typeof state === 'object' && (
+        <p role="alert" className="set-alert">
+          Not saved: {state.error}
+        </p>
+      )}
+    </>
   )
 }

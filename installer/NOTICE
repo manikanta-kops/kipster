@@ -3,3 +3,15 @@ Copyright 2026 Mani Koppala and Kipster contributors
 
 This product is licensed under the Apache License, Version 2.0.
 See the LICENSE file for details.
+
+For memory search the installer downloads, into the Kipster home, third-party
+software that it does not include. Kipster never uses or changes a llama.cpp or
+Ollama installed elsewhere on the machine.
+
+llama.cpp (https://github.com/ggml-org/llama.cpp), release b11565
+Copyright (c) 2023-2026 The ggml authors
+Licensed under the MIT License; the downloaded release includes its LICENSE file.
+
+EmbeddingGemma 2 by Google DeepMind (https://huggingface.co/google/embeddinggemma-2),
+as the Q8_0 GGUF file from https://huggingface.co/ggml-org/embeddinggemma-2-GGUF
+Licensed under the Apache License, Version 2.0.

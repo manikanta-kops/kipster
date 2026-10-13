@@ -127,11 +127,11 @@ test('uninstall unloads and removes both owned login jobs and accepts already re
   assert.deepEqual(removed.calls, [])
 })
 test('provider roots move with current while retaining provider options', () => {
-  const result = managedConfiguration({ adapters: [{ id: 'custom', entry: 'node_modules/@kipster/codex-cli/dist/index.js', root: '/old', config: { model: 'chosen' } }], embedding: { module: '/old/embedding-ollama/dist/index.js', options: { model: 'chosen' } } }, '/tmp/home')
-  assert.deepEqual(result.names, ['@kipster/codex-cli', '@kipster/embedding-ollama'])
+  const result = managedConfiguration({ adapters: [{ id: 'custom', entry: 'node_modules/@kipster/codex-cli/dist/index.js', root: '/old', config: { model: 'chosen' } }], embedding: { module: '/old/embedding-llama-cpp/dist/index.js', options: { model: 'chosen' } } }, '/tmp/home')
+  assert.deepEqual(result.names, ['@kipster/codex-cli', '@kipster/embedding-llama-cpp'])
   assert.equal(result.config.adapters[0].root, '/tmp/home/current')
   assert.equal(result.config.adapters[0].config.model, 'chosen')
-  assert.equal(result.config.embedding.module, '/tmp/home/current/node_modules/@kipster/embedding-ollama/dist/index.js')
+  assert.equal(result.config.embedding.module, '/tmp/home/current/node_modules/@kipster/embedding-llama-cpp/dist/index.js')
 })
 test('managed host configuration opts into updates and preserves catalog options', () => {
   for (const updates of [undefined, { channelUrl: 'https://updates.example/v1/' }, { managed: false, channelUrl: 'https://updates.example/v1/' }]) {
@@ -177,7 +177,7 @@ test('success, verification failure, migration/health rollback, restore and rete
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t)
   const { path, maintenancePath } = await configuration(t, home, databaseUrl, {
     updates: { managed: false, channelUrl: catalog.base },
-    embedding: { module: join(home, 'embedding-ollama/dist/index.js'), options: { model: 'kept' } },
+    embedding: { module: join(home, 'embedding-llama-cpp/dist/index.js'), options: { model: 'kept' } },
     transcription: { module: join(home, 'transcription-spokenly/dist/index.js'), options: { executable: '/usr/bin/false' } },
   })
   const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 1000 }
@@ -290,7 +290,7 @@ test('interrupted activation recovers on the next apply and preserves newer requ
   const ready = join(home, 'interrupted')
   const code = `import {Installer} from ${JSON.stringify(new URL('../src/installer.mjs', import.meta.url).href)};
     import {atomic} from ${JSON.stringify(new URL('../src/files.mjs', import.meta.url).href)};
-    const installer=await Installer.open(${JSON.stringify(home)},{platformCheck:async()=>{},onStep:async step=>{if(step==='migrating'){await atomic(${JSON.stringify(ready)},'ready'); await new Promise(()=>setInterval(()=>{},10000))}}}); await installer.update('0.2.0');`
+    const installer=await Installer.open(${JSON.stringify(home)},{platformCheck:async()=>{},embedding:{manifest:null},onStep:async step=>{if(step==='migrating'){await atomic(${JSON.stringify(ready)},'ready'); await new Promise(()=>setInterval(()=>{},10000))}}}); await installer.update('0.2.0');`
   const child = spawn(process.execPath, ['--input-type=module', '-e', code], { env: process.env, stdio: 'ignore' })
   const done = new Promise(resolve => child.once('exit', resolve))
   for (let i = 0; i < 1000; i++) { try { await stat(ready); break } catch { await delay(20) } }

@@ -9,7 +9,7 @@ import type { Jobs } from '../../platform/jobs/public.js'
 import type { DirectoryAgent, DirectoryGroup, DirectoryMembership, DirectoryOrganization, DirectorySnapshot, SettingsRecord } from '../../protocol/admin.js'
 import { claimOperation, completeOperation, lockOperation, operationStatus, pendingOperations, OperationConflictError, type OperationKey, type OperationStatus } from './operations.js'
 
-export { OperationConflictError, claimOperation, lockOperation, openOperations, recordStep, recordStepError, type Operation, type OperationKey, type OperationStatus, type StepOutcome } from './operations.js'
+export { OperationConflictError, claimOperation, completeOperation, lockOperation, openOperations, recordStep, recordStepError, type Operation, type OperationKey, type OperationStatus, type StepOutcome } from './operations.js'
 export type DirectoryResource = 'organization' | 'agent' | 'membership' | 'group'
 
 // The directory lists provisioned agents in every lifecycle, including deleted ones, and

@@ -9,7 +9,7 @@ import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 async function until(read, predicate, label) {
  for (let i = 0; i < 200; i++) { const value = await read(); if (predicate(value)) return value; await new Promise(r => setTimeout(r, 30)) }
  throw Error(`Timed out: ${label}`)
@@ -102,18 +102,21 @@ for (const mode of ['streaming', 'waiting', 'asking']) test(`SIGKILL while ${mod
 test('SIGKILL during indexing preserves Unicode source and recovers expired intent', { skip: noDatabase, timeout: 60000 }, async t => {
  const ctx = await setup(t)
  let runtime = await ctx.open({ ...profile, async embed() { return [1, 0] } })
- await runtime.memory.stopIndexing(); const agent = runtime.bootstrap.rootAgentId
- const text = '日本語の記録 café Москва العربية'
- const saved = await runtime.memory.save(agent, 'fact', text, [{ authorId: agent }])
+ await runtime.vectors.stopIndexing(); const { installationId, rootAgentId: agent } = runtime.bootstrap
+ const text = '日本語の記録 café Москва العربية', collection = randomUUID(), record = randomUUID()
+ await runtime.db.query(`INSERT INTO kipster.vector_collections(id,installation_id,owner_kind,owner_id,name) VALUES ($1,$2,'agent',$3,'notes')`, [collection, installationId, agent])
+ await runtime.db.query(`INSERT INTO kipster.vector_records(id,collection_id,record_key,text,source_hash,source_bytes) VALUES ($1,$2,'one',$3,'hash',$4)`, [record, collection, text, Buffer.byteLength(text)])
+ await runtime.db.query(`INSERT INTO kipster.vector_sources(record_id,revision,text,metadata,source_hash) VALUES ($1,1,$2,'{}','hash')`, [record, text])
+ await runtime.db.query(`INSERT INTO kipster.vector_index_intents(record_id,source_revision,source_hash,generation,provider,model,status) VALUES ($1,1,'hash',1,$2,$3,'pending')`, [record, profile.id, profile.model])
  await ctx.close()
  const child = ctx.child('index'); await child.wait('index'); await child.kill()
  runtime = await ctx.open({ ...profile, async embed() { return [1, 0] } })
- await runtime.memory.stopIndexing()
- assert.equal((await runtime.memory.get(agent, null, saved.id)).text, text)
- await runtime.db.query("UPDATE kipster.memory_index_intents SET lease_until=now()-interval '1 second' WHERE memory_id=$1", [saved.id])
- await runtime.memory.indexPending(10, true)
- assert.equal((await runtime.memory.get(agent, null, saved.id)).indexStatus, 'ready')
- assert.equal((await runtime.memory.get(agent, null, saved.id)).text, text)
+ await runtime.vectors.stopIndexing()
+ const state = async () => (await runtime.db.query('SELECT r.text, i.status FROM kipster.vector_records r JOIN kipster.vector_index_intents i ON i.record_id=r.id WHERE r.id=$1', [record])).rows[0]
+ assert.deepEqual(await state(), { text, status: 'processing' })
+ await runtime.db.query("UPDATE kipster.vector_index_intents SET lease_until=now()-interval '1 second' WHERE record_id=$1", [record])
+ await runtime.vectors.indexPending(10, true)
+ assert.deepEqual(await state(), { text, status: 'ready' })
 })
 
 test('identical text with distinct submission IDs creates two actions; retrying one ID creates none', { skip: noDatabase, timeout: 60000 }, async t => {

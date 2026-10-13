@@ -16,7 +16,7 @@ import { adminUrl, noDatabase, taskDataRole } from './support/database.mjs'
 // locks the owner row after the capacity lock; every writer locks its owner too, so a write commits
 // before the change and is then stopped, or it waits for the change and is refused.
 
-const profile = { id: 'ollama', contractMajor: 1, model: 'fixture-embedding' }
+const profile = { id: 'fixture-provider', contractMajor: 1, model: 'fixture-embedding' }
 const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 const stream = bytes => (async function* () { yield bytes })()
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
@@ -47,7 +47,6 @@ async function setup(t, { transcribe } = {}) {
   const voice = { calls: 0, id: 'fixture-transcription', contractMajor: 1, async readiness() { return { ready: true } }, async transcribe() { voice.calls++; return { status: 'succeeded', text: 'spoken', provider: 'fixture-transcription' } }, async close() {} }
   const runtime = await openRuntime({ connectionString: url.href, taskDataConnectionString: restricted.href, home, executionLimit: 6, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' },
     embedding: { ...profile, embed: (...args) => embedding.embed(...args) }, ...(transcribe ? { transcription: voice } : {}) })
-  await runtime.memory.stopIndexing()
   await runtime.vectors.stopIndexing()
   const { installationId, ownerId, organizationId, rootAgentId } = runtime.bootstrap
   const actor = { installationId, personId: ownerId }
@@ -123,24 +122,9 @@ const runLock = run => ['SELECT 1 FROM kipster.text_runs WHERE id=$1 FOR UPDATE'
 
 /** Each writer: the lock that pauses it after it holds its owner, the write, and how many writes landed. */
 const writers = {
-  memory: {
-    barrier: threadLock,
-    write: (ctx, run, key) => run.call('memory_save', { kind: 'fact', text: `Remember ${key}` }),
-    landed: (ctx, key) => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.memory_records WHERE text=$1', [`Remember ${key}`]),
-  },
-  relationships: {
-    barrier: threadLock,
-    async prepare(ctx) {
-      const first = await ctx.runtime.memory.save(ctx.scout, 'fact', 'The desk opens at nine', [{ authorId: ctx.scout }])
-      const second = await ctx.runtime.memory.save(ctx.scout, 'observation', 'Visitors arrive early', [{ authorId: ctx.scout }])
-      return { first: first.id, second: second.id }
-    },
-    write: (ctx, run, key, prepared) => run.call('memory_link', { owner: { kind: 'agent', ownerId: ctx.scout }, fromId: prepared.first, toId: prepared.second, fromRevision: 1, toRevision: 1, kind: 'supports', weight: 0.5, evidence: [{ memoryId: prepared.first, revision: 1 }] }),
-    landed: ctx => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.memory_relationships'),
-  },
   vectors: {
     barrier: threadLock,
-    write: (ctx, run, key) => run.call('vectors_space', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: `notes_${key}` }),
+    write: (ctx, run, key) => run.call('vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: `notes_${key}` }),
     landed: (ctx, key) => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.vector_collections WHERE name=$1', [`notes_${key}`]),
   },
   'task data': {
@@ -181,7 +165,7 @@ for (const [name, writer] of Object.entries(writers)) {
     assert.deepEqual(await ctx.state(run.runId), { state: 'cancellation-requested', stop_requested: true, cancel_delivery: 'requested' })
     const late = await outcome(writer.write(ctx, run, 'late', prepared, randomUUID()))
     assert.ok(late.error, 'a write after the stop is refused')
-    assert.equal(await writer.landed(ctx, 'late'), name === 'relationships' ? 1 : 0)
+    assert.equal(await writer.landed(ctx, 'late'), 0)
   })
 
   test(`${name}: a write just after the lifecycle change waits for it and is refused`, { skip: noDatabase, timeout: 60000 }, async t => {
@@ -382,13 +366,11 @@ test('dispatch stops queued work of an agent that stopped being live without run
 
 test('indexing leases that complete after the owner stops being live write nothing', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
-  const memory = await ctx.runtime.memory.save(ctx.scout, 'fact', 'The archive room is on floor two', [{ authorId: ctx.scout }])
   const run = await ctx.running()
-  const collection = await run.call('vectors_space', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: 'notes' })
-  await run.call('vectors_space', { operation: 'upsert', target: { kind: 'agent', ownerId: ctx.scout }, collectionId: collection.collectionId, key: 'room', expectedRevision: 0, text: 'Floor two', metadata: {} })
-  const intents = () => ctx.db.query(`SELECT 'memory' AS kind, status, embedding IS NULL AS empty FROM kipster.memory_index_intents WHERE memory_id=$1
-    UNION ALL SELECT 'vector', status, embedding IS NULL FROM kipster.vector_index_intents`, [memory.id]).then(result => result.rows)
-  for (const [kind, indexer] of [['memory', ctx.runtime.memory], ['vector', ctx.runtime.vectors]]) {
+  const collection = await run.call('vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: 'notes' })
+  await run.call('vector_collections', { operation: 'upsert', target: { kind: 'agent', ownerId: ctx.scout }, collectionId: collection.collectionId, key: 'room', expectedRevision: 0, text: 'Floor two', metadata: {} })
+  const intents = () => ctx.db.query(`SELECT 'vector' AS kind, status, embedding IS NULL AS empty FROM kipster.vector_index_intents`).then(result => result.rows)
+  for (const [kind, indexer] of [['vector', ctx.runtime.vectors]]) {
     ctx.embedding.gate = deferred()
     const indexing = indexer.indexPending(1, true)
     await until(intents, rows => rows.some(item => item.kind === kind && item.status === 'processing'), `${kind} lease claimed`)
@@ -398,15 +380,12 @@ test('indexing leases that complete after the owner stops being live write nothi
     await ctx.flip(ctx.scout, 'active')
   }
   ctx.embedding.gate = null
-  assert.deepEqual((await intents()).map(item => [item.kind, item.status, item.empty]), [['memory', 'processing', true], ['vector', 'processing', true]], 'the leases changed nothing')
-  // Once the owner is live and the leases expire, indexing finishes; while it is not live, nothing is claimed.
-  await ctx.db.query(`UPDATE kipster.memory_index_intents SET lease_until=now() - interval '1 second'`)
+  assert.deepEqual((await intents()).map(item => [item.kind, item.status, item.empty]), [['vector', 'processing', true]], 'the lease changed nothing')
+  // Once the owner is live and the lease expires, indexing finishes; while it is not live, nothing is claimed.
   await ctx.db.query(`UPDATE kipster.vector_index_intents SET lease_until=now() - interval '1 second'`)
   await ctx.flip()
-  assert.equal((await ctx.runtime.memory.indexPending(5, true)).processed, 0)
   assert.equal((await ctx.runtime.vectors.indexPending(5, true)).processed, 0)
   await ctx.flip(ctx.scout, 'active')
-  assert.equal((await ctx.runtime.memory.indexPending(5, true)).ready, 1)
   assert.equal((await ctx.runtime.vectors.indexPending(5, true)).ready, 1)
 })
 

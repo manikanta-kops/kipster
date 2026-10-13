@@ -28,7 +28,7 @@ Bootstrap reports `coreVersion` (`0.0.0-demo`) and `protocol` (`{ current: 1, ol
 Pass `coreVersion` or `protocol` to `createFakeCore` to start with others.
 The handler supplies bootstrap and directory discovery, direct chats, text
 submissions and receipts, application/thread snapshots and SSE, work controls
-and interaction answers, notifications, media, settings, identity files,
+and interaction answers, notifications, media, settings, memory cards, identity files,
 administration and lifecycle operations, and rich docs (`/v1/documents`
 routes with `document-changed` and `document-removed` events). It intentionally has no backward
 history endpoint. Snapshots page messages/work and threads/notifications using

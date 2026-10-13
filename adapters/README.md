@@ -17,4 +17,4 @@ as they arrive; Core may merge them, keeping only the latest pending draft. Fina
 content replaces the draft. After `final: true`, emit nothing more for that ID.
 Separate provider messages must use separate IDs.
 
-Embedding packages export `createEmbeddingProvider(options)` returning the `EmbeddingProvider` contract from `@kipster/core/embedding`. Configure one package with `embedding: { module, options }` in host.json; see [embedding-ollama](./embedding-ollama/README.md).
+Embedding packages export `createEmbeddingProvider(options)` returning the `EmbeddingProvider` contract from `@kipster/core/embedding`. Configure one package with `embedding: { module, options }` in host.json; see [embedding-llama-cpp](./embedding-llama-cpp/README.md), the client of the llama.cpp server Core runs.

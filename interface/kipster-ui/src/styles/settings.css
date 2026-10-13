@@ -730,7 +730,8 @@
 
 /* Controls: one height, right-aligned, one width */
 .settings-sheet .set-control > select,
-.settings-sheet .set-time {
+.settings-sheet .set-time,
+.settings-sheet .set-field {
   display: block;
   width: var(--ctl-w);
   height: var(--ctl-h);
@@ -749,9 +750,16 @@
   padding-right: 8px;
   font-variant-numeric: tabular-nums;
 }
+.settings-sheet .set-field {
+  padding-right: 11px;
+}
+.settings-sheet .set-number {
+  font-variant-numeric: tabular-nums;
+}
+
 :root[data-surface='outline']
   .settings-sheet
-  :is(.set-control > select, .set-time, .set-editor) {
+  :is(.set-control > select, .set-time, .set-field, .set-editor) {
   background-color: var(--field);
   box-shadow: inset 0 0 0 1px var(--rim-2);
 }
@@ -1151,6 +1159,14 @@
   background: transparent;
   box-shadow: none;
 }
+.settings-sheet .set-editor.set-card-text {
+  min-height: 72px;
+}
+.settings-sheet .set-editor.set-card-statement {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
 .settings-sheet .set-editor:focus {
   box-shadow: inset 0 0 0 1.5px
     color-mix(in oklab, var(--tint) 60%, transparent);
@@ -1544,12 +1560,19 @@
   }
   .set-row:not(.nav, .set-action, .set-save):has(
       > .set-control
-        > :is(select, .set-segmented, .set-stepper, .set-time, .set-note)
+        > :is(
+          select,
+          .set-segmented,
+          .set-stepper,
+          .set-time,
+          .set-field,
+          .set-note
+        )
     )
     > .set-control {
     width: 100%;
   }
-  .settings-sheet .set-control > :is(select, .set-time),
+  .settings-sheet .set-control > :is(select, .set-time, .set-field),
   .set-segmented:not(.compact),
   .settings-sheet .set-stepper,
   .set-note {

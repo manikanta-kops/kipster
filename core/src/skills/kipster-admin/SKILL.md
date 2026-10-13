@@ -1,6 +1,6 @@
 ---
 name: kipster-admin
-description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, learning, appearance, notifications and updates.
+description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, memory, appearance, notifications and updates.
 ---
 
 # Administering Kipster
@@ -26,7 +26,8 @@ Read an operation with `admin_operations` before you call it for the first time 
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
 | permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
-| memory, learning, sleep | learning and sleep time | `learning` |
+| memory, learning, sleep, nightly model, core cards | memory switch, sleep time, nightly model and memory counts | `learning` |
+| what you know about me, remembered facts, forget that | memory cards | `memory` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 
 ## How to work
@@ -52,8 +53,8 @@ each file short and specific. Optionally show it in a group with `appearances.ad
 
 **Change how a kip behaves.** Read the file with `identity.get`, edit the relevant part and save it with `identity.set`
 and the `sha256` you read as `expectedSha256`. If the save reports a conflict, read the file again and redo the edit.
-Leave the section between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md` as it is;
-Kipster writes it. Each save keeps a backup; `identity.backups` and `identity.restore` undo a change.
+Leave any section between `<!-- kipster:learned:begin -->` and `<!-- kipster:learned:end -->` in `identity.md` as it
+is. Each save keeps a backup; `identity.backups` and `identity.restore` undo a change.
 
 **Change the look.** `interface.set` with `palette` (glacier, alpenglow, pine, graphite, obsidian), `theme` (light,
 dark, or system to follow the computer), `desktopNotifications` and the notification choices (`notifyNeeds`,
@@ -72,6 +73,20 @@ person's approval; say plainly that it removes every prompt.
 **Always-allowed actions.** When the person picks "Always allow" on an approval card, that action joins
 `alwaysAllowed` in `permissions.get` and no kip asks for it again. Remove one with `permissions.set`
 `removeAlwaysAllowed: [id]`. Only the person adds them, from a card.
+
+**Memory.** `learning.get` shows the memory settings. Each night, at a kip's sleep time, Kipster turns that kip's new
+conversation into searchable thread chunks, shared cards about the person and a diary. `learning.set` turns memory on or
+off for every kip and sets the default `sleepTime` ("HH:MM", local time); `learning.agent_set` does the same for one
+kip. `learning.set` also sets `nightlyModel` (`{ adapterId, modelId, effort? }` from `adapters.list`, or `null` to use
+Kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
+(cards and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only what they ask for.
+
+**Memory cards.** Cards are the facts about the person every kip shares, such as a preference, a person they know or a
+date. `memory.cards_list` lists them newest first with their workspace (`organizationId`, null for every workspace) and
+the messages they came from; `ended: true` adds replaced cards. When the person corrects a card, change it with
+`memory.card_update`; the card becomes confirmed. A replaced card cannot be edited: edit the card that replaced it. When
+they want something forgotten, `memory.card_delete` removes the card; their messages stay. Both need an `operationId`.
+Find the card first and change only the cards they mean.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call
