@@ -22,6 +22,8 @@ export interface PluginServerControl extends PluginServerEndpoint {
   readonly directory: string
   /** The `@kipster/plugins` version of the module the server runs, or null when its package cannot be read. */
   readonly packageVersion: string | null
+  /** The newest `@kipster/plugins` version that has run with this installation's plugin data, or null when none is recorded. */
+  readonly highestVersion?: string | null
   restart(module?: string): Promise<void>
   /** The next status that ends a start: ready, restarting after a failed launch, failed or stopped. */
   settled(): Promise<PluginServerStatus>
@@ -56,6 +58,7 @@ export interface PluginServerOptions {
 }
 
 const host = '127.0.0.1'
+const highestFile = 'highest-version'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 // Variables the plugin server may need; Core's database URLs, provider keys and NODE_OPTIONS stay out.
 const inherited = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'KIPSTER_PLUGINS_CLIENT_METADATA_URL']
@@ -81,13 +84,15 @@ class Incompatible extends Error {}
 /**
  * Runs the `@kipster/plugins` server named by host.json, or the newer release Core installed in
  * `<home>/plugins-host/current`. It listens on loopback with a bearer token Core keeps in
- * `<home>/plugins-host`; plugins are off whenever it is not ready.
+ * `<home>/plugins-host`; plugins are off whenever it is not ready. It never starts a release older than the newest that
+ * reached ready, recorded in `<home>/plugins-host/highest-version`, because that one may have changed the plugin data.
  */
 export class PluginServerSupervisor implements PluginServerControl {
   #status: PluginServerStatus = { state: 'configured' }
   #configured: string
   #module: string
   #version: string | null = null
+  #highest: string | null = null
   readonly #watchers = new Set<(status: PluginServerStatus) => void>()
   #child: ChildProcess | undefined
   #closing = false
@@ -110,6 +115,7 @@ export class PluginServerSupervisor implements PluginServerControl {
   /** The module the server runs: the configured one, or Core's installed release when that is newer. */
   get module(): string { return this.#module }
   get packageVersion(): string | null { return this.#version }
+  get highestVersion(): string | null { return this.#highest }
   get directory(): string { return this.#directory }
   endpoint(): { url: string; token: string } | undefined {
     const status = this.#status
@@ -208,9 +214,38 @@ export class PluginServerSupervisor implements PluginServerControl {
     this.#module = useInstalled ? installed!.module : this.#configured
     this.#version = useInstalled ? installed!.version : configured
   }
+  /**
+   * The recorded highest version. A missing file means none has run yet; an unreadable or invalid one is ignored, like an
+   * unreadable port file, and logged but kept until a server reaches ready and records its own version.
+   */
+  async #readHighest(): Promise<string | null> {
+    const file = join(this.#directory, highestFile)
+    let text: string
+    try { text = await readFile(file, 'utf8') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#options.log?.(`Ignoring unreadable ${file}: ${message(error)}`)
+      return null
+    }
+    try { const version = text.trim(); compareVersions(version, version); return version }
+    catch { this.#options.log?.(`Ignoring invalid ${file}.`); return null }
+  }
+  /** Records the version that reached ready when it is newer than the recorded one. A failed write leaves plugins running. */
+  async #recordHighest(): Promise<void> {
+    const version = this.#version
+    if (version === null || (this.#highest !== null && compareVersions(version, this.#highest) <= 0)) return
+    const file = join(this.#directory, highestFile), temporary = `${file}.${process.pid}.tmp`
+    try {
+      await writeFile(temporary, `${version}\n`, { mode: 0o600 })
+      await rename(temporary, file)
+      this.#highest = version
+    } catch (error) { this.#options.log?.(`Could not record plugin server version ${version} in ${file}: ${message(error)}`) }
+  }
   async #prepare(): Promise<void> {
     await this.#choose()
+    // Read even when the module is missing, so the update check never offers a release this record refuses.
+    this.#highest = await this.#readHighest()
     try { await access(this.#module, constants.R_OK) } catch { throw new Error(`The plugin server module is missing: ${this.#module}`) }
+    if (this.#version !== null && this.#highest !== null && compareVersions(this.#version, this.#highest) < 0)
+      throw new Error(`The plugin server ${this.#version} is older than ${this.#highest}, which already ran with this plugin data; install ${pluginsPackageName} ${this.#highest} or newer`)
     await mkdir(this.#directory, { recursive: true, mode: 0o700 })
     await chmod(this.#directory, 0o700)
     const file = join(this.#directory, 'token')
@@ -304,6 +339,8 @@ export class PluginServerSupervisor implements PluginServerControl {
       throw error
     }
     if (exitReason) throw new Error(`${exitReason} before it was ready`)
+    // A server that answered ready may have changed the plugin data, even when a stop follows.
+    if (ready) await this.#recordHighest()
     if (this.#stopping) return { reason: 'stopping', stable: false }
     this.#set({ state: 'ready', port, ...ready })
     const readyAt = Date.now()

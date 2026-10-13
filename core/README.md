@@ -598,8 +598,15 @@ The server stops when the host does, including when the host process dies.
 The server is ready once `/health` reports control API `v1` and the token opens
 `/v1`. Only then does `runtime.plugins.endpoint()` return its URL and token.
 It runs the newer of the host.json module and the release Core installed in
-`<home>/plugins-host/current`, so a Core update or restore never downgrades
-plugins.
+`<home>/plugins-host/current`. Neither Core's backups nor a restore cover
+`<home>/plugins`, so Core never starts a plugin server older than the newest that
+has reached ready there: it records that version in
+`<home>/plugins-host/highest-version` (0600, raised only), and after a restore,
+rollback, channel switch or host.json edit that would run an older release, the
+plugin server fails with the reason and plugins stay off until a release at or
+above that version is installed. The update check offers only such a release. An
+unreadable or invalid record is logged and ignored until a server is ready again;
+a module whose version cannot be read is started without the check.
 Without the `plugins` entry, without the installed package, or while the server
 is not ready, plugins are off and the rest of Core keeps working. `status` and
 `doctor` report the plugin server's state.

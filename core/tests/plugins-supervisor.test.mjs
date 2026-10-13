@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { createServer } from 'node:net'
-import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startFixture } from '@kipster/plugins/fixture'
@@ -20,8 +20,8 @@ const hostCli = fileURLToPath(new URL('../dist/host.js', import.meta.url))
 const wait = async (predicate, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { const value = await predicate(); if (value) return value; await new Promise(resolve => setTimeout(resolve, 25)) } throw new Error('Timed out') }
 const alive = pid => { try { process.kill(pid, 0); return true } catch { return false } }
 /** The plugin server processes a parent started, with their full command lines. */
-const children = (parent = process.pid) => execFileSync('ps', ['-ax', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n')
-  .map(line => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter(match => match && Number(match[2]) === parent && match[3].includes(cli))
+const children = (parent = process.pid, module = cli) => execFileSync('ps', ['-ax', '-o', 'pid=,ppid=,command='], { encoding: 'utf8' }).split('\n')
+  .map(line => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)).filter(match => match && Number(match[2]) === parent && match[3].includes(module))
   .map(match => ({ pid: Number(match[1]), command: match[3] }))
 const v1 = (url, token) => fetch(`${url}/v1`, token ? { headers: { authorization: `Bearer ${token}` } } : {})
 
@@ -41,6 +41,17 @@ function supervise(t, options) {
   t.after(() => supervisor.close())
   return { supervisor, statuses }
 }
+/** A copy of the installed package as `version` under `directory`, returning its server module; `never` makes it never ready. */
+async function release(directory, version, { never = false } = {}) {
+  const root = join(directory, 'node_modules/@kipster/plugins')
+  await cp(packageRoot, root, { recursive: true })
+  await symlink(join(packageRoot, '..', '..'), join(root, 'node_modules')).catch(() => undefined)
+  const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+  await writeFile(join(root, 'package.json'), JSON.stringify({ ...manifest, version }))
+  if (never) await writeFile(join(root, 'dist/server/cli.js'), 'setInterval(() => {}, 1000)\n')
+  return join(root, 'dist/server/cli.js')
+}
+const highest = root => readFile(join(root, 'plugins-host/highest-version'), 'utf8').then(text => text.trim(), () => null)
 async function script(directory, name, source) {
   const path = join(directory, name)
   await writeFile(path, source)
@@ -195,6 +206,83 @@ createServer((req, res) => res.end(JSON.stringify({ status: 'ok', version: '0.0.
   assert.equal(switched.module, cli)
   const endpoint = await wait(() => switched.endpoint())
   assert.equal((await v1(endpoint.url, endpoint.token)).status, 200)
+})
+
+test('never starts a plugin server older than one that already ran with the plugin data', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }
+  const v3 = await release(join(root, 'core-0.3.0'), '0.3.0'), v2 = await release(join(root, 'core-0.2.0'), '0.2.0')
+  const first = supervise(t, { home: root, module: v3, testOnly }).supervisor
+  assert.equal(first.highestVersion, null)
+  await first.start()
+  await wait(() => first.endpoint())
+  assert.equal(await highest(root), '0.3.0', 'recorded once ready')
+  assert.equal(first.highestVersion, '0.3.0')
+  assert.equal((await stat(join(root, 'plugins-host/highest-version'))).mode & 0o777, 0o600)
+  await first.close()
+
+  // A Core restore points host.json's module at an older release, and Core installed none in plugins-host.
+  const { supervisor, statuses } = supervise(t, { home: root, module: v2, testOnly })
+  await supervisor.start()
+  assert.equal(supervisor.status.state, 'failed')
+  assert.equal(supervisor.status.reason, 'The plugin server 0.2.0 is older than 0.3.0, which already ran with this plugin data; install @kipster/plugins 0.3.0 or newer')
+  assert.equal(supervisor.endpoint(), undefined)
+  assert.ok(statuses.every(status => status.state !== 'ready' && status.state !== 'restarting'))
+  assert.deepEqual(children(process.pid, v2), [], '0.2.0 never spawned')
+  assert.ok(statuses.every(status => status.port === undefined), 'no launch began')
+  assert.equal(await highest(root), '0.3.0')
+  assert.deepEqual(pluginServerDiagnostic(supervisor.status), { status: 'unavailable', message: `Plugin server failed: ${supervisor.status.reason}. Plugins are off; inspect logs/plugins.log.` })
+
+  // Installing 0.3.0 or newer into plugins-host and restarting starts it.
+  await release(join(root, 'plugins-host/versions/0.3.0'), '0.3.0')
+  await symlink('versions/0.3.0', join(root, 'plugins-host/current'))
+  await supervisor.restart()
+  await wait(() => supervisor.endpoint())
+  assert.equal(supervisor.packageVersion, '0.3.0')
+  assert.equal(await highest(root), '0.3.0')
+  await supervisor.close()
+})
+
+test('records the plugin server version only once it is ready and only upward', async t => {
+  const root = await home(t), service = await fixture(t), testOnly = { catalogue, baseUrl: service.url }, file = join(root, 'plugins-host/highest-version')
+  const v4 = await release(join(root, 'core-0.4.0'), '0.4.0'), v5 = await release(join(root, 'core-0.5.0'), '0.5.0', { never: true })
+  const never = supervise(t, { home: root, module: v5, testOnly, readyTimeoutMs: 300, backoff: { initialMs: 10, maxMs: 10, attempts: 1 } }).supervisor
+  await never.start()
+  await wait(() => never.status.state === 'failed')
+  assert.equal(await highest(root), null, 'a server that never became ready records nothing')
+
+  const ran = supervise(t, { home: root, module: v4, testOnly }).supervisor
+  await ran.start()
+  await wait(() => ran.endpoint())
+  assert.equal(await highest(root), '0.4.0')
+  await ran.close()
+
+  // A recorded newer version is never lowered; 0.4.0 is refused instead.
+  await writeFile(file, '0.4.1\n')
+  const lower = supervise(t, { home: root, module: v4, testOnly }).supervisor
+  await lower.start()
+  assert.match(lower.status.reason, /0\.4\.0 is older than 0\.4\.1/)
+  assert.equal(await highest(root), '0.4.1')
+  await lower.close()
+
+  // An invalid record is logged and ignored like an unreadable port file, kept until a server is ready, then replaced.
+  await writeFile(file, 'not a version\n')
+  const logs = []
+  const invalid = supervise(t, { home: root, module: v4, testOnly, log: line => logs.push(line) }).supervisor
+  await invalid.start()
+  assert.equal(await readFile(file, 'utf8'), 'not a version\n')
+  await wait(() => invalid.endpoint())
+  assert.ok(logs.some(line => line === `Ignoring invalid ${file}.`), logs.join('\n'))
+  assert.equal(await highest(root), '0.4.0')
+
+  await invalid.close()
+
+  // A module whose version cannot be read runs as before and records nothing.
+  const silent = await script(root, 'silent.mjs', 'setInterval(() => {}, 1000)\n')
+  const unversioned = supervise(t, { home: root, module: silent, readyTimeoutMs: 300, backoff: { initialMs: 10, maxMs: 10, attempts: 1 } }).supervisor
+  await unversioned.start()
+  await wait(() => unversioned.status.state === 'failed')
+  assert.match(unversioned.status.reason, /not ready within/, 'started, not refused')
+  assert.equal(await highest(root), '0.4.0')
 })
 
 test('the server stops when the Core process that started it dies', async t => {
