@@ -26,6 +26,8 @@ export interface PluginServerOptions {
   readyTimeoutMs?: number
   /** A server that stayed ready this long starts its next restart from the first attempt again. */
   stableMs?: number
+  /** Ports the server must never take, such as Core's listener and the embedding server, which may still be free while it starts. */
+  reservedPorts?: readonly number[]
   /** Tests only: a local catalogue and fixture service instead of real services. host.json cannot set this. */
   testOnly?: { catalogue: string; baseUrl: string }
 }
@@ -64,13 +66,16 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
   #closing = false
   #stopping = false
   #loop: Promise<void> | undefined
+  #queue: Promise<void> = Promise.resolve()
   #wake: (() => void) | undefined
   #token: string | undefined
   readonly #options: Required<Omit<PluginServerOptions, 'onStatus' | 'log' | 'testOnly'>> & Pick<PluginServerOptions, 'onStatus' | 'log' | 'testOnly'>
+  readonly #reserved: Set<number>
   readonly #directory: string
 
   constructor(options: PluginServerOptions) {
-    this.#options = { backoff: { initialMs: 1000, maxMs: 60000, attempts: 8 }, readyTimeoutMs: 30000, stableMs: 60000, ...options }
+    this.#options = { backoff: { initialMs: 1000, maxMs: 60000, attempts: 8 }, readyTimeoutMs: 30000, stableMs: 60000, reservedPorts: [], ...options }
+    this.#reserved = new Set(this.#options.reservedPorts)
     this.#module = options.module
     this.#directory = join(options.home, 'plugins-host')
   }
@@ -82,7 +87,33 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
   }
 
   /** Checks the module and token, then runs the server in the background. Failures become status. */
-  async start(): Promise<void> {
+  start(): Promise<void> { return this.#serial(() => this.#begin()) }
+  /** Stops only this server and starts it again, from `module` when given (for example after an update). */
+  restart(module?: string): Promise<void> {
+    if (this.#closing) return Promise.resolve()
+    // The old server's endpoint ends now, not when its process has exited.
+    this.#set({ state: 'starting' })
+    this.#halt()
+    return this.#serial(async () => {
+      await this.#stopped()
+      if (module !== undefined) this.#module = module
+      await this.#begin()
+    })
+  }
+  close(): Promise<void> {
+    this.#closing = true
+    this.#set({ state: 'stopped' })
+    this.#halt()
+    return this.#serial(() => this.#stopped())
+  }
+
+  /** Runs start, restart and close one at a time, so only one loop and one server ever run. */
+  #serial(work: () => Promise<void>): Promise<void> {
+    const next = this.#queue.then(work)
+    this.#queue = next.catch(() => undefined)
+    return next
+  }
+  async #begin(): Promise<void> {
     if (this.#loop || this.#closing) return
     this.#stopping = false
     this.#set({ state: 'starting' })
@@ -90,28 +121,21 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
     if (this.#closing) return
     this.#loop = this.#run()
   }
-  /** Stops only this server and starts it again, from `module` when given (for example after an update). */
-  async restart(module?: string): Promise<void> {
-    if (this.#closing) return
+  #halt(): void {
+    this.#stopping = true
+    this.#wake?.()
+    void this.#stopChild()
+  }
+  async #stopped(): Promise<void> {
+    // A start queued before this stop may have cleared the flag.
     this.#stopping = true
     this.#wake?.()
     await this.#stopChild()
     await this.#loop
+    // A launch that was spawning while the stop began leaves its child for this second check.
     await this.#stopChild()
     this.#loop = undefined
-    if (module !== undefined) this.#module = module
-    await this.start()
   }
-  async close(): Promise<void> {
-    this.#closing = this.#stopping = true
-    this.#wake?.()
-    await this.#stopChild()
-    await this.#loop
-    // A launch that was spawning while close began leaves its child for this second check.
-    await this.#stopChild()
-    this.#set({ state: 'stopped' })
-  }
-
   async #stopChild(): Promise<void> {
     const child = this.#child
     if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return
@@ -143,8 +167,9 @@ export class PluginServerSupervisor implements PluginServerEndpoint {
     const file = join(this.#directory, 'port')
     let recorded: number | undefined
     try { recorded = Number((await readFile(file, 'utf8')).trim()) } catch { /* first start */ }
-    if (recorded && Number.isInteger(recorded) && recorded > 0 && recorded < 65536 && await bindable(recorded)) return recorded
-    const port = await freePort()
+    if (recorded && Number.isInteger(recorded) && recorded > 0 && recorded < 65536 && !this.#reserved.has(recorded) && await bindable(recorded)) return recorded
+    let port = await freePort()
+    while (this.#reserved.has(port)) port = await freePort()
     if (recorded) this.#options.log?.(`Plugin server port ${recorded} is in use; using ${port}.`)
     const temporary = `${file}.${process.pid}.tmp`
     await writeFile(temporary, `${port}\n`, { mode: 0o600 })

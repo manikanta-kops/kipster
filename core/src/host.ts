@@ -103,7 +103,7 @@ export async function serve(config: HostConfig): Promise<void> {
     if (config.plugins) {
       // Plugins are optional: a server that cannot start leaves them off and Core running.
       try {
-        plugins = new PluginServerSupervisor({ home: config.home, module: config.plugins.module, log: message => console.log(message), onStatus: value => {
+        plugins = new PluginServerSupervisor({ home: config.home, module: config.plugins.module, reservedPorts: [config.listen.port, ...(config.embedding?.server ? [config.embedding.server.port] : [])], log: message => console.log(message), onStatus: value => {
           status.plugins = value
           if (value.state === 'failed') console.error(`Plugin server failed: ${value.reason} Plugins are off.`)
         } })

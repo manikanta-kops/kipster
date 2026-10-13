@@ -126,6 +126,37 @@ test('reuses the recorded port and token, and moves when the port is busy', asyn
   assert.equal(moved.token, before.token)
   assert.equal(Number(await readFile(join(root, 'plugins-host/port'), 'utf8')), Number(new URL(moved.url).port))
   assert.equal((await v1(moved.url, moved.token)).status, 200)
+  await third.close()
+
+  // Core's listener and the embedding server's port are never taken, even while they are free.
+  const reservedPort = Number(new URL(moved.url).port)
+  const fourth = supervise(t, { ...options, reservedPorts: [reservedPort] }).supervisor
+  await fourth.start()
+  const avoided = await wait(() => fourth.endpoint())
+  assert.notEqual(Number(new URL(avoided.url).port), reservedPort)
+})
+
+test('overlapping restarts run one server and the old endpoint ends at once', async t => {
+  const root = await home(t), service = await fixture(t)
+  const { supervisor } = supervise(t, { home: root, module: cli, testOnly: { catalogue, baseUrl: service.url } })
+  await supervisor.start()
+  await wait(() => supervisor.endpoint())
+  const [before] = children()
+  const restarts = [supervisor.restart(), supervisor.restart(), supervisor.restart(cli)]
+  assert.equal(supervisor.endpoint(), undefined)
+  await Promise.all(restarts)
+  const endpoint = await wait(() => supervisor.endpoint())
+  assert.equal(alive(before.pid), false)
+  assert.equal(children().length, 1)
+  assert.equal((await v1(endpoint.url, endpoint.token)).status, 200)
+
+  const restarting = supervisor.restart()
+  const closing = supervisor.close()
+  assert.equal(supervisor.endpoint(), undefined)
+  assert.deepEqual(supervisor.status, { state: 'stopped' })
+  await Promise.all([restarting, closing])
+  assert.deepEqual(children(), [])
+  assert.deepEqual(supervisor.status, { state: 'stopped' })
 })
 
 test('a missing module or a server that never becomes ready leaves plugins off', async t => {
