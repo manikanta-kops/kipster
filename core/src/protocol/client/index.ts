@@ -18,8 +18,13 @@ export function defineClientOptions(options: ClientOptions): ClientOptions {
   return Object.freeze({ baseUrl: url.href })
 }
 
-export type Fetch = (url: string, init: RequestInit) => Promise<Response>
-export interface RequestOptions { readonly signal?: AbortSignal }
+/** An `AbortSignal`, described structurally so the declarations need no DOM or Node types. */
+export interface ClientSignal { readonly aborted: boolean }
+export interface RequestOptions { readonly signal?: ClientSignal }
+/** The part of `fetch` the client uses. A wrapper can pass `init` on to the global `fetch` as a `RequestInit`. */
+export interface FetchInit { readonly method: string; readonly cache: 'no-store'; readonly headers: Readonly<Record<string, string>>; readonly body?: string; readonly signal?: ClientSignal }
+export interface FetchResponse { readonly ok: boolean; readonly status: number; json(): Promise<unknown> }
+export type Fetch = (url: string, init: FetchInit) => Promise<FetchResponse>
 
 /**
  * A response Core refused or that this client cannot read. `code` is Core's error code, the plugin server's for plugin
@@ -54,7 +59,7 @@ export interface KipsterClient {
 }
 
 /** A client for Core's HTTP routes. `fetch` defaults to the global one. */
-export function createClient(options: ClientOptions, fetch: Fetch = (url, init) => globalThis.fetch(url, init)): KipsterClient {
+export function createClient(options: ClientOptions, fetch: Fetch = (url, init) => globalThis.fetch(url, init as RequestInit)): KipsterClient {
   const { baseUrl } = defineClientOptions(options)
   async function call<T>(schema: Schema<T>, method: string, path: string, body: unknown, options: RequestOptions | undefined): Promise<T> {
     const response = await fetch(new URL(path.slice(1), baseUrl).href, {
