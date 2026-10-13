@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import * as protocol from '../dist/protocol/index.js'
+import { createClient } from '../dist/protocol/client/index.js'
+import { startTextServer } from '../dist/runtime.js'
 
 const { bootstrap, pluginAccount, pluginDefaultAccountWrite, pluginDetail, pluginError, pluginErrorCodes, pluginList, pluginPaths, pluginSignInRequest, pluginSignInStart, pluginSignInStatus, pluginSummary, pluginAccountRename, pluginAccountRemoval } = protocol
 const at = '2026-10-13T09:00:00.000Z'
@@ -76,4 +78,15 @@ test('bootstrap reads the plugins capability, and a Core without it as false', (
   assert.equal(bootstrap.parse({ ...base, capabilities: { voiceRecording: false, plugins: false } }).capabilities.plugins, false)
   assert.throws(() => bootstrap.parse({ ...base, capabilities: { voiceRecording: false, plugins: 'yes' } }), TypeError)
   assert.deepEqual(bootstrap.describe().fields.capabilities.fields.plugins, { type: 'optional', of: { type: 'boolean' } })
+})
+
+test('Core\'s bootstrap reports plugins off, read through the client', async t => {
+  // No database: bootstrap reads only the runtime's IDs.
+  const runtime = { db: { async listen() { return () => {} } }, bootstrap: { installationId: 'i', ownerId: 'c', organizationId: 'o', rootAgentId: 'k' } }
+  const server = await startTextServer(runtime, { installationId: 'i', personId: 'c' }, { host: '127.0.0.1', port: 0 })
+  t.after(() => server.close())
+  const raw = await (await fetch(new URL('/v1/bootstrap', server.url))).json()
+  assert.equal(raw.capabilities.plugins, false)
+  const read = await createClient({ baseUrl: server.url }).bootstrap()
+  assert.deepEqual([read.installationId, read.callerId, read.capabilities.plugins, read.capabilities.memoryCards], ['i', 'c', false, true])
 })

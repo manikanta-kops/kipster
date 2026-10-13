@@ -5,7 +5,6 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
-import { bootstrap } from '../dist/protocol/index.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { changeLifecycle } from '../dist/modules/administration/public.js'
 import { interactionNotificationChanged, readEvents, retainLast } from '../dist/modules/synchronization/public.js'
@@ -382,10 +381,7 @@ test('notifications preview the reply, the failure or the question', { skip: noD
 
 test('batch read and clear act on the caller\'s notifications only', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
-  const started = await ctx.ok('GET', '/v1/bootstrap')
-  assert.equal(started.capabilities.notificationActions, true)
-  assert.equal(bootstrap.parse(started).capabilities.plugins, false)
-  assert.equal(started.capabilities.plugins, false)
+  assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.notificationActions, true)
   const org = await ctx.organization('Acme')
   const { agent } = await ctx.agent('Scout', org.id)
   const chatId = await ctx.chat(org.id, agent.id)
