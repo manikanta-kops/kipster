@@ -360,7 +360,7 @@ export function Workspace({
   } | null>(null)
   const [settingsOpener, setSettingsOpener] = useState<HTMLElement | null>(null)
   const [settingsInitialTab, setSettingsInitialTab] = useState<
-    'workspace' | 'updates'
+    'workspace' | 'updates' | 'plugins'
   >('workspace')
   // A chat whose agent is being deleted, or whose organization is, is gone with its threads.
   const summaries = useMemo(
@@ -1995,6 +1995,20 @@ export function Workspace({
                     )
                   )}
                 </button>
+                {identity.capabilities?.plugins === true && (
+                  <button
+                    className="management-trigger"
+                    aria-label="Plugins"
+                    data-tip="Plugins"
+                    onClick={(event) => {
+                      setSettingsInitialTab('plugins')
+                      setSettingsOpener(event.currentTarget)
+                    }}
+                  >
+                    <Icon name="connection" />
+                    <span className="sidebar-label">Plugins</span>
+                  </button>
+                )}
                 <button
                   className="management-trigger"
                   aria-label="Settings"
@@ -2389,6 +2403,7 @@ export function Workspace({
               versions={identity}
               permissionModes={identity.capabilities?.permissionModes === true}
               memoryCards={identity.capabilities?.memoryCards === true}
+              plugins={identity.capabilities?.plugins === true}
               manage={
                 <Management
                   data={view}

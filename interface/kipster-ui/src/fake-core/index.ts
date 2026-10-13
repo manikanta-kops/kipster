@@ -18,6 +18,7 @@ import { createFakeMedia } from './media.ts'
 import { createFakeDocuments, type DocumentPart } from './documents.ts'
 import { planFile, planHistory, planImage } from './document-seed.ts'
 import { createFakeUpdates } from './software-updates.ts'
+import { createFakePlugins } from './plugins.ts'
 import { DEMO_ORIGIN } from './transport.ts'
 import {
   body,
@@ -85,6 +86,8 @@ export function createFakeCore(
     /** Reported in bootstrap; tests vary it to exercise app compatibility. */
     coreVersion?: string
     protocol?: { current: number; oldest: number }
+    /** Bootstrap's `capabilities.plugins` and whether the plugin routes answer; on by default. */
+    plugins?: boolean
   } = {},
 ) {
   const scope = {
@@ -306,6 +309,10 @@ export function createFakeCore(
         offline = false
       }, ms)
     },
+  })
+  const plugins = createFakePlugins({
+    enabled: options.plugins ?? true,
+    origin: DEMO_ORIGIN,
   })
   const media = createFakeMedia({
     ...scope,
@@ -1080,6 +1087,10 @@ export function createFakeCore(
           return json(softwareUpdates.inspect())
         if (path === '/__demo/updates' && method === 'POST')
           return json(softwareUpdates.control(record(await request.json())))
+        if (path === '/__demo/plugins' && method === 'GET')
+          return json(plugins.inspect())
+        if (path === '/__demo/plugins' && method === 'POST')
+          return json(plugins.control(record(await request.json())))
         if (path === '/__demo/inspect' && method === 'GET')
           return json({
             ids: DEMO_IDS,
@@ -1277,11 +1288,20 @@ export function createFakeCore(
       }
       if (offline)
         throw new WireError(503, 'unavailable', 'Demo Core is offline')
-      if (method === 'GET' && path === '/v1/bootstrap')
-        return json({ ...administration.bootstrap(), ...scope, ...release })
+      if (method === 'GET' && path === '/v1/bootstrap') {
+        const base = administration.bootstrap()
+        return json({
+          ...base,
+          capabilities: { ...base.capabilities, plugins: plugins.enabled() },
+          ...scope,
+          ...release,
+        })
+      }
       if (method === 'GET' && path === '/v1/directory') return json(directory())
       const updatesResponse = await softwareUpdates.handle(request)
       if (updatesResponse) return updatesResponse
+      const pluginsResponse = await plugins.handle(request)
+      if (pluginsResponse) return pluginsResponse
       const mediaResponse = await media.handle(request)
       if (mediaResponse) return mediaResponse
       const adminResponse = await administration.handle(request)
@@ -2095,6 +2115,7 @@ export function createFakeCore(
     release = initialRelease()
     clearTimeout(restartTimer)
     softwareUpdates.reset()
+    plugins.reset()
     administration = createAdministration({
       emit,
       cursor: () => cursor(),
@@ -2107,8 +2128,9 @@ export function createFakeCore(
     options.autoAdvance === false
       ? undefined
       : setInterval(() => {
-          if (!offline && !disposed)
-            for (const thread of threads.values()) advance(thread)
+          if (offline || disposed) return
+          for (const thread of threads.values()) advance(thread)
+          plugins.tick()
         }, options.tickMs ?? 1800)
   return {
     handle,

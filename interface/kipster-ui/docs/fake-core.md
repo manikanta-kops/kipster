@@ -29,8 +29,9 @@ Pass `coreVersion` or `protocol` to `createFakeCore` to start with others.
 The handler supplies bootstrap and directory discovery, direct chats, text
 submissions and receipts, application/thread snapshots and SSE, work controls
 and interaction answers, notifications, media, settings, memory cards, identity files,
-administration and lifecycle operations, and rich docs (`/v1/documents`
-routes with `document-changed` and `document-removed` events). It intentionally has no backward
+administration and lifecycle operations, rich docs (`/v1/documents`
+routes with `document-changed` and `document-removed` events), and Kipster
+Plugins (`/v1/plugins` routes and `/plugins/callback`). It intentionally has no backward
 history endpoint. Snapshots page messages/work and threads/notifications using
 Core's cursors; a mutation between pages requires a fresh snapshot. Events have
 separate application/thread replay logs, bounded to 2,000 events per scope.
@@ -41,6 +42,19 @@ delegation, a failure with held follow-ups, publications and a synthetic audio
 sample. New submissions progress every 1.8 seconds through running, a draft,
 and a question; answering completes the work. The synthetic transcription
 provider returns sample text and does not transcribe uploaded audio.
+Bootstrap reports `capabilities.plugins: true`; pass `plugins: false` to
+`createFakeCore` to start without them, when every plugin route answers 503
+`plugins-unavailable`. The sample catalogue has Linear, Jira (unavailable, with
+a reason), Notion (two accounts, one needing reconnection), Sentry (needs an
+address), Figma (refuses non-loopback return addresses with `loopback-only`) and
+Canva (`needs-client-metadata-document`). A started sign-in's
+`authorizationUrl` is the return address with `state` and `code`, as if the
+provider approved at once; opening it completes the sign-in, and `error=access_denied`
+denies it. A completion reconnects an account that needs it (`duplicate: true`)
+or adds a new one. The first account becomes the default, and removing the
+default makes the oldest remaining account the default. Labels have 1 to 64
+characters and are unique per plugin ignoring case (`invalid-label`). The
+self-running demo completes pending sign-ins after two clock ticks.
 A seeded thread shares a rich doc that Atlas revised once. Submitting a doc
 starts a scripted kip run in its thread: advancing it resolves open comments,
 records answered questions and publishes one new revision. `/__demo/inspect`
@@ -64,6 +78,8 @@ exclude this module. UI components do not access the test routes.
 | POST `/__demo/release`    | `{ protocol: { current, oldest }, coreVersion? }`; change the version and protocol range bootstrap reports     |
 | GET `/__demo/updates`     | Inspect software update status, simulated app state, release catalog and accepted installs                     |
 | POST `/__demo/updates`    | Set a software update scenario; see below                                                                      |
+| GET `/__demo/plugins`     | Plugin accounts, defaults and sign-ins, including each sign-in's return address                                |
+| POST `/__demo/plugins`    | `{ enabled }`; `{ signIn, outcome: complete \| deny \| fail \| expire, account? }`; or `{ account, status }`   |
 | POST `/__demo/reset`      | `{}`; reset all sample state and interrupt existing streams                                                    |
 
 Additional test controls accept complete protocol records: `/__demo/message`
