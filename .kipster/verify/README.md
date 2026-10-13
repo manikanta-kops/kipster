@@ -20,7 +20,9 @@ Ordinary messages return `Fixture reply: <text>`. Special messages start with
 Retry). A message containing `write a rich doc` creates Trip plan; submission
 revises its heading and resolves submitted comments. Transcription reports
 unavailable and preserves original voice bytes. Updates use an empty local
-catalog and an unmanaged backend; they never install anything.
+catalog and an unmanaged backend; they never install anything. Plugins run the
+`@kipster/plugins` server in test-only mode with one plugin, Fixture, whose local
+fixture service signs in as alice or bob; no real service is contacted.
 
 ## Tools and commands
 
@@ -88,6 +90,7 @@ No restart durability claim follows from a browser reload.
 - [Rich docs](features/rich-docs.md): answers, checklists, handoff and revisions.
 - [Media](features/media.md): managed attachments and generated voice recording.
 - [Updates and desktop](features/updates-desktop.md): version display and safe local catalog checks; native exclusions.
+- [Plugins](features/plugins.md): catalogue search, fixture sign-in, accounts, default and disconnect.
 
 These commands were derived from source/tests. Onboarding's evidence records the
 static checks and deterministic gate; live boot is verified by verify-kit and
