@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { appEnvironment } from '../local-app.mjs'
-import { configuration } from '../local-backend.mjs'
+import { configuration, localPluginServer } from '../local-backend.mjs'
 import { exists, initializeHome, locked } from '../local-common.mjs'
 
 test('app build disables ambient development-server configuration', () => {
@@ -59,4 +59,13 @@ test('a downloaded embedding runtime replaces the embedding entry and keeps its 
   assert.deepEqual(first.embedding, { module: '/new/node_modules/@kipster/embedding-llama-cpp/dist/index.js', options: {}, server: runtime })
   const moved = configuration('/tmp/kipster', '/newer', { embedding: { ...first.embedding, options: { timeoutMs: 5000 }, server: { ...runtime, port: 45000 } } }, runtime)
   assert.deepEqual([moved.embedding.module, moved.embedding.options, moved.embedding.server.port], ['/newer/node_modules/@kipster/embedding-llama-cpp/dist/index.js', { timeoutMs: 5000 }, 45000])
+})
+
+test('development hosts run the repository plugin server when it is installed', async () => {
+  assert.match(localPluginServer, /\/node_modules\/@kipster\/plugins\/dist\/server\/cli\.js$/)
+  assert.equal(await exists(localPluginServer), true, 'npm ci installs @kipster/plugins')
+  const config = configuration('/tmp/kipster', '/new', {}, undefined, localPluginServer)
+  assert.deepEqual(config.plugins, { module: localPluginServer })
+  assert.equal(configuration('/tmp/kipster', '/new').plugins, undefined)
+  assert.deepEqual(configuration('/tmp/kipster', '/newer', config).plugins, { module: localPluginServer }, 'a saved entry is kept')
 })

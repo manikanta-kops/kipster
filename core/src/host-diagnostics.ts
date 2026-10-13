@@ -1,4 +1,5 @@
 import type { EmbeddingServerStatus } from './embedding/supervisor.js'
+import type { PluginServerStatus } from './plugins/supervisor.js'
 
 const sensitive = /password|passwd|secret|token|credential|authorization|api.?key|database.?url|taskdata.?url|pguser/i
 
@@ -37,5 +38,17 @@ export function embeddingServerDiagnostic(status: EmbeddingServerStatus | undefi
     case 'failed': return { status: 'unavailable', message: `Embedding server (llama-server) failed: ${status.reason}. Memory search is unavailable; inspect logs/embedding-server.log.` }
     case 'stopped': return { status: 'not-probed', message: 'Embedding server (llama-server) is stopped.' }
     default: return { status: 'not-probed', message: 'Embedding server (llama-server) is configured; the running host starts it.' }
+  }
+}
+
+/** Host diagnostics for the supervised plugin server, from a running host's status. */
+export function pluginServerDiagnostic(status: PluginServerStatus | undefined): { status: 'ok' | 'unavailable' | 'not-probed'; message: string } {
+  switch (status?.state) {
+    case 'ready': return { status: 'ok', message: `Plugin server${status.version ? ` ${status.version}` : ''} is ready on port ${status.port}.` }
+    case 'starting': return { status: 'not-probed', message: `Plugin server is starting${status.port ? ` on port ${status.port}` : ''}; plugins are off until it is ready.` }
+    case 'restarting': return { status: 'unavailable', message: `Plugin server is restarting, attempt ${status.attempt}: ${status.reason}. Plugins are off meanwhile.` }
+    case 'failed': return { status: 'unavailable', message: `Plugin server failed: ${status.reason}. Plugins are off; inspect logs/plugins.log.` }
+    case 'stopped': return { status: 'not-probed', message: 'Plugin server is stopped; plugins are off.' }
+    default: return { status: 'not-probed', message: 'Plugin server is configured; the running host starts it.' }
   }
 }

@@ -12,6 +12,8 @@ export interface HostConfig {
   /** With `server`, Core runs the installed llama-server and passes the package its endpoint. */
   embedding?: { module: string; options: Record<string, unknown>; server?: EmbeddingServerConfig }
   transcription?: { module: string; options: Record<string, unknown> }
+  /** Core runs the `@kipster/plugins` server at `module` (its `dist/server/cli.js`); without it, plugins are off. */
+  plugins?: { module: string }
   environment?: Record<string, string>
   executionLimit?: number
   updates?: { channelUrl?: string; managed?: boolean }
@@ -37,6 +39,7 @@ export function validateHostConfig(value: unknown): HostConfig {
     if (!object(server) || Object.keys(server).some(key => !['binary', 'model', 'modelSha256', 'modelName', 'port'].includes(key)) || !installed(server.binary) || !installed(server.model) || typeof server.modelSha256 !== 'string' || !/^[a-f0-9]{64}$/.test(server.modelSha256) || typeof server.modelName !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(server.modelName) || !Number.isInteger(server.port) || Number(server.port) < 1024 || Number(server.port) > 65535 || server.port === listen.port) throw new Error('Configure embedding.server with the llama-server binary and model installed in the Kipster home, the model SHA-256 and name, and a free port from 1024 to 65535.')
   }
   if (value.transcription !== undefined && (!object(value.transcription) || !text(value.transcription.module) || !isAbsolute(value.transcription.module) || !object(value.transcription.options))) throw new Error('Configure an absolute transcription module and explicit options.')
+  if (value.plugins !== undefined && (!object(value.plugins) || Object.keys(value.plugins).some(key => key !== 'module') || !text(value.plugins.module) || !isAbsolute(value.plugins.module))) throw new Error('Configure plugins with only an absolute module path to the plugin server.')
   if (value.environment !== undefined && (!object(value.environment) || !Object.entries(value.environment).every(([key, item]) => envName(key) && typeof item === 'string'))) throw new Error('Environment must contain explicit string values.')
   if (value.executionLimit !== undefined && (!Number.isSafeInteger(value.executionLimit) || Number(value.executionLimit) < 1 || Number(value.executionLimit) > 1000)) throw new Error('Execution limit must be between 1 and 1000.')
   if (value.updates !== undefined) {

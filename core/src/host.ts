@@ -11,11 +11,12 @@ import type { TranscriptionProvider } from './transcription/index.js'
 import { MigrationHistoryError, Postgres } from './platform/postgres/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import { EmbeddingServerSupervisor, supervisedEmbeddingProvider } from './embedding/supervisor.js'
+import { PluginServerSupervisor } from './plugins/supervisor.js'
 import { boundedEmbed } from './modules/memory/public.js'
 import { readHostConfig, type HostConfig } from './host-config.js'
 import { playground, playgroundNames } from './starter/playground.js'
 import { control, ownControl, type HostStatus } from './host-control.js'
-import { embeddingServerDiagnostic, safeHostError } from './host-diagnostics.js'
+import { embeddingServerDiagnostic, pluginServerDiagnostic, safeHostError } from './host-diagnostics.js'
 export { readHostConfig, validateHostConfig } from './host-config.js'
 export { control, ownControl, recoverStoppedControl } from './host-control.js'
 
@@ -49,7 +50,7 @@ export async function loadEmbeddingProvider(config: Pick<HostConfig, 'embedding'
   validateEmbeddingProvider(provider)
   return provider
 }
-async function runtime(config: HostConfig, providers: boolean, signal?: AbortSignal, embeddingServer?: EmbeddingServerSupervisor): Promise<Runtime> {
+async function runtime(config: HostConfig, providers: boolean, signal?: AbortSignal, embeddingServer?: EmbeddingServerSupervisor, plugins?: PluginServerSupervisor): Promise<Runtime> {
   const provider = providers ? await transcription(config, signal) : undefined
   try {
     signal?.throwIfAborted()
@@ -58,6 +59,7 @@ async function runtime(config: HostConfig, providers: boolean, signal?: AbortSig
       ...(config.executionLimit ? { executionLimit: config.executionLimit } : {}),
       ...(providers && config.embedding ? { embedding: (await loadEmbeddingProvider(config, embeddingServer))! } : {}),
       ...(provider ? { transcription: provider } : {}),
+      ...(plugins ? { plugins } : {}),
       ...(config.updates ? { updates: config.updates } : {}),
       onError: error => { console.error(`A Core background operation failed: ${safeHostError(error, config, process.env)}`) },
     })
@@ -71,7 +73,7 @@ export async function serve(config: HostConfig): Promise<void> {
   let requestStop!: () => void
   const stopped = new Promise<void>(resolve => { requestStop = resolve })
   const abort = new AbortController()
-  let core: Runtime | undefined, registry: AdapterRegistry | undefined, dispatcher: TextDispatcher | undefined, server: TextServer | undefined, embeddingServer: EmbeddingServerSupervisor | undefined
+  let core: Runtime | undefined, registry: AdapterRegistry | undefined, dispatcher: TextDispatcher | undefined, server: TextServer | undefined, embeddingServer: EmbeddingServerSupervisor | undefined, plugins: PluginServerSupervisor | undefined
   let force: ReturnType<typeof setTimeout> | undefined
   let dispatcherClosing: Promise<void> | undefined
   const beginShutdown = () => {
@@ -98,7 +100,18 @@ export async function serve(config: HostConfig): Promise<void> {
       await embeddingServer.start()
     }
     if (abort.signal.aborted) return
-    core = await runtime(config, true, abort.signal, embeddingServer)
+    if (config.plugins) {
+      // Plugins are optional: a server that cannot start leaves them off and Core running.
+      try {
+        plugins = new PluginServerSupervisor({ home: config.home, module: config.plugins.module, log: message => console.log(message), onStatus: value => {
+          status.plugins = value
+          if (value.state === 'failed') console.error(`Plugin server failed: ${value.reason} Plugins are off.`)
+        } })
+        await plugins.start()
+      } catch (error) { console.error(`Plugin server is unavailable: ${safeHostError(error, config, process.env)} Plugins are off.`) }
+    }
+    if (abort.signal.aborted) return
+    core = await runtime(config, true, abort.signal, embeddingServer, plugins)
     if (abort.signal.aborted) return
     registry = new AdapterRegistry({ now: () => core!.clock().toISOString(), invokeTool: request => textPublicationHost(dispatcher!).invokeTool(request) }, join(config.home, 'adapter-generations'))
     await mkdir(join(config.home, 'adapter-generations'), { recursive: true, mode: 0o700 })
@@ -127,7 +140,7 @@ export async function serve(config: HostConfig): Promise<void> {
     beginShutdown()
     let failure: unknown
     try {
-      for (const close of [() => server?.close(), () => dispatcherClosing, () => registry?.close(), () => core?.close(), () => embeddingServer?.close(), () => owner.close()]) {
+      for (const close of [() => server?.close(), () => dispatcherClosing, () => registry?.close(), () => core?.close(), () => embeddingServer?.close(), () => plugins?.close(), () => owner.close()]) {
         try { await close() } catch (error) { failure ??= error }
       }
     } finally { if (!failure) clearTimeout(force); process.off('SIGTERM', beginShutdown); process.off('SIGINT', beginShutdown) }
@@ -181,6 +194,10 @@ export async function doctor(config: HostConfig, probe = false): Promise<Diagnos
       add('embedding', row.status, row.message)
     } catch { add('embedding', 'unavailable', 'The installed llama-server or embedding model is missing. Reinstall or update Kipster; memory search is unavailable meanwhile.') }
   } else add('embedding', config.embedding ? 'not-probed' : 'not-configured', config.embedding ? 'Configured module; no embedding request made by passive checks.' : 'Configure an embedding service to enable indexed memory.')
+  if (config.plugins) {
+    try { await access(config.plugins.module, constants.R_OK); const row = pluginServerDiagnostic(running?.plugins); add('plugins', row.status, row.message) }
+    catch { add('plugins', 'unavailable', 'The configured plugin server module is missing. Reinstall or update Kipster; plugins are off meanwhile.') }
+  } else add('plugins', 'not-configured', 'No plugin server is configured, so plugins are off.')
   add('transcription', config.transcription ? 'not-probed' : 'not-configured', config.transcription ? 'Configured module; passive checks do not invoke the provider or request microphone access.' : 'Voice recording/transcription is unavailable until explicitly configured.')
   if (probe) {
     environment(config)

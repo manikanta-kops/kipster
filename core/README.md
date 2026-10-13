@@ -546,6 +546,23 @@ starter identity files. A later start never adds them again.
 
 The package supplies `kipster-host setup|serve|start|stop|restart|status|doctor|service-template --config <file>`. Read the [macOS host setup guide](docs/host-macos.md) before configuring dependencies or registering a service. Doctor is passive unless `--probe` is explicitly requested.
 
+### Plugin server
+
+With `plugins: { module }` in host.json, where `module` is the absolute path of
+an installed `@kipster/plugins` package's `dist/server/cli.js`, the host runs the
+plugin server (`PluginServerSupervisor`) on a loopback port and restarts it with
+backoff when it exits. Its home is `<home>/plugins`, always with the file key
+backend. Core keeps its own files in `<home>/plugins-host`: `token`, at least 32
+random bytes in a 0600 file that reaches the server only through its environment,
+and `port`, reused while it is free. Server output goes to `<home>/logs/plugins.log`.
+The server stops when the host does, including when the host process dies.
+
+The server is ready once `/health` reports control API `v1` and the token opens
+`/v1`. Only then does `runtime.plugins.endpoint()` return its URL and token.
+Without the `plugins` entry, without the installed package, or while the server
+is not ready, plugins are off and the rest of Core keeps working. `status` and
+`doctor` report the plugin server's state.
+
 ## Database migrations
 
 Migrations are forward-only. A file merged into `next` is shipped: never edit,
