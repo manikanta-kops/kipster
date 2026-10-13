@@ -19,6 +19,22 @@ if (
 )
   throw Error('Expected the allocated local factory URL')
 const origin = url.origin
+// The plugin sign-in page is the instance's fixture service on another loopback
+// origin. Allow exactly the origin the instance publishes, and only for plugins.
+const allowed = new Set([origin])
+if (name === 'plugins') {
+  const response = await fetch(`${origin}/__fixture/plugins`)
+  if (!response.ok) throw Error('The instance publishes no plugin fixture')
+  const signIn = new URL((await response.json()).signInOrigin)
+  if (
+    signIn.protocol !== 'http:' ||
+    signIn.hostname !== '127.0.0.1' ||
+    !signIn.port ||
+    signIn.origin === origin
+  )
+    throw Error('Expected a separate loopback plugin fixture origin')
+  allowed.add(signIn.origin)
+}
 const evidenceDir = resolve(process.env.EVIDENCE_DIR)
 await mkdir(evidenceDir, { recursive: true })
 const home = resolve(evidenceDir, 'browser-home')
@@ -38,7 +54,7 @@ const context = await browser.newContext({
 const findings = []
 await context.route('**/*', async (route) => {
   const destination = new URL(route.request().url())
-  if (destination.origin !== origin) {
+  if (!allowed.has(destination.origin)) {
     findings.push(`Blocked destination: ${destination.origin}`)
     await route.abort('blockedbyclient')
   } else await route.continue()

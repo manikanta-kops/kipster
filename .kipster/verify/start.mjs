@@ -3,7 +3,8 @@ import { mkdir, readFile } from 'node:fs/promises'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { resolve, extname, sep, dirname } from 'node:path'
+import { resolve, extname, sep, dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   checkoutHome,
   connectedHTML,
@@ -41,13 +42,18 @@ for (const args of [
 }
 const origin = `http://127.0.0.1:${port}`
 const coreOrigin = `http://127.0.0.1:${corePort}`
-// Core's optional update checks may only contact this instance's local catalog.
+let plugins
+// The plugin server's exact loopback origin, once its supervisor has chosen a port.
+const pluginOrigin = () =>
+  plugins?.status.port ? `http://127.0.0.1:${plugins.status.port}` : undefined
+// Core's optional update checks may only contact this instance's local catalog;
+// plugin routes may only reach this instance's own plugin server.
 const fetchOriginal = globalThis.fetch
 globalThis.fetch = (input, options) => {
   const url = new URL(
     typeof input === 'string' || input instanceof URL ? input : input.url,
   )
-  if (![origin, coreOrigin].includes(url.origin))
+  if (![origin, coreOrigin, pluginOrigin()].includes(url.origin))
     throw Error('Verification network destination refused')
   return fetchOriginal(input, { ...options, redirect: 'error' })
 }
@@ -56,6 +62,12 @@ const { openRuntime, startTextServer, TextDispatcher, textPublicationHost } =
 const { fixtureAdapter } =
   await import('../../core/tests/.build/tests/fixtures/deterministic-adapter.js')
 const { Postgres } = await import('../../core/dist/platform/postgres/public.js')
+const { PluginServerSupervisor } =
+  await import('../../core/dist/plugins/supervisor.js')
+const { startFixture } = await import('@kipster/plugins/fixture')
+const pluginsPackage = dirname(
+  fileURLToPath(import.meta.resolve('@kipster/plugins/package.json')),
+)
 const database = new Postgres(connectionString)
 try {
   const version = (await database.query('SHOW server_version_num')).rows[0]
@@ -76,7 +88,7 @@ try {
   await database.close()
 }
 
-let runtime, dispatcher, core, server
+let runtime, dispatcher, core, server, signInService
 let stopping = false
 async function close(code = 0) {
   if (stopping) return
@@ -90,6 +102,8 @@ async function close(code = 0) {
     await core?.close()
     await dispatcher?.close()
     await runtime?.close()
+    await plugins?.close()
+    await signInService?.close()
   } catch (error) {
     console.error(error)
     code = 1
@@ -115,6 +129,30 @@ try {
     },
     async close() {},
   }
+  // The package's fixture service and test catalogue stand in for real services.
+  // Plugins are optional: a failure leaves them off and the instance running.
+  try {
+    signInService = await startFixture()
+    plugins = new PluginServerSupervisor({
+      home,
+      module: join(pluginsPackage, 'dist/server/cli.js'),
+      reservedPorts: [port, corePort],
+      log: (message) => console.log(message),
+      onStatus: (status) => {
+        if (status.state === 'failed')
+          console.error(
+            `Plugin server failed: ${status.reason} Plugins are off.`,
+          )
+      },
+      testOnly: {
+        catalogue: join(pluginsPackage, 'test/fixtures/catalogue'),
+        baseUrl: signInService.url,
+      },
+    })
+    await plugins.start()
+  } catch (error) {
+    console.error(`Plugins are off: ${error.message}`)
+  }
   runtime = await openRuntime({
     connectionString,
     home,
@@ -128,6 +166,7 @@ try {
       managed: false,
       channelUrl: `${origin}/__fixture/catalog/`,
     },
+    ...(plugins ? { plugins } : {}),
     onError: (error) => console.error(error.message),
   })
   const inner = fixtureAdapter({
@@ -287,7 +326,14 @@ try {
       installationId: runtime.bootstrap.installationId,
       personId: runtime.bootstrap.ownerId,
     },
-    { host: '127.0.0.1', port: corePort, dispatcher, allowedOrigins: [origin] },
+    {
+      host: '127.0.0.1',
+      port: corePort,
+      dispatcher,
+      allowedOrigins: [origin],
+      // Plugin sign-ins return to `<UI origin>/plugins/callback`.
+      allowedHosts: [`127.0.0.1:${port}`],
+    },
   )
   for (const target of [
     `organizations/${runtime.bootstrap.organizationId}`,
@@ -325,6 +371,7 @@ try {
       const url = new URL(request.url, origin)
       if (
         url.pathname.startsWith('/v1/') ||
+        url.pathname === '/plugins/callback' ||
         url.pathname.startsWith('/conversations/media/')
       ) {
         const proxy = httpRequest(
@@ -357,6 +404,14 @@ try {
       if (/^\/__fixture\/catalog\/(stable|next)\.json$/.test(url.pathname)) {
         response.writeHead(200, { 'Content-Type': 'application/json' })
         response.end(JSON.stringify({ schemaVersion: 1, packages: {} }))
+        return
+      }
+      // The fixture sign-in page's origin: the driver allows exactly this one.
+      if (url.pathname === '/__fixture/plugins') {
+        response.writeHead(signInService ? 200 : 404, {
+          'Content-Type': 'application/json',
+        })
+        response.end(JSON.stringify({ signInOrigin: signInService?.url }))
         return
       }
       if (!['GET', 'HEAD'].includes(request.method)) {
