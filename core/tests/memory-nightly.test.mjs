@@ -84,7 +84,9 @@ async function setup(t, { embedding = true, script = quiet, executionLimit } = {
   const home = await mkdtemp(join(tmpdir(), 'kipster-nightly-home-'))
   const clock = { now: at('03:00') }
   const embeddingCalls = []
-  const runtime = await openRuntime({ connectionString: url.href, home, names: { owner: 'Sam', organization: 'Garden', rootAgent: 'Kip' }, clock: () => clock.now, ...(executionLimit ? { executionLimit } : {}), ...(embedding ? { embedding: embedder(embeddingCalls) } : {}) })
+  // Plugins are ready throughout, so maintenance executions show they never carry the plugin MCP server.
+  const plugins = { endpoint: () => ({ url: 'http://127.0.0.1:9', token: 'nightly-plugin-token' }) }
+  const runtime = await openRuntime({ connectionString: url.href, home, names: { owner: 'Sam', organization: 'Garden', rootAgent: 'Kip' }, clock: () => clock.now, plugins, ...(executionLimit ? { executionLimit } : {}), ...(embedding ? { embedding: embedder(embeddingCalls) } : {}) })
   const installationId = runtime.bootstrap.installationId
   const actor = { installationId, personId: runtime.bootstrap.ownerId }
   const kip = runtime.bootstrap.rootAgentId
@@ -174,7 +176,7 @@ test('a nightly run saves full-text chunks, cards with their sources, a diary pa
     assert.equal(context.maintenance.task, 'memory')
     assert.deepEqual(context.maintenance.settings, { adapterId: 'deterministic-fixture', modelId: 'fixture-model' })
     assert.equal(context.agentId, ctx.kip)
-    for (const absent of ['tools', 'prompt', 'workingDirectory', 'memory']) assert.equal(context[absent], undefined)
+    for (const absent of ['tools', 'prompt', 'workingDirectory', 'memory', 'mcpServers']) assert.equal(context[absent], undefined)
   }
   const [chunk] = await ctx.rows('SELECT * FROM kipster.thread_chunks WHERE thread_id=$1', [threadId])
   assert.equal(chunk.title, 'Move my dentist appointment to 13 October at 3 pm.')

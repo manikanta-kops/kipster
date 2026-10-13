@@ -21,6 +21,9 @@ import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from
 import { RefusedError } from '../../platform/errors/public.js'
 import { DocumentConflictError } from '../../modules/documents/public.js'
 import { documentRoute } from './documents.js'
+import { pluginCallback, pluginRoute } from './plugins.js'
+import { PluginControlClient, PluginRouteError } from '../../plugins/client.js'
+import { pluginPaths } from '../../protocol/plugins.js'
 import { memoryCardUpdate } from '../../protocol/memory.js'
 import { CardReplacedError, deleteCard, editCard, listCards, readCard, type CardPageRequest } from '../../workflows/memory-cards.js'
 
@@ -35,6 +38,7 @@ function json(response: ServerResponse, status: number, value: unknown): void {
 function errorCode(error: unknown): { status: number; code: string; message: string } {
   const message = error instanceof Error ? error.message : 'Unexpected failure'
   if (message === 'resync-required') return { status: 409, code: 'resync-required', message }
+  if (error instanceof PluginRouteError) return { status: error.status, code: error.code, message }
   if (error instanceof RefusedError) return { status: error.code === 'membership-removed' ? 403 : error.code === 'agent-archived' ? 409 : 410, code: error.code, message }
   if (error instanceof ServiceUnavailableError) return { status: 503, code: 'unavailable', message }
   if (error instanceof UpdateRefusedError) return { status: 409, code: error.code, message }
@@ -128,6 +132,8 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
     return origin
   }))
   const signals = await eventSignals(runtime.db)
+  const plugins = new PluginControlClient(runtime.plugins)
+  const acceptsHost = (host: string) => host === listeningAuthority || allowedHosts.has(host)
   const server = createServer(async (request, response) => {
     const requestId = randomUUID()
     try {
@@ -136,7 +142,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
       try { host = authority(request.headers.host ?? '') } catch {
         json(response, 403, { version: 1, code: 'forbidden', message: 'Host is not allowed', requestId }); return
       }
-      if (host !== listeningAuthority && !allowedHosts.has(host)) {
+      if (!acceptsHost(host)) {
         json(response, 403, { version: 1, code: 'forbidden', message: 'Host is not allowed', requestId }); return
       }
       const target = request.url ?? '/'
@@ -152,7 +158,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
       if (origin && (sameOrigin || allowedOrigins.has(origin))) {
         response.setHeader('Access-Control-Allow-Origin', origin)
         if (request.method === 'OPTIONS') {
-          response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+          response.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
           response.setHeader('Access-Control-Allow-Headers', 'Content-Type')
           response.setHeader('Access-Control-Max-Age', '600')
           response.writeHead(204)
@@ -164,7 +170,14 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         json(response, 403, { version: 1, code: 'forbidden', message: 'Origin is not allowed', requestId })
         return
       }
-      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true,documents:true,permissionModes:true,memoryCards:true,plugins:false} }); return }
+      if (request.method === 'GET' && path === '/v1/bootstrap') { const voiceRecording=runtime.transcription ? (await runtime.transcription.readiness()).ready && runtime.transcription.inputTypes.some(type=>type.trim().toLowerCase().startsWith('audio/')) : false; json(response, 200, { version: 1, coreVersion, protocol: protocolRange, installationId: runtime.bootstrap.installationId, callerId: runtime.bootstrap.ownerId, organizationId: runtime.bootstrap.organizationId, rootAgentId: runtime.bootstrap.rootAgentId, capabilities:{voiceRecording,updates:true,interfacePreferences:true,notificationActions:true,documents:true,permissionModes:true,memoryCards:true,plugins:runtime.plugins?.endpoint()!==undefined} }); return }
+      // The sign-in return address needs no Kipster session: the service's `state` protects it.
+      if (request.method === 'GET' && path === pluginPaths.callback) {
+        const query = target.indexOf('?')
+        const reply = await pluginCallback(plugins, query === -1 ? '' : target.slice(query))
+        response.writeHead(reply.status, { ...reply.headers, 'content-length': reply.body.length })
+        response.end(reply.body); return
+      }
       if(request.method==='GET'&&path==='/conversations/media/capabilities'){json(response,200,{maxUploadBytes:MAX_UPLOAD_BYTES});return}
       const uploadMatch=/^\/conversations\/media\/uploads\/([0-9a-f-]{36})$/.exec(path)
       if(uploadMatch&&request.method==='PUT'){
@@ -222,6 +235,8 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         if (reply) { json(response, reply.status, reply.body); return }
       }
       if (request.method === 'GET' && path === '/v1/directory') { json(response, 200, await readDirectory(runtime.db, actor)); return }
+      const plugin = await pluginRoute(plugins, request.method ?? '', path, url.searchParams, () => body(request), acceptsHost)
+      if (plugin) { json(response, 200, plugin); return }
       const administration = await administrationRoute(runtime, actor, request.method ?? '', path, url.searchParams, limit => body(request, limit), options.dispatcher)
       if (administration) { json(response, 200, administration); return }
       if (path === '/v1/settings/interface' && request.method === 'GET') { json(response, 200, await readInterfacePreferences(runtime.db, actor)); return }

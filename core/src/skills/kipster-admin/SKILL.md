@@ -1,6 +1,6 @@
 ---
 name: kipster-admin
-description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, memory, appearance, notifications and updates.
+description: Change anything in Kipster for the person, such as workspaces, kips and their identity files, groups, execution settings, permissions, memory, appearance, notifications, updates and plugin accounts.
 ---
 
 # Administering Kipster
@@ -29,6 +29,7 @@ Read an operation with `admin_operations` before you call it for the first time 
 | memory, learning, sleep, nightly model, core cards | memory switch, sleep time, nightly model and memory counts | `learning` |
 | what you know about me, remembered facts, forget that | memory cards | `memory` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
+| plugins, connections, integrations, connect my GitHub or Notion, accounts | plugins and their signed-in accounts | `plugins` |
 
 ## How to work
 
@@ -91,6 +92,15 @@ Find the card first and change only the cards they mean.
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call
 `updates.install`; the person approves it and Kipster restarts.
+
+**Plugins.** Plugins let kips use services such as GitHub or Notion through the person's own accounts.
+`plugins.list` shows them; a plugin that is not `available` cannot be signed in to. To connect an account, call
+`plugins.sign_in` (with `address` when the plugin `needsAddress`, asking the person for it with its `addressPrompt`),
+give the person the `authorizationUrl` to open in their browser, then check `plugins.sign_in_status` until it is
+`completed` or `failed`. A plugin can hold several accounts: name them with `plugins.account_rename`, choose the one
+kips use by default with `plugins.default_set` (`plugins.default_clear` removes the choice) and sign one out with
+`plugins.account_remove`. These settings live in the plugin server. When an operation fails with `plugins-unavailable`,
+plugins are off right now; tell the person instead of retrying.
 
 ## What you cannot change
 

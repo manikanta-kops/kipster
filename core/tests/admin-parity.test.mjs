@@ -55,12 +55,17 @@ const routes = {
   '/v1/memberships/{id}': ['memberships.remove'],
   '/v1/groups/{id}': ['groups.rename', 'groups.delete'],
   '/v1/groups/{id}/appearances(?:/(order|[0-9a-f-]{36}))?': ['appearances.add', 'appearances.remove', 'appearances.reorder'],
+  '/v1/plugins': ['plugins.list'],
+  '/v1/plugins/accounts': ['plugins.accounts_list'],
+  '/v1/plugins/accounts/([^/]+)': ['plugins.account_rename', 'plugins.account_remove'],
+  '/v1/plugins/sign-ins/([^/]+)': ['plugins.sign_in_status'],
+  '/v1/plugins/([^/]+)(/sign-in|/default-account)?': ['plugins.get', 'plugins.sign_in', 'plugins.default_set', 'plugins.default_clear'],
 }
 
 /** The routes the HTTP server matches, as their path literals or regular expressions with `{id}` for a UUID. */
 async function served() {
   const found = new Set()
-  for (const file of ['text.ts', 'admin.ts']) {
+  for (const file of ['text.ts', 'admin.ts', 'plugins.ts']) {
     const source = await readFile(new URL(`../src/transport/http/${file}`, import.meta.url), 'utf8')
     for (const match of source.matchAll(/'(\/(?:v1|conversations)\/[^']*)'/g)) found.add(match[1])
     for (const match of source.matchAll(/\/\^(\\\/(?:v1|conversations)\\\/.*?)\$\//g)) found.add(match[1].replaceAll('\\/', '/').replaceAll('([0-9a-f-]{36})\\/', '{id}/').replace(/\(\[0-9a-f-\]\{36\}\)(?=$|[/(])/g, '{id}'))

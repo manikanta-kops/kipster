@@ -476,7 +476,9 @@ Core relays the person's [Kipster Plugins](https://github.com/manikanta-kops/kip
 | `DELETE /v1/plugins/{id}/default-account` | `pluginDefaultAccount` |
 | `DELETE /v1/plugins/accounts/{id}` | `pluginAccountRemoval` |
 
-`GET /plugins/callback` needs no Kipster session: it is the sign-in return address for a browser that reaches Core rather than the plugin server, and forwards its query unchanged to the plugin server's `/callback`. Core refuses a `returnAddress` other than that route on its own origin with `return-address-refused`. The plugin server's `loopback-only`, `invalid-return-address` and `needs-client-metadata-document` explain why it refused a return address or sign-in method.
+`GET /plugins/callback` needs no Kipster session: it is the sign-in return address for a browser that reaches Core rather than the plugin server, and forwards its query unchanged to the plugin server's `/callback`, answering with its page. It keeps Core's Host and Origin checks. Core refuses a `returnAddress` whose path is not exactly that route, or whose host is neither Core's listener nor one of `listen.allowedHosts`, with `400 return-address-refused` before asking the plugin server. Without `returnAddress` the plugin server's own loopback callback is used. The plugin server's `loopback-only`, `invalid-return-address` and `needs-client-metadata-document` explain why it refused a return address or sign-in method. When the plugin server does not answer in time or answers with something Core cannot read, the route fails with `502 plugin-server-failed`.
+
+Kip reaches the same operations through the `plugins` area of the administration catalog; its sign-in has no return address, and it gives the person the `authorizationUrl`. While the plugin server is ready, every conversation execution receives it as `mcpServers: [{ name: 'plugins', url: '<plugin server>/mcp', bearerToken }]`; maintenance executions never do. Core never writes the token to the database, events, logs or prompts.
 
 ## Boundaries
 
