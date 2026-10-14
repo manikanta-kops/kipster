@@ -177,7 +177,7 @@ test('a download whose SHA-256 or size differs from the channel is refused and t
   assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [], 'nothing is left of the refused downloads')
 })
 
-test('a release that fails readiness rolls back to the previous version', { skip: noDatabase, timeout: 240000 }, async t => {
+test('a release that fails readiness rolls back, and plugins stay off because it already ran', { skip: noDatabase, timeout: 240000 }, async t => {
   const ctx = await setup(t)
   await ctx.check()
   await ctx.install(newer)
@@ -189,12 +189,18 @@ test('a release that fails readiness rolls back to the previous version', { skip
   assert.equal(rolled.plugins.state, 'failed')
   assert.equal(rolled.plugins.lastResult.outcome, 'rolled-back')
   assert.deepEqual([rolled.plugins.lastResult.from, rolled.plugins.lastResult.to], [newer, broken])
-  assert.match(rolled.plugins.error, new RegExp(`${broken.replaceAll('.', '\\.')} did not start .*${newer.replaceAll('.', '\\.')} runs again`))
+  // The broken server started, so it may have changed the plugin data: the previous version is refused, not run.
+  const escaped = version => version.replaceAll('.', '\\.')
+  assert.match(rolled.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} did not start \\(.*before it was ready\\); plugins are off: The plugin server ${escaped(newer)} is older than ${escaped(broken)}, which already ran with this plugin data; install @kipster/plugins ${escaped(broken)} or newer$`))
   assert.equal(rolled.plugins.version, newer)
+  assert.equal(ctx.supervisor.highestVersion, broken)
+  assert.equal(await readFile(join(ctx.home, 'plugins-host/highest-version'), 'utf8'), `${broken}\n`)
   assert.equal(rolled.plugins.available.version, broken, 'the release stays available to retry')
   assert.equal(await ctx.current(), join('versions', newer))
   assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [newer])
-  assert.ok(await ctx.serving(), 'the previous plugin server runs again')
+  assert.equal(ctx.supervisor.status.state, 'failed')
+  assert.equal(await ctx.serving(), false, 'plugins are off')
+  assert.equal((await ctx.call('GET', '/v1/directory')).status, 200, 'the rest of Core keeps working')
   // A failed release is not retried automatically.
   await ctx.call('PUT', '/v1/settings/updates', { version: 1, operationId: randomUUID(), channel: 'stable', mode: 'automatic' })
   await ctx.check()

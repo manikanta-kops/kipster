@@ -59,7 +59,7 @@ export interface PluginServerOptions {
 
 const host = '127.0.0.1'
 const highestFile = 'highest-version'
-// The version a launch stages before its server starts; renamed onto highest-version once that server is ready.
+// The version a launch stages before it spawns its server; renamed onto highest-version once the process exists.
 const pendingFile = 'highest-version.pending'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const higher = (a: string | null, b: string | null) => a === null ? b : b === null || compareVersions(a, b) >= 0 ? a : b
@@ -88,10 +88,10 @@ class Unrecorded extends Error {}
 /**
  * Runs the `@kipster/plugins` server named by host.json, or the newer release Core installed in
  * `<home>/plugins-host/current`. It listens on loopback with a bearer token Core keeps in
- * `<home>/plugins-host`; plugins are off whenever it is not ready. It never starts a release older than the newest that
- * reached ready, recorded in `<home>/plugins-host/highest-version`, because that one may have changed the plugin data.
- * A newer release's version is staged in `highest-version.pending` before it starts, so a record that cannot be
- * completed, or a Core that stops while the server starts, still counts it.
+ * `<home>/plugins-host`; plugins are off whenever it is not ready. It never starts a release older than the newest whose
+ * process has started, recorded in `<home>/plugins-host/highest-version`: that one may have migrated the plugin data
+ * before it was ready, or without ever becoming ready. A newer release's version is staged in `highest-version.pending`
+ * before it is spawned, so a record that cannot be completed, or a Core that stops in between, still counts it.
  */
 export class PluginServerSupervisor implements PluginServerControl {
   #status: PluginServerStatus = { state: 'configured' }
@@ -224,7 +224,7 @@ export class PluginServerSupervisor implements PluginServerControl {
   }
   /**
    * A recorded version. A missing file means none; an unreadable or invalid one is ignored, like an unreadable port
-   * file, and logged but kept until a server reaches ready and records its own version.
+   * file, and logged but kept until a server starts and records its own version.
    */
   async #readVersion(name: string): Promise<string | null> {
     const file = join(this.#directory, name)
@@ -236,7 +236,7 @@ export class PluginServerSupervisor implements PluginServerControl {
     try { const version = text.trim(); compareVersions(version, version); return version }
     catch { this.#options.log?.(`Ignoring invalid ${file}.`); return null }
   }
-  /** Whether the server's version is newer than the record, so a launch stages it and records it once ready. */
+  /** Whether the server's version is newer than the record, so a launch stages it and records it once spawned. */
   #raises(): boolean {
     return this.#version !== null && (this.#recorded === null || compareVersions(this.#version, this.#recorded) > 0)
   }
@@ -260,7 +260,7 @@ export class PluginServerSupervisor implements PluginServerControl {
     if (!this.#raises()) return
     try { await this.#writePending(this.#version!) } catch (error) { throw this.#unrecorded(error, false) }
   }
-  /** After a server that never became ready, the staged version no longer counts; one staged by an earlier Core still does. */
+  /** After a launch that created no server process, the staged version no longer counts; one staged by an earlier Core still does. */
   async #unstage(): Promise<void> {
     if (!this.#raises()) return
     const file = join(this.#directory, pendingFile)
@@ -270,8 +270,9 @@ export class PluginServerSupervisor implements PluginServerControl {
     } catch (error) { this.#options.log?.(`Could not reset ${file}: ${message(error)}`) }
   }
   /**
-   * Renames the staged version onto the record once its server is ready. It counts for this process even when the rename
-   * fails, and the staged file keeps counting it for the next; the failure throws so the server is stopped.
+   * Renames the staged version onto the record once its server process exists, ready or not. It counts for this process
+   * even when the rename fails, and the staged file keeps counting it for the next; the failure throws so the server is
+   * stopped.
    */
   async #recordHighest(): Promise<void> {
     if (!this.#raises()) return
@@ -374,6 +375,8 @@ export class PluginServerSupervisor implements PluginServerControl {
     const { child, exited } = await this.#spawn(port).catch(async error => { await this.#unstage(); throw error })
     let exitReason: string | undefined
     void exited.then(reason => { exitReason = reason })
+    // The server opens and migrates the plugin data before it is ready, so a spawned version counts even if it never is.
+    try { await this.#recordHighest() } catch (error) { await this.#stopChild(); throw error }
     const deadline = Date.now() + this.#options.readyTimeoutMs
     let ready: { version?: string } | undefined
     try {
@@ -384,13 +387,9 @@ export class PluginServerSupervisor implements PluginServerControl {
       if (exitReason) throw new Error(`${exitReason} before it was ready`)
     } catch (error) {
       child.kill('SIGKILL'); await exited
-      await this.#unstage()
       throw error
     }
-    if (!ready) { await this.#stopChild(); await this.#unstage(); return { reason: 'stopping', stable: false } }
-    // A server that answered ready may have changed the plugin data, even when a stop follows.
-    try { await this.#recordHighest() } catch (error) { await this.#stopChild(); throw error }
-    if (this.#stopping) return { reason: 'stopping', stable: false }
+    if (!ready || this.#stopping) { await this.#stopChild(); return { reason: 'stopping', stable: false } }
     this.#set({ state: 'ready', port, ...ready })
     const readyAt = Date.now()
     const reason = await exited
