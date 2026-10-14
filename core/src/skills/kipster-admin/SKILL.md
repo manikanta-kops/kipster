@@ -102,7 +102,8 @@ give the person the `authorizationUrl` to open in their browser, then check `plu
 `completed` or `failed`. A plugin can hold several accounts: name them with `plugins.account_rename`, choose the one
 kips use by default with `plugins.default_set` (`plugins.default_clear` removes the choice) and sign one out with
 `plugins.account_remove`. These settings live in the plugin server. When an operation fails with `plugins-unavailable`,
-plugins are off right now; tell the person instead of retrying.
+plugins are off right now; Core starts the plugin server again, so try once more after a short wait, then tell the
+person.
 
 ## What you cannot change
 
