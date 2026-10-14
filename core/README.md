@@ -60,8 +60,8 @@ older cursors require a snapshot. Canonical messages and work are not pruned.
 | Import | Contents |
 | --- | --- |
 | `@kipster/core/protocol` | JSON value types and runtime text submission, receipt, read, snapshot, directory and event parsers. |
-| `@kipster/core/client` | JSON types and `defineClientOptions` for HTTP(S) URL configuration. |
-| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions of the execution, opt-in maintenance context for the steps of Kip memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
+| `@kipster/core/client` | JSON types, `defineClientOptions` for HTTP(S) URL configuration and `createClient(options, fetch?)`, which reads bootstrap and calls the plugin routes. |
+| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions and extra MCP servers (`mcpServers`) of the execution, opt-in maintenance context for the steps of Kip memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
 | `@kipster/core/transcription` | Replaceable provider contract for derived audio text; no provider is selected by importing it. |
 | `@kipster/core/runtime` | Node-only `openRuntime`, `AdapterRegistry`, `TextDispatcher`, `textPublicationHost` and `startTextServer`. All startup is explicit. |
 
@@ -460,6 +460,26 @@ The memory tools (`memoryTool`) are offered only while the agent has memory on, 
 
 A kip's tools see installation cards plus the current organization's, and its own threads in installation and current-organization chats; a delegated thread belongs to the kip whose chat holds it. Kip, the root administration agent, sees every card and every kip's threads through its tools, and only Kip may pass `agent` to read one kip; from any other kip it is refused.
 
+## Plugins
+
+Core relays the person's [Kipster Plugins](https://github.com/manikanta-kops/kipster-plugins) server, its control API v1, to interfaces. Bootstrap advertises `capabilities.plugins`; a Core without the flag reads as `false` (`bootstrap` in `@kipster/core/protocol`). While plugins are off, every route below answers `503 plugins-unavailable`. Responses are the plugin server's JSON with `version: 1` added and may gain fields; errors keep the plugin server's `code`, such as `unknown-plugin` or `invalid-label`. Requests take an optional `version: 1`. Paths are in `pluginPaths`, codes in `pluginErrorCodes`.
+
+| Route | Shapes |
+| --- | --- |
+| `GET /v1/plugins` | `pluginList` |
+| `GET /v1/plugins/{id}` | `pluginResult`: the summary with its accounts |
+| `POST /v1/plugins/{id}/sign-in` | `pluginSignInRequest` `{ address?, returnAddress? }` → `pluginSignInStart` |
+| `GET /v1/plugins/sign-ins/{id}` | `pluginSignInStatus`: `pending`, `completed` with the account or `failed` with a `code` |
+| `GET /v1/plugins/accounts[?plugin=]` | `pluginAccountList` |
+| `PATCH /v1/plugins/accounts/{id}` | `pluginAccountRename` `{ label }` → `pluginAccountResult` |
+| `PUT /v1/plugins/{id}/default-account` | `pluginDefaultAccountWrite` `{ account }` → `pluginDefaultAccount` |
+| `DELETE /v1/plugins/{id}/default-account` | `pluginDefaultAccount` |
+| `DELETE /v1/plugins/accounts/{id}` | `pluginAccountRemoval` |
+
+`GET /plugins/callback` needs no Kipster session: it is the sign-in return address for a browser that reaches Core rather than the plugin server, and forwards its query unchanged to the plugin server's `/callback`, answering with its page. It keeps Core's Host and Origin checks. Core refuses a `returnAddress` whose path is not exactly that route, or whose host is neither Core's listener nor one of `listen.allowedHosts`, with `400 return-address-refused` before asking the plugin server. Without `returnAddress` the plugin server's own loopback callback is used. The plugin server's `loopback-only`, `invalid-return-address` and `needs-client-metadata-document` explain why it refused a return address or sign-in method. When the plugin server does not answer in time or answers with something Core cannot read, the route fails with `502 plugin-server-failed`.
+
+Kip reaches the same operations through the `plugins` area of the administration catalog; its sign-in has no return address, and it gives the person the `authorizationUrl`. While the plugin server is ready, every conversation execution receives it as `mcpServers: [{ name: 'plugins', url: '<plugin server>/mcp', bearerToken }]`; maintenance executions never do. Core never writes the token to the database, events, logs or prompts.
+
 ## Boundaries
 
 - Protocol and client exports stay browser-safe and free of backend imports.
@@ -519,6 +539,26 @@ an upgrade unpinned. A restore always pins its target.
 Mutation IDs are scoped to the owner and deduplicated across restarts; changing
 the payload under an existing ID returns `conflict`.
 
+When the host runs a plugin server, the same check covers `@kipster/plugins`
+and `GET /v1/updates` adds `plugins: { version, available, state, error,
+lastResult }`: the running package version, the selected channel's release when
+newer, `idle`, `checking`, `installing` or `failed`, and the last install's
+`from`, `to`, `outcome` and `at`. Core installs plugins releases itself, without
+the updater: on a managed host, automatic mode installs a newer release right
+away, and `POST /v1/updates/plugins/install` (`{ version: 1, operationId,
+target }`) starts one in either mode, answering with `plugins.state:
+"installing"`. Core downloads the release's `.tgz`, checks its size and SHA-256
+against the channel, runs `npm install --omit=dev --ignore-scripts` with the npm
+beside its Node binary into `<home>/plugins-host/versions/<version>`, checks the
+package name and version, points `<home>/plugins-host/current` at it and
+restarts only the plugin server. When that server does not become ready,
+`current` goes back (`rolled-back`). The previous version runs again only when
+the new server never started; one that started counts as having run with the
+plugin data, so plugins stay off until a release at or above it is installed. A
+failed release is not retried automatically. Refusals use `update-unmanaged`,
+`update-in-progress`, `update-already-installed` or `update-not-available` (not
+the channel's release, an older version, or no plugin server).
+
 Core atomically writes `<home>/updates/request.json` from a durable database
 outbox. The separate updater verifies releases, manages backups, installs or
 restores, and restarts Core. It atomically writes `status.json`; Core reads it
@@ -545,6 +585,42 @@ the Playground organization, Admin, and four agents in two groups, each with
 starter identity files. A later start never adds them again.
 
 The package supplies `kipster-host setup|serve|start|stop|restart|status|doctor|service-template --config <file>`. Read the [macOS host setup guide](docs/host-macos.md) before configuring dependencies or registering a service. Doctor is passive unless `--probe` is explicitly requested.
+
+### Plugin server
+
+With `plugins: { module }` in host.json, where `module` is the absolute path of
+an installed `@kipster/plugins` package's `dist/server/cli.js`, the host runs the
+plugin server (`PluginServerSupervisor`) on a loopback port and restarts it with
+backoff when it exits. Its home is `<home>/plugins`, always with the file key
+backend. Core keeps its own files in `<home>/plugins-host`: `token`, at least 32
+random bytes in a 0600 file that reaches the server only through its environment,
+and `port`, reused while it is free. Server output goes to `<home>/logs/plugins.log`.
+The server stops when the host does, including when the host process dies.
+
+The server is ready once `/health` reports control API `v1` and the token opens
+`/v1`. Only then does `runtime.plugins.endpoint()` return its URL and token.
+It runs the newer of the host.json module and the release Core installed in
+`<home>/plugins-host/current`. Neither Core's backups nor a restore cover
+`<home>/plugins`, so Core never starts a plugin server older than the newest that
+has started there: it records that version in
+`<home>/plugins-host/highest-version` (0600, raised only), and after a restore,
+rollback, channel switch or host.json edit that would run an older release, the
+plugin server fails with the reason and plugins stay off until a release at or
+above that version is installed. The update check offers only such a release.
+Before a newer release starts, Core stages its version in
+`highest-version.pending` and renames that onto the record once the server's
+process has started, so a Core that stops in between still counts it. A newer
+version counts as soon as its process has started, ready or not, because the
+server migrates the plugin data before it is ready: a broken newer release keeps
+plugins off until a release at or above it is installed. A staged version is
+dropped only when no process was started. If Core cannot stage the version, it
+does not start the server; if it cannot complete the record, it stops the server;
+either way it fails with the reason. An unreadable or invalid record is logged
+and ignored until a newer server starts; a module whose version cannot be read is
+started without the check.
+Without the `plugins` entry, without the installed package, or while the server
+is not ready, plugins are off and the rest of Core keeps working. `status` and
+`doctor` report the plugin server's state.
 
 ## Database migrations
 

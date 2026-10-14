@@ -11,9 +11,11 @@ import { EmbeddingProfile, VectorService } from './modules/vectors/public.js'
 import { UpdatesService } from './modules/updates/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import type { TranscriptionProvider } from './transcription/index.js'
+import type { PluginServerControl, PluginServerEndpoint } from './plugins/supervisor.js'
 export { startTextServer, type TextServer } from './transport/http/text.js'
 export { TextDispatcher, textPublicationHost, type DispatchHooks } from './workflows/text-dispatch.js'
 export type { TranscriptionProvider, TranscriptionResult } from './transcription/index.js'
+export type { PluginServerControl, PluginServerEndpoint } from './plugins/supervisor.js'
 export { AdapterRegistry } from './workflows/adapter-registry.js'
 
 export async function loadMigrations(): Promise<{ version: string; sql: string }[]> {
@@ -44,12 +46,13 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/memory/migrations/024_kip_memory.sql',
     './modules/memory/migrations/025_memory_nightly.sql',
     './modules/memory/migrations/026_diary_context.sql',
+    './modules/administration/migrations/027_plugins_update_approvals.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }
 
-export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
-export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
+export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
+export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
   if (config.embedding) validateEmbeddingProvider(config.embedding)
   if (config.transcription && config.transcription.contractMajor !== 1) throw new Error('Invalid transcription provider contract')
   // Background failures (idle connection loss, job queue errors) are retried internally; observer failures are ignored.
@@ -78,14 +81,16 @@ export async function openRuntime(config: { connectionString: string; taskDataCo
     }
     const clock = config.clock ?? (() => new Date())
     const coreVersion = config.updates?.coreVersion ?? (JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version
-    updates = new UpdatesService(db, ids.installationId, home.root, coreVersion, { ...config.updates, clock, onError: observe })
+    // A supervisor the runtime can restart also gets plugins releases installed; a bare endpoint is only used.
+    const control = config.plugins && 'restart' in config.plugins && 'settled' in config.plugins ? config.plugins as PluginServerControl : undefined
+    updates = new UpdatesService(db, ids.installationId, home.root, coreVersion, { ...config.updates, clock, onError: observe, ...(control ? { plugins: control } : {}) })
     await updates.initialize()
     const updateService = updates
     await jobs.start()
     vectors?.startIndexing()
     artifacts.startRecovery()
     const learning = new LearningService(db, ids.installationId, !!embedding)
-    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
+    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), ...(config.plugins ? {plugins:config.plugins} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
   } catch (error) {
     const cleanup: unknown[] = []
     try { await updates?.close() } catch (failure) { cleanup.push(failure) }

@@ -80,6 +80,15 @@ test('kit declares allocated ports, foreground entry and mandatory trusted-base 
   assert.doesNotMatch(start, /import\([^)]*(?:adapters\/|host\.js)/)
   assert.match(start, /fixtureAdapter/)
   assert.match(start, /replaceEnvironment\(isolatedEnvironment\(home\)\)/)
+  // Plugins: the package's test-only fixture, the plugin server's exact origin
+  // for Core's fetches, and the sign-in return through the UI origin.
+  assert.match(start, /startFixture\(\)/)
+  assert.match(start, /testOnly: \{/)
+  assert.match(start, /\[origin, coreOrigin, pluginOrigin\(\)\]/)
+  assert.match(start, /url\.pathname === '\/plugins\/callback'/)
+  const drive = await readFile(resolve(kitRoot, 'verify/drive.mjs'), 'utf8')
+  assert.match(drive, /if \(name === 'plugins'\) \{/)
+  assert.match(drive, /if \(!allowed\.has\(destination\.origin\)\)/)
   const check = await readFile(resolve(kitRoot, 'check.mjs'), 'utf8')
   assert.match(check, /origin\/next\^\{commit\}/)
   assert.match(check, /KIPSTER_MIGRATION_BASE = 'origin\/next'/)

@@ -58,6 +58,11 @@ releases cannot be changed.
 | Installer | `installer-v<version>` | `kipster-installer-<version>.tgz` |
 | Adapter | `<adapter>-v<version>` | `kipster-<adapter>-<version>.tgz` |
 | App | `ui-v<version>` | `Kipster_<version>_aarch64.dmg` |
+| Plugins | `plugins-v<version>` | `kipster-plugins-<version>.tgz` |
+
+`@kipster/plugins` is released from
+[kipster-plugins](https://github.com/manikanta-kops/kipster-plugins) with the
+same tag and `release.json` format; see its `docs/releasing.md`.
 
 Every new release also includes `release.json` (schema version 1). It records
 `package`, `version` and `files` with each file's `name`, byte `size` and hex
@@ -136,9 +141,16 @@ is a separate change. See the [Tauri updater format](https://v2.tauri.app/plugin
 GitHub Releases is the source of truth. **Publish update channels** rebuilds and
 deploys the site after the stable or next release workflow finishes publishing,
 including any packages published by a partially failed matrix. It also supports
-manual runs. Merging into `next` does not publish or update these files. Releases
-without `release.json` are logged and skipped; invalid metadata or failed GitHub
-requests fail generation and leave the deployed site intact.
+manual runs, and runs hourly from the default branch to pick up releases of
+package repositories, which cannot trigger it. Merging into `next` does not
+publish or update these files. Releases without `release.json` are logged and
+skipped; invalid metadata or failed GitHub requests, in either repository, fail
+generation and leave the deployed site intact.
+
+The site combines this repository's releases with those of
+`manikanta-kops/kipster-plugins`, which may release only `@kipster/plugins`;
+this repository may not release that package. Installations add the plugin
+server only once their channel has a `@kipster/plugins` release.
 
 All URLs are under `https://updates.kipster.app/v1/`:
 

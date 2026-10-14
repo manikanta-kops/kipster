@@ -3,6 +3,10 @@ name: Publish update channels
 on:
   workflow_call:
   workflow_dispatch:
+  # Package repositories such as kipster-plugins cannot trigger this workflow;
+  # an hourly run picks up their releases.
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
@@ -15,7 +19,8 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref_name == 'master' || github.ref_name == 'next'
+    # Scheduled runs always use the default branch; release and manual runs publish from master or next.
+    if: github.event_name == 'schedule' || github.ref_name == 'master' || github.ref_name == 'next'
     runs-on: ubuntu-latest
     permissions:
       contents: read

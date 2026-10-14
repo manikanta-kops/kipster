@@ -96,6 +96,15 @@ server, memory works without search.
 A host can instead name another package with `embedding: { "module", "options" }`
 and no `server`; Core then calls that package directly.
 
+Plugins are optional. With `plugins: { "module": "<absolute path to an installed
+@kipster/plugins>/dist/server/cli.js" }`, Core runs the plugin server on loopback
+and `status` and `doctor` show its state. Core keeps its own files (token, port,
+version record and the releases it installed, named by `current`) in
+`<home>/plugins-host`; the plugin server keeps its state, accounts and encryption
+key file in `<home>/plugins`, and its output goes to `logs/plugins.log`. Without the entry plugins are off. See
+[Plugin server](../README.md#plugin-server) for restarts, updates and why Core
+refuses an older release than one that already ran.
+
 Configure Spokenly with `transcription: { "module": "/absolute/path/to/adapter/dist/index.js",
 "options": { "executable": "/absolute/path/to/spokenly",
 "ffmpegExecutable": "/absolute/path/to/ffmpeg", "timeoutMs": 60000,

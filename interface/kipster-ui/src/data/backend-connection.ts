@@ -1,7 +1,10 @@
+export const isLoopbackHost = (hostname: string) =>
+  ['127.0.0.1', '[::1]', 'localhost'].includes(hostname)
+
 /** One canonical destination also serves as the local journal namespace. */
 export function backendURL(value: string): string {
   const url = new URL(value.trim())
-  const loopback = ['127.0.0.1', '[::1]', 'localhost'].includes(url.hostname)
+  const loopback = isLoopbackHost(url.hostname)
   if (
     (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) ||
     url.username ||

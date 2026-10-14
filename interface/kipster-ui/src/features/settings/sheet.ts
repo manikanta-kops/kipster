@@ -11,6 +11,7 @@ export type Frame = { title: string } & (
   | { kind: 'testing' }
   | { kind: 'cards' }
   | { kind: 'card'; cardId: string }
+  | { kind: 'plugin'; pluginId: string }
 )
 
 type Sheet = {

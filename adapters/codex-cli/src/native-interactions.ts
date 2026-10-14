@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type { ExecutionContext } from '@kipster/core/adapter'
+import type { PluginTool } from './plugin-tools.js'
 
 type ObjectValue = Record<string, unknown>
 const object = (value: unknown): ObjectValue => value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : {}
@@ -51,18 +52,21 @@ function toolGrant(params: ObjectValue): Grant | undefined {
   return { key: `${source}:tool:${meta.tool_name}`, label: clip(`${server}: ${String(meta.tool_title ?? meta.tool_name)}`, 200), scopes }
 }
 
-/** Translate provider interactions; Core remains responsible for saving and resolving them. */
-export function nativeInteractions(context: ExecutionContext, method: string, params: ObjectValue): NativeInteraction[] {
+/**
+ * Translate provider interactions; Core remains responsible for saving and resolving them. `plugin` describes an MCP
+ * tool approval for one of Core's plugin servers: a tool its server labels `read` runs without a card.
+ */
+export function nativeInteractions(context: ExecutionContext, method: string, params: ObjectValue, plugin?: PluginTool): NativeInteraction[] {
   // Request IDs, timestamps and the model-written reason change on every retry; the action itself does not.
   const substantive = Object.fromEntries(Object.entries(params).filter(([key]) => !['threadId', 'turnId', 'itemId', 'callId', 'approvalId', 'startedAtMs', 'reason'].includes(key)).map(([key, value]) => [key, key === '_meta' ? stableMeta(value) : value]))
   /** `prompt` is a one-line question, then plain detail lines; the exact request stays in the proposal. */
-  const approval = (prompt: string, grant: Grant | undefined, result: (accepted: boolean) => ObjectValue): NativeInteraction => {
+  const approval = (prompt: string, grant: Grant | undefined, result: (accepted: boolean) => ObjectValue, allowed = false): NativeInteraction => {
     const proposal = canonical({ method, ...substantive })
     const proposalId = `codex:${createHash('sha256').update(proposal).digest('hex')}`
     const accept = { result: (answer: ObjectValue) => result(answer.kind === 'approve') }
     // Core bounds keys; a long command or file list is matched by its digest instead.
     if (grant && grant.key.length > 400) grant = { ...grant, key: `codex-cli:sha256:${createHash('sha256').update(grant.key).digest('hex')}` }
-    if (context.permissionMode === 'fullAccess' || grant && context.approvalGrants?.includes(grant.key)) return { kind: 'approval', arguments: {}, saved: { kind: 'approve' }, granted: true, ...accept }
+    if (allowed || context.permissionMode === 'fullAccess' || grant && context.approvalGrants?.includes(grant.key)) return { kind: 'approval', arguments: {}, saved: { kind: 'approve' }, granted: true, ...accept }
     const saved = context.interactions?.findLast(item => item.kind === 'approval' && item.proposalId === proposalId && item.proposal === proposal)
     return { kind: 'approval', arguments: { proposalId, proposal, prompt: clip(prompt, 8000), ...(grant ? { grant } : {}) }, ...(saved ? { saved: object(saved.response.answer) } : {}), ...accept }
   }
@@ -111,9 +115,15 @@ export function nativeInteractions(context: ExecutionContext, method: string, pa
     if (schema.type !== 'object') throw new Error('Codex requested an unsupported MCP form')
     if (Object.keys(properties).length === 0) {
       const meta = object(params._meta)
+      const answer = (accepted: boolean) => ({ action: accepted ? 'accept' : 'decline', content: accepted ? {} : null, _meta: null })
+      if (plugin && meta.codex_approval_kind === 'mcp_tool_call') {
+        // Core keeps the grant and this adapter answers, so the grant does not depend on the reach Codex offers.
+        const grant: Grant = { key: `codex-cli:mcp:${plugin.server}:${String(meta.connector_id ?? '')}:tool:${String(meta.tool_name)}`, label: clip(`${plugin.plugin}: ${plugin.tool}`, 200), scopes: ['conversation', 'always'] }
+        return [approval(`Use ${plugin.tool} from ${plugin.plugin} with ${plugin.account}?`, grant, answer, plugin.access === 'read')]
+      }
       const shown = (Array.isArray(meta.tool_params_display) ? meta.tool_params_display.map(object) : []).map(row => `${String(row.display_name ?? row.name)}: ${String(row.value)}`)
       const prompt = lines(String(params.message ?? `${String(params.serverName)} requests approval`), ...shown, meta.subtitle)
-      return [approval(prompt, toolGrant(params), accepted => ({ action: accepted ? 'accept' : 'decline', content: accepted ? {} : null, _meta: null }))]
+      return [approval(prompt, toolGrant(params), answer)]
     }
     const fields = Object.entries(properties)
     if (fields.length > 8) throw new Error('Codex MCP form has too many fields')

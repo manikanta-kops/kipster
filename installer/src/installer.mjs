@@ -12,6 +12,7 @@ import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
 import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, templates, unregister, writeServices } from './services.mjs'
 import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeRuntime } from './backend.mjs'
 import { embeddingPackage, embeddingRuntime, installEmbeddingRuntime, withEmbedding } from './embedding.mjs'
+import { pluginsPackage, withPlugins } from './plugins.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
 export async function prerequisites() {
@@ -31,7 +32,7 @@ function reference(value, fallback) {
     const name = parts[packageIndex], entry = parts.slice(packageIndex + 1)
     if (packageIndex >= 0 && typeof name === 'string' && name.length <= 64 && /^[a-z][a-z0-9-]*$/.test(name) && entry.length && entry.every(part => part && part !== '.' && part !== '..')) return { name: `@kipster/${name}`, entry: `node_modules/@kipster/${name}/${entry.join('/')}` }
   }
-  throw new Error('Configured adapters must identify a release package through node_modules/@kipster/<package>/<entry>. Use the packaged embedding/transcription module paths.')
+  throw new Error('Configured adapters must identify a release package through node_modules/@kipster/<package>/<entry>. Use the packaged embedding/transcription/plugins module paths.')
 }
 function withManagedUpdates(config) {
   return { ...config, updates: { ...config.updates, managed: true } }
@@ -43,8 +44,8 @@ export function managedConfiguration(config, home) {
     names.add(entry.name)
     return { ...adapter, root: current, entry: entry.entry }
   }) }
-  for (const kind of ['embedding', 'transcription']) if (config[kind]) {
-    const entry = reference(config[kind].module, kind === 'embedding' ? 'embedding-llama-cpp' : 'transcription-spokenly')
+  for (const kind of ['embedding', 'transcription', 'plugins']) if (config[kind]) {
+    const entry = reference(config[kind].module, { embedding: 'embedding-llama-cpp', transcription: 'transcription-spokenly', plugins: 'plugins' }[kind])
     names.add(entry.name); result[kind] = { ...config[kind], module: join(current, entry.entry) }
   }
   if (names.has('@kipster/core') || names.has('@kipster/installer') || names.has('@kipster/ui')) throw new Error('Configure adapter packages, not Core, the installer or the app, as providers.')
@@ -122,18 +123,24 @@ export class Installer {
     await this.onStep?.(step, journal)
   }
   async persist(journal) { await save(this.journalPath, journal) }
-  /** Adds the embedding runtime once its package is on the channel; a missing runtime only disables search. */
-  async embeddingConfiguration(selectedChannel) {
+  /**
+   * Adds the embedding runtime and the plugin server once their packages are on the channel;
+   * a missing embedding runtime only disables search.
+   */
+  async channelConfiguration(selectedChannel) {
     const latest = await this.catalog.read(`${selectedChannel}.json`)
+    const released = name => latest[name]?.package === name
+    let embedding
     try {
-      const { config, report } = await withEmbedding(this.config, this.home, latest[embeddingPackage]?.package === embeddingPackage, () => installEmbeddingRuntime(this.home, this.embedding))
-      return { config, report }
+      embedding = await withEmbedding(this.config, this.home, released(embeddingPackage), () => installEmbeddingRuntime(this.home, this.embedding))
     } catch (failure) {
       const report = `The embedding runtime could not be installed, so memory search stays unavailable: ${safeError(failure, this.config, this.settings, this.env)}`
       console.error(report)
       await appendFile(join(this.home, 'logs/installer-error.log'), `${new Date().toISOString()} ${report}\n`, { mode: 0o600 }).catch(() => {})
-      return { config: this.config, report }
+      embedding = { config: this.config, report }
     }
+    const plugins = withPlugins(embedding.config, this.home, released(pluginsPackage))
+    return { config: plugins.config, reports: { ...(embedding.report ? { embedding: embedding.report } : {}), ...(plugins.report ? { plugins: plugins.report } : {}) } }
   }
   async stage(journal, files) {
     const staged = join(journal.work, 'release')
@@ -329,8 +336,8 @@ export class Installer {
     await privateDirectory(journal.work); await this.persist(journal)
     try {
       await this.database.check()
-      const embedding = wanted.action === 'install' ? await this.embeddingConfiguration(selectedChannel) : { config: this.config, report: null }
-      const { config: targetConfig, names } = managedConfiguration(embedding.config, this.home)
+      const channelConfig = wanted.action === 'install' ? await this.channelConfiguration(selectedChannel) : { config: this.config, reports: {} }
+      const { config: targetConfig, names } = managedConfiguration(channelConfig.config, this.home)
       let restoring
       if (wanted.action === 'restore') {
         restoring = (await this.backups()).find(backup => wanted.backupId ? backup.id === wanted.backupId : backup.coreVersion === wanted.target)
@@ -390,7 +397,7 @@ export class Installer {
       }
       await this.start(wanted.target, journal)
       await this.finish(journal)
-      return { ...await this.status(), ...(embedding.report ? { embedding: embedding.report } : {}) }
+      return { ...await this.status(), ...channelConfig.reports }
     } catch (failure) {
       const error = safeError(failure, this.config, this.settings, this.env)
       console.error(error)

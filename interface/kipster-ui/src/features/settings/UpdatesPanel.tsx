@@ -110,6 +110,7 @@ function Software({ updates }: { updates: SoftwareUpdates }) {
         actions={actions}
         coreBusy={coreBusy}
       />
+      <PluginsRow value={value} updates={updates} actions={actions} />
       <Block>
         <Row
           label="Update automatically"
@@ -332,6 +333,78 @@ function Summary({ value, updates, actions, coreBusy }: Props) {
         {stage !== 'current' && <Row label={checked} control={check} />}
       </div>
     </section>
+  )
+}
+
+/** Kipster Plugins installs on its own; only the plugin server restarts. Hidden when Core reports no plugin server. */
+function PluginsRow({ value, actions, updates }: Omit<Props, 'coreBusy'>) {
+  const plugins = value.status?.plugins
+  if (!plugins) return null
+  const managed = !!value.status?.core.managed
+  const installing = plugins.state === 'installing'
+  const available =
+    plugins.available &&
+    (!plugins.version || newer(plugins.available, plugins.version))
+      ? plugins.available
+      : null
+  const result = plugins.lastResult
+  const problem =
+    plugins.error ??
+    (result &&
+    result.outcome !== 'installed' &&
+    result.to === available?.version
+      ? result.outcome === 'rolled-back'
+        ? `${result.to} didn’t start, so ${result.from ?? 'the previous version'} was restored.`
+        : `${result.to} didn’t install.`
+      : plugins.state === 'failed'
+        ? 'The last update didn’t install.'
+        : null)
+  const note = installing
+    ? 'Installing… Kips can’t use plugins until it finishes.'
+    : !available
+      ? null
+      : managed
+        ? 'Installing restarts the plugin server. Kips can’t use plugins for a moment.'
+        : 'This backend is updated manually. Update Kipster Plugins on its host.'
+  return (
+    <Block region="Kipster Plugins">
+      <Row
+        label="Kipster Plugins"
+        sub={
+          <>
+            <span className="set-line">
+              {plugins.version ?? 'Version unknown'}
+              {available && ` → ${available.version}`}
+            </span>
+            {note && (
+              <span className="set-line" aria-live="polite">
+                {note}
+              </span>
+            )}
+            {problem && !installing && (
+              <span className="set-line bad">{problem}</span>
+            )}
+          </>
+        }
+        control={
+          installing ? (
+            <button className="set-button" disabled>
+              Installing…
+            </button>
+          ) : available && managed ? (
+            <button
+              className="set-button primary"
+              disabled={value.busy || plugins.state === 'checking'}
+              onClick={() =>
+                actions.run(() => updates.installPlugins(available.version))
+              }
+            >
+              Install
+            </button>
+          ) : null
+        }
+      />
+    </Block>
   )
 }
 

@@ -1,4 +1,4 @@
-import { requestAdminApproval, requestInstallApproval, requestPermissionsApproval } from './admin-approvals.js'
+import { requestAdminApproval, requestInstallApproval, requestPermissionsApproval, requestPluginsInstallApproval } from './admin-approvals.js'
 import type { Postgres } from '../platform/postgres/public.js'
 import type { Jobs } from '../platform/jobs/public.js'
 import { MAX_IDENTITY_BYTES, MAX_ORGANIZATION_INSTRUCTIONS_BYTES, type Home, type IdentityFileName } from '../platform/home/public.js'
@@ -9,8 +9,11 @@ import type { LearningService } from '../modules/memory/public.js'
 import type { UpdatesService } from '../modules/updates/public.js'
 import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
-import { updateChannel, updateInstall, updateMode } from '../protocol/updates.js'
+import { updateChannel, updateInstall, updateMode, updatePluginsInstall } from '../protocol/updates.js'
 import { memoryCardUpdate } from '../protocol/memory.js'
+import { pluginAccountRename } from '../protocol/plugins.js'
+import { PluginControlClient, PluginRouteError } from '../plugins/client.js'
+import type { PluginServerEndpoint } from '../plugins/supervisor.js'
 import { deleteCard, editCard, listCards, readCard } from './memory-cards.js'
 import { array, boolean, boundedInteger, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
 
@@ -21,6 +24,8 @@ export interface AdministrationToolHost {
   readonly jobs: Jobs
   readonly learning: LearningService
   readonly updates: UpdatesService
+  /** The plugin server while it runs; without it the `plugins` operations fail with `plugins-unavailable`. */
+  readonly plugins?: PluginServerEndpoint | undefined
   catalog(): Catalog | null
   refreshAdapters(): Promise<void>
 }
@@ -39,7 +44,8 @@ const areas = {
   learning: 'Memory: on or off and the nightly sleep time, for the installation and each kip; the nightly model; how many core cards every turn loads and how many cards and thread chunks a turn\'s search adds.',
   memory: 'Memory cards: the facts about the person every kip shares, learned each night from what the person said. Read, edit or delete them; messages stay.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
-  updates: 'Software updates of Kipster Core: channel, automatic or notify mode, checks, installs and pins.',
+  updates: 'Software updates of Kipster Core and Kipster Plugins: channel, automatic or notify mode, checks, installs and pins.',
+  plugins: 'Kipster Plugins: the services kips can use, signing in to them, and the signed-in accounts with their names and the default account of each plugin.',
   operations: 'The state and result of an earlier change, by its operationId.',
 } as const
 type Area = keyof typeof areas
@@ -98,6 +104,11 @@ const changes = (input: { name?: string | undefined; description?: string | unde
 const recorded = <T extends object>(operationId: string, result: T): T & { operationId: string } => ({ operationId, ...result })
 const settingField = union(literal('adapterId'), literal('modelId'), literal('effort'), literal('options'))
 const identityTarget = { agentId: id, file: identityFileName }
+/** Runs a plugin server call; its refusal keeps the code, such as `plugins-unavailable`, at the start of the message. */
+async function viaPlugins<T>(host: AdministrationToolHost, call: (client: PluginControlClient) => Promise<T>): Promise<T> {
+  try { return await call(new PluginControlClient(host.plugins)) }
+  catch (error) { throw error instanceof PluginRouteError ? new Error(`${error.code}: ${error.message}`) : error }
+}
 
 /** Every administration operation, by name. Add one here for each new setting or action the interface offers. */
 export const adminOperations: Readonly<Record<string, Operation<any>>> = {
@@ -350,12 +361,12 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'updates.get': operation({
     area: 'updates', kind: 'read', input: none,
-    description: 'Read the update channel and mode, the running and available Core versions, any pin, the install state and the kept backups.',
+    description: 'Read the update channel and mode, the running and available Core versions, any pin, the install state and the kept backups. With a plugin server, plugins has the running and available Kipster Plugins versions and their install state.',
     run: ({ host, caller }) => host.updates.get(caller),
   }),
   'updates.settings_set': operation({
     area: 'updates', kind: 'write', receipt: true, input: fields({ channel: optional(updateChannel), mode: optional(updateMode) }),
-    description: 'Change the update channel (stable, or next for early builds) or mode (automatic installs at night, notify only tells). Omitted values are unchanged.',
+    description: 'Change the update channel (stable, or next for early builds) or mode (automatic installs Core at night and Kipster Plugins right away, notify only tells). Omitted values are unchanged.',
     async run({ host, caller, operationId, args }) {
       const current = await host.updates.settings(caller)
       const channel = args.channel ?? current.channel, mode = args.mode ?? current.mode
@@ -364,7 +375,7 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'updates.check': operation({
     area: 'updates', kind: 'write', input: none,
-    description: 'Check the update channel for a newer Core now and return the update status.',
+    description: 'Check the update channel for a newer Core and Kipster Plugins now and return the update status.',
     run: ({ host, caller }) => host.updates.check(caller),
   }),
   'updates.install': operation({
@@ -375,10 +386,63 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
       return requestInstallApproval(host.db, caller, callId, args, host.updates.coreVersion)
     },
   }),
+  'updates.plugins_install': operation({
+    area: 'updates', kind: 'approval', input: fields({}, updatePluginsInstall),
+    description: 'Ask the owner to approve installing the Kipster Plugins version that updates.get shows in plugins.available. Only the plugin server restarts; Kipster and running work keep going.',
+    run({ host, caller, callId, args }) {
+      host.updates.checkPluginsInstall(args)
+      return requestPluginsInstallApproval(host.db, caller, callId, args.target, host.updates.pluginsVersion)
+    },
+  }),
   'updates.unpin': operation({
     area: 'updates', kind: 'write', receipt: true, input: none,
     description: 'Stop staying on a pinned Core version and follow the update channel again.',
     run: async ({ host, caller, operationId }) => recorded(operationId, await host.updates.unpin(caller, { version: 1, operationId })),
+  }),
+  'plugins.list': operation({
+    area: 'plugins', kind: 'read', input: none,
+    description: 'List the plugins: each service with its id, whether it is available, whether signing in needs an address (addressPrompt asks for it) and how many accounts are signed in.',
+    run: ({ host }) => viaPlugins(host, client => client.listPlugins()),
+  }),
+  'plugins.get': operation({
+    area: 'plugins', kind: 'read', input: fields({ pluginId: id }),
+    description: 'Read one plugin with its signed-in accounts. An account with status reconnect-needed needs the person to sign in again.',
+    run: ({ host, args }) => viaPlugins(host, client => client.getPlugin(args.pluginId)),
+  }),
+  'plugins.sign_in': operation({
+    area: 'plugins', kind: 'write', input: fields({ pluginId: id, address: optional(boundedString(1, 2000)) }),
+    description: 'Start signing the person in to a plugin; address answers the plugin\'s addressPrompt when it needsAddress. A redirect result has an authorizationUrl: give it to the person to open in their browser on this computer, then check plugins.sign_in_status with its id until it completes or fails. needs-client-metadata-document means this installation cannot sign in to that service yet.',
+    run: ({ host, args }) => viaPlugins(host, client => client.startSignIn(args.pluginId, { address: args.address })),
+  }),
+  'plugins.sign_in_status': operation({
+    area: 'plugins', kind: 'read', input: fields({ signInId: id }),
+    description: 'Read a sign-in started with plugins.sign_in: pending while the person signs in, completed with the account (duplicate when it reconnected a known account), or failed with a code such as denied or expired.',
+    run: ({ host, args }) => viaPlugins(host, client => client.signInStatus(args.signInId)),
+  }),
+  'plugins.accounts_list': operation({
+    area: 'plugins', kind: 'read', input: fields({ pluginId: optional(id) }),
+    description: 'List the signed-in accounts of every plugin, or of one plugin with pluginId, with their names (label), status and which one is the default.',
+    run: ({ host, args }) => viaPlugins(host, client => client.listAccounts(args.pluginId)),
+  }),
+  'plugins.account_rename': operation({
+    area: 'plugins', kind: 'write', input: fields({ accountId: id }, pluginAccountRename),
+    description: 'Rename a signed-in account, such as Work or Personal: 1 to 64 characters, unique within its plugin ignoring case.',
+    run: ({ host, args }) => viaPlugins(host, client => client.renameAccount(args.accountId, args.label)),
+  }),
+  'plugins.default_set': operation({
+    area: 'plugins', kind: 'write', input: fields({ pluginId: id, accountId: id }),
+    description: 'Make an account the default of its plugin, the one kips use when they do not name an account.',
+    run: ({ host, args }) => viaPlugins(host, client => client.setDefaultAccount(args.pluginId, args.accountId)),
+  }),
+  'plugins.default_clear': operation({
+    area: 'plugins', kind: 'write', input: fields({ pluginId: id }),
+    description: 'Clear the default account of a plugin. Its accounts stay signed in.',
+    run: ({ host, args }) => viaPlugins(host, client => client.clearDefaultAccount(args.pluginId)),
+  }),
+  'plugins.account_remove': operation({
+    area: 'plugins', kind: 'write', input: fields({ accountId: id }),
+    description: 'Sign out and remove an account the person no longer wants kips to use. revoked tells whether the service confirmed revoking its access; the account is removed either way.',
+    run: ({ host, args }) => viaPlugins(host, client => client.removeAccount(args.accountId)),
   }),
   'operations.get': operation({
     area: 'operations', kind: 'read', input: fields({ operationId: boundedString(1, 200) }),

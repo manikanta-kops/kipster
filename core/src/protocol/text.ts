@@ -36,7 +36,7 @@ export const directChatResult = object({ version: literal(1), chatId: id }, fals
 
 export const acceptedReceipt = object({ version: literal(1), status: literal('accepted'), submissionId: id, chatId: id, threadId: id, messageId: id, runId: id, alreadyAccepted: boolean() }, false)
 export type AcceptedReceipt = Infer<typeof acceptedReceipt>
-export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived'), literal('update-unmanaged'), literal('update-in-progress'), literal('update-already-installed'), literal('update-backup-required'), literal('update-backup-mismatch'), literal('update-confirmation-required')), message: string(), requestId: id }, false)
+export const stableError = object({ version: literal(1), code: union(literal('invalid'), literal('not-found'), literal('forbidden'), literal('conflict'), literal('unavailable'), literal('recovery-needed'), literal('resync-required'), literal('gone'), literal('organization-deleted'), literal('membership-removed'), literal('agent-archived'), literal('update-unmanaged'), literal('update-in-progress'), literal('update-already-installed'), literal('update-backup-required'), literal('update-backup-mismatch'), literal('update-confirmation-required'), literal('update-not-available')), message: string(), requestId: id }, false)
 export type StableError = Infer<typeof stableError>
 export const rejectedReceipt = object({ version: literal(1), status: literal('rejected'), submissionId: id, error: stableError }, false)
 export const submissionReceipt = union(acceptedReceipt, rejectedReceipt)
@@ -172,6 +172,20 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('resync-required') }, false),
 )
 export type TextEvent = Infer<typeof textEvent>
+
+/** Features this Core offers. Flags newer than `voiceRecording` are absent from a Core that predates them; `plugins` then reads as false. */
+const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memoryCards: optional(boolean()),
+  /** Kipster Plugins are ready: the `/v1/plugins` routes answer instead of returning 503 `plugins-unavailable`. */
+  plugins: optional(boolean()) }, false)
+export const bootstrapCapabilities: Schema<Omit<Infer<typeof bootstrapFlags>, 'plugins'> & { plugins: boolean }> = { describe: () => bootstrapFlags.describe(), parse(value, path = '$') {
+  const parsed = bootstrapFlags.parse(value, path)
+  return { ...parsed, plugins: parsed.plugins ?? false }
+} }
+export type BootstrapCapabilities = Infer<typeof bootstrapCapabilities>
+/** `GET /v1/bootstrap`: who the caller is, the protocol numbers this Core serves and its capabilities. */
+export const bootstrap = object({ version: literal(1), coreVersion: nonempty(), protocol: object({ current: boundedInteger(1, 1000000), oldest: boundedInteger(1, 1000000) }, false),
+  installationId: id, callerId: id, organizationId: id, rootAgentId: id, capabilities: bootstrapCapabilities }, false)
+export type Bootstrap = Infer<typeof bootstrap>
 
 /** Validation alone is insufficient: caller and context authorization precede receipt lookup. */
 export function receiptKey(scope: CallerScope, submissionId: string): string {

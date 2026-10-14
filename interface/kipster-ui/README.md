@@ -55,6 +55,13 @@ Reconnects and reloads restore saved state without dispatching work.
   agents have read-only history and can be restored. Permanent deletion requires
   typed-name confirmation. The archive panel tracks progress and waiting cleanup;
   deletion can wait for confirmed provider termination. The root admin is protected.
+- **Plugins:** shown when Core reports `capabilities.plugins`. A searchable
+  catalogue grouped by category; a plugin's page connects accounts, asking for
+  the service's address first when needed, and renames, sets the default,
+  reconnects and disconnects them. Sign-in opens the service in a new tab and
+  returns to Core's `/plugins/callback` on the address this window uses, so it
+  needs loopback or HTTPS; Core is checked every 1.5 seconds until the sign-in
+  finishes or expires.
 - **Settings:** saved and effective execution settings, adapter readiness,
   organization instructions, and Memory: switches, sleep times, the nightly
   model, per-turn counts and a Cards view to read, edit and delete memory cards.
@@ -65,7 +72,10 @@ Reconnects and reloads restore saved state without dispatching work.
   first, after confirming that running kip work stops, then offers **Restart to
   update** for the app. Signed desktop apps check at launch and every 12 hours,
   download in the background, and install on restart or automatic quit.
-  Unmanaged backends show instructions to update on their host. Builds whose
+  Unmanaged backends show instructions to update on their host. When Core
+  runs a plugin server, a **Kipster Plugins** row shows its version and an
+  **Install** button for a newer release, which restarts only the plugin
+  server; automatic mode installs it right away. Builds whose
   version contains `-next.` add a Testing section: channel, app and backend
   version pins, backup restores and update status. Demo, development and
   unsigned builds never check for app updates.

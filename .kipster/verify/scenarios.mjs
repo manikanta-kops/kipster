@@ -21,6 +21,7 @@ export const scenarios = [
   'attachment',
   'voice',
   'updates',
+  'plugins',
 ]
 
 export async function drive(name, { page, expect, origin, evidenceDir }) {
@@ -573,6 +574,156 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       await expect(page.locator('[aria-label="Versions"]')).toContainText(
         bootstrap.coreVersion,
       )
+      break
+    }
+    case 'plugins': {
+      // Bootstrap reports plugins once the instance's plugin server is ready.
+      await expect
+        .poll(async () => (await get('/v1/bootstrap')).capabilities.plugins, {
+          timeout: 60000,
+        })
+        .toBe(true)
+      await page.reload()
+      await page
+        .getByRole('complementary', { name: 'Workspace' })
+        .getByRole('button', { name: 'Plugins', exact: true })
+        .click()
+      const sheet = page.getByRole('dialog', { name: 'Settings', exact: true })
+      await expect(
+        sheet.getByRole('heading', { name: 'Plugins', exact: true }),
+      ).toBeVisible()
+      await sheet
+        .getByRole('searchbox', { name: 'Search plugins' })
+        .fill('fixture')
+      await sheet.getByRole('button', { name: /^Fixture/ }).click()
+      await expect(
+        sheet.getByRole('heading', { name: 'Fixture', exact: true }),
+      ).toBeVisible()
+      const rows = sheet
+        .getByRole('region', { name: 'Accounts' })
+        .locator('.set-plugin-account')
+      const state = async () =>
+        (await get('/v1/plugins/accounts?plugin=fixture')).accounts
+      // The screen shows exactly Core's accounts, labels, defaults and status.
+      const matchesCore = async (count) => {
+        await expect.poll(async () => (await state()).length).toBe(count)
+        const accounts = await state()
+        if (!count)
+          await expect(
+            sheet.getByRole('button', { name: 'Connect', exact: true }),
+          ).toBeVisible()
+        await expect(rows).toHaveCount(count)
+        for (const account of accounts) {
+          const row = rows.filter({
+            has: page.getByRole('button', {
+              name: `Rename ${account.label}`,
+              exact: true,
+            }),
+          })
+          await expect(row).toHaveCount(1)
+          await expect(row.locator('.set-tag')).toHaveCount(
+            account.isDefault ? 1 : 0,
+          )
+          await expect(row).toContainText(
+            account.status === 'working' ? 'Working' : 'Reconnect needed',
+          )
+        }
+        return accounts
+      }
+      const disconnect = async (label) => {
+        await sheet
+          .getByRole('button', { name: `Disconnect ${label}`, exact: true })
+          .click()
+        await page
+          .getByRole('alertdialog', { name: `Disconnect ${label}?` })
+          .getByRole('button', { name: 'Disconnect', exact: true })
+          .click()
+        await expect(
+          sheet.getByRole('button', { name: `Rename ${label}`, exact: true }),
+        ).toHaveCount(0)
+      }
+      const known = new Set()
+      // Sign in at the fixture service in the new tab; this page updates itself.
+      const signIn = async (button, user, count) => {
+        const opened = page.waitForEvent('popup')
+        await button.click()
+        const tab = await opened
+        await tab
+          .getByRole('link', { name: `Sign in as ${user}`, exact: true })
+          .click()
+        await expect(tab.locator('body')).toContainText('Signed in as')
+        await tab.close()
+        const accounts = await matchesCore(count)
+        const added = accounts.find((account) => !known.has(account.id))
+        known.add(added.id)
+        await expect(
+          sheet.getByText(`Connected ${added.label}.`, { exact: true }),
+        ).toBeVisible()
+        return added
+      }
+      const shot = (step) =>
+        page.screenshot({
+          path: `${evidenceDir}/plugins-${step}.png`,
+          fullPage: true,
+        })
+      // Accounts left by an earlier run are disconnected first.
+      for (const account of await state()) await disconnect(account.label)
+      await matchesCore(0)
+
+      const first = await signIn(
+        sheet.getByRole('button', { name: 'Connect', exact: true }),
+        'alice',
+        1,
+      )
+      await shot('connect')
+
+      const second = await signIn(
+        sheet.getByRole('button', { name: 'Add another account…' }),
+        'bob',
+        2,
+      )
+      await shot('second-account')
+
+      const label = unique('Factory side project')
+      await sheet
+        .getByRole('button', { name: `Rename ${second.label}`, exact: true })
+        .click()
+      await sheet
+        .getByRole('textbox', { name: `New name for ${second.label}` })
+        .fill(label)
+      await sheet.getByRole('button', { name: 'Save', exact: true }).click()
+      await expect(page.getByText('Account renamed')).toBeVisible()
+      expect(
+        (await matchesCore(2)).find((account) => account.id === second.id)
+          .label,
+      ).toBe(label)
+      await shot('rename')
+
+      await sheet
+        .getByRole('button', {
+          name: `Make ${first.label} the default`,
+          exact: true,
+        })
+        .click()
+      await expect(page.getByText('Default account changed')).toBeVisible()
+      expect(
+        (await matchesCore(2)).map((account) => [
+          account.id,
+          account.isDefault,
+        ]),
+      ).toEqual(
+        expect.arrayContaining([
+          [first.id, true],
+          [second.id, false],
+        ]),
+      )
+      await shot('default')
+
+      await disconnect(label)
+      expect(await matchesCore(1)).toMatchObject([
+        { id: first.id, label: first.label, isDefault: true },
+      ])
+      await shot('disconnect')
       break
     }
     default:
