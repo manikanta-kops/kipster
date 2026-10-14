@@ -35,7 +35,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/channels.mjs "$RUNNER_TEMP/update-site"
-      - uses: actions/upload-pages-artifact@v4
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ${{ runner.temp }}/update-site
 
@@ -51,4 +51,4 @@ jobs:
     steps:
       - name: Deploy update channels
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
