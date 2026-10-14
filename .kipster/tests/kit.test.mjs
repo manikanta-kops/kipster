@@ -9,6 +9,11 @@ import {
   isolatedEnvironment,
 } from '../isolation.mjs'
 import { scenarios } from '../verify/scenarios.mjs'
+import {
+  filesPerMessage,
+  fixtureDirectory,
+  fixtureFiles,
+} from '../verify/files.mjs'
 
 const kitRoot = resolve(import.meta.dirname, '..')
 test('instance arguments reject shared databases and malformed or duplicate ports', () => {
@@ -156,4 +161,52 @@ test('context links resolve to existing repository documents', async () => {
       ).isFile(),
       match[1],
     )
+})
+test('the __files__ fixture attaches every committed file of each common type', async () => {
+  const names = fixtureFiles.map((file) => file.name)
+  assert.deepEqual((await readdir(fixtureDirectory)).sort(), [...names].sort())
+  // Core accepts at most 10 files per message; the rest go in a second one.
+  assert.equal(filesPerMessage, 10)
+  assert.ok(names.length > filesPerMessage)
+  assert.ok(names.length <= 2 * filesPerMessage)
+  assert.deepEqual(
+    [...new Set(names.map((name) => name.split('.').pop()))].sort(),
+    [
+      'csv',
+      'json',
+      'm4a',
+      'md',
+      'mp3',
+      'mp4',
+      'pdf',
+      'png',
+      'svg',
+      'txt',
+      'zip',
+    ],
+  )
+  // Real formats, not placeholders: check each binary file's signature.
+  const head = async (name, length, offset = 0) =>
+    (await readFile(resolve(fixtureDirectory, name))).subarray(
+      offset,
+      offset + length,
+    )
+  assert.deepEqual(
+    [...(await head('dot.png', 8))],
+    [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  )
+  assert.equal((await head('report.pdf', 5)).toString(), '%PDF-')
+  assert.equal((await head('bundle.zip', 4)).toString('hex'), '504b0304')
+  assert.equal((await head('tone.mp3', 3)).toString(), 'ID3')
+  for (const name of ['clip.mp4', 'tone.m4a'])
+    assert.equal((await head(name, 4, 4)).toString(), 'ftyp')
+  const start = await readFile(resolve(kitRoot, 'verify/start.mjs'), 'utf8')
+  assert.match(start, /text\.startsWith\('__files__'\)/)
+  assert.match(start, /'fixture-files-publish'/)
+  assert.match(start, /'fixture-files-publish-more'/)
+  assert.match(start, /'conversation_publish'/)
+  // The driver admits only Chrome's own PDF viewer beyond the allowed origins.
+  const drive = await readFile(resolve(kitRoot, 'verify/drive.mjs'), 'utf8')
+  assert.match(drive, /host === 'mhjfbmdgcfjbbpaeojofohoefgiehjai'/)
+  assert.match(drive, /protocol === 'chrome:' && host === 'resources'/)
 })

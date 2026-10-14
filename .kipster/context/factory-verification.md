@@ -47,7 +47,8 @@ sign-in return address, and publishes the fixture's origin at `/__fixture/plugin
 
 The browser driver also refuses requests outside the supplied UI origin, except
 that the `plugins` scenario allows exactly that published fixture origin for the
-sign-in page, and uses an isolated Chrome profile/home. No embedding provider or task-data SQL role is
+sign-in page, and Chrome's built-in PDF viewer may load its bundled resources.
+It uses an isolated Chrome profile/home. No embedding provider or task-data SQL role is
 configured; recording uses a deterministic unavailable transcription provider.
 
 ## Deterministic gate
