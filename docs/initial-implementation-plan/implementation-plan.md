@@ -251,7 +251,7 @@ Give each run a designated output directory in the execution context and instruc
 <kipster-home>/agents/<agent-id>/outputs/<thread-id>/<attempt-id>/
 ```
 
-The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there and call `artifacts.publish` when a file is ready. The Core registers the artifact and returns an artifact ID for `messages.publish`. Merely creating a file does not publish a partial or temporary file to the user.
+The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path with `files` on `conversation_publish` or `agents_delegate`, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
 
 Filesystem directories and HTTP routes are separate namespaces. A public route might be `/v1/files/<artifact-id>/content`, regardless of where bytes are stored. Use IDs rather than thread titles or provider names as storage identity. Store stable artifact IDs in messages; clients resolve them against the currently configured backend URL.
 

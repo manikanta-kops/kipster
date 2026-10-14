@@ -189,3 +189,40 @@ test('agents_delegate passes files by path to the recipient and replays without 
   const file = request.parts.find(part => part.kind === 'file')
   assert.deepEqual([file.artifactId, file.name, file.mimeType, file.availability], [artifactId, 'brief.pdf', 'application/pdf', 'available'])
 })
+
+test('files reused by artifact ID count toward the 50 MB per-message limit, and recorded calls still replay', { skip: noDatabase, timeout: 60000 }, async t => {
+  const e = await environment(t)
+  for (const name of ['one.bin', 'two.bin', 'three.bin', 'tiny.txt']) await writeFile(join(e.workspace, name), name)
+  const seeded = await e.call('conversation_publish', { files: ['one.bin', 'two.bin', 'three.bin'] })
+  assert.equal(seeded.status, 'completed')
+  const [one, two, three] = seeded.files.map(file => file.artifactId)
+  // Calls recorded while the files were small, before they count as two 25 MB files and a 1 MB file.
+  const earlier = await e.call('conversation_publish', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before')
+  assert.equal(earlier.status, 'completed')
+  const delegatedEarlier = await e.call('agents_delegate', { recipientId: e.b, request: 'Earlier review', artifactIds: [one, two, three] }, 'delegate-before')
+  const megabyte = 1024 * 1024
+  await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=ANY($1::uuid[])', [[one, two], 25 * megabyte])
+  await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=$1', [three, megabyte])
+
+  const stored = async () => Promise.all(['messages', 'message_artifacts', 'delegations', 'delegation_calls', 'work_intents', 'artifacts'].map(table => e.count(`SELECT count(*)::int AS n FROM kipster.${table}`)))
+  const before = await stored()
+  const tooLarge = 'Cannot attach these files: together they exceed the 50 MB limit per message'
+  assert.deepEqual(await e.call('conversation_publish', { text: 'Reuse these files', artifactIds: [one, two, three] }, 'reuse-51mb'), { status: 'failed', reason: tooLarge })
+  await assert.rejects(e.call('agents_delegate', { recipientId: e.b, request: 'Review these files', artifactIds: [one, two, three] }, 'delegate-51mb'), { message: tooLarge })
+  // With files by path, the shared and new bytes are counted together before any file is read.
+  assert.deepEqual(await e.call('conversation_publish', { artifactIds: [one, two], files: ['tiny.txt'] }), { status: 'failed', reason: tooLarge })
+  await assert.rejects(e.call('agents_delegate', { recipientId: e.b, request: 'With a note', artifactIds: [one, two], files: ['tiny.txt'] }), { message: tooLarge })
+  assert.deepEqual(await stored(), before, 'nothing is stored for a refused call')
+
+  // Recorded calls are answered with their results, whatever the files count now.
+  assert.deepEqual(await e.call('conversation_publish', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before'), earlier)
+  assert.equal((await e.call('agents_delegate', { recipientId: e.b, request: 'Earlier review', artifactIds: [one, two, three] }, 'delegate-before')).id, delegatedEarlier.id)
+  assert.deepEqual(await stored(), before)
+
+  // Exactly 50 MB is accepted.
+  const atLimit = await e.call('conversation_publish', { text: 'Exactly the limit', artifactIds: [one, two] }, 'publish-50mb')
+  assert.equal(atLimit.status, 'completed')
+  assert.deepEqual((await e.runtime.db.query('SELECT artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [atLimit.messageId])).rows.map(row => row.artifact_id), [one, two])
+  const delegated = await e.call('agents_delegate', { recipientId: e.b, request: 'Review exactly the limit', artifactIds: [one, two] }, 'delegate-50mb')
+  assert.deepEqual((await e.runtime.db.query('SELECT artifact_ids FROM kipster.delegations WHERE id=$1', [delegated.id])).rows[0].artifact_ids, [one, two])
+})

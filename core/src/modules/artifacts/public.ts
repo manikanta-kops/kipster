@@ -43,6 +43,15 @@ const mimeTypes: Record<string, string> = {
 export function mimeTypeFor(name: string): string { return mimeTypes[extname(name).slice(1).toLowerCase()] ?? 'application/octet-stream' }
 const megabytes = (bytes: number) => `${bytes / 1024 / 1024} MB`
 const messageTooLarge = `Cannot attach these files: together they exceed the ${megabytes(MAX_MESSAGE_FILE_BYTES)} limit per message`
+/** The stored size of the given artifacts together. */
+async function storedBytes(client: SqlClient|Postgres, artifactIds: readonly string[]): Promise<number> {
+  if (!artifactIds.length) return 0
+  return Number((await client.query<{total:string}>('SELECT coalesce(sum(size_bytes),0)::text AS total FROM kipster.artifacts WHERE id=ANY($1::uuid[])',[artifactIds])).rows[0]!.total)
+}
+/** Refuses an execution's message or delegation whose files, already authorized, together exceed the per-message limit. Exactly the limit is accepted. */
+export async function requireMessageFileLimit(client: SqlClient, artifactIds: readonly string[]): Promise<void> {
+  if (await storedBytes(client, artifactIds) > MAX_MESSAGE_FILE_BYTES) throw new Error(messageTooLarge)
+}
 function attachError(raw: string, error: unknown): Error {
   const code = (error as NodeJS.ErrnoException).code
   return new Error(`Cannot attach ${raw}: ${code === 'ENOENT' || code === 'ENOTDIR' ? 'the file does not exist' : code === 'EACCES' || code === 'EPERM' ? 'permission denied' : 'the file cannot be read'}`)
@@ -152,7 +161,7 @@ export class ArtifactService {
     if(prior)return prior
     // Every size is checked before any bytes are read.
     const shared=artifactIds.filter(id=>uuid.test(id))
-    const sharedBytes=shared.length?Number((await this.db.query<{total:string}>('SELECT coalesce(sum(size_bytes),0)::text AS total FROM kipster.artifacts WHERE id=ANY($1::uuid[])',[shared])).rows[0]!.total):0
+    const sharedBytes=await storedBytes(this.db,shared)
     let total=sharedBytes
     for(const [index,path] of resolved.entries())total+=await attachableSize(paths[index]!,path)
     if(total>MAX_MESSAGE_FILE_BYTES)throw new Error(messageTooLarge)
