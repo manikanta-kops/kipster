@@ -10,7 +10,7 @@ const names = scope => executionTools(scope).map(tool => tool.name)
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
-  assert.deepEqual(base, ['conversation_publish', 'audio_transcribe', 'artifacts_write', 'artifacts_publish', 'interactions_ask', 'interactions_request_approval', 'agents_list', 'agents_get', 'agents_delegate', 'agents_delegation_status', 'documents_create', 'documents_list', 'documents_read', 'documents_edit', 'documents_delete'])
+  assert.deepEqual(base, ['conversation_publish', 'audio_transcribe', 'interactions_ask', 'interactions_request_approval', 'agents_list', 'agents_get', 'agents_delegate', 'agents_delegation_status', 'documents_create', 'documents_list', 'documents_read', 'documents_edit', 'documents_delete'])
   const full = names(all)
   assert.deepEqual(full.filter(name => !base.includes(name)), ['artifacts_copy_to_organization', 'data_tables', 'vector_collections', 'admin_operations', 'admin_call'])
   for (const tool of executionTools(all)) {
@@ -26,15 +26,18 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
   assert.match(toolGuidance, /conversation_publish/)
   assert.match(toolGuidance, /documents_create/)
+  assert.match(toolGuidance, /call conversation_publish with `files` \(their paths\)/)
+  assert.doesNotMatch(toolGuidance, /artifacts_write|artifacts_publish/)
+  for (const name of ['conversation_publish', 'agents_delegate']) assert.deepEqual(executionTools(all).find(tool => tool.name === name).inputSchema.properties.files.items, { type: 'string' })
   assert.match(executionTools(all).find(tool => tool.name === 'documents_edit').description, /```question/)
 })
 
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }
-  const dispatcher = Object.fromEntries(['publishToolText', 'askToolInteraction', 'structuredTool', 'vectorTool', 'writeArtifactTool', 'publishArtifactTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
+  const dispatcher = Object.fromEntries(['publishToolText', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
   const host = textPublicationHost(dispatcher)
-  const valid = { conversation_publish: { text: 'Hi' }, audio_transcribe: { artifactId: 'a' }, artifacts_write: { name: 'a.txt', content: 'x' }, artifacts_publish: { outputId: 'o' }, artifacts_copy_to_organization: { artifactId: 'a' } }
+  const valid = { conversation_publish: { text: 'Hi' }, audio_transcribe: { artifactId: 'a' }, artifacts_copy_to_organization: { artifactId: 'a' } }
   const offered = names({ ...all, memory: true })
   for (const name of offered) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
   const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [offered[index], [method, rest.at(-1)]]))
@@ -44,7 +47,7 @@ test('every offered tool name reaches its Core handler', async () => {
   assert.deepEqual(routed.data_tables[0], 'structuredTool')
   assert.deepEqual(routed.vector_collections[0], 'vectorTool')
   assert.deepEqual(routed.documents_edit, ['documentTool', 'documents.edit'])
-  for (const name of ['memory_save', 'memory_link', 'data_space', 'vectors_space']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
+  for (const name of ['memory_save', 'memory_link', 'data_space', 'vectors_space', 'artifacts_write', 'artifacts_publish']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
 })
 
 test('the admin skill ships with Core and is named in the instructions with its path', async () => {

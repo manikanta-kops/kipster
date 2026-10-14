@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
-import { access, mkdtemp, readdir, rm } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
@@ -114,6 +114,16 @@ async function setup(t, { forget = false } = {}) {
   return ctx
 }
 
+/** A file published with the retired artifacts_write and artifacts_publish tools and never shown, as older installations keep. */
+async function retiredPublication(ctx, run, name, content) {
+  const id = randomUUID(), outputId = randomUUID(), size = Buffer.byteLength(content), hash = sha256(content)
+  await writeFile(join(ctx.runtime.home.root, 'artifacts', 'objects', id), content, { mode: 0o600 })
+  await ctx.db.query(`INSERT INTO kipster.artifacts(id,installation_id,owner_kind,owner_id,provenance,author_id,name,mime_type,size_bytes,sha256,state) VALUES ($1,$2,'agent',$3,'generated',$3,$4,'text/plain; charset=utf-8',$5,$6,'ready')`, [id, ctx.installationId, ctx.scout, name, size, hash])
+  await ctx.db.query(`INSERT INTO kipster.artifact_output_writes(id,attempt_id,call_id,name,request_sha256,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$5,'ready')`, [outputId, run.attemptId, randomUUID(), name, hash, size])
+  await ctx.db.query(`INSERT INTO kipster.artifact_publications(attempt_id,call_id,input_id,request_sha256,artifact_id,state) VALUES ($1,$2,$3,$4,$5,'ready')`, [run.attemptId, randomUUID(), outputId, hash, id])
+  return { id }
+}
+
 /**
  * Gives Scout a chat of its own with a file it showed there, a file it never showed, an organization
  * publication, a vector collection, task data and an identity backup; and work Root delegated to
@@ -122,12 +132,12 @@ async function setup(t, { forget = false } = {}) {
 async function populate(ctx) {
   const own = await ctx.running(ctx.scout, 'Write the report')
   ctx.provider(own, 'codex-scout-own')
-  const written = await own.call('artifacts_write', { name: 'report.txt', content: 'Quarterly numbers' })
-  const shown = (await own.call('artifacts_publish', { outputId: written.outputId })).artifact
-  await own.call('conversation_publish', { text: 'Here is the report', artifactIds: [shown.id] })
+  const workspace = ctx.runtime.home.agent(ctx.scout)
+  await mkdir(workspace, { recursive: true })
+  await writeFile(join(workspace, 'report.txt'), 'Quarterly numbers')
+  const [shown] = (await own.call('conversation_publish', { text: 'Here is the report', files: ['report.txt'] })).files.map(file => ({ id: file.artifactId }))
   const publication = (await own.call('artifacts_copy_to_organization', { artifactId: shown.id })).artifact
-  const draft = await own.call('artifacts_write', { name: 'draft.txt', content: 'Draft only' })
-  const unshown = (await own.call('artifacts_publish', { outputId: draft.outputId })).artifact
+  const unshown = await retiredPublication(ctx, own, 'draft.txt', 'Draft only')
   const target = { kind: 'agent', ownerId: ctx.scout }
   const collection = await own.call('vector_collections', { target, operation: 'create', name: 'notes' })
   await own.call('vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
@@ -145,9 +155,8 @@ async function populate(ctx) {
   await ctx.settled(parent.runId, 'waiting')
   const child = ctx.bind({ runId: delegated.childRunId }, await ctx.execution(delegated.childRunId))
   ctx.provider(child, 'codex-scout-child')
-  const checked = await child.call('artifacts_write', { name: 'checked.txt', content: 'Checked numbers' })
-  const childFile = (await child.call('artifacts_publish', { outputId: checked.outputId })).artifact
-  await child.call('conversation_publish', { text: 'Checked', artifactIds: [childFile.id] })
+  await writeFile(join(workspace, 'checked.txt'), 'Checked numbers')
+  const [childFile] = (await child.call('conversation_publish', { text: 'Checked', files: ['checked.txt'] })).files.map(file => ({ id: file.artifactId }))
   const further = await child.call('agents_delegate', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
   let mark = ctx.executions.length
   child.release({ kind: 'ended', confirmed: true })
@@ -346,8 +355,8 @@ test('copying files keeps each file shown in an organization\'s chats in that or
   for (const agentId of [ctx.scout, ctx.helper]) await ctx.ok('POST', `/v1/organizations/${second}/memberships`, { version: 1, operationId: randomUUID(), agentId })
   const secondContext = { kind: 'organization', organizationId: second }
   const there = await ctx.running(ctx.scout, 'Summarize', secondContext)
-  const summary = (await there.call('artifacts_publish', { outputId: (await there.call('artifacts_write', { name: 'summary.txt', content: 'Summary' })).outputId })).artifact
-  await there.call('conversation_publish', { text: 'Summary attached', artifactIds: [summary.id] })
+  await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'summary.txt'), 'Summary')
+  await there.call('conversation_publish', { text: 'Summary attached', files: ['summary.txt'] })
   ctx.finish(there)
   await ctx.settled(there.runId, 'completed')
 

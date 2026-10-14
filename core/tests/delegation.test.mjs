@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
@@ -55,11 +55,12 @@ test('capacity-one delegation routes exact child question and internal result ba
     assert.equal(child.agentId,b)
     assert.equal(child.runId,first.childRunId)
     assert.equal(child.organizationId,org)
-    const written=await dispatcher.writeArtifactTool(child.attemptId,'write-b','review.txt','B wrote this')
-    const published=await dispatcher.publishArtifactTool(child.attemptId,'publish-b',written.outputId)
-    assert.equal((await runtime.db.query('SELECT owner_id FROM kipster.artifacts WHERE id=$1',[published.artifact.id])).rows[0].owner_id,b)
+    await mkdir(runtime.home.agent(b),{recursive:true});await writeFile(join(runtime.home.agent(b),'review.txt'),'B wrote this')
+    const published=await dispatcher.publishToolText(child.attemptId,'publish-b','',[],['review.txt'])
+    assert.equal(published.status,'completed')
+    assert.equal((await runtime.db.query('SELECT owner_id FROM kipster.artifacts WHERE id=$1',[published.files[0].artifactId])).rows[0].owner_id,b)
     const fileTarget={installationId:actor.installationId,callerId:actor.personId,context:ctx,chatId:chat,threadId:root.threadId}
-    await assert.rejects(runtime.artifacts.get(actor,published.artifact.id,fileTarget),/access denied/)
+    await assert.rejects(runtime.artifacts.get(actor,published.files[0].artifactId,fileTarget),/access denied/)
     const question=await dispatcher.askToolInteraction(child.attemptId,'ask-b',{kind:'question',prompt:'Which market?',options:[{id:'eu',label:'Europe'},{id:'us',label:'United States'}],freeText:false})
     fixture.handles[1].emit({kind:'ended',attemptId:child.attemptId,confirmed:true})
     await until(async()=>Number((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.owned_permits')).rows[0].n),n=>n===0,'child verified yield')

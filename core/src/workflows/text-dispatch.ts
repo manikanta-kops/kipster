@@ -2,7 +2,7 @@ import { coalesceDrafts } from './draft-events.js'
 import { administrationReceipts } from '../modules/administration/public.js'
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle } from '../adapter-api/index.js'
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
@@ -23,6 +23,7 @@ import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
+import { MAX_FILES_PER_MESSAGE, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
 import { memoryTool, settleInterruptedMemoryCalls, turnMemory } from '../modules/memory/public.js'
 
@@ -59,27 +60,21 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
   })
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'writeArtifactTool' | 'publishArtifactTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
+const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
+const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&value.every(item=>typeof item==='string')
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
       if (request.name === 'conversation_publish') {
-        if (Object.keys(args).some(key=>!['text','artifactIds'].includes(key)) || (args.text!==undefined&&typeof args.text!=='string') || (args.artifactIds!==undefined&&(!Array.isArray(args.artifactIds)||args.artifactIds.some(id=>typeof id!=='string')))) throw new Error('Invalid publication arguments')
-        return dispatcher.publishToolText(request.attemptId, request.callId, typeof args.text==='string'?args.text:'', args.artifactIds as string[]|undefined)
+        if (Object.keys(args).some(key=>!['text','artifactIds','files'].includes(key)) || (args.text!==undefined&&typeof args.text!=='string') || !strings(args.artifactIds) || !strings(args.files)) throw new Error('Invalid publication arguments')
+        return dispatcher.publishToolText(request.attemptId, request.callId, typeof args.text==='string'?args.text:'', args.artifactIds as string[]|undefined, args.files as string[]|undefined)
       }
       if(request.name==='audio_transcribe'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid transcription arguments')
         return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
-      }
-      if(request.name==='artifacts_write'){
-        if(Object.keys(args).some(key=>!['name','content'].includes(key))||typeof args.name!=='string'||typeof args.content!=='string')throw new Error('Invalid artifact write arguments')
-        return dispatcher.writeArtifactTool(request.attemptId,request.callId,args.name,args.content)
-      }
-      if(request.name==='artifacts_publish'){
-        if(Object.keys(args).length!==1||typeof args.outputId!=='string')throw new Error('Invalid artifact publication arguments')
-        return dispatcher.publishArtifactTool(request.attemptId,request.callId,args.outputId)
       }
       if(request.name==='artifacts_copy_to_organization'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid organization publication arguments')
@@ -786,19 +781,40 @@ export class TextDispatcher {
       JSON.stringify({ threadId: event.threadId, ...(event.turnId ? { turnId: event.turnId } : {}), processId: event.processId, providerStateScope: event.providerStateScope, workingDirectory: event.workingDirectory, modelId: event.modelId, ...(event.effort ? { effort: event.effort } : {}) })])
   }
 
-  /** Explicit tool publications use the call ID as the publication identity. */
-  async publishToolText(attemptId: string, callId: string, text: string, artifactIds: readonly string[] = []): Promise<{ status: 'completed'; messageId: string } | { status: 'failed'; reason: string }> {
-    if (!callId || callId.length > 200 || (!text&&!artifactIds.length) || Buffer.byteLength(text) > 64 * 1024 || artifactIds.length>10 || new Set(artifactIds).size!==artifactIds.length) return { status: 'failed', reason: 'Invalid publication' }
+  /** Explicit tool publications use the call ID as the publication identity. Files named by path are attached after `artifactIds`. */
+  async publishToolText(attemptId: string, callId: string, text: string, artifactIds: readonly string[] = [], files: readonly string[] = []): Promise<{ status: 'completed'; messageId: string; files?: AttachedFile[] } | { status: 'failed'; reason: string }> {
+    if (!callId || callId.length > 200 || (!text&&!artifactIds.length&&!files.length) || Buffer.byteLength(text) > 64 * 1024 || artifactIds.length+files.length>MAX_FILES_PER_MESSAGE || new Set(artifactIds).size!==artifactIds.length) return { status: 'failed', reason: artifactIds.length+files.length>MAX_FILES_PER_MESSAGE ? `Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message` : 'Invalid publication' }
     const row = (await this.runtime.db.query<{ intent_id: string; generation: string; incarnation: string }>('SELECT intent_id,generation,incarnation FROM kipster.attempts WHERE id=$1', [attemptId])).rows[0]
     if (!row) return { status: 'failed', reason: 'Unknown attempt' }
     const context = await runContext(this.runtime.db, row.intent_id)
     if (!context) return { status: 'failed', reason: 'Unknown run' }
+    const requestHash = files.length ? fileRequestHash(['conversation_publish', text, artifactIds, files]) : null
+    if (await this.fileReplayConflict(attemptId, callId, requestHash, 'SELECT 1 FROM kipster.messages WHERE source_attempt_id=$1 AND publication_id=$2 AND publication_source=\'tool\'')) return { status: 'failed', reason: 'File attachment replay conflict' }
+    let attachment: FileAttachment | undefined
     try {
-      const messageId = await this.publishText({ id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }, { kind: 'text', attemptId, messageId: callId, text, final: true }, context, 'tool', artifactIds)
-      return messageId ? { status: 'completed', messageId } : { status: 'failed', reason: 'Attempt no longer owns publication' }
+      if (requestHash) attachment = await this.attachFiles(attemptId, callId, context.agentId, files, artifactIds, requestHash)
+      const messageId = await this.publishText({ id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }, { kind: 'text', attemptId, messageId: callId, text, final: true }, context, 'tool', [...artifactIds, ...attachment?.files.map(file => file.artifactId) ?? []], undefined, attachment?.settle)
+      return messageId ? { status: 'completed', messageId, ...(attachment ? { files: attachment.files } : {}) } : { status: 'failed', reason: 'Attempt no longer owns publication' }
     } catch (error) {
       return { status: 'failed', reason: error instanceof Error ? error.message : 'Publication failed' }
+    } finally {
+      await attachment?.abandon()
     }
+  }
+
+  /** Snapshots the files a tool call names; relative paths resolve against the agent's working directory. */
+  private attachFiles(attemptId: string, callId: string, agentId: string, files: readonly string[], artifactIds: readonly string[], requestHash: string): Promise<FileAttachment> {
+    return this.runtime.artifacts.attachFiles(attemptId, this.incarnation, callId, { paths: files, base: this.runtime.home.agent(agentId), artifactIds, requestHash })
+  }
+
+  /**
+   * Whether a replayed call names other files than its first request. Attached files keep the request hash of their
+   * call; a call without files whose effect `effect` finds (by attempt and call ID) cannot gain files on replay.
+   */
+  private async fileReplayConflict(attemptId: string, callId: string, requestHash: string | null, effect: string): Promise<boolean> {
+    const saved = await this.runtime.artifacts.attachmentRequest(attemptId, callId)
+    if (saved !== null) return saved !== requestHash
+    return requestHash !== null && (await this.runtime.db.query(effect, [attemptId, callId])).rows.length > 0
   }
 
   async askToolInteraction(attemptId: string, callId: string, input: InteractionInput): Promise<{ status: 'pending'; interactionId: string }> {
@@ -833,8 +849,18 @@ export class TextDispatcher {
       return delegationStatus(this.runtime.db,attemptId,this.incarnation,args.delegationId)
     }
     if(name==='agents.delegate'){
-      if(Object.keys(args).some(key=>!['recipientId','request','artifactIds'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||args.artifactIds!==undefined&&(!Array.isArray(args.artifactIds)||args.artifactIds.some(id=>typeof id!=='string')))throw new Error('Invalid delegation arguments')
-      return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,args.artifactIds as string[]|undefined)
+      if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files))throw new Error('Invalid delegation arguments')
+      const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[]
+      const requestHash=files.length?fileRequestHash(['agents_delegate',args.recipientId,args.request,artifactIds,files]):null
+      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2 UNION ALL SELECT 1 FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
+      if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
+      if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
+      const row=(await this.runtime.db.query<{intent_id:string}>('SELECT intent_id FROM kipster.attempts WHERE id=$1',[attemptId])).rows[0]
+      const context=row?await runContext(this.runtime.db,row.intent_id):null
+      if(!context)throw new Error('Attempt no longer owns delegation')
+      const attachment=await this.attachFiles(attemptId,callId,context.agentId,files,artifactIds,requestHash)
+      try{return {...await delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,attachment),files:attachment.files}}
+      finally{await attachment.abandon()}
     }
     throw new Error('Unsupported agent tool')
   }
@@ -914,12 +940,10 @@ export class TextDispatcher {
     return settled?result:{status:'unavailable',reason:'cancelled'}
   }
 
-  async writeArtifactTool(attemptId:string,callId:string,name:string,content:string):Promise<unknown>{return this.runtime.artifacts.writeOutput(attemptId,this.incarnation,callId,name,content)}
-  async publishArtifactTool(attemptId:string,callId:string,outputId:string):Promise<unknown>{return this.runtime.artifacts.publishOutput(attemptId,this.incarnation,callId,outputId)}
   async copyArtifactTool(attemptId:string,callId:string,artifactId:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId)}
 
-  /** `coreParts`, when given, runs in the publication's transaction and returns parts Core appends, such as a document card; the call ID alone then identifies the publication. */
-  private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = [], coreParts?: (client: SqlClient) => Promise<MessagePart[]>): Promise<string | null> {
+  /** `coreParts`, when given, runs in the publication's transaction and returns parts Core appends, such as a document card; the call ID alone then identifies the publication. `attach` makes files attached by path ready in that transaction. */
+  private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = [], coreParts?: (client: SqlClient) => Promise<MessagePart[]>, attach?: (client: SqlClient) => Promise<void>): Promise<string | null> {
     const saved = await this.runtime.db.transaction(async client => {
       // Publications share this guard, so different threads can write concurrently.
       // Controls/recovery take it exclusively before locking multiple threads: dropping
@@ -938,6 +962,7 @@ export class TextDispatcher {
         if (publicationPartsKey(prior.parts)!==publicationPartsKey(parts)) throw new Error('Publication identity conflict')
         return prior.id
       }
+      await attach?.(client)
       for(const artifactId of artifactIds){const artifact=(await client.query<{id:string}>("SELECT id FROM kipster.artifacts WHERE id=$1 AND installation_id=$2 AND state='ready' AND ((owner_kind='agent' AND owner_id=$3) OR (owner_kind='organization' AND owner_id=$4))",[artifactId,context.actor.installationId,context.agentId,context.context.kind==='organization'?context.context.organizationId:null])).rows[0];if(!artifact)throw new Error('Artifact publication denied')}
       if (coreParts) parts.push(...await coreParts(client))
       let messageId = prior?.id ?? randomUUID()
