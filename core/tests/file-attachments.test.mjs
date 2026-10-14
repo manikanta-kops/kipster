@@ -175,6 +175,11 @@ test('agents_delegate passes files by path to the recipient and replays without 
   const first = await e.call('agents_delegate', plain, 'delegate-plain')
   await assert.rejects(e.call('agents_delegate', { ...plain, files: ['brief.pdf'] }, 'delegate-plain'), /File attachment replay conflict/)
   assert.equal((await e.call('agents_delegate', plain, 'delegate-plain')).id, first.id)
+  // A call answered with the run's identical delegation keeps its call identity too.
+  assert.equal((await e.call('agents_delegate', plain, 'delegate-same')).id, first.id)
+  await assert.rejects(e.call('agents_delegate', { ...plain, files: ['brief.pdf'] }, 'delegate-same'), /File attachment replay conflict/)
+  await assert.rejects(e.call('agents_delegate', { ...plain, request: 'Other work' }, 'delegate-same'), /Delegation identity conflict/)
+  assert.equal((await e.call('agents_delegate', plain, 'delegate-same')).id, first.id)
   assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.delegations')], [artifacts, 2])
   e.fixture.handles[0].emit({ kind: 'ended', attemptId: e.execution.attemptId, confirmed: true })
   await until(() => e.fixture.contexts.length, n => n === 3, 'recipient executions')

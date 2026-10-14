@@ -852,7 +852,7 @@ export class TextDispatcher {
       if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files))throw new Error('Invalid delegation arguments')
       const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[]
       const requestHash=files.length?fileRequestHash(['agents_delegate',args.recipientId,args.request,artifactIds,files]):null
-      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
+      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2 UNION ALL SELECT 1 FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
       if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
       const row=(await this.runtime.db.query<{intent_id:string}>('SELECT intent_id FROM kipster.attempts WHERE id=$1',[attemptId])).rows[0]

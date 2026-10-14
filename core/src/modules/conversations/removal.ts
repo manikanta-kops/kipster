@@ -56,7 +56,7 @@ export async function removeThreads(client: SqlClient, installationId: string, t
 
   // Tool receipts and staged outputs of the attempts.
   for (const table of ['kipster.vector_tool_receipts', 'task_data.receipts', 'kipster.artifact_output_writes',
-    'kipster.artifact_publications', 'kipster.artifact_organization_copies', 'kipster.artifact_file_attachments', 'kipster.voice_tool_calls']) {
+    'kipster.artifact_publications', 'kipster.artifact_organization_copies', 'kipster.artifact_file_attachments', 'kipster.delegation_calls', 'kipster.voice_tool_calls']) {
     await client.query(`DELETE FROM ${table} WHERE attempt_id = ANY($1::uuid[])`, [attempts])
   }
   await client.query('UPDATE kipster.voice_preparations SET attempt_id=NULL WHERE attempt_id = ANY($1::uuid[])', [attempts])

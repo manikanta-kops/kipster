@@ -70,10 +70,10 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[originThreadId])
     if(first.threadId!==originThreadId)await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[first.threadId])
     const scope=await boundScope(client,attemptId,incarnation)
-    const prior=(await client.query<{id:string;recipient_agent_id:string;request:string;artifact_ids:string[]}>('SELECT id,recipient_agent_id,request,artifact_ids FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
+    const prior=(await client.query<{id:string;recipient_agent_id:string;request:string;artifact_ids:string[]}>('SELECT id,recipient_agent_id,request,artifact_ids FROM kipster.delegations WHERE (parent_attempt_id=$1 AND call_id=$2) OR id=(SELECT delegation_id FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2)',[attemptId,callId])).rows[0]
     if(prior){if(prior.recipient_agent_id!==recipientId||prior.request!==request||JSON.stringify(prior.artifact_ids)!==JSON.stringify(allIds))throw new Error('Delegation identity conflict');return delegationRecord(client,prior.id)}
     const same=(await client.query<{id:string}>(`SELECT id FROM kipster.delegations WHERE parent_run_id=$1 AND recipient_agent_id=$2 AND request=$3 AND artifact_ids=$4::uuid[] ORDER BY ordinal LIMIT 1`,[scope.runId,recipientId,request,allIds])).rows[0]
-    if(same)return delegationRecord(client,same.id)
+    if(same){await client.query('INSERT INTO kipster.delegation_calls(attempt_id,call_id,delegation_id) VALUES ($1,$2,$3)',[attemptId,callId,same.id]);return delegationRecord(client,same.id)}
     if(scope.agentId===recipientId)throw new Error('Delegation cycle: agent cannot delegate to itself')
     const limits=(await client.query<{delegation_depth_limit:number;delegation_root_budget:number;delegation_fanout_limit:number}>('SELECT delegation_depth_limit,delegation_root_budget,delegation_fanout_limit FROM kipster.execution_permits WHERE installation_id=$1',[scope.installationId])).rows[0]!
     if(depth>limits.delegation_depth_limit)throw new Error('Delegation depth limit reached')
