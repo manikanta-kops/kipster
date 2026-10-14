@@ -1,9 +1,11 @@
 # Repository reading map
 
+This machine may run the owner's production Kipster. Never touch it unless the owner's ticket explicitly asks: don't run `npm run backend`, `npm run app`, `scripts/local*`, the installer or `launchctl`; don't use `~/.kipster`, `~/Applications/Kipster.app` or port 43120; don't kill processes by name, only ones you started. To see your change running, use `node .kipster/check.mjs` and the factory's test instance.
+
 - [Working rules](../../AGENTS.md): read before any change; package parity, migrations and ownership rules apply throughout.
 - [Product overview](../../README.md): read for user-facing terminology and package purpose.
 - [Contributing](../../CONTRIBUTING.md): read before choosing a branch, changesets and validation.
-- [Factory verification](factory-verification.md): read before checks or tester work; isolated composition, gate coverage and safety rules.
+- [Factory verification](factory-verification.md): read before any work; isolated composition, gate coverage and safety rules.
 - [CI](../../.github/workflows/ci.yml): read when updating the deterministic gate or checking package coverage.
 - [Releasing](../../docs/releasing.md): read for changeset bumps, independent package releases and owner-only stable merges.
 - [Changesets](../../.changeset/README.md): read when adding a release note or an empty changeset.
