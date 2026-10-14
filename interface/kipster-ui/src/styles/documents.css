@@ -148,6 +148,15 @@
   letter-spacing: -0.03em;
 }
 
+/* Text remains copyable in both edit and revision/read views. */
+.doc-field,
+.doc-code pre,
+.cm-card q,
+.cm-body {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 /* Fields */
 .doc-field {
   outline: none;
@@ -1122,6 +1131,7 @@ mark.cm.resolved {
   box-shadow:
     0 3px 8px color-mix(in oklab, var(--hue-sky) 40%, transparent),
     inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
+  -webkit-user-select: none;
   user-select: none;
   animation: doc-pin-in 0.4s var(--spring);
 }

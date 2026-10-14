@@ -325,9 +325,9 @@ test('unsupported effort remains selected until deliberate organization effort c
 }) => {
   await setup(page)
   await save(page, 'organizations', org, { effort: { set: 'unsupported' } })
-  await expect(page.getByLabel('Effort', { exact: true })).toHaveValue(
-    'unsupported',
-  )
+  await expect(
+    page.getByRole('combobox', { name: 'Effort', exact: true }),
+  ).toHaveValue('unsupported')
   expect(
     (
       await core(
@@ -336,7 +336,9 @@ test('unsupported effort remains selected until deliberate organization effort c
       )
     ).status,
   ).toBe('incompatible')
-  await page.getByLabel('Effort', { exact: true }).selectOption('')
+  await page
+    .getByRole('combobox', { name: 'Effort', exact: true })
+    .selectOption('')
   await saveButton(page).click()
   await expect(editor(page).getByText('Saved', { exact: true })).toBeVisible()
   expect(

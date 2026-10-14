@@ -3,6 +3,9 @@
 *::before,
 *::after {
   box-sizing: border-box;
+  /* Keep content/chrome boundaries explicit across Chromium and WebKit. */
+  -webkit-user-select: inherit;
+  user-select: inherit;
 }
 :root {
   font-family: var(--font);
@@ -19,10 +22,45 @@ body {
 }
 body {
   margin: 0;
+  /* Includes floating UI portalled beside the app root. */
+  -webkit-user-select: none;
+  user-select: none;
   min-width: 360px;
   font-size: 14px;
   line-height: 1.45;
   letter-spacing: -0.006em;
+}
+/* Content opts back in; controls inside it remain app chrome. */
+:where(input, textarea, [contenteditable='true']) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+:where(button, select, summary, [role='button'], [role='tab']) {
+  -webkit-user-select: none;
+  user-select: none;
+}
+:where(
+  [role='alert'],
+  .workspace-state.error p,
+  .state-card.error p,
+  .recovery-error,
+  .rejection-reason,
+  .recovery-body,
+  .set-alert,
+  .interaction-card h3,
+  .interaction-detail,
+  .interaction-proposal,
+  .interaction-request pre,
+  .interaction-result blockquote,
+  .preparation-card p,
+  .artifact-name,
+  .artifact-meta,
+  .file-row > span,
+  .file-tile > span,
+  .pending-name
+) {
+  -webkit-user-select: text;
+  user-select: text;
 }
 h1,
 h2,
