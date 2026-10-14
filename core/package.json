@@ -70,14 +70,14 @@
   },
   "devDependencies": {
     "@kipster/plugins": "https://github.com/manikanta-kops/kipster-plugins/releases/download/plugins-v0.2.0/kipster-plugins-0.2.0.tgz",
-    "@types/node": "26.6.3",
+    "@types/node": "26.6.5",
     "@typescript/typescript6": "6.0.2",
     "esbuild": "0.28.2",
     "typescript": "7.0.2"
   },
   "dependencies": {
-    "pg": "8.23.0",
-    "pg-boss": "12.35.0"
+    "pg": "8.23.1",
+    "pg-boss": "12.37.1"
   },
   "bin": {
     "kipster-host": "./dist/host.js"
