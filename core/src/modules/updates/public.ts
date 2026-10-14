@@ -38,8 +38,12 @@ type Mutable<T> = { -readonly [K in keyof T]: T[K] }
 type Status = Mutable<Omit<UpdateStatus, 'core' | 'plugins'>> & { core: Mutable<UpdateStatus['core']>; plugins?: Mutable<PluginsUpdateStatus> }
 type Channel = { core: ChannelEntry | null; plugins: ChannelEntry | null; pluginsError: string | null }
 const failure = (error: unknown) => error instanceof Error ? error.message : String(error)
-/** Whether `version` is newer than the running plugins; anything is when none can be read. */
-const newerPlugins = (version: string, running: string | null) => running === null || compareVersions(version, running) > 0
+/**
+ * Whether the plugins release `version` can be offered: newer than the running plugins (anything is when none can be read)
+ * and at or above the newest that ran with the plugin data, since the plugin server refuses anything older.
+ */
+const newerPlugins = (version: string, running: string | null, highest: string | null) =>
+  (running === null || compareVersions(version, running) > 0) && (highest === null || compareVersions(version, highest) >= 0)
 
 /** Installation-wide update policy and the durable handoff to the independently supervised updater. */
 export class UpdatesService {
@@ -96,7 +100,7 @@ export class UpdatesService {
   }
   private pluginsView(row: Row): Mutable<PluginsUpdateStatus> {
     const saved = row.status.plugins, version = this.plugins!.packageVersion
-    const available = saved?.available && newerPlugins(saved.available.version, version) ? saved.available : null
+    const available = saved?.available && newerPlugins(saved.available.version, version, this.highestPlugins) ? saved.available : null
     return { version, available, state: saved?.state ?? 'idle', error: saved?.error ?? null, lastResult: saved?.lastResult ?? null }
   }
   private waitingState(status: UpdateStatus): 'idle' | 'scheduled' {
@@ -272,7 +276,7 @@ export class UpdatesService {
   }
   /** The plugins part of a finished check. `entry` is undefined when the channel could not be read. */
   private checkedPlugins(status: Mutable<PluginsUpdateStatus>, error: string | null, entry: ChannelEntry | null | undefined): void {
-    if (entry !== undefined) status.available = entry && newerPlugins(entry.version, status.version) ? entry : null
+    if (entry !== undefined) status.available = entry && newerPlugins(entry.version, status.version, this.highestPlugins) ? entry : null
     if (status.state === 'installing') return
     const priorFailure = status.lastResult && status.lastResult.outcome !== 'installed' && status.lastResult.to === status.available?.version
     status.state = priorFailure ? 'failed' : 'idle'
@@ -373,6 +377,7 @@ export class UpdatesService {
 
   /** The running `@kipster/plugins` version, or null when the host runs no plugin server or its package cannot be read. */
   get pluginsVersion(): string | null { return this.plugins?.packageVersion ?? null }
+  private get highestPlugins(): string | null { return this.plugins?.highestVersion ?? null }
   /** Refuses what `installPlugins` refuses whatever the update state, so nobody is asked to approve an install that cannot start. */
   checkPluginsInstall(value: Pick<UpdatePluginsInstall, 'target'>): void {
     compareVersions(value.target, value.target)
@@ -381,6 +386,8 @@ export class UpdatesService {
     const running = this.plugins.packageVersion
     if (running !== null && compareVersions(value.target, running) === 0) throw new UpdateRefusedError('update-already-installed', `Kipster Plugins ${running} is already installed`)
     if (running !== null && compareVersions(value.target, running) < 0) throw new UpdateRefusedError('update-not-available', `Kipster Plugins ${running} runs; an older version cannot be installed`)
+    const highest = this.highestPlugins
+    if (highest !== null && compareVersions(value.target, highest) < 0) throw new UpdateRefusedError('update-not-available', `Kipster Plugins ${highest} already ran with this plugin data; an older version cannot be installed`)
   }
   /**
    * Starts installing the selected channel's `@kipster/plugins` release named by `target`. It returns once the install

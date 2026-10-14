@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { access, chmod, constants, mkdir, open, readFile, realpath, rename, writeFile } from 'node:fs/promises'
+import { access, chmod, constants, mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { compareVersions } from '../platform/semver/public.js'
@@ -22,6 +22,8 @@ export interface PluginServerControl extends PluginServerEndpoint {
   readonly directory: string
   /** The `@kipster/plugins` version of the module the server runs, or null when its package cannot be read. */
   readonly packageVersion: string | null
+  /** The newest `@kipster/plugins` version that has run with this installation's plugin data, or null when none is recorded. */
+  readonly highestVersion?: string | null
   restart(module?: string): Promise<void>
   /** The next status that ends a start: ready, restarting after a failed launch, failed or stopped. */
   settled(): Promise<PluginServerStatus>
@@ -56,7 +58,11 @@ export interface PluginServerOptions {
 }
 
 const host = '127.0.0.1'
+const highestFile = 'highest-version'
+// The version a launch stages before its server starts; renamed onto highest-version once that server is ready.
+const pendingFile = 'highest-version.pending'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
+const higher = (a: string | null, b: string | null) => a === null ? b : b === null || compareVersions(a, b) >= 0 ? a : b
 // Variables the plugin server may need; Core's database URLs, provider keys and NODE_OPTIONS stay out.
 const inherited = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'KIPSTER_PLUGINS_CLIENT_METADATA_URL']
 // Preloaded into the server: it stops when Core's end of stdin closes, so a crashed Core leaves no server behind.
@@ -77,17 +83,24 @@ async function freePort(): Promise<number> {
   return port
 }
 class Incompatible extends Error {}
+class Unrecorded extends Error {}
 
 /**
  * Runs the `@kipster/plugins` server named by host.json, or the newer release Core installed in
  * `<home>/plugins-host/current`. It listens on loopback with a bearer token Core keeps in
- * `<home>/plugins-host`; plugins are off whenever it is not ready.
+ * `<home>/plugins-host`; plugins are off whenever it is not ready. It never starts a release older than the newest that
+ * reached ready, recorded in `<home>/plugins-host/highest-version`, because that one may have changed the plugin data.
+ * A newer release's version is staged in `highest-version.pending` before it starts, so a record that cannot be
+ * completed, or a Core that stops while the server starts, still counts it.
  */
 export class PluginServerSupervisor implements PluginServerControl {
   #status: PluginServerStatus = { state: 'configured' }
   #configured: string
   #module: string
   #version: string | null = null
+  #highest: string | null = null
+  #recorded: string | null = null
+  #pending: string | null = null
   readonly #watchers = new Set<(status: PluginServerStatus) => void>()
   #child: ChildProcess | undefined
   #closing = false
@@ -110,6 +123,7 @@ export class PluginServerSupervisor implements PluginServerControl {
   /** The module the server runs: the configured one, or Core's installed release when that is newer. */
   get module(): string { return this.#module }
   get packageVersion(): string | null { return this.#version }
+  get highestVersion(): string | null { return this.#highest }
   get directory(): string { return this.#directory }
   endpoint(): { url: string; token: string } | undefined {
     const status = this.#status
@@ -208,9 +222,76 @@ export class PluginServerSupervisor implements PluginServerControl {
     this.#module = useInstalled ? installed!.module : this.#configured
     this.#version = useInstalled ? installed!.version : configured
   }
+  /**
+   * A recorded version. A missing file means none; an unreadable or invalid one is ignored, like an unreadable port
+   * file, and logged but kept until a server reaches ready and records its own version.
+   */
+  async #readVersion(name: string): Promise<string | null> {
+    const file = join(this.#directory, name)
+    let text: string
+    try { text = await readFile(file, 'utf8') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.#options.log?.(`Ignoring unreadable ${file}: ${message(error)}`)
+      return null
+    }
+    try { const version = text.trim(); compareVersions(version, version); return version }
+    catch { this.#options.log?.(`Ignoring invalid ${file}.`); return null }
+  }
+  /** Whether the server's version is newer than the record, so a launch stages it and records it once ready. */
+  #raises(): boolean {
+    return this.#version !== null && (this.#recorded === null || compareVersions(this.#version, this.#recorded) > 0)
+  }
+  #unrecorded(error: unknown, stopped: boolean): Unrecorded {
+    const file = join(this.#directory, highestFile)
+    return new Unrecorded(`Core could not record plugin server version ${this.#version} in ${file} (${message(error)}), so it ${stopped ? 'stopped' : 'did not start'} the server; make ${this.#directory} writable and restart Core`)
+  }
+  /** Replaces the staged version through a temporary file, so a version staged earlier is never left half written. */
+  async #writePending(version: string): Promise<void> {
+    const file = join(this.#directory, pendingFile), temporary = `${file}.${process.pid}.tmp`
+    try {
+      await writeFile(temporary, `${version}\n`, { mode: 0o600 })
+      await rename(temporary, file)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined)
+      throw error
+    }
+  }
+  /** Stages a newer version before its server starts; a failure throws so the server never runs unrecorded. */
+  async #stage(): Promise<void> {
+    if (!this.#raises()) return
+    try { await this.#writePending(this.#version!) } catch (error) { throw this.#unrecorded(error, false) }
+  }
+  /** After a server that never became ready, the staged version no longer counts; one staged by an earlier Core still does. */
+  async #unstage(): Promise<void> {
+    if (!this.#raises()) return
+    const file = join(this.#directory, pendingFile)
+    try {
+      if (this.#pending === null) await rm(file, { force: true })
+      else if (this.#pending !== this.#version) await this.#writePending(this.#pending)
+    } catch (error) { this.#options.log?.(`Could not reset ${file}: ${message(error)}`) }
+  }
+  /**
+   * Renames the staged version onto the record once its server is ready. It counts for this process even when the rename
+   * fails, and the staged file keeps counting it for the next; the failure throws so the server is stopped.
+   */
+  async #recordHighest(): Promise<void> {
+    if (!this.#raises()) return
+    const version = this.#version!
+    this.#highest = higher(version, this.#highest)
+    try { await rename(join(this.#directory, pendingFile), join(this.#directory, highestFile)) } catch (error) { throw this.#unrecorded(error, true) }
+    this.#recorded = version
+    this.#pending = null
+  }
   async #prepare(): Promise<void> {
     await this.#choose()
+    // Read even when the module is missing, so the update check never offers a release this record refuses. A newer
+    // version that ran in this process but could not be recorded still counts, and so does one staged on disk.
+    this.#recorded = await this.#readVersion(highestFile)
+    const pending = await this.#readVersion(pendingFile)
+    this.#pending = pending !== null && (this.#recorded === null || compareVersions(pending, this.#recorded) > 0) ? pending : null
+    this.#highest = higher(higher(this.#recorded, this.#pending), this.#highest)
     try { await access(this.#module, constants.R_OK) } catch { throw new Error(`The plugin server module is missing: ${this.#module}`) }
+    if (this.#version !== null && this.#highest !== null && compareVersions(this.#version, this.#highest) < 0)
+      throw new Error(`The plugin server ${this.#version} is older than ${this.#highest}, which already ran with this plugin data; install ${pluginsPackageName} ${this.#highest} or newer`)
     await mkdir(this.#directory, { recursive: true, mode: 0o700 })
     await chmod(this.#directory, 0o700)
     const file = join(this.#directory, 'token')
@@ -271,7 +352,7 @@ export class PluginServerSupervisor implements PluginServerControl {
         reason = outcome.reason
       } catch (error) {
         if (this.#stopping) break
-        if (error instanceof Incompatible) { this.#set({ state: 'failed', reason: error.message }); return }
+        if (error instanceof Incompatible || error instanceof Unrecorded) { this.#set({ state: 'failed', reason: error.message }); return }
         reason = message(error)
       }
       attempt++
@@ -289,7 +370,8 @@ export class PluginServerSupervisor implements PluginServerControl {
     const port = await this.#choosePort()
     if (this.#stopping) return { reason: 'stopping', stable: false }
     this.#set({ state: 'starting', port })
-    const { child, exited } = await this.#spawn(port)
+    await this.#stage()
+    const { child, exited } = await this.#spawn(port).catch(async error => { await this.#unstage(); throw error })
     let exitReason: string | undefined
     void exited.then(reason => { exitReason = reason })
     const deadline = Date.now() + this.#options.readyTimeoutMs
@@ -299,11 +381,15 @@ export class PluginServerSupervisor implements PluginServerControl {
         if (Date.now() >= deadline) throw new Error(`The plugin server was not ready within ${this.#options.readyTimeoutMs} ms`)
         await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 100))])
       }
+      if (exitReason) throw new Error(`${exitReason} before it was ready`)
     } catch (error) {
       child.kill('SIGKILL'); await exited
+      await this.#unstage()
       throw error
     }
-    if (exitReason) throw new Error(`${exitReason} before it was ready`)
+    if (!ready) { await this.#stopChild(); await this.#unstage(); return { reason: 'stopping', stable: false } }
+    // A server that answered ready may have changed the plugin data, even when a stop follows.
+    try { await this.#recordHighest() } catch (error) { await this.#stopChild(); throw error }
     if (this.#stopping) return { reason: 'stopping', stable: false }
     this.#set({ state: 'ready', port, ...ready })
     const readyAt = Date.now()

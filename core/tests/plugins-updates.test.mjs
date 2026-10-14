@@ -15,7 +15,7 @@ import { installedPluginsVersion, offlineNpm, pluginsCatalogue, pluginsCli, plug
 
 const [major, minor] = installedPluginsVersion.split('.').map(Number)
 assert.ok(minor > 0, 'the installed plugins version leaves room for an older release')
-const newer = `${major}.${minor + 1}.0`, broken = `${major}.${minor + 2}.0`, older = `${major}.${minor - 1}.0`
+const newer = `${major}.${minor + 1}.0`, broken = `${major}.${minor + 2}.0`, older = `${major}.${minor - 1}.0`, recorded = `${major}.${minor + 3}.0`
 const wait = async (read, predicate, label, ms = 60000) => {
   const end = Date.now() + ms
   for (;;) {
@@ -31,7 +31,7 @@ const shared = await realpath(await mkdtemp('/tmp/kipster-plugins-updates-'))
 let archives
 test.before(async () => {
   await offlineNpm(join(shared, 'npm-home'))
-  archives = { [newer]: await pluginsRelease(shared, newer), [broken]: await pluginsRelease(shared, broken, { broken: true }) }
+  archives = { [newer]: await pluginsRelease(shared, newer), [broken]: await pluginsRelease(shared, broken, { broken: true }), [recorded]: await pluginsRelease(shared, recorded) }
 }, { timeout: 120000 })
 test.after(() => rm(shared, { recursive: true, force: true }))
 
@@ -42,12 +42,16 @@ const entry = (version, extra = {}) => ({
   ...extra,
 })
 
-/** A Core runtime with a supervised plugin server on the installed package, and a loopback channel with its archives. */
-async function setup(t, { managed = true, mode = 'notify', plugins = true, stable } = {}) {
+/**
+ * A Core runtime with a supervised plugin server on the installed package, and a loopback channel with its archives.
+ * `highest` records a newer plugins version as already run with the plugin data, so the installed one is refused.
+ */
+async function setup(t, { managed = true, mode = 'notify', plugins = true, stable, highest } = {}) {
   const admin = new Postgres(adminUrl), name = `kipster_plugins_updates_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${name}"`)
   const url = new URL(adminUrl); url.pathname = `/${name}`
   const home = await realpath(await mkdtemp('/tmp/kipster-plugins-home-'))
+  if (highest) { await mkdir(join(home, 'plugins-host'), { recursive: true, mode: 0o700 }); await writeFile(join(home, 'plugins-host/highest-version'), `${highest}\n`, { mode: 0o600 }) }
   const service = await startFixture()
   const channel = { stable: stable ?? { schemaVersion: 1, packages: { '@kipster/plugins': entry(newer) } }, downloads: [] }
   const source = createServer((request, response) => {
@@ -68,7 +72,7 @@ async function setup(t, { managed = true, mode = 'notify', plugins = true, stabl
   const supervisor = plugins ? new PluginServerSupervisor({ home, module: pluginsCli, testOnly: { catalogue: pluginsCatalogue, baseUrl: service.url },
     backoff: { initialMs: 50, maxMs: 200, attempts: 2 }, readyTimeoutMs: 15000, onStatus: status => statuses.push(status) }) : undefined
   await supervisor?.start()
-  if (supervisor) await wait(() => supervisor.status, status => status.state === 'ready', 'plugin server ready')
+  if (supervisor) await wait(() => supervisor.status, status => status.state === (highest ? 'failed' : 'ready'), 'plugin server started')
   const runtime = await openRuntime({ connectionString: url.href, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Kip' },
     ...(supervisor ? { plugins: supervisor } : {}), updates: { channelUrl: `http://127.0.0.1:${source.address().port}/v1/`, coreVersion: '1.2.0', managed } })
   const actor = { installationId: runtime.bootstrap.installationId, personId: runtime.bootstrap.ownerId }
@@ -219,6 +223,31 @@ test('installs that the channel or host does not allow are refused', { skip: noD
   assert.equal(await ctx.current(), null)
 })
 
+test('while an older plugin server is refused, only a release at or above the recorded version is offered and installed', { skip: noDatabase, timeout: 180000 }, async t => {
+  const ctx = await setup(t, { mode: 'automatic', highest: recorded })
+  assert.match(ctx.supervisor.status.reason, /is older than .*already ran with this plugin data/)
+  assert.equal(ctx.supervisor.highestVersion, recorded)
+  const below = await ctx.check()
+  assert.equal(below.plugins.version, installedPluginsVersion)
+  assert.equal(below.plugins.available, null, 'a release below the recorded version is not offered')
+  await ctx.runtime.updates.tick()
+  await new Promise(resolve => setTimeout(resolve, 200))
+  assert.equal((await ctx.status()).plugins.state, 'idle', 'nor installed automatically')
+  const refused = await ctx.install(newer)
+  assert.deepEqual([refused.status, refused.data.code], [409, 'update-not-available'])
+  assert.match(refused.data.message, new RegExp(`${recorded.replaceAll('.', '\\.')} already ran with this plugin data`))
+  assert.deepEqual(ctx.channel.downloads, [])
+  assert.equal(ctx.supervisor.endpoint(), undefined, 'plugins stay off')
+
+  ctx.channel.stable = { schemaVersion: 1, packages: { '@kipster/plugins': entry(recorded) } }
+  assert.equal((await ctx.check()).plugins.available?.version, recorded, 'the recorded version itself is offered')
+  const done = await ctx.settled()
+  assert.equal(done.plugins.version, recorded, JSON.stringify(done.plugins))
+  assert.equal(done.plugins.lastResult.outcome, 'installed')
+  assert.equal(ctx.supervisor.status.state, 'ready')
+  assert.ok(await ctx.serving(), 'plugins are on again')
+})
+
 test('unmanaged hosts and hosts without a plugin server never install', { skip: noDatabase, timeout: 180000 }, async t => {
   const unmanaged = await setup(t, { managed: false, mode: 'automatic' })
   assert.equal((await unmanaged.check()).plugins.available.version, newer)
@@ -252,8 +281,8 @@ test('the plugin server runs the newer of the host.json module and the release C
     const supervisor = new PluginServerSupervisor({ home, module, testOnly: { catalogue: pluginsCatalogue, baseUrl: service.url }, readyTimeoutMs: 15000 })
     try {
       await supervisor.start()
-      await wait(() => supervisor.status, status => status.state === 'ready', 'ready')
-      return [supervisor.module, supervisor.packageVersion]
+      const status = await wait(() => supervisor.status, status => ['ready', 'failed'].includes(status.state), 'ready or failed')
+      return status.state === 'ready' ? [supervisor.module, supervisor.packageVersion] : status
     } finally { await supervisor.close() }
   }
   assert.deepEqual(await run(pluginsCli), [installed, newer], 'a newer installed release wins over host.json')
@@ -261,5 +290,7 @@ test('the plugin server runs the newer of the host.json module and the release C
   const newest = await copy(join(home, 'host'), `${major}.${minor + 5}.0`)
   assert.deepEqual(await run(newest), [newest, `${major}.${minor + 5}.0`], 'a newer host.json module wins, so a Core update never downgrades plugins')
   await rm(join(home, 'plugins-host/current'))
-  assert.deepEqual(await run(pluginsCli), [pluginsCli, installedPluginsVersion])
+  const refused = await run(pluginsCli)
+  assert.equal(refused.state, 'failed', 'an older module never runs once a newer one has')
+  assert.match(refused.reason, new RegExp(`${installedPluginsVersion.replaceAll('.', '\\.')} is older than ${major}\\.${minor + 5}\\.0`))
 })
