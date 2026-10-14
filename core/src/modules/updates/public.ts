@@ -448,7 +448,8 @@ export class UpdatesService {
   }
   /**
    * Installs the release beside the running one, points `current` at it and restarts only the plugin server. When the
-   * new server does not become ready, `current` goes back and the previous version runs again.
+   * new server does not become ready, `current` goes back and the previous version runs again, unless the new server
+   * already started: then the plugin server refuses the older version and plugins stay off until a fixed release.
    */
   private async runPlugins(entry: ChannelEntry): Promise<void> {
     const control = this.plugins!, from = control.packageVersion
@@ -486,7 +487,8 @@ export class UpdatesService {
     const restored = await this.settle()
     if (restored.state === 'stopped') return
     await prunePlugins(control.directory, [previous]).catch(error => this.report(error))
-    await finish({ state: 'failed', error: `Kipster Plugins ${entry.version} did not start (${reason}); ${control.packageVersion ?? 'the previous version'} runs again`, lastResult: result('rolled-back') })
+    const after = restored.state === 'ready' ? `${control.packageVersion ?? 'the previous version'} runs again` : `plugins are off: ${'reason' in restored ? restored.reason : restored.state}`
+    await finish({ state: 'failed', error: `Kipster Plugins ${entry.version} did not start (${reason}); ${after}`, lastResult: result('rolled-back') })
   }
 
   private async deliverInternal(): Promise<void> {
