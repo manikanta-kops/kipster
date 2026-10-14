@@ -23,7 +23,7 @@ import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
-import { MAX_FILES_PER_MESSAGE, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
+import { MAX_FILES_PER_MESSAGE, requireMessageFileLimit, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
 import { memoryTool, settleInterruptedMemoryCalls, turnMemory } from '../modules/memory/public.js'
 
@@ -964,6 +964,7 @@ export class TextDispatcher {
       }
       await attach?.(client)
       for(const artifactId of artifactIds){const artifact=(await client.query<{id:string}>("SELECT id FROM kipster.artifacts WHERE id=$1 AND installation_id=$2 AND state='ready' AND ((owner_kind='agent' AND owner_id=$3) OR (owner_kind='organization' AND owner_id=$4))",[artifactId,context.actor.installationId,context.agentId,context.context.kind==='organization'?context.context.organizationId:null])).rows[0];if(!artifact)throw new Error('Artifact publication denied')}
+      await requireMessageFileLimit(client, artifactIds)
       if (coreParts) parts.push(...await coreParts(client))
       let messageId = prior?.id ?? randomUUID()
       let revision = prior ? Number(prior.revision) + 1 : 1

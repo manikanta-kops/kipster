@@ -6,6 +6,7 @@ import { publishThreadChange, interactionNotificationChanged } from '../synchron
 import { workRecord } from '../conversations/public.js'
 import { interactionRecord } from './interactions.js'
 import { isLive, refuseAgent } from '../identity/public.js'
+import { requireMessageFileLimit } from '../artifacts/public.js'
 
 export interface DelegationRecord {
   /** `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted. */
@@ -98,6 +99,7 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
       const file=(await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id WHERE ma.artifact_id=$1 AND m.thread_id=$2 LIMIT 1`,[id,scope.threadId])).rows[0]
       if(!file)throw new Error('Delegation file access denied')
     }
+    await requireMessageFileLimit(client,allIds)
     await attached?.settle(client)
     const id=randomUUID(),threadId=randomUUID(),runId=randomUUID(),messageId=randomUUID()
     const parts=[{kind:'text',text:request},...allIds.map(artifactId=>({kind:'file',artifactId,purpose:'attachment'}))]
