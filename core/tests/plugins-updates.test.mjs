@@ -193,6 +193,8 @@ test('a release that fails readiness rolls back, and plugins stay off because it
   const escaped = version => version.replaceAll('.', '\\.')
   assert.match(rolled.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} did not start \\(.*before it was ready\\); `))
   assert.equal(ctx.supervisor.status.reason, `The plugin server ${newer} is older than ${broken}, which already ran with this plugin data; install @kipster/plugins ${broken} or newer`)
+  assert.ok(rolled.plugins.error.endsWith(`; plugins are off: ${ctx.supervisor.status.reason}`), rolled.plugins.error)
+  assert.doesNotMatch(rolled.plugins.error, /runs again/)
   assert.equal(rolled.plugins.version, newer)
   assert.equal(ctx.supervisor.highestVersion, broken)
   assert.equal(await readFile(join(ctx.home, 'plugins-host/highest-version'), 'utf8'), `${broken}\n`)
