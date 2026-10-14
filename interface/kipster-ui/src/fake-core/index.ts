@@ -493,6 +493,7 @@ export function createFakeCore(
     summary(thread, work.state)
   }
   function changeMessage(thread: Thread, message: TextMessage) {
+    if (message.final && !message.finishedAt) message.finishedAt = now()
     emit(
       message.final ? 'message-final' : 'message-draft',
       message,
@@ -581,8 +582,11 @@ export function createFakeCore(
         ? undefined
         : thread.work.find((w) => active.has(w.state) && w.state !== 'queued')
             ?.runId
+    const createdAt = now()
     const message: TextMessage = {
       id: messageId,
+      createdAt,
+      ...(final ? { finishedAt: createdAt } : {}),
       ...(runId ? { runId } : {}),
       threadId: thread.summary.threadId,
       authorId,

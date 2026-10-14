@@ -16,12 +16,14 @@ test('a late selected snapshot cannot replace a newer streamed revision', () => 
     position: 1,
     revision: 1,
     final: false,
+    createdAt: '2026-01-01T00:00:00.000Z',
     parts: [{ kind: 'text', text: 'draft' }],
   }
   const streamed = {
     ...base,
     revision: 2,
     final: true,
+    finishedAt: '2026-01-01T00:00:01.000Z',
     parts: [{ kind: 'text' as const, text: 'final' }],
   }
   const afterStream = mergeRevisions({}, [streamed], (message) => message.id)
@@ -38,6 +40,8 @@ test('a file-only first message gives its thread a settled title', () => {
     position: 1,
     revision: 1,
     final: true,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    finishedAt: '2026-01-01T00:00:00.000Z',
     parts: [{ kind: 'file', artifactId: 'artifact', purpose: 'attachment' }],
   }
   expect(threadTitle(undefined)).toBe('Loading thread')
