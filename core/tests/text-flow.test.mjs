@@ -23,7 +23,7 @@ test('strict submission, distinct root/reply, scoped receipt and additive reads'
   assert.throws(() => snapshot.parse({ version: 2, scope: { kind: 'application', ...scope }, cursor: 'x', messages: [], next: null }), TypeError)
   const current = snapshot.parse({ version: 1, scope: { kind: 'application', ...scope }, cursor: 'x', messages: [], work: [], queue: [], next: null, futureField: true })
   assert.equal(current.cursor, 'x')
-  assert.equal(textEvent.parse({ version: 1, eventId: 'e', scope: { kind: 'thread', ...scope, threadId: 't' }, cursor: 'opaque', occurredAt: '2026-01-01T00:00:00Z', type: 'message-final', resourceId: 'm', revision: 2, data: { id: 'm', threadId: 't', authorId: 'agent', parts: [{ kind: 'text', text: 'done' }], final: true, revision: 2, position: 1 } }).revision, 2)
+  assert.equal(textEvent.parse({ version: 1, eventId: 'e', scope: { kind: 'thread', ...scope, threadId: 't' }, cursor: 'opaque', occurredAt: '2026-01-01T00:00:00Z', type: 'message-final', resourceId: 'm', revision: 2, data: { id: 'm', threadId: 't', authorId: 'agent', createdAt: '2026-01-01T00:00:00Z', finishedAt: '2026-01-01T00:00:00Z', parts: [{ kind: 'text', text: 'done' }], final: true, revision: 2, position: 1 } }).revision, 2)
 })
 
 test('parsed JSON prototype keys are rejected at every mutation level', () => {

@@ -165,6 +165,8 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     firstHandle.release({ kind: 'text', attemptId: firstHandle.context.attemptId, messageId: 'native-1', text: 'answer', final: true })
     const tool = await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'answer')
     assert.equal(tool.status, 'completed')
+    const toolMessage = (await runtime.db.query("SELECT created_at,finished_at FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source='tool'", [firstHandle.context.attemptId])).rows[0]
+    assert.deepEqual(toolMessage.finished_at, toolMessage.created_at)
     assert.deepEqual(await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'answer'), tool)
     assert.equal((await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'changed')).status, 'failed')
     firstHandle.release({ kind: 'ended', attemptId: firstHandle.context.attemptId, confirmed: true })
@@ -377,6 +379,8 @@ test('a kip segment with no content publishes no message, progress notes are mar
     const published = events.filter(e => e.type === 'message-final' && e.data.authorId === ids.rootAgentId)
     assert.deepEqual(published.map(e => [e.data.runId, e.data.progress]), [[root.runId, true], [root.runId, undefined]])
     assert.equal(textEvent.parse(published[0]).data.progress, true)
+    for (const entry of snapshot.messages) assert.equal(entry.finishedAt, entry.createdAt)
+    for (const event of published) assert.equal(event.data.finishedAt, event.data.createdAt)
   } finally {
     if (adapter) await adapter.close()
     if (dispatcher) await dispatcher.close()

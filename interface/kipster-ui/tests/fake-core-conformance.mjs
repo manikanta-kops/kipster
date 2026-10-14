@@ -929,6 +929,7 @@ test('queued work progresses through writing and a durable question, with valid 
   const path = `/v1/threads/${receipt.threadId}`
   const first = await json(`${path}/snapshot`, protocol.threadSnapshot)
   assert.equal(first.work[0].state, 'queued')
+  assert.equal(first.messages[0].finishedAt, first.messages[0].createdAt)
   await json('/__demo/advance', undefined, 'POST', {
     threadId: receipt.threadId,
     steps: 1,
@@ -943,12 +944,17 @@ test('queued work progresses through writing and a durable question, with valid 
   })
   const writing = await json(`${path}/snapshot`, protocol.threadSnapshot)
   assert.ok(writing.messages.some((item) => !item.final))
+  const draft = writing.messages.find((item) => !item.final)
+  assert.equal(Object.hasOwn(draft, 'finishedAt'), false)
   await json('/__demo/advance', undefined, 'POST', {
     threadId: receipt.threadId,
     steps: 1,
   })
   const waiting = await json(`${path}/snapshot`, protocol.threadSnapshot)
   assert.equal(waiting.work[0].state, 'waiting')
+  const final = waiting.messages.find((item) => item.id === draft.id)
+  assert.equal(final.createdAt, draft.createdAt)
+  assert.ok(Date.parse(final.finishedAt) >= Date.parse(final.createdAt))
   assert.ok(waiting.interactions.some((item) => item.state === 'pending'))
   const stream = await request(
     `${path}/events?after=${encodeURIComponent(first.cursor)}`,
