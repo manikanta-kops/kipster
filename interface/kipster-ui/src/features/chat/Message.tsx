@@ -5,6 +5,7 @@ import { ArtifactCard } from '../media/ArtifactCard'
 import type { Message as MessageModel, WorkspaceData } from './model'
 import { formatSize, formatTime } from './model'
 import { Markdown } from './Markdown'
+import { MessageActions } from './MessageActions'
 import { FileBadge } from '../media/FileBadge'
 import { DocCard } from '../documents/DocCard'
 
@@ -182,6 +183,7 @@ export function Message({
           </section>
         ))}
         {trail}
+        <MessageActions message={message} isSelf={isSelf} />
       </div>
     </div>
   )
