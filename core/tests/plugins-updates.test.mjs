@@ -191,7 +191,8 @@ test('a release that fails readiness rolls back, and plugins stay off because it
   assert.deepEqual([rolled.plugins.lastResult.from, rolled.plugins.lastResult.to], [newer, broken])
   // The broken server started, so it may have changed the plugin data: the previous version is refused, not run.
   const escaped = version => version.replaceAll('.', '\\.')
-  assert.match(rolled.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} did not start \\(.*before it was ready\\); plugins are off: The plugin server ${escaped(newer)} is older than ${escaped(broken)}, which already ran with this plugin data; install @kipster/plugins ${escaped(broken)} or newer$`))
+  assert.match(rolled.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} did not start \\(.*before it was ready\\); `))
+  assert.equal(ctx.supervisor.status.reason, `The plugin server ${newer} is older than ${broken}, which already ran with this plugin data; install @kipster/plugins ${broken} or newer`)
   assert.equal(rolled.plugins.version, newer)
   assert.equal(ctx.supervisor.highestVersion, broken)
   assert.equal(await readFile(join(ctx.home, 'plugins-host/highest-version'), 'utf8'), `${broken}\n`)
