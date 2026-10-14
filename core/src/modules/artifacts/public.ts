@@ -194,6 +194,11 @@ export class ArtifactService {
       abandon,
     }
   }
+  /** The request hash a call's attached files were claimed for, or null when the call attached none. */
+  async attachmentRequest(attemptId:string,callId:string):Promise<string|null>{
+    if(!uuid.test(attemptId))return null
+    return (await this.db.query<{request_sha256:string}>('SELECT request_sha256 FROM kipster.artifact_file_attachments WHERE attempt_id=$1 AND call_id=$2 LIMIT 1',[attemptId,callId])).rows[0]?.request_sha256??null
+  }
   /** The finished attachment of a call, or null when the call has none. */
   private async priorAttachment(client:SqlClient|Postgres,attemptId:string,callId:string,requestHash:string):Promise<FileAttachment|null>{
     const rows=(await client.query<{request_sha256:string;state:string;artifact_id:string;name:string;mime_type:string;size_bytes:string}>('SELECT f.request_sha256,f.state,f.artifact_id,a.name,a.mime_type,a.size_bytes FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id=$2 ORDER BY f.ordinal',[attemptId,callId])).rows

@@ -104,7 +104,15 @@ test('conversation_publish attaches files of any type by absolute and relative p
   const conflict = await e.call('conversation_publish', { text: 'Here are your files', files: paths.slice(1) }, 'publish-files')
   assert.equal(conflict.status, 'failed')
   assert.match(conflict.reason, /replay conflict/)
-  assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.messages')], [artifacts, messages])
+  // Naming the attached files by artifact ID instead is a different request too, and so is adding files to a call that had none.
+  const swapped = await e.call('conversation_publish', { text: 'Here are your files', artifactIds: published.files.map(file => file.artifactId) }, 'publish-files')
+  assert.deepEqual([swapped.status, swapped.reason], ['failed', 'File attachment replay conflict'])
+  const plain = await e.call('conversation_publish', { text: 'Just text' }, 'publish-plain')
+  assert.equal(plain.status, 'completed')
+  const added = await e.call('conversation_publish', { text: 'Just text', files: paths.slice(0, 1) }, 'publish-plain')
+  assert.deepEqual([added.status, added.reason], ['failed', 'File attachment replay conflict'])
+  assert.deepEqual(await e.call('conversation_publish', { text: 'Just text' }, 'publish-plain'), plain)
+  assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.messages')], [artifacts, messages + 1])
 
   // Files by path follow artifact IDs and count with them; an unknown extension is a generic file.
   await writeFile(join(e.workspace, 'data.unknownext'), 'raw')
@@ -162,9 +170,15 @@ test('agents_delegate passes files by path to the recipient and replays without 
   assert.deepEqual([replay.id, replay.files], [delegated.id, delegated.files])
   assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), artifacts)
   await assert.rejects(e.call('agents_delegate', { ...args, request: 'Something else' }, 'delegate-files'), /replay conflict/)
+  await assert.rejects(e.call('agents_delegate', { recipientId: e.b, request: 'Review the brief', artifactIds: [artifactId] }, 'delegate-files'), /File attachment replay conflict/)
+  const plain = { recipientId: e.b, request: 'No files here' }
+  const first = await e.call('agents_delegate', plain, 'delegate-plain')
+  await assert.rejects(e.call('agents_delegate', { ...plain, files: ['brief.pdf'] }, 'delegate-plain'), /File attachment replay conflict/)
+  assert.equal((await e.call('agents_delegate', plain, 'delegate-plain')).id, first.id)
+  assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.delegations')], [artifacts, 2])
   e.fixture.handles[0].emit({ kind: 'ended', attemptId: e.execution.attemptId, confirmed: true })
-  await until(() => e.fixture.contexts.length, n => n === 2, 'recipient execution')
-  const child = e.fixture.contexts[1]
+  await until(() => e.fixture.contexts.length, n => n === 3, 'recipient executions')
+  const child = e.fixture.contexts.slice(1).find(context => context.input.some(message => message.parts.some(part => part.kind === 'file')))
   assert.equal(child.agentId, e.b)
   const request = child.input.find(message => message.parts.some(part => part.kind === 'file'))
   const file = request.parts.find(part => part.kind === 'file')

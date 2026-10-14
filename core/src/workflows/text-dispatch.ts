@@ -60,6 +60,7 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
   })
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
+const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&value.every(item=>typeof item==='string')
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
   return {
@@ -787,9 +788,11 @@ export class TextDispatcher {
     if (!row) return { status: 'failed', reason: 'Unknown attempt' }
     const context = await runContext(this.runtime.db, row.intent_id)
     if (!context) return { status: 'failed', reason: 'Unknown run' }
+    const requestHash = files.length ? fileRequestHash(['conversation_publish', text, artifactIds, files]) : null
+    if (await this.fileReplayConflict(attemptId, callId, requestHash, 'SELECT 1 FROM kipster.messages WHERE source_attempt_id=$1 AND publication_id=$2 AND publication_source=\'tool\'')) return { status: 'failed', reason: 'File attachment replay conflict' }
     let attachment: FileAttachment | undefined
     try {
-      if (files.length) attachment = await this.attachFiles(attemptId, callId, context.agentId, files, artifactIds, ['conversation_publish', text, artifactIds, files])
+      if (requestHash) attachment = await this.attachFiles(attemptId, callId, context.agentId, files, artifactIds, requestHash)
       const messageId = await this.publishText({ id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }, { kind: 'text', attemptId, messageId: callId, text, final: true }, context, 'tool', [...artifactIds, ...attachment?.files.map(file => file.artifactId) ?? []], undefined, attachment?.settle)
       return messageId ? { status: 'completed', messageId, ...(attachment ? { files: attachment.files } : {}) } : { status: 'failed', reason: 'Attempt no longer owns publication' }
     } catch (error) {
@@ -800,9 +803,18 @@ export class TextDispatcher {
   }
 
   /** Snapshots the files a tool call names; relative paths resolve against the agent's working directory. */
-  private attachFiles(attemptId: string, callId: string, agentId: string, files: readonly string[], artifactIds: readonly string[], request: unknown[]): Promise<FileAttachment> {
-    const requestHash = createHash('sha256').update(JSON.stringify(request)).digest('hex')
+  private attachFiles(attemptId: string, callId: string, agentId: string, files: readonly string[], artifactIds: readonly string[], requestHash: string): Promise<FileAttachment> {
     return this.runtime.artifacts.attachFiles(attemptId, this.incarnation, callId, { paths: files, base: this.runtime.home.agent(agentId), artifactIds, requestHash })
+  }
+
+  /**
+   * Whether a replayed call names other files than its first request. Attached files keep the request hash of their
+   * call; a call without files whose effect `effect` finds (by attempt and call ID) cannot gain files on replay.
+   */
+  private async fileReplayConflict(attemptId: string, callId: string, requestHash: string | null, effect: string): Promise<boolean> {
+    const saved = await this.runtime.artifacts.attachmentRequest(attemptId, callId)
+    if (saved !== null) return saved !== requestHash
+    return requestHash !== null && (await this.runtime.db.query(effect, [attemptId, callId])).rows.length > 0
   }
 
   async askToolInteraction(attemptId: string, callId: string, input: InteractionInput): Promise<{ status: 'pending'; interactionId: string }> {
@@ -839,12 +851,14 @@ export class TextDispatcher {
     if(name==='agents.delegate'){
       if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files))throw new Error('Invalid delegation arguments')
       const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[]
-      if(!files.length)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
+      const requestHash=files.length?fileRequestHash(['agents_delegate',args.recipientId,args.request,artifactIds,files]):null
+      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
+      if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
       const row=(await this.runtime.db.query<{intent_id:string}>('SELECT intent_id FROM kipster.attempts WHERE id=$1',[attemptId])).rows[0]
       const context=row?await runContext(this.runtime.db,row.intent_id):null
       if(!context)throw new Error('Attempt no longer owns delegation')
-      const attachment=await this.attachFiles(attemptId,callId,context.agentId,files,artifactIds,['agents_delegate',args.recipientId,args.request,artifactIds,files])
+      const attachment=await this.attachFiles(attemptId,callId,context.agentId,files,artifactIds,requestHash)
       try{return {...await delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,attachment),files:attachment.files}}
       finally{await attachment.abandon()}
     }
