@@ -481,8 +481,11 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
         .last()
         .getByRole('button', { name: /^Open thread:/ })
         .press('Enter')
+      // The root shows in both the feed and the thread pane; check the pane.
       await expect(
-        page.getByRole('region', { name: `File: ${file}`, exact: true }),
+        page
+          .locator('.thread-pane')
+          .getByRole('region', { name: `File: ${file}`, exact: true }),
       ).toBeVisible()
       const saved = await snapshot(receipt)
       const bootstrap = await get('/v1/bootstrap')
@@ -496,11 +499,7 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
           kind: 'installation',
           installationId: bootstrap.installationId,
         },
-        chatId:
-          saved.scope?.chatId ??
-          (await get('/v1/app/snapshot')).threads.find(
-            (thread) => thread.threadId === receipt.threadId,
-          ).chatId,
+        chatId: receipt.chatId,
         threadId: receipt.threadId,
       }
       const content = await page.request.get(
