@@ -28,8 +28,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:* http://localhost:* http://[::1]:*; object-src 'none'; base-uri 'self'",
-      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:* http://localhost:* http://[::1]:* http://127.0.0.1:1420 ws://127.0.0.1:1420; object-src 'none'; base-uri 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src blob:; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:* http://localhost:* http://[::1]:*; object-src 'none'; base-uri 'self'",
+      "devCsp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; frame-src blob:; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:* http://localhost:* http://[::1]:* http://127.0.0.1:1420 ws://127.0.0.1:1420; object-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {
