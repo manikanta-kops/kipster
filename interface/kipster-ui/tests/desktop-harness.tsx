@@ -43,6 +43,7 @@ export function History() {
           items={items}
           render={(item) => (
             <p
+              className="markdown"
               data-testid="history-message"
               key={item.id}
               style={{ height: 30 }}

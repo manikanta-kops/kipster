@@ -874,13 +874,13 @@
   background: var(--sheen), var(--glass-thick);
   backdrop-filter: var(--blur-thick);
   -webkit-backdrop-filter: var(--blur-thick);
-  box-shadow: var(--edge), var(--drop-lg);
+  box-shadow: var(--edge), var(--composer-drop);
 }
 .composer-dock .composer:focus-within {
   box-shadow:
     var(--edge),
     inset 0 0 0 1.5px color-mix(in oklab, var(--tint) 45%, transparent),
-    var(--drop-lg);
+    var(--composer-drop);
 }
 /* Replaces the composer in a chat that can no longer take new messages. */
 .read-only-note {
@@ -998,11 +998,14 @@
   padding: 6px;
   align-items: center;
   background: var(--fill);
-  box-shadow: inset 0 0 0 0.5px var(--sep);
+  box-shadow:
+    inset 0 0 0 0.5px var(--sep),
+    var(--composer-drop);
 }
 .thread-pane .composer:focus-within {
-  box-shadow: inset 0 0 0 1.5px
-    color-mix(in oklab, var(--tint) 45%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--tint) 45%, transparent),
+    var(--composer-drop);
 }
 .thread-expanded .thread-scroll {
   width: 100%;
