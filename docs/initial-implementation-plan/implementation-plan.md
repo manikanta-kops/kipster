@@ -130,9 +130,8 @@ The model can send several user-facing messages during one run. An intermediate 
 Provide model-facing operations along these lines:
 
 - `activity.report`: publish meaningful work status, with a stable activity ID for updates.
-- `conversation.publish`: publish an intermediate or final message with content parts and artifact IDs.
+- `conversation.publish`: publish an intermediate or final message with content parts, artifact IDs and files attached by path; Core snapshots each file into managed storage.
 - `interactions.ask` and `interactions.request_approval`: create a durable question or approval through Core, with supported adapter continuation.
-- `artifacts.publish`: register and finalize a generated file for sharing.
 - Structured-data and vector read/write operations described below.
 
 Instruct models to communicate meaningful milestones, decisions, and blockers using these operations. Progress is public commentary, not private chain of thought. Model silence must not leave the UI unable to determine whether a run is active; lifecycle and connection status come from Kipster.

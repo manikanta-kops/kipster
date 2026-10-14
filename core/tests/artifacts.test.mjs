@@ -106,9 +106,9 @@ test('managed originals, scoped receipts, immutable downloads and interrupted pu
   }
 })
 
-test('attempt-scoped output tools fence replays and Stop; organization copy owns independent bytes', {skip:noDatabase}, async()=>{
+test('files attached by path fence replays and Stop; organization copy owns independent bytes', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl),database=`kipster_artifacts_${randomUUID().replaceAll('-','')}`
-  const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-output-'))
+  const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-output-')),folder=await mkdtemp(join(tmpdir(),'kipster_artifacts-source-'))
   await admin.query(`CREATE DATABASE "${database}"`)
   const url=new URL(adminUrl);url.pathname=`/${database}`
   let runtime
@@ -126,45 +126,49 @@ test('attempt-scoped output tools fence replays and Stop; organization copy owns
       await client.query("UPDATE kipster.text_runs SET state='running',current_attempt_id=$2 WHERE id=$1",[receipt.runId,claim.id])
       return claim
     })
-    const file=await runtime.artifacts.writeOutput(attempt.id,incarnation,'write-1','report.txt','initial content')
-    assert.equal(file.status,'completed')
-    assert.equal((await runtime.artifacts.writeOutput(attempt.id,incarnation,'write-1','report.txt','initial content')).outputId,file.outputId)
-    await assert.rejects(runtime.artifacts.writeOutput(attempt.id,incarnation,'write-1','report.txt','changed'),/replay conflict/)
-    await assert.rejects(runtime.artifacts.writeOutput(attempt.id,incarnation,'escape','../escape.txt','x'),/Invalid artifact write/)
-    const personal=await runtime.artifacts.publishOutput(attempt.id,incarnation,'publish-1',file.outputId)
-    assert.equal(personal.artifact.ownership.kind,'agent')
-    const outputPath=join(runtime.home.output(runtime.bootstrap.rootAgentId,receipt.threadId,attempt.id),file.outputId)
-    await writeFile(outputPath,'mutated after publication')
-    const copy=await runtime.artifacts.copyToOrganization(attempt.id,incarnation,'copy-1',personal.artifact.id)
+    await writeFile(join(folder,'report.txt'),'initial content')
+    const request=(paths,requestHash=digest('report'))=>({paths,base:folder,artifactIds:[],requestHash})
+    const states=async callId=>(await runtime.db.query('SELECT f.state AS claim,a.state AS file FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id=$2 ORDER BY f.ordinal',[attempt.id,callId])).rows
+    const attached=await runtime.artifacts.attachFiles(attempt.id,incarnation,'attach-1',request(['report.txt']))
+    assert.deepEqual(attached.files.map(file=>[file.name,file.mimeType,file.size]),[['report.txt','text/plain',15]])
+    assert.deepEqual(await states('attach-1'),[{claim:'staging',file:'staging'}],'nothing is ready before the publication commits')
+    await assert.rejects(runtime.artifacts.attachFiles(attempt.id,incarnation,'attach-1',request(['report.txt'])),/pending or failed/)
+    await runtime.db.transaction(client=>attached.settle(client))
+    await attached.abandon()
+    assert.deepEqual(await states('attach-1'),[{claim:'ready',file:'ready'}],'abandoning a settled attachment changes nothing')
+    const personal=attached.files[0].artifactId
+    assert.deepEqual((await runtime.artifacts.attachFiles(attempt.id,incarnation,'attach-1',request(['report.txt']))).files,attached.files)
+    await assert.rejects(runtime.artifacts.attachFiles(attempt.id,incarnation,'attach-1',request(['report.txt'],digest('other'))),/replay conflict/)
+    const row=(await runtime.db.query('SELECT owner_kind,owner_id,provenance,author_id,sha256 FROM kipster.artifacts WHERE id=$1',[personal])).rows[0]
+    assert.deepEqual(row,{owner_kind:'agent',owner_id:runtime.bootstrap.rootAgentId,provenance:'generated',author_id:runtime.bootstrap.rootAgentId,sha256:digest('initial content')})
+    await writeFile(join(folder,'report.txt'),'mutated after attachment')
+    const copy=await runtime.artifacts.copyToOrganization(attempt.id,incarnation,'copy-1',personal)
     assert.equal(copy.artifact.ownership.kind,'organization')
-    const second=await runtime.artifacts.writeOutput(attempt.id,incarnation,'write-2','second.txt','second content')
-    const failAfterLink=new ArtifactService(runtime.db,runtime.home,{afterPublishLink:async()=>{throw new Error('Injected post-link failure')}})
-    await assert.rejects(failAfterLink.publishOutput(attempt.id,incarnation,'publish-failed',second.outputId),/Injected post-link failure/)
-    const failedPublish=(await runtime.db.query("SELECT artifact_id FROM kipster.artifact_publications WHERE attempt_id=$1 AND call_id='publish-failed'",[attempt.id])).rows[0]
-    await assert.rejects(readFile(join(homePath,'artifacts','objects',failedPublish.artifact_id)),/ENOENT/)
-    await assert.rejects(failAfterLink.copyToOrganization(attempt.id,incarnation,'copy-failed',personal.artifact.id),/Injected post-link failure/)
+    await writeFile(join(folder,'second.txt'),'second content')
+    const failAfterLink=new ArtifactService(runtime.db,runtime.home,{afterAttachLink:async()=>{throw new Error('Injected post-link failure')},afterPublishLink:async()=>{throw new Error('Injected post-link failure')}})
+    await assert.rejects(failAfterLink.attachFiles(attempt.id,incarnation,'attach-failed',request(['second.txt'])),/Injected post-link failure/)
+    const failedAttach=(await runtime.db.query("SELECT f.state,f.artifact_id,a.state AS file FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id='attach-failed'",[attempt.id])).rows[0]
+    assert.deepEqual([failedAttach.state,failedAttach.file],['failed','failed'])
+    await assert.rejects(readFile(join(homePath,'artifacts','objects',failedAttach.artifact_id)),/ENOENT/)
+    await assert.rejects(failAfterLink.copyToOrganization(attempt.id,incarnation,'copy-failed',personal),/Injected post-link failure/)
     const failedCopy=(await runtime.db.query("SELECT artifact_id FROM kipster.artifact_organization_copies WHERE attempt_id=$1 AND call_id='copy-failed'",[attempt.id])).rows[0]
     await assert.rejects(readFile(join(homePath,'artifacts','objects',failedCopy.artifact_id)),/ENOENT/)
-    for(let index=0;index<28;index++)await runtime.artifacts.copyToOrganization(attempt.id,incarnation,`copy-extra-${index}`,personal.artifact.id)
-    await assert.rejects(runtime.artifacts.copyToOrganization(attempt.id,incarnation,'copy-over-limit',personal.artifact.id),/publication count exceeded/)
+    for(let index=0;index<30;index++)await runtime.artifacts.copyToOrganization(attempt.id,incarnation,`copy-extra-${index}`,personal)
+    await assert.rejects(runtime.artifacts.copyToOrganization(attempt.id,incarnation,'copy-over-limit',personal),/publication count exceeded/)
     const target={installationId:actor.installationId,callerId:actor.personId,context,chatId,threadId:receipt.threadId}
     assert.equal((await runtime.artifacts.content(actor,copy.artifact.id,target)).bytes.toString(),'initial content')
-    await runtime.db.query('DELETE FROM kipster.artifacts WHERE id=$1',[personal.artifact.id])
-    await rm(join(homePath,'artifacts','objects',personal.artifact.id))
+    await runtime.db.query('DELETE FROM kipster.artifacts WHERE id=$1',[personal])
+    await rm(join(homePath,'artifacts','objects',personal))
     assert.equal((await runtime.artifacts.content(actor,copy.artifact.id,target)).bytes.toString(),'initial content')
-    const interrupted=new ArtifactService(runtime.db,runtime.home,{afterWriteLink:async()=>{await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=true WHERE id=$1',[receipt.runId])}})
-    await assert.rejects(interrupted.writeOutput(attempt.id,incarnation,'stop-mid-write','stopped.txt','never ready'),/not live/)
-    const stopped=(await runtime.db.query("SELECT id,state FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND call_id='stop-mid-write'",[attempt.id])).rows[0]
-    assert.equal(stopped.state,'failed')
-    await assert.rejects(readFile(join(runtime.home.output(runtime.bootstrap.rootAgentId,receipt.threadId,attempt.id),stopped.id)),/ENOENT/)
-    await assert.rejects(runtime.artifacts.writeOutput(attempt.id,incarnation,'late','late.txt','late'),/not live/)
-    await assert.rejects(runtime.artifacts.publishOutput(attempt.id,incarnation,'late-publish',file.outputId),/not live/)
+    await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=true WHERE id=$1',[receipt.runId])
+    await assert.rejects(runtime.artifacts.attachFiles(attempt.id,incarnation,'late',request(['second.txt'])),/not live/)
+    assert.equal((await runtime.db.query("SELECT count(*)::int AS n FROM kipster.artifact_file_attachments WHERE call_id='late'")).rows[0].n,0)
   }finally{
-    await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(homePath,{recursive:true,force:true})
+    await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(homePath,{recursive:true,force:true});await rm(folder,{recursive:true,force:true})
   }
 })
 
-test('process death between output bytes and SQL receipt leaves explicit failure, never a ready artifact', {skip:noDatabase}, async()=>{
+test('process death between attached bytes and SQL receipt leaves explicit failure, never a ready artifact', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl),database=`kipster_artifacts_${randomUUID().replaceAll('-','')}`
   const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-output-crash-'))
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -176,33 +180,28 @@ test('process death between output bytes and SQL receipt leaves explicit failure
     const {chatId}=await resolveDirectChat(runtime.db,actor,context,runtime.bootstrap.rootAgentId)
     const receipt=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'text',text:'Create'}]})
     const incarnation=randomUUID(),attempt=await runtime.db.transaction(async client=>{const claim=await claimPreparation(client,receipt.runId,incarnation);await issueAttempt(client,claim);await client.query("UPDATE kipster.text_runs SET state='running',current_attempt_id=$2 WHERE id=$1",[receipt.runId,claim.id]);return claim})
+    const source=join(homePath,'crash.txt'),request={paths:[source],base:homePath,artifactIds:[],requestHash:digest('crash')}
+    await writeFile(source,'CRASH_BYTES')
     const proof=join(homePath,'crash-proof.json')
-    await writeFile(proof,JSON.stringify({attemptId:attempt.id,incarnation,content:'CRASH_BYTES'}))
+    await writeFile(proof,JSON.stringify({attemptId:attempt.id,incarnation,request}))
     const child=(mode)=>spawn(process.execPath,[new URL('./fixtures/artifact-crash.mjs',import.meta.url).pathname,url.href,homePath,proof,mode],{stdio:'ignore'})
-    assert.equal((await death(child('write'))).signal,'SIGKILL')
-    assert.equal((await runtime.db.query("SELECT state FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND call_id='crash-write'",[attempt.id])).rows[0].state,'staging')
+    assert.equal((await death(child('attach'))).signal,'SIGKILL')
+    const staged=(await runtime.db.query("SELECT f.state,f.artifact_id,a.state AS file FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id='crash-attach'",[attempt.id])).rows[0]
+    assert.deepEqual([staged.state,staged.file],['staging','staging'])
+    assert.equal(await readFile(join(homePath,'artifacts','objects',staged.artifact_id),'utf8'),'CRASH_BYTES')
     await runtime.close();runtime=null
     runtime=await openRuntime({connectionString:url.href,home:homePath,names:{owner:'Owner',organization:'One',rootAgent:'Root'}})
-    assert.equal((await runtime.db.query("SELECT state FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND call_id='crash-write'",[attempt.id])).rows[0].state,'failed')
-    await assert.rejects(runtime.artifacts.writeOutput(attempt.id,incarnation,'crash-write','crash.txt','CRASH_BYTES'),/pending or failed/)
-    const written=await runtime.artifacts.writeOutput(attempt.id,incarnation,'write-new','complete.txt','NEW_BYTES')
-    await writeFile(proof,JSON.stringify({attemptId:attempt.id,incarnation,outputId:written.outputId}))
-    assert.equal((await death(child('publish'))).signal,'SIGKILL')
-    const staged=(await runtime.db.query("SELECT artifact_id,state FROM kipster.artifact_publications WHERE attempt_id=$1 AND call_id='crash-publish'",[attempt.id])).rows[0]
-    assert.equal(staged.state,'staging')
-    await runtime.close();runtime=null
-    runtime=await openRuntime({connectionString:url.href,home:homePath,names:{owner:'Owner',organization:'One',rootAgent:'Root'}})
+    assert.equal((await runtime.db.query("SELECT state FROM kipster.artifact_file_attachments WHERE attempt_id=$1 AND call_id='crash-attach'",[attempt.id])).rows[0].state,'failed')
     assert.equal((await runtime.db.query('SELECT state FROM kipster.artifacts WHERE id=$1',[staged.artifact_id])).rows[0].state,'failed')
-    assert.equal((await runtime.db.query("SELECT state FROM kipster.artifact_publications WHERE attempt_id=$1 AND call_id='crash-publish'",[attempt.id])).rows[0].state,'failed')
-    await assert.rejects(runtime.artifacts.publishOutput(attempt.id,incarnation,'crash-publish',written.outputId),/pending or failed/)
-    for(let index=0;index<30;index++)await runtime.artifacts.writeOutput(attempt.id,incarnation,`zero-${index}`,`empty-${index}.txt`,'')
-    await assert.rejects(runtime.artifacts.writeOutput(attempt.id,incarnation,'zero-over-limit','extra.txt',''),/output count exceeded/)
-    for(let index=0;index<31;index++)await runtime.artifacts.publishOutput(attempt.id,incarnation,`publish-repeat-${index}`,written.outputId)
-    await assert.rejects(runtime.artifacts.publishOutput(attempt.id,incarnation,'publish-over-limit',written.outputId),/publication count exceeded/)
+    await assert.rejects(readFile(join(homePath,'artifacts','objects',staged.artifact_id)),/ENOENT/)
+    await assert.rejects(runtime.artifacts.attachFiles(attempt.id,incarnation,'crash-attach',request),/pending or failed/)
+    const retried=await runtime.artifacts.attachFiles(attempt.id,incarnation,'attach-new',request)
+    await runtime.db.transaction(client=>retried.settle(client))
+    assert.equal((await runtime.db.query('SELECT state FROM kipster.artifacts WHERE id=$1',[retried.files[0].artifactId])).rows[0].state,'ready')
   }finally{await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(homePath,{recursive:true,force:true})}
 })
 
-test('lost SQL commit response never deletes ready generated bytes', {skip:noDatabase}, async()=>{
+test('lost SQL commit response never deletes ready attached bytes', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl),database=`kipster_artifacts_${randomUUID().replaceAll('-','')}`
   const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-commit-'))
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -214,16 +213,13 @@ test('lost SQL commit response never deletes ready generated bytes', {skip:noDat
     const {chatId}=await resolveDirectChat(runtime.db,actor,context,runtime.bootstrap.rootAgentId)
     const receipt=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'text',text:'Create'}]})
     const incarnation=randomUUID(),attempt=await runtime.db.transaction(async client=>{const claim=await claimPreparation(client,receipt.runId,incarnation);await issueAttempt(client,claim);await client.query("UPDATE kipster.text_runs SET state='running',current_attempt_id=$2 WHERE id=$1",[receipt.runId,claim.id]);return claim})
-    const service=new ArtifactService(lostCommitDb(runtime.db,"UPDATE kipster.artifact_output_writes SET state='ready'"),runtime.home)
-    await assert.rejects(service.writeOutput(attempt.id,incarnation,'lost-write','retained.txt','RETAINED'),/Lost commit response/)
-    const written=(await runtime.db.query("SELECT id,state FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND call_id='lost-write'",[attempt.id])).rows[0]
-    assert.equal(written.state,'ready')
-    assert.equal((await readFile(join(runtime.home.output(runtime.bootstrap.rootAgentId,receipt.threadId,attempt.id),written.id),'utf8')),'RETAINED')
-    const publishing=new ArtifactService(lostCommitDb(runtime.db,"UPDATE kipster.artifacts SET state='ready'"),runtime.home)
-    await assert.rejects(publishing.publishOutput(attempt.id,incarnation,'lost-publish',written.id),/Lost commit response/)
-    const published=(await runtime.db.query("SELECT artifact_id,state FROM kipster.artifact_publications WHERE attempt_id=$1 AND call_id='lost-publish'",[attempt.id])).rows[0]
-    assert.equal(published.state,'ready')
-    assert.equal((await readFile(join(homePath,'artifacts','objects',published.artifact_id),'utf8')),'RETAINED')
+    await writeFile(join(homePath,'retained.txt'),'RETAINED')
+    const attached=await runtime.artifacts.attachFiles(attempt.id,incarnation,'lost-attach',{paths:['retained.txt'],base:homePath,artifactIds:[],requestHash:digest('retained')})
+    await assert.rejects(lostCommitDb(runtime.db,"UPDATE kipster.artifacts SET state='ready'").transaction(client=>attached.settle(client)),/Lost commit response/)
+    await attached.abandon()
+    const saved=(await runtime.db.query("SELECT f.artifact_id,f.state,a.state AS file FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id='lost-attach'",[attempt.id])).rows[0]
+    assert.deepEqual([saved.state,saved.file],['ready','ready'])
+    assert.equal((await readFile(join(homePath,'artifacts','objects',saved.artifact_id),'utf8')),'RETAINED')
   }finally{await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(homePath,{recursive:true,force:true})}
 })
 

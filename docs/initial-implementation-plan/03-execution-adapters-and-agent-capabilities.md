@@ -210,14 +210,13 @@ The following is the agreed catalog direction; names and exact arguments remain 
 | Operation/family | Purpose |
 | --- | --- |
 | `activity.report` | Short public activity-timeline update. |
-| `conversation.publish` | Intermediate or final user-facing message with ordered content and optional artifacts. |
+| `conversation.publish` | Intermediate or final user-facing message with ordered content, optional artifact IDs and files attached by path. |
 | `conversation.react` | Reaction attached to a specific message. |
 | `conversation.read` | Retrieve source messages or additional history. |
 | `interactions.ask` | Durable question, initially using the choice-card behavior in block 2. |
 | `interactions.request_approval` | Approval for a specific proposed action and context. |
 | `memory.search/get/save/link` | Retrieve learning, record it, and relate memories. |
 | `data.describe/query/execute` | Structured agent or organization data access. |
-| `artifacts.publish` | Register a completed generated file and return an artifact ID. |
 | `audio.transcribe` | Invoke the same configured service used for voice-note preparation. |
 | `agents.list/get` | Discover agents and their roles. |
 | `agents.delegate` | Durable task request to another agent, optionally with files. |
@@ -266,13 +265,11 @@ Provider outcome arrives -> Core settles execution state
 ### Generated files
 
 ```text
-Create report.pdf in supplied output directory
+Create report.pdf with the harness's own tools
       |
-artifacts.publish(path) -> artifact ID
+conversation.publish(text + files: [path])
       |
-conversation.publish(text + artifact ID)
-      |
-Core saves message -> UI downloads file through Kipster
+Core snapshots the file as an artifact and saves the message -> UI downloads file through Kipster
 ```
 
 The output directory is a convenience for the agent. Final file-storage paths, publication copies, fallback imports, and retention are storage-block decisions. Do not expose an arbitrary host filesystem path as if it were a client download URL.
