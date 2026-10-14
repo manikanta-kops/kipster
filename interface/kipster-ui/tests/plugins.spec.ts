@@ -155,6 +155,8 @@ test('a person connects an account, adds a second, renames it, makes it the defa
   await name.fill('Side project')
   await sheet.getByRole('button', { name: 'Save', exact: true }).click()
   await expect(sheet.getByText('Account renamed')).toBeVisible()
+  // An account action ends the earlier sign-in notice.
+  await expect(sheet.getByText('Connected Linear 2.')).toHaveCount(0)
   await expect(
     sheet.getByRole('button', { name: 'Rename Side project' }),
   ).toBeVisible()

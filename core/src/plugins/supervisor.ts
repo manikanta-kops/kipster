@@ -15,6 +15,8 @@ export type PluginServerStatus =
 /** How later Core work reaches the plugin server: an endpoint only while it is ready. */
 export interface PluginServerEndpoint {
   endpoint(): { url: string; token: string } | undefined
+  /** Starts the server again if it gave up, so asking for plugins later retries. */
+  retry?(): void
 }
 /** What Core's update check needs to install a plugins release and restart only the plugin server. */
 export interface PluginServerControl extends PluginServerEndpoint {
@@ -64,7 +66,7 @@ const pendingFile = 'highest-version.pending'
 const message = (error: unknown) => error instanceof Error ? error.message : String(error)
 const higher = (a: string | null, b: string | null) => a === null ? b : b === null || compareVersions(a, b) >= 0 ? a : b
 // Variables the plugin server may need; Core's database URLs, provider keys and NODE_OPTIONS stay out.
-const inherited = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'KIPSTER_PLUGINS_CLIENT_METADATA_URL']
+const inherited = ['PATH', 'HOME', 'USER', 'LOGNAME', 'TMPDIR', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS']
 // Preloaded into the server: it stops when Core's end of stdin closes, so a crashed Core leaves no server behind.
 const parentWatch = "data:text/javascript,process.stdin.on('end',()=>process.kill(process.pid,'SIGTERM'));process.stdin.resume();process.stdin.unref()"
 
@@ -146,6 +148,9 @@ export class PluginServerSupervisor implements PluginServerControl {
       if (module !== undefined) this.#configured = module
       await this.#begin()
     })
+  }
+  retry(): void {
+    if (this.#status.state === 'failed') void this.restart().catch(() => undefined)
   }
   settled(): Promise<PluginServerStatus> {
     if (this.#closing) return Promise.resolve({ state: 'stopped' })

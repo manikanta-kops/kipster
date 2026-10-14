@@ -343,13 +343,11 @@ export function CoreSettingsPanel({
         return softwareUpdates && <TestingPage updates={softwareUpdates} />
       if (frame.kind === 'plugin')
         return (
-          plugins && (
-            <PluginPage
-              key={frame.pluginId}
-              client={pluginsClient}
-              pluginId={frame.pluginId}
-            />
-          )
+          <PluginPage
+            key={frame.pluginId}
+            client={pluginsClient}
+            pluginId={frame.pluginId}
+          />
         )
       if (!ready) return null
       switch (frame.kind) {
@@ -441,7 +439,7 @@ export function CoreSettingsPanel({
       case 'updates':
         return <UpdatesPage updates={softwareUpdates} versions={versions} />
       case 'plugins':
-        return plugins && <PluginsPage client={pluginsClient} />
+        return <PluginsPage client={pluginsClient} />
       case 'connection':
         return (
           changeConnection && (

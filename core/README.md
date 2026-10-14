@@ -551,11 +551,12 @@ target }`) starts one in either mode, answering with `plugins.state:
 against the channel, runs `npm install --omit=dev --ignore-scripts` with the npm
 beside its Node binary into `<home>/plugins-host/versions/<version>`, checks the
 package name and version, points `<home>/plugins-host/current` at it and
-restarts only the plugin server. When that server does not become ready,
-`current` goes back (`rolled-back`). The previous version runs again only when
-the new server never started; one that started counts as having run with the
-plugin data, so plugins stay off until a release at or above it is installed. A
-failed release is not retried automatically. Refusals use `update-unmanaged`,
+restarts only the plugin server. When a new server never starts, `current`
+goes back and the previous version runs again (`rolled-back`). One that started
+counts as having run with the plugin data, so it stays installed and current
+(`failed`): the supervisor keeps restarting it, and so does restarting Kipster
+or opening Plugins after it gave up. A failed release is not installed again
+automatically. Refusals use `update-unmanaged`,
 `update-in-progress`, `update-already-installed` or `update-not-available` (not
 the channel's release, an older version, or no plugin server).
 
@@ -619,7 +620,8 @@ either way it fails with the reason. An unreadable or invalid record is logged
 and ignored until a newer server starts; a module whose version cannot be read is
 started without the check.
 Without the `plugins` entry, without the installed package, or while the server
-is not ready, plugins are off and the rest of Core keeps working. `status` and
+is not ready, plugins are off and the rest of Core keeps working. A plugins route
+called after the supervisor gave up starts the server again. `status` and
 `doctor` report the plugin server's state.
 
 ## Database migrations

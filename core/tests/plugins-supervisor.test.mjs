@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { fileURLToPath } from 'node:url'
 import { startFixture } from '@kipster/plugins/fixture'
 import { PluginServerSupervisor } from '../dist/plugins/supervisor.js'
+import { PluginControlClient } from '../dist/plugins/client.js'
 import { pluginServerDiagnostic } from '../dist/host-diagnostics.js'
 import { control, doctor, ownControl, validateHostConfig } from '../dist/host.js'
 import { Postgres } from '../dist/platform/postgres/public.js'
@@ -231,6 +232,22 @@ createServer((req, res) => res.end(JSON.stringify({ status: 'ok', version: '0.0.
   assert.equal(switched.module, cli)
   const endpoint = await wait(() => switched.endpoint())
   assert.equal((await v1(endpoint.url, endpoint.token)).status, 200)
+})
+
+test('asking for plugins after the server gave up starts it again', async t => {
+  const root = await home(t), service = await fixture(t)
+  const later = join(root, 'later/cli.js')
+  const { supervisor } = supervise(t, { home: root, module: later, testOnly: { catalogue, baseUrl: service.url } })
+  await supervisor.start()
+  assert.equal(supervisor.status.state, 'failed')
+  // The cause goes away, as after a fixed install; the next request for plugins retries.
+  await mkdir(dirname(later), { recursive: true })
+  await symlink(cli, later)
+  const client = new PluginControlClient(supervisor)
+  assert.throws(() => client.requireReady(), error => error.status === 503 && error.code === 'plugins-unavailable')
+  const endpoint = await wait(() => supervisor.endpoint())
+  assert.equal((await v1(endpoint.url, endpoint.token)).status, 200)
+  client.requireReady()
 })
 
 test('never starts a plugin server older than one that already ran with the plugin data', async t => {

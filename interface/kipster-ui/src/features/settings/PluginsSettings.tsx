@@ -354,6 +354,7 @@ export function PluginPage({
     failed: string,
   ) {
     setProblem('')
+    signIn.dismiss()
     setAction({ kind: 'busy', accountId })
     try {
       await run()
@@ -386,6 +387,7 @@ export function PluginPage({
   }
   async function disconnect(account: PluginAccount) {
     setProblem('')
+    signIn.dismiss()
     setAction({ kind: 'busy', accountId: account.id })
     try {
       const result = await client.removePluginAccount(account.id, {

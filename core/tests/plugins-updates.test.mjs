@@ -177,7 +177,7 @@ test('a download whose SHA-256 or size differs from the channel is refused and t
   assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [], 'nothing is left of the refused downloads')
 })
 
-test('a release that fails readiness rolls back, and plugins stay off because it already ran', { skip: noDatabase, timeout: 240000 }, async t => {
+test('a release that started but never became ready is kept and keeps restarting; the older version is not restored', { skip: noDatabase, timeout: 240000 }, async t => {
   const ctx = await setup(t)
   await ctx.check()
   await ctx.install(newer)
@@ -185,29 +185,24 @@ test('a release that fails readiness rolls back, and plugins stay off because it
   ctx.channel.stable = { schemaVersion: 1, packages: { '@kipster/plugins': entry(broken) } }
   assert.equal((await ctx.check()).plugins.available.version, broken)
   assert.equal((await ctx.install(broken)).status, 200)
-  const rolled = await ctx.settled()
-  assert.equal(rolled.plugins.state, 'failed')
-  assert.equal(rolled.plugins.lastResult.outcome, 'rolled-back')
-  assert.deepEqual([rolled.plugins.lastResult.from, rolled.plugins.lastResult.to], [newer, broken])
-  // The broken server started, so it may have changed the plugin data: the previous version is refused, not run.
+  const failed = await ctx.settled()
+  assert.equal(failed.plugins.state, 'failed')
+  assert.equal(failed.plugins.lastResult.outcome, 'failed')
+  assert.deepEqual([failed.plugins.lastResult.from, failed.plugins.lastResult.to], [newer, broken])
   const escaped = version => version.replaceAll('.', '\\.')
-  assert.match(rolled.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} did not start \\(.*before it was ready\\); `))
-  assert.equal(ctx.supervisor.status.reason, `The plugin server ${newer} is older than ${broken}, which already ran with this plugin data; install @kipster/plugins ${broken} or newer`)
-  assert.ok(rolled.plugins.error.endsWith(`; plugins are off: ${ctx.supervisor.status.reason}`), rolled.plugins.error)
-  assert.doesNotMatch(rolled.plugins.error, /runs again/)
-  assert.equal(rolled.plugins.version, newer)
+  assert.match(failed.plugins.error, new RegExp(`^Kipster Plugins ${escaped(broken)} has not started yet \\(.*before it was ready\\); it keeps restarting, and restarting Kipster tries again$`))
+  // The broken server ran with the plugin data, so it stays installed and current; the older version is gone.
   assert.equal(ctx.supervisor.highestVersion, broken)
-  assert.equal(await readFile(join(ctx.home, 'plugins-host/highest-version'), 'utf8'), `${broken}\n`)
-  assert.equal(rolled.plugins.available.version, broken, 'the release stays available to retry')
-  assert.equal(await ctx.current(), join('versions', newer))
-  assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [newer])
-  assert.equal(ctx.supervisor.status.state, 'failed')
-  assert.equal(await ctx.serving(), false, 'plugins are off')
+  assert.equal(await ctx.current(), join('versions', broken))
+  assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [broken])
   assert.equal((await ctx.call('GET', '/v1/directory')).status, 200, 'the rest of Core keeps working')
-  // A failed release is not retried automatically.
+  // It is already the current release, so automatic mode installs nothing more.
   await ctx.call('PUT', '/v1/settings/updates', { version: 1, operationId: randomUUID(), channel: 'stable', mode: 'automatic' })
   await ctx.check()
-  assert.equal((await ctx.status()).plugins.state, 'failed')
+  const after = await ctx.status()
+  assert.equal(after.plugins.available, null)
+  assert.equal(after.plugins.lastResult.outcome, 'failed')
+  assert.deepEqual(await readdir(join(ctx.home, 'plugins-host/versions')), [broken])
 })
 
 test('installs that the channel or host does not allow are refused', { skip: noDatabase, timeout: 180000 }, async t => {

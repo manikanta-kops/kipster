@@ -32,7 +32,10 @@ export class PluginControlClient {
 
   #endpoint(): { url: string; token: string } {
     const endpoint = this.server?.endpoint()
-    if (!endpoint) throw unavailable()
+    if (!endpoint) {
+      this.server?.retry?.()
+      throw unavailable()
+    }
     return endpoint
   }
 

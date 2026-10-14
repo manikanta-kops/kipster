@@ -448,9 +448,8 @@ export class UpdatesService {
   }
   /**
    * Installs the release beside the running one, points `current` at it and restarts only the plugin server. When the
-   * new server does not become ready, `current` goes back and the previous version runs again, unless the new server
-   * already started: then the version floor refuses the older version and plugins stay off until a release at or above
-   * it is installed.
+   * new server never started, `current` goes back and the previous version runs again. Once it has started, the
+   * older version is refused, so the new one stays and keeps restarting.
    */
   private async runPlugins(entry: ChannelEntry): Promise<void> {
     const control = this.plugins!, from = control.packageVersion
@@ -484,6 +483,14 @@ export class UpdatesService {
       }
       reason = 'reason' in started ? started.reason : `the plugin server runs ${control.packageVersion ?? 'an unreadable package'}`
     } catch (error) { reason = failure(error) }
+    // Once the new server has run, the older version is refused, so keep the new one: the supervisor keeps
+    // restarting it, and restarting Kipster tries again.
+    const highest = control.highestVersion ?? null
+    if (highest !== null && compareVersions(highest, entry.version) >= 0) {
+      await prunePlugins(control.directory, [installation]).catch(error => this.report(error))
+      await finish({ state: 'failed', error: `Kipster Plugins ${entry.version} has not started yet (${reason}); it keeps restarting, and restarting Kipster tries again`, lastResult: result('failed') })
+      return
+    }
     await switchPlugins(control.directory, previous)
     const restored = await this.settle()
     if (restored.state === 'stopped') return
