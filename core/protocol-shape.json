@@ -1684,6 +1684,8 @@
         "id": {"type":"string","min":1},
         "threadId": {"type":"string","min":1},
         "authorId": {"type":"string","min":1},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "finishedAt": {"type":"optional","of":{"type":"string","format":"utc-timestamp"}},
         "parts": {
           "type": "array",
           "items": {
@@ -2690,6 +2692,8 @@
         "id": {"type":"string","min":1},
         "threadId": {"type":"string","min":1},
         "authorId": {"type":"string","min":1},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "finishedAt": {"type":"optional","of":{"type":"string","format":"utc-timestamp"}},
         "parts": {
           "type": "array",
           "items": {

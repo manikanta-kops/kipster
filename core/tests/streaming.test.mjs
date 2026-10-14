@@ -9,6 +9,7 @@ import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher } from '../dist/runtime.js'
 import { eventSignals, publishAppEvent, readEvents } from '../dist/modules/synchronization/public.js'
 import { runContext } from '../dist/modules/conversations/public.js'
+import { message, textEvent, threadSnapshot } from '../dist/protocol/index.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
 const waitFor = async (read, predicate, label) => {
@@ -91,13 +92,26 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     await waitFor(() => Promise.resolve(adapter.handles), h => h.length === 1, 'execution')
     const handle = adapter.handles[0]
     const snap = () => get(`/v1/threads/${first.threadId}/snapshot`)
-    const before = await snap()
+    const before = threadSnapshot.parse(await snap())
+    const personMessage = before.messages[0]
+    assert.equal(personMessage.createdAt, personMessage.finishedAt)
+    message.parse(personMessage)
+    const personEvent = (await readEvents(runtime.db, { kind: 'thread', installationId: actor.installationId, callerId: actor.personId, threadId: first.threadId }, `t:${first.threadId}:0`)).events.find(e => e.type === 'message-final')
+    assert.equal(textEvent.parse(personEvent).data.finishedAt, personMessage.createdAt)
     const url = cursor => server.url + `/v1/threads/${first.threadId}/events?after=${encodeURIComponent(cursor)}`
     const live = await stream(url(before.cursor)); clients.push(live)
     const text = (id, text, final = false) => handle.release({ kind: 'text', attemptId: handle.context.attemptId, messageId: id, text, final })
     text('one', 'First draft')
     await waitFor(() => Promise.resolve(live.events), e => e.some(x => x.type === 'message-draft'), 'draft before completion')
-    assert.equal((await snap()).work[0].state, 'running')
+    const draftSnapshot = threadSnapshot.parse(await snap())
+    assert.equal(draftSnapshot.work[0].state, 'running')
+    const draft = draftSnapshot.messages.find(m => !m.final)
+    assert.ok(Number.isFinite(Date.parse(draft.createdAt)))
+    assert.equal(Object.hasOwn(draft, 'finishedAt'), false)
+    const draftEvent = textEvent.parse(live.events.find(e => e.type === 'message-draft')).data
+    assert.equal(draftEvent.createdAt, draft.createdAt)
+    assert.equal(Object.hasOwn(draftEvent, 'finishedAt'), false)
+    message.parse(draft)
     await waitFor(() => Promise.resolve(releaseWrite), Boolean, 'blocked output')
     for (let i = 0; i < 3; i++) text('one', `fragment ${i}`)
     text('two', 'Second draft')
@@ -119,7 +133,16 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     const finals = replay.events.filter(x => x.type === 'message-final')
     assert.equal(new Set(finals.map(e => e.resourceId)).size, 2)
     assert.ok(finals.every(e => saved.messages.some(m => m.id === e.resourceId)))
-    const after = await snap()
+    const after = threadSnapshot.parse(await snap())
+    for (const event of finals) {
+      const final = textEvent.parse(event).data
+      const prior = saved.messages.find(m => m.id === final.id)
+      assert.equal(final.createdAt, prior.createdAt)
+      assert.ok(Date.parse(final.finishedAt) >= Date.parse(final.createdAt))
+      assert.ok(Date.parse(final.finishedAt) > Date.parse(final.createdAt), 'stream finish follows its initial draft')
+      assert.equal(after.messages.find(m => m.id === final.id).finishedAt, final.finishedAt)
+      message.parse(final)
+    }
     assert.equal(after.messages.length, 3)
     assert.ok(after.messages.every(m => m.final))
     assert.ok(!after.messages.some(m => m.parts[0]?.text === 'stale draft'))
@@ -179,8 +202,10 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
       const settled = await waitFor(state, s => s.work[0].state === outcome, outcome)
       assert.ok(settled.messages.every(m => m.final))
       assert.equal(settled.messages[1].parts[0].text, 'Partial answer')
-      const events = (await runtime.db.query("SELECT type FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final'", [settled.messages[1].id])).rows
+      assert.ok(Date.parse(settled.messages[1].finishedAt) >= Date.parse(settled.messages[1].createdAt))
+      const events = (await runtime.db.query("SELECT type,data FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final'", [settled.messages[1].id])).rows
       assert.equal(events.length, 1)
+      assert.equal(events[0].data.finishedAt, settled.messages[1].finishedAt)
     }
     const application = { kind: 'application', installationId: actor.installationId, callerId: actor.personId }
     const old = await get('/v1/app/snapshot')

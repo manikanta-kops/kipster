@@ -46,7 +46,7 @@ export type ReceiptLookup = Infer<typeof receiptLookup>
 export const boundedRead = object({ version: literal(1), scope: callerScope, context, chatId: id, threadId: id, before: nullable(id), limit: boundedInteger(1, 100) })
 export type BoundedRead = Infer<typeof boundedRead>
 export const parseBoundedRead = (value: unknown): BoundedRead => boundedRead.parse(value)
-export const message = object({ id, threadId: id, authorId: id, parts: array(messagePart), revision: integer() }, false)
+export const message = object({ id, threadId: id, authorId: id, createdAt: utcTimestamp(), finishedAt: optional(utcTimestamp()), parts: array(messagePart), revision: integer() }, false)
 export const historyPage = object({ version: literal(1), messages: array(message), next: nullable(id) }, false)
 export const streamScope = union(object({ kind: literal('application'), installationId: id, callerId: id }), object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }))
 export const workState = union(literal('queued'), literal('preparing'), literal('running'), literal('waiting'), literal('cancellation-requested'), literal('completed'), literal('failed'), literal('cancelled'), literal('recovery-needed'))
@@ -71,7 +71,7 @@ export const notificationsCleared = object({ version: literal(1), status: litera
 export const appSnapshot = object({ version: literal(1), scope: object({ kind: literal('application'), installationId: id, callerId: id }), cursor: id, threads: array(appThreadSummary), notifications: array(notification), next: nullable(object({ afterThreadId: nullable(id), afterNotificationId: nullable(id) })) }, false)
 export const voicePreparation = object({id,artifactId:id,partIndex:integer(),revision:integer(),status:union(literal('preparing'),literal('succeeded'),literal('no-speech'),literal('unavailable')),provider:string(),transcript:optional(string()),error:optional(string())},false)
 /** `runId` names the run whose attempt wrote a kip's message; people's messages have none. `progress` marks a note the kip wrote while working, not its answer. */
-export const threadMessage = object({ preparation: optional(array(voicePreparation)), runId: optional(id), progress: optional(boolean()), id, threadId: id, authorId: id, parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
+export const threadMessage = object({ preparation: optional(array(voicePreparation)), runId: optional(id), progress: optional(boolean()), id, threadId: id, authorId: id, createdAt: utcTimestamp(), finishedAt: optional(utcTimestamp()), parts: array(messagePart), final: boolean(), revision: integer(), position: integer() }, false)
 export const threadWork = object({ runId: id, attemptId: nullable(id), state: workState, queueHold: boolean(), cancelDelivery, revision: integer(), queuePosition: integer(), messageId: id, failure: nullable(string()) }, false)
 /**
  * How far an approval reaches beyond its card: the rest of the conversation, or every kip until removed in Settings.
