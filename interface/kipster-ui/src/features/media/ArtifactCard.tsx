@@ -51,7 +51,7 @@ export function ArtifactCard({
       !!client &&
       !!metadata.data &&
       artifact?.availability === 'registered' &&
-      (!!previewKind(artifact.mimeType) || download),
+      (!!previewKind(artifact.mimeType, artifact.name) || download),
     retry: false,
     gcTime: 0,
   })
@@ -65,16 +65,17 @@ export function ArtifactCard({
   }, [content.data])
   const unavailable =
     artifact?.availability !== 'registered' || metadata.isError
-  const kind = previewKind(artifact?.mimeType)
+  const kind = previewKind(artifact?.mimeType, artifact?.name)
   const player = voice && kind === 'audio' && content.data
   const name = artifact?.name ?? 'Unavailable file'
-  const details = artifact ? formatSize(artifact.size) : ''
+  const type = artifact?.mimeType?.split(';')[0]
+  const details = artifact
+    ? [formatSize(artifact.size), type].filter(Boolean).join(' · ')
+    : ''
   const owner = artifact?.ownership
     ? `${artifact.ownership.kind === 'agent' ? 'Kip' : artifact.ownership.kind === 'installation' ? 'Installation' : artifact.ownership.kind === 'organization' ? 'Organization' : artifact.ownership.kind} owned${artifact.ownership.id ? ` · ${artifact.ownership.id}` : ''}${artifact.provenance?.kind === 'published' ? ' · Published copy' : ''}`
     : ''
-  const about = [artifact?.mimeType?.split(';')[0], owner]
-    .filter(Boolean)
-    .join(' · ')
+  const about = [type, owner].filter(Boolean).join(' · ')
   return (
     <section
       className={`artifact-card shine gloss${voice ? ' voice' : ''}${kind && kind !== 'audio' && content.data ? ' has-preview' : ''}`}
@@ -131,7 +132,7 @@ export function ArtifactCard({
         </small>
       )}
       {!unavailable && !player && content.data && (
-        <BlobPreview blob={content.data} name={name} />
+        <BlobPreview blob={content.data} name={name} fallback={null} />
       )}
       {(metadata.isError || content.isError) && (
         <div role="alert" className="artifact-error">

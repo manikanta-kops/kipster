@@ -40,8 +40,8 @@ test('media cards and recovery keep keyboard actions visible in all layouts', as
       buffer: Buffer.from(png, 'base64'),
     },
     {
-      name: 'release-checklist.txt',
-      mimeType: 'text/plain',
+      name: 'release-checklist.zip',
+      mimeType: 'application/zip',
       buffer: Buffer.from('Synthetic release checklist'),
     },
   ])
@@ -83,12 +83,12 @@ test('media cards and recovery keep keyboard actions visible in all layouts', as
       .locator('img'),
   ).toBeVisible()
   const download = thread.getByRole('button', {
-    name: 'Prepare download release-checklist.txt',
+    name: 'Prepare download release-checklist.zip',
   })
   await download.focus()
   await page.keyboard.press('Enter')
   const link = thread.getByRole('link', {
-    name: 'Download release-checklist.txt',
+    name: 'Download release-checklist.zip',
   })
   await expect(link).toBeVisible()
   await link.focus()
