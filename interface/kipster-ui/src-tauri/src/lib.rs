@@ -1,3 +1,4 @@
+mod links;
 mod notifications;
 mod shell;
 
@@ -104,8 +105,15 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Links reach the browser through `links`, not the plugin's own click script.
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(SoftwareUpdateExit::default())
         .setup(|app| {
+            links::create_main_window(app.handle())?;
             notifications::setup(app.handle());
             shell::setup(app.handle());
             Ok(())
@@ -132,6 +140,7 @@ pub fn run() {
             shell::set_keep_running,
             shell::open_at_login_enabled,
             shell::set_open_at_login,
+            links::open_external,
         ])
         .build(context)
         .expect("error while building Kipster")

@@ -53,6 +53,8 @@ export interface Platform {
     /** Opens the operating system's notification settings for this app. */
     openSettings?(): Promise<void>
   }
+  /** Opens an http or https address in the default browser, outside the app. */
+  openExternal?(url: string): Promise<void>
   /** The app icon badge; 0 clears it. */
   badge?: { set(count: number): Promise<void> }
   app?: {
