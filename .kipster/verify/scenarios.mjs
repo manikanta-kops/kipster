@@ -475,12 +475,12 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       )
       await composer.getByRole('button', { name: 'Send message' }).click()
       const receipt = await (await accepted).json()
-      await page
-        .locator('.feed-message')
-        .filter({ hasText: 'Read this fixture attachment' })
-        .last()
-        .getByRole('button', { name: /^Open thread:/ })
-        .press('Enter')
+      // Earlier runs leave roots with the same caption; find this one by file.
+      const feed = page.locator('.feed-message').filter({
+        has: page.getByRole('region', { name: `File: ${file}`, exact: true }),
+      })
+      await expect(feed).toBeVisible()
+      await feed.getByRole('button', { name: /^Open thread:/ }).press('Enter')
       // The root shows in both the feed and the thread pane; check the pane.
       await expect(
         page
