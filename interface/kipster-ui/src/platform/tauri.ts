@@ -66,6 +66,7 @@ export const tauriPlatform: Platform = {
       document.visibilityState === 'visible' && document.hasFocus(),
   },
   recording: browserRecording,
+  openExternal: (url) => invoke('open_external', { url }),
   notifications: {
     supported: true,
     permission: () => invoke<NotificationPermission>('notification_permission'),

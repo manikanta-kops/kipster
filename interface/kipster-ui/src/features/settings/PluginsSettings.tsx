@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import {
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+} from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   KipsterClientError,
@@ -16,6 +23,8 @@ import {
 import { Icon } from '../../components/Icon'
 import { ActionRow, Block, Callout, Confirm, Row, StatusDot } from './ui'
 import { useSheet } from './sheet'
+import { PlatformContext } from '../../platform/context'
+import type { Platform } from '../../platform/platform'
 
 const pluginsKey = (client: PluginsClient) => ['plugins', client.endpoint]
 /** A stable ref callback, so the field takes focus once, when it appears. */
@@ -147,6 +156,17 @@ type Flow =
     }
 type Notice = { tone: 'run' | 'danger'; text: string }
 
+async function openPage(platform: Platform | null, url: string) {
+  if (platform?.openExternal)
+    return platform.openExternal(url).then(
+      () => true,
+      () => false,
+    )
+  const tab = window.open(url, '_blank')
+  if (tab) tab.opener = null
+  return Boolean(tab)
+}
+
 /**
  * Connect, add or reconnect an account: ask for an address if the service needs one, start the
  * sign-in with Core's callback on this window's address, open the service's page in a new tab and
@@ -163,6 +183,7 @@ function useSignIn(
   useEffect(() => {
     refreshRef.current = refresh
   })
+  const platform = useContext(PlatformContext)
   const returnAddress = signInReturnAddress(client.endpoint)
 
   function begin(reason: Reason) {
@@ -191,15 +212,14 @@ function useSignIn(
         { signal: timeout() },
       )
       if (result.status === 'redirect' && 'authorizationUrl' in result) {
-        const tab = window.open(result.authorizationUrl, '_blank')
-        if (tab) tab.opener = null
+        const opened = await openPage(platform, result.authorizationUrl)
         setFlow({
           step: 'pending',
           reason,
           id: result.id,
           url: result.authorizationUrl,
           expiresAt: result.expiresAt,
-          blocked: !tab,
+          blocked: !opened,
         })
         return
       }
