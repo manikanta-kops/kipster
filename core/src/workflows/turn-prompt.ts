@@ -5,6 +5,8 @@ type Message = TextExecutionContext['input'][number]
 function describe(message: Message | undefined): string {
   if (!message) return ''
   if (!message.parts) return message.text
+  const [only] = message.parts
+  if (message.parts.length === 1 && only?.kind === 'text') return only.text
   return message.parts.map((part, index) => {
     if (part.kind === 'text') return `[part ${index + 1} text]\n${part.text}`
     const description = `[part ${index + 1} ${part.purpose === 'voice_note' ? 'voice note' : 'file'}; artifact ${part.artifactId}; name ${JSON.stringify(part.name)}; MIME ${part.mimeType}; ${part.size} bytes`
@@ -29,7 +31,7 @@ export function continuationPrompt(context: Omit<TextExecutionContext, 'prompt' 
   const sections = ['Kipster stopped you while you waited for the person or a delegated kip, so the action, question or request you were waiting on did not run or finish. If an action you were waiting to run was approved, run it again now. Then continue the task. Steps that finished before the wait are done; do not redo them.']
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.delegationResults?.length) sections.push(delegationSection(context.delegationResults))
-  if (context.administrationReceipts) sections.push(receiptsSection(context.administrationReceipts))
+  if (context.administrationReceipts?.receipts.length) sections.push(receiptsSection(context.administrationReceipts))
   return sections.join('\n\n')
 }
 
@@ -42,11 +44,11 @@ export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>): strin
   const history = context.input.filter(message => message.messageId !== context.triggerMessageId)
   const sections = [
     ...(context.memory ?? []),
-    `Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`,
+    ...(history.length ? [`Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`] : []),
     `Current user message [${trigger?.messageId ?? 'unknown'}]:\n${describe(trigger)}`,
   ]
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.delegationResults?.length) sections.push(delegationSection(context.delegationResults))
-  if (context.administrationReceipts) sections.push(receiptsSection(context.administrationReceipts))
+  if (context.administrationReceipts?.receipts.length) sections.push(receiptsSection(context.administrationReceipts))
   return sections.join('\n\n')
 }

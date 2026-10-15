@@ -74,7 +74,7 @@ test('post_chat_message attaches files of any type by absolute and relative path
   const tools = e.execution.tools.map(tool => tool.name)
   assert.equal(tools.includes('artifacts_write') || tools.includes('artifacts_publish'), false)
   assert.ok(e.execution.tools.find(tool => tool.name === 'post_chat_message').inputSchema.properties.files)
-  assert.match(e.execution.instructions, /call post_chat_message with `files` \(their paths\)/)
+  assert.match(e.execution.instructions, /call post_chat_message with their paths in `files`/)
   await mkdir(join(e.workspace, 'out'), { recursive: true })
   const names = Object.keys(samples), relative = new Set(['notes.md', 'table.csv', 'bundle.zip'])
   const paths = []
