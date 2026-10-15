@@ -1,5 +1,7 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Locator, type Page } from '@playwright/test'
 import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { demo, startDemo, storageFault, DEMO_IDS } from './demo.ts'
 import {
   setupMedia,
@@ -81,9 +83,6 @@ test('actual bytes survive reload and file-only dispatch consumes the saved asso
   const messages = await mediaMessages(page)
   expect(messages).toHaveLength(1)
   expect(messages[0].parts[0].kind).toBe('file')
-  await page
-    .getByRole('button', { name: 'Prepare download sample.txt' })
-    .click()
   const ready = page.waitForEvent('download')
   await page.getByRole('link', { name: 'Download sample.txt' }).click()
   const stream = await (await ready).createReadStream()
@@ -381,10 +380,17 @@ test('ordinary audio never requests voice preparation; active HTML and SVG never
       exact: true,
     })
     await expect(
-      card.getByRole('button', { name: `Prepare download ${name}` }),
+      card.getByRole('link', { name: `Download ${name}` }),
     ).toBeVisible()
-    await expect(card).not.toHaveClass(/has-preview/)
   }
+  // SVG renders only as an image; HTML shows as escaped source text.
+  await expect(
+    page.getByRole('region', { name: 'File: active.svg' }).locator('img'),
+  ).toHaveJSProperty('complete', true)
+  await expect(
+    page.getByRole('region', { name: 'Text preview of active.html' }),
+  ).toHaveText('<script>window.mediaExecuted=true</script>')
+  await expect(page.locator('.feed svg[onload], .feed script')).toHaveCount(0)
   expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
   await expect(page.locator('iframe,object,embed')).toHaveCount(0)
 })
@@ -393,7 +399,7 @@ test('missing content and integrity errors leave message readable with retry', a
   page,
 }) => {
   await setupMedia(page)
-  await attach(page)
+  await attach(page, 'actual bytes', 'sample.zip', 'application/zip')
   await send(page, 'Keep this caption')
   await page.route('**/conversations/media/artifacts/*/content?**', (route) =>
     route.fulfill({
@@ -406,14 +412,14 @@ test('missing content and integrity errors leave message readable with retry', a
     }),
   )
   await page
-    .getByRole('button', { name: 'Prepare download sample.txt' })
+    .getByRole('button', { name: 'Prepare download sample.zip' })
     .click()
   await expect(
-    page.getByRole('region', { name: 'File: sample.txt' }),
+    page.getByRole('region', { name: 'File: sample.zip' }),
   ).toContainText(/missing|unavailable/)
   await expect(
     page
-      .getByRole('region', { name: 'File: sample.txt' })
+      .getByRole('region', { name: 'File: sample.zip' })
       .getByRole('button', { name: 'Retry file' }),
   ).toBeVisible()
   await expect(
@@ -421,11 +427,11 @@ test('missing content and integrity errors leave message readable with retry', a
   ).toBeVisible()
   await page.unroute('**/conversations/media/artifacts/*/content?**')
   await page
-    .getByRole('region', { name: 'File: sample.txt' })
+    .getByRole('region', { name: 'File: sample.zip' })
     .getByRole('button', { name: 'Retry file' })
     .click()
   await expect(
-    page.getByRole('link', { name: 'Download sample.txt' }),
+    page.getByRole('link', { name: 'Download sample.zip' }),
   ).toBeVisible()
 })
 for (const mode of ['denied', 'unavailable', 'unsupported'])
@@ -767,7 +773,7 @@ test('corrupt binary upload is rejected and corrupt download is never exposed as
     { data: bytes, headers: { 'Content-Type': 'application/octet-stream' } },
   )
   expect(response.ok()).toBe(false)
-  await attach(page)
+  await attach(page, 'actual bytes', 'sample.zip', 'application/zip')
   await send(page)
   await page.route('**/conversations/media/artifacts/*/content?**', (route) =>
     route.fulfill({
@@ -777,13 +783,13 @@ test('corrupt binary upload is rejected and corrupt download is never exposed as
     }),
   )
   await page
-    .getByRole('button', { name: 'Prepare download sample.txt' })
+    .getByRole('button', { name: 'Prepare download sample.zip' })
     .click()
   await expect(
-    page.getByRole('region', { name: 'File: sample.txt' }),
+    page.getByRole('region', { name: 'File: sample.zip' }),
   ).toContainText(/integrity|match|verified/i)
   await expect(
-    page.getByRole('link', { name: 'Download sample.txt' }),
+    page.getByRole('link', { name: 'Download sample.zip' }),
   ).toHaveCount(0)
 })
 
@@ -1029,4 +1035,289 @@ test('cancelled preparing follow-up cannot revive after late transcription', asy
   expect(
     after.work.find((w: { runId: string }) => w.runId === reply.runId).state,
   ).toBe('cancelled')
+})
+
+const fixture = (name: string) =>
+  readFileSync(resolve(import.meta.dirname, 'fixtures/media', name))
+type Expected = 'image' | 'audio' | 'video' | 'pdf' | 'text' | 'generic'
+// name, MIME type, bytes, preview when the browser supports the format
+const previewSets: [string, string, Buffer, Expected][][] = [
+  [
+    ['song.mp3', 'audio/mpeg', fixture('tone.mp3'), 'audio'],
+    ['memo.m4a', 'audio/mp4', fixture('tone.m4a'), 'audio'],
+    ['dot.png', 'image/png', fixture('dot.png'), 'image'],
+    [
+      'diagram.svg',
+      'image/svg+xml',
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="20" onload="window.mediaExecuted=true"><rect width="40" height="20" fill="#4cc0a8"/></svg>',
+      ),
+      'image',
+    ],
+    ['clip.mp4', 'video/mp4', fixture('clip.mp4'), 'video'],
+    ['clip.mov', 'video/quicktime', fixture('clip.mov'), 'video'],
+  ],
+  [
+    ['report.pdf', 'application/pdf', fixture('report.pdf'), 'pdf'],
+    [
+      'notes.md',
+      'text/markdown',
+      Buffer.from('# Release notes\n\n<b>not bold</b> and **not bold**\n'),
+      'text',
+    ],
+    ['table.csv', 'text/csv', Buffer.from('name,size\nkip,1\n'), 'text'],
+    // A generic MIME type falls back to the extension.
+    [
+      'data.json',
+      'application/octet-stream',
+      Buffer.from('{"kip": true}\n'),
+      'text',
+    ],
+    ['readme.txt', 'text/plain', Buffer.from('Plain words.\n'), 'text'],
+    [
+      'bundle.zip',
+      'application/zip',
+      Buffer.from('PK\x03\x04 archive'),
+      'generic',
+    ],
+  ],
+]
+async function supported(page: Page, mimeType: string, kind: Expected) {
+  if (kind === 'pdf')
+    return page.evaluate(() => navigator.pdfViewerEnabled === true)
+  if (kind !== 'audio' && kind !== 'video') return true
+  return page.evaluate(
+    ([kind, type]) =>
+      (document.createElement(kind) as HTMLMediaElement).canPlayType(type) !==
+      '',
+    [kind, mimeType],
+  )
+}
+async function expectPreview(
+  page: Page,
+  scope: Locator,
+  [name, mimeType, bytes, preferred]: [string, string, Buffer, Expected],
+) {
+  const card = scope.getByRole('region', { name: `File: ${name}`, exact: true })
+  const kind = (await supported(page, mimeType, preferred))
+    ? preferred
+    : 'generic'
+  await expect(card).toBeVisible()
+  await expect(card.locator('.artifact-name small')).toContainText(mimeType)
+  const previews = card.locator(
+    'img, audio, video, iframe, [aria-label^="Text preview"]',
+  )
+  if (kind === 'generic') {
+    await expect(
+      card.getByRole('button', { name: `Prepare download ${name}` }),
+    ).toBeVisible()
+    await expect(previews).toHaveCount(0)
+    return kind
+  }
+  await expect(
+    card.getByRole('link', { name: `Download ${name}` }),
+  ).toBeVisible()
+  await expect(previews).toHaveCount(1)
+  if (kind === 'image') {
+    const image = card.getByRole('img', { name })
+    await expect(image).toBeVisible()
+    await expect
+      .poll(() => image.evaluate((e: HTMLImageElement) => e.naturalWidth))
+      .toBeGreaterThan(0)
+  } else if (kind === 'audio' || kind === 'video') {
+    const player = card.locator(kind)
+    await expect(player).toHaveAttribute('preload', 'metadata')
+    await expect(player).toHaveAccessibleName(`Play ${name}`)
+    // Metadata loads only for bytes the browser can really decode.
+    await expect
+      .poll(() => player.evaluate((e: HTMLMediaElement) => e.readyState))
+      .toBeGreaterThan(0)
+  } else if (kind === 'pdf') {
+    await expect(card.locator('iframe')).toHaveAttribute(
+      'title',
+      `PDF preview of ${name}`,
+    )
+    await expect(card.locator('iframe')).toBeVisible()
+  } else {
+    const text = card.getByRole('region', { name: `Text preview of ${name}` })
+    await expect(text).toHaveText(bytes.toString().replace(/\n$/, ''))
+    await expect(text.locator('b, h1, strong')).toHaveCount(0)
+  }
+  return kind
+}
+
+test('common file types preview inline in the chat and its thread, and every file downloads', async ({
+  page,
+}) => {
+  const { endpoint, target } = await setupMedia(page)
+  const upload = (set: (typeof previewSets)[number]) =>
+    Promise.all(
+      set.map(async ([name, mimeType, bytes]) => {
+        const { receipt } = await uploadMedia(
+          page,
+          endpoint,
+          target,
+          bytes,
+          'attachment',
+          name,
+          mimeType,
+        )
+        return {
+          kind: 'file',
+          artifactId: receipt.artifact.id,
+          purpose: 'attachment',
+        }
+      }),
+    )
+  const first = await submitMedia(page, target, [
+    { kind: 'text', text: 'Preview set one' },
+    ...(await upload(previewSets[0])),
+  ])
+  await submitMedia(page, target, [
+    { kind: 'text', text: 'Preview set two' },
+    ...(await upload(previewSets[1])),
+  ])
+  const feed = page.locator('.feed')
+  const kinds: Record<string, string> = {}
+  for (const file of previewSets.flat())
+    kinds[file[0]] = await expectPreview(page, feed, file)
+  test.info().annotations.push({
+    type: 'preview kinds',
+    description: JSON.stringify(kinds),
+  })
+
+  // A previewed file downloads straight away; others prepare first.
+  for (const [name, , bytes] of [previewSets[0][2], previewSets[1][5]]) {
+    const card = feed.getByRole('region', {
+      name: `File: ${name}`,
+      exact: true,
+    })
+    const prepare = card.getByRole('button', {
+      name: `Prepare download ${name}`,
+    })
+    if (await prepare.isVisible()) await prepare.click()
+    const ready = page.waitForEvent('download')
+    await card.getByRole('link', { name: `Download ${name}` }).click()
+    const download = await ready
+    expect(download.suggestedFilename()).toBe(name)
+    const chunks = []
+    for await (const chunk of (await download.createReadStream())!)
+      chunks.push(chunk)
+    expect(Buffer.concat(chunks).equals(bytes)).toBe(true)
+  }
+
+  const threadId = (await mediaMessages(page)).find(
+    (m: { id: string }) => m.id === first.messageId,
+  ).threadId
+  await submitMedia(
+    page,
+    target,
+    [
+      { kind: 'text', text: 'Second set in the thread' },
+      ...(await upload(previewSets[1])),
+    ],
+    threadId,
+  )
+  await page
+    .getByRole('button', { name: 'Open thread: Preview set one', exact: true })
+    .click()
+  const thread = page.locator('.thread-pane')
+  for (const file of previewSets.flat())
+    expect(await expectPreview(page, thread, file)).toBe(kinds[file[0]])
+  expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
+})
+
+test('a large text file previews only a bounded, truncated start', async ({
+  page,
+}) => {
+  const { endpoint, target } = await setupMedia(page)
+  const line = 'Kipster large log line with steady width.\n'
+  const bytes = Buffer.from(
+    line.repeat(Math.ceil((20 * 1024 * 1024) / line.length)),
+  )
+  const { receipt } = await uploadMedia(
+    page,
+    endpoint,
+    target,
+    bytes,
+    'attachment',
+    'huge.log',
+    'text/plain',
+  )
+  await submitMedia(page, target, [
+    { kind: 'file', artifactId: receipt.artifact.id, purpose: 'attachment' },
+  ])
+  const card = page.getByRole('region', { name: 'File: huge.log', exact: true })
+  const text = card.getByRole('region', { name: 'Text preview of huge.log' })
+  await expect(text).toBeVisible({ timeout: 20_000 })
+  await expect(card).toContainText('20.0 MB')
+  await expect(card).toContainText('Preview shows the first 96 KB')
+  const shown = await text.evaluate((e) => e.textContent!.length)
+  expect(shown).toBeGreaterThan(90 * 1024)
+  expect(shown).toBeLessThanOrEqual(96 * 1024)
+  // The preview box scrolls instead of growing with the file.
+  const box = await text.boundingBox()
+  expect(box!.height).toBeLessThanOrEqual(260)
+  await page
+    .getByRole('textbox', { name: 'Start a new thread' })
+    .fill('Still responsive')
+  await expect(
+    page.getByRole('textbox', { name: 'Start a new thread' }),
+  ).toHaveValue('Still responsive')
+  await expect(
+    card.getByRole('link', { name: 'Download huge.log' }),
+  ).toBeVisible()
+})
+
+test('a PDF preview frames only real PDF bytes as a typed blob', async ({
+  page,
+}) => {
+  await page.addInitScript(() =>
+    Object.defineProperty(Navigator.prototype, 'pdfViewerEnabled', {
+      get: () => true,
+    }),
+  )
+  const { endpoint, target } = await setupMedia(page)
+  const parts = []
+  for (const [name, bytes] of [
+    ['report.pdf', fixture('report.pdf')],
+    [
+      'fake.pdf',
+      Buffer.from('<script>window.mediaExecuted=true</script>%PDF'.repeat(40)),
+    ],
+  ] as const) {
+    const { receipt } = await uploadMedia(
+      page,
+      endpoint,
+      target,
+      bytes,
+      'attachment',
+      name,
+      'application/pdf',
+    )
+    parts.push({
+      kind: 'file',
+      artifactId: receipt.artifact.id,
+      purpose: 'attachment',
+    })
+  }
+  await submitMedia(page, target, parts)
+  const real = page.getByRole('region', { name: 'File: report.pdf' })
+  const frame = real.locator('iframe')
+  await expect(frame).toHaveAttribute('title', 'PDF preview of report.pdf')
+  await expect(frame).toHaveAttribute('src', /^blob:/)
+  const type = await frame.evaluate(async (e: HTMLIFrameElement) => {
+    const blob = await (await fetch(e.src)).blob()
+    return blob.type
+  })
+  expect(type).toBe('application/pdf')
+  const fake = page.getByRole('region', { name: 'File: fake.pdf' })
+  await expect(
+    fake.getByRole('link', { name: 'Download fake.pdf' }),
+  ).toBeVisible()
+  await expect(
+    fake.locator('iframe, img, [aria-label^="Text preview"]'),
+  ).toHaveCount(0)
+  await expect(page.locator('iframe')).toHaveCount(1)
+  expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
 })

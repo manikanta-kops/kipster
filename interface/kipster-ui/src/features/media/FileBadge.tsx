@@ -1,6 +1,6 @@
 import { Icon } from '../../components/Icon'
 
-type Family = 'pdf' | 'image' | 'audio' | 'video' | 'archive' | 'code' | 'doc'
+type Family = 'pdf' | 'image' | 'audio' | 'video' | 'archive' | 'code' | 'other'
 
 function family(name: string, mimeType = ''): Family {
   const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : ''
@@ -25,7 +25,7 @@ function family(name: string, mimeType = ''): Family {
     ].includes(ext)
   )
     return 'code'
-  return 'doc'
+  return 'other'
 }
 
 /** A small glossy document tile showing the file's extension. */

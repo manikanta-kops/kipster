@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
@@ -208,12 +208,12 @@ test('restoring brings the agent back unchanged: stopped work stays stopped, Ret
   await ctx.db.query("INSERT INTO kipster.diary(agent_id,day,installation_id,summary) VALUES ($1,'2026-01-09',$2,'Opened the desk at nine')", [ctx.scout, ctx.installationId])
   // Scout writes and publishes a file, then its next run fails.
   const writer = await ctx.running(ctx.scout, 'Write the notes')
-  const output = await writer.call('artifacts_write', { name: 'notes.txt', content: 'Quarterly notes' })
-  const published = await writer.call('artifacts_publish', { outputId: output.outputId })
-  await writer.call('conversation_publish', { text: 'Here are the notes', artifactIds: [published.artifact.id] })
+  await mkdir(ctx.runtime.home.agent(ctx.scout), { recursive: true })
+  await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'notes.txt'), 'Quarterly notes')
+  const [published] = (await writer.call('conversation_publish', { text: 'Here are the notes', files: ['notes.txt'] })).files
   ctx.finish(writer)
   await ctx.settled(writer.runId, 'completed')
-  const file = { id: published.artifact.id, target: { installationId: ctx.installationId, callerId: ctx.ownerId, context: ctx.context, chatId: writer.chatId, threadId: writer.threadId } }
+  const file = { id: published.artifactId, target: { installationId: ctx.installationId, callerId: ctx.ownerId, context: ctx.context, chatId: writer.chatId, threadId: writer.threadId } }
   const failed = await ctx.running(ctx.scout, 'This one fails')
   failed.release({ kind: 'failed', confirmedEnded: true, message: 'provider failed' })
   await ctx.settled(failed.runId, 'failed')

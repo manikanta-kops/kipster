@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
@@ -182,28 +182,35 @@ for (const [name, writer] of Object.entries(writers)) {
   })
 }
 
-test('artifacts: a write claimed before the change is fenced before it lands; one after is refused', { skip: noDatabase, timeout: 60000 }, async t => {
+test('artifacts: files attached before the change are fenced before they are published; ones after are refused', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.running()
-  const written = (key, callId = randomUUID()) => outcome(run.call('artifacts_write', { name: `${key}.txt`, content: key }, callId))
-  const outputs = state => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifact_output_writes WHERE state=$1`, [state])
-  const ready = await written('earlier')
-  assert.equal(ready.value.status, 'completed', 'a write finished before the change stays')
+  const folder = await mkdtemp(join(tmpdir(), 'kipster-fencing-files-'))
+  t.after(() => rm(folder, { recursive: true, force: true }))
+  const attached = async (key, callId = randomUUID()) => {
+    await writeFile(join(folder, `${key}.txt`), key)
+    return outcome(run.call('conversation_publish', { text: key, files: [join(folder, `${key}.txt`)] }, callId))
+  }
+  const claims = state => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifact_file_attachments WHERE state=$1`, [state])
+  const ready = await attached('earlier')
+  assert.equal(ready.value.status, 'completed', 'a file published before the change stays')
   const [sql, params] = runLock(run)
   const barrier = await ctx.hold(sql, params)
-  const writing = written('racing')
+  const writing = attached('racing')
   await ctx.waiting(1)
   const flipping = ctx.flip()
   await ctx.waiting(2)
   await barrier.release()
   const raced = await writing
   await flipping
-  assert.match(raced.error?.message ?? '', /not live/, 'the claim committed before the change; the file never becomes ready')
-  assert.deepEqual([await outputs('ready'), await outputs('failed')], [1, 1])
+  assert.equal(raced.value.status, 'failed', 'the claim committed before the change; the file is never published')
+  assert.deepEqual([await claims('ready'), await claims('failed')], [1, 1])
+  assert.equal(await count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifacts WHERE owner_kind='agent' AND state='ready'`), 1)
+  assert.equal(await count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.messages WHERE parts @> $1::jsonb', [JSON.stringify([{ kind: 'text', text: 'racing' }])]), 0)
   assert.equal((await ctx.state(run.runId)).stop_requested, true)
-  const after = await written('after')
-  assert.match(after.error?.message ?? '', /not live/)
-  assert.equal(await outputs('staging'), 0)
+  const after = await attached('after')
+  assert.match(after.value.reason, /not live/)
+  assert.equal(await claims('staging'), 0)
 })
 
 test('artifacts: an organization upload racing the organization change waits and is refused', { skip: noDatabase, timeout: 60000 }, async t => {

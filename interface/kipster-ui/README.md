@@ -12,7 +12,7 @@ Install dependencies once from the repository root with Node.js 26.10.0
 ```sh
 npm run dev                       # Embedded fake Core (demo mode)
 npm run dev:core                  # Real client; connect to an existing Core
-npm run check                     # Lint, formatting, TypeScript and production build
+npm run check                     # Lint, formatting, unit tests, TypeScript and production build
 npm run build                     # Real client
 npm run preview                   # Serve the built client
 ```
@@ -117,6 +117,7 @@ support. Native connectivity, permissions and distribution need release validati
 ```sh
 npm run test:entry                # Built/dev entry and connection regression checks
 npm run test:fake-core            # Core protocol conformance
+npm run test:unit                 # File preview classification and bounded text reads
 npm run test:e2e                  # Browser tests in Chromium
 npm run test:native-updater       # Isolated signed self-update on Apple silicon macOS
 npx playwright install webkit
