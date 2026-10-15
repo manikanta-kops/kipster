@@ -1,7 +1,7 @@
 // Run through core/scripts/with-test-database.mjs; all state is disposable.
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, rm, mkdir } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -125,33 +125,24 @@ try {
   )
   const tool = (name, args) =>
     execution.handle.callTool(randomUUID(), name, args)
-  const written = await tool('artifacts_write', {
-    name: 'garden.txt',
-    content: 'Retained garden report',
-  })
-  const file = (await tool('artifacts_publish', { outputId: written.outputId }))
-    .artifact
-  await tool('conversation_publish', {
-    text: 'Garden report',
-    artifactIds: [file.id],
-  })
+  const reports = join(home, 'reports')
+  await mkdir(reports, { recursive: true })
+  for (const name of ['garden.txt', 'copy-only.txt'])
+    await writeFile(join(reports, name), 'Retained garden report')
+  const attach = async (text, name) => {
+    const [attached] = (
+      await tool('conversation_publish', {
+        text,
+        files: [join(reports, name)],
+      })
+    ).files
+    return { id: attached.artifactId }
+  }
+  const file = await attach('Garden report', 'garden.txt')
   const published = (
     await tool('artifacts_copy_to_organization', { artifactId: file.id })
   ).artifact
-  const copySource = (
-    await tool('artifacts_publish', {
-      outputId: (
-        await tool('artifacts_write', {
-          name: 'copy-only.txt',
-          content: 'Retained garden report',
-        })
-      ).outputId,
-    })
-  ).artifact
-  await tool('conversation_publish', {
-    text: 'Copy this report too',
-    artifactIds: [copySource.id],
-  })
+  const copySource = await attach('Copy this report too', 'copy-only.txt')
   vite = spawn(
     process.execPath,
     [

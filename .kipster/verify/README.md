@@ -16,9 +16,10 @@ No owner credentials, provider homes or real adapters are used.
 
 Ordinary messages return `Fixture reply: <text>`. Special messages start with
 `__question__` (Blue/Red question), `__approval__` (inert color proposal),
-`__hold__` (wait until Stop), or `__fail_once__` (fail once per run, succeed after
-Retry). A message containing `write a rich doc` creates Trip plan; submission
-revises its heading and resolves submitted comments. Transcription reports
+`__hold__` (wait until Stop), `__fail_once__` (fail once per run, succeed after
+Retry), or `__files__` (publish one real file of each common type by path, then
+reply `Fixture sent files: <text>`). A message containing `write a rich doc`
+creates Trip plan; submission revises its heading and resolves submitted comments. Transcription reports
 unavailable and preserves original voice bytes. Updates use an empty local
 catalog and an unmanaged backend; they never install anything. Plugins run the
 `@kipster/plugins` server in test-only mode with one plugin, Fixture, whose local

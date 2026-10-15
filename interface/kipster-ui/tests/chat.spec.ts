@@ -138,7 +138,9 @@ test('file-only messages upload original bytes and reference stable artifacts', 
   await expect(
     page.getByRole('region', { name: 'File: scope.txt', exact: true }),
   ).toContainText('scope.txt')
-  await page.getByRole('button', { name: 'Prepare download scope.txt' }).click()
+  await expect(
+    page.getByRole('region', { name: 'Text preview of scope.txt' }),
+  ).toHaveText('Preview attachment')
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('link', { name: 'Download scope.txt' }).click()
   const download = await downloadPromise

@@ -52,9 +52,15 @@ const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
 })
 const findings = []
+// Chrome's built-in PDF viewer loads its own bundled resources; none leave the browser.
+const builtIn = ({ protocol, host }) =>
+  (protocol === 'chrome-extension:' &&
+    host === 'mhjfbmdgcfjbbpaeojofohoefgiehjai') ||
+  (protocol === 'chrome:' && host === 'resources')
 await context.route('**/*', async (route) => {
   const destination = new URL(route.request().url())
-  if (!allowed.has(destination.origin)) {
+  if (builtIn(destination)) await route.continue()
+  else if (!allowed.has(destination.origin)) {
     findings.push(`Blocked destination: ${destination.origin}`)
     await route.abort('blockedbyclient')
   } else await route.continue()

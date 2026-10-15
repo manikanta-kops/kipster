@@ -1,3 +1,7 @@
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { filesPerMessage, fixtureDirectory, fixtureFiles } from './files.mjs'
+
 export const scenarios = [
   'connection',
   'conversations',
@@ -19,6 +23,7 @@ export const scenarios = [
   'identity',
   'rich-doc',
   'attachment',
+  'kip-files',
   'voice',
   'updates',
   'plugins',
@@ -470,14 +475,17 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       )
       await composer.getByRole('button', { name: 'Send message' }).click()
       const receipt = await (await accepted).json()
-      await page
-        .locator('.feed-message')
-        .filter({ hasText: 'Read this fixture attachment' })
-        .last()
-        .getByRole('button', { name: /^Open thread:/ })
-        .press('Enter')
+      // Earlier runs leave roots with the same caption; find this one by file.
+      const feed = page.locator('.feed-message').filter({
+        has: page.getByRole('region', { name: `File: ${file}`, exact: true }),
+      })
+      await expect(feed).toBeVisible()
+      await feed.getByRole('button', { name: /^Open thread:/ }).press('Enter')
+      // The root shows in both the feed and the thread pane; check the pane.
       await expect(
-        page.getByRole('region', { name: `File: ${file}`, exact: true }),
+        page
+          .locator('.thread-pane')
+          .getByRole('region', { name: `File: ${file}`, exact: true }),
       ).toBeVisible()
       const saved = await snapshot(receipt)
       const bootstrap = await get('/v1/bootstrap')
@@ -491,11 +499,7 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
           kind: 'installation',
           installationId: bootstrap.installationId,
         },
-        chatId:
-          saved.scope?.chatId ??
-          (await get('/v1/app/snapshot')).threads.find(
-            (thread) => thread.threadId === receipt.threadId,
-          ).chatId,
+        chatId: receipt.chatId,
         threadId: receipt.threadId,
       }
       const content = await page.request.get(
@@ -504,6 +508,215 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       expect(content.ok()).toBe(true)
       expect((await content.body()).toString()).toBe(
         'Factory attachment bytes\n',
+      )
+      break
+    }
+    case 'kip-files': {
+      // The fixture kip attaches one real file of each common type by path, in
+      // a new thread and again in a reply, through conversation_publish.
+      const bootstrap = await get('/v1/bootstrap')
+      const pdfViewer = await page.evaluate(
+        () => navigator.pdfViewerEnabled === true,
+      )
+      const originals = Object.fromEntries(
+        await Promise.all(
+          fixtureFiles.map(async ({ name }) => [
+            name,
+            await readFile(join(fixtureDirectory, name)),
+          ]),
+        ),
+      )
+      const size = (bytes) =>
+        bytes < 1024 ? `${bytes} B` : `${Math.ceil(bytes / 1024)} KB`
+      const pane = page.locator('.thread-pane')
+      const details = {
+        chrome: page.context().browser()?.version(),
+        pdfViewerEnabled: pdfViewer,
+        runs: [],
+      }
+      // Checks the newest kip file messages in the open thread, on screen and in Core.
+      const check = async (label, receipt) => {
+        const messages = pane.locator('.message-body')
+        const message = (text) =>
+          messages.filter({ has: page.getByText(text, { exact: true }) }).last()
+        const scopes = [message('Fixture files'), message('More fixture files')]
+        const run = { label, threadId: receipt.threadId, files: {} }
+        for (const [index, file] of fixtureFiles.entries()) {
+          const { name, mimeType } = file
+          const bytes = originals[name]
+          const card = scopes[index < filesPerMessage ? 0 : 1].getByRole(
+            'region',
+            { name: `File: ${name}`, exact: true },
+          )
+          // Without Chrome's PDF viewer a PDF falls back to the generic card.
+          const preview =
+            file.preview === 'pdf' && !pdfViewer ? 'generic' : file.preview
+          await expect(card).toBeVisible()
+          await expect(card.locator('.artifact-name strong')).toHaveText(name)
+          await expect(card.locator('.artifact-name small')).toHaveText(
+            `${size(bytes.length)} · ${mimeType}`,
+          )
+          const previews = card.locator(
+            'img, audio, video, iframe, [aria-label^="Text preview"]',
+          )
+          if (preview === 'generic') {
+            await expect(previews).toHaveCount(0)
+            await card
+              .getByRole('button', { name: `Prepare download ${name}` })
+              .click()
+          } else {
+            await expect(previews).toHaveCount(1)
+            if (preview === 'image') {
+              const image = card.getByRole('img', { name, exact: true })
+              await expect(image).toBeVisible()
+              await expect
+                .poll(() => image.evaluate((e) => e.naturalWidth))
+                .toBeGreaterThan(0)
+            } else if (preview === 'audio' || preview === 'video') {
+              const player = card.locator(preview)
+              await expect(player).toHaveAccessibleName(`Play ${name}`)
+              // Metadata loads only for bytes Chrome can really decode.
+              await expect
+                .poll(() => player.evaluate((e) => e.readyState))
+                .toBeGreaterThan(0)
+              expect(await player.evaluate((e) => e.duration)).toBeGreaterThan(
+                0,
+              )
+            } else if (preview === 'pdf') {
+              const frame = card.locator('iframe')
+              await expect(frame).toHaveAttribute(
+                'title',
+                `PDF preview of ${name}`,
+              )
+              await expect(frame).toHaveAttribute('src', /^blob:/)
+              // The frame loads lazily; bring it into view so Chrome paints it.
+              await frame.scrollIntoViewIfNeeded()
+              await expect(frame).toBeVisible()
+            } else {
+              const text = card.getByRole('region', {
+                name: `Text preview of ${name}`,
+              })
+              // Markup in the file is shown as text, never rendered.
+              await expect(text.locator('pre')).toHaveText(
+                bytes.toString().replace(/\n$/, ''),
+                { useInnerText: true },
+              )
+              await expect(
+                text.locator('pre *, b, i, h1, strong, script'),
+              ).toHaveCount(0)
+            }
+          }
+          const downloaded = page.waitForEvent('download')
+          await card.getByRole('link', { name: `Download ${name}` }).click()
+          const download = await downloaded
+          expect(download.suggestedFilename()).toBe(name)
+          const chunks = []
+          for await (const chunk of await download.createReadStream())
+            chunks.push(chunk)
+          expect(Buffer.concat(chunks).equals(bytes)).toBe(true)
+          // Loaded content still shows no preview for a generic file.
+          if (preview === 'generic') await expect(previews).toHaveCount(0)
+          run.files[name] = { preview, downloadMatches: true }
+        }
+        // Core's record of the same messages: text, file names, types and bytes.
+        const saved = await snapshot(receipt)
+        const target = encodeURIComponent(
+          JSON.stringify({
+            installationId: bootstrap.installationId,
+            callerId: bootstrap.callerId,
+            context: {
+              kind: 'installation',
+              installationId: bootstrap.installationId,
+            },
+            chatId: receipt.chatId,
+            threadId: receipt.threadId,
+          }),
+        )
+        const published = ['Fixture files', 'More fixture files'].map((text) =>
+          saved.messages
+            .filter(
+              (message) =>
+                message.authorId !== bootstrap.callerId &&
+                message.parts.some((part) => part.text === text),
+            )
+            .at(-1),
+        )
+        const artifacts = published.flatMap((message) =>
+          message.parts
+            .filter((part) => part.kind === 'file')
+            .map((part) => part.artifactId),
+        )
+        expect(artifacts).toHaveLength(fixtureFiles.length)
+        for (const [index, artifactId] of artifacts.entries()) {
+          const { name, mimeType } = fixtureFiles[index]
+          const metadata = await get(
+            `/conversations/media/artifacts/${artifactId}?target=${target}`,
+          )
+          expect(metadata).toMatchObject({
+            id: artifactId,
+            name,
+            mimeType,
+            size: originals[name].length,
+            availability: 'registered',
+          })
+          const content = await page.request.get(
+            `${origin}/conversations/media/artifacts/${artifactId}/content?target=${target}`,
+          )
+          expect(content.ok()).toBe(true)
+          expect((await content.body()).equals(originals[name])).toBe(true)
+          Object.assign(run.files[name], {
+            artifactId,
+            mimeType: metadata.mimeType,
+            size: metadata.size,
+          })
+        }
+        details.runs.push(run)
+      }
+      const shot = (step, locator = page) =>
+        locator.screenshot({
+          path: `${evidenceDir}/kip-files-${step}.png`,
+          ...(locator === page ? { fullPage: true } : {}),
+        })
+
+      // A new thread from the main chat; the kip's files open in its thread.
+      const first = unique('__files__ new thread')
+      const receipt = await root(first)
+      await expect(
+        pane.getByText(`Fixture sent files: ${first}`, { exact: true }),
+      ).toBeVisible()
+      await expect(
+        page
+          .locator('.feed-message')
+          .filter({ hasText: first })
+          .locator('.reply-link'),
+      ).toBeVisible()
+      await check('new thread', receipt)
+      await shot('main-chat')
+
+      // A reply inside the open thread.
+      const reply = unique('__files__ reply')
+      await page
+        .getByRole('textbox', { name: 'Reply in this thread' })
+        .fill(reply)
+      await page.getByRole('button', { name: 'Send message' }).last().click()
+      await expect(
+        pane.getByText(`Fixture sent files: ${reply}`, { exact: true }),
+      ).toBeVisible()
+      await check('reply in thread', receipt)
+      await shot('thread-pane')
+      await shot('thread-pane-files', pane)
+
+      // Light and dark only follow the system when the shared setting allows it.
+      details.theme = (await get('/v1/settings/interface')).theme
+      if (details.theme === 'system')
+        for (const scheme of ['light', 'dark']) {
+          await page.emulateMedia({ colorScheme: scheme })
+          await shot(scheme)
+        }
+      expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
+      await writeFile(
+        `${evidenceDir}/kip-files-details.json`,
+        JSON.stringify(details, null, 2) + '\n',
       )
       break
     }

@@ -53,7 +53,7 @@ export async function uploadMedia(
   page: Page,
   endpoint: string,
   target: object,
-  bytes = Buffer.from('original bytes'),
+  bytes: Buffer = Buffer.from('original bytes'),
   purpose = 'attachment',
   name = 'same.bin',
   mimeType = 'application/octet-stream',

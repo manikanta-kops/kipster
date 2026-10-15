@@ -150,7 +150,8 @@ export function Composer({
                   className={`pending-media ${file.state}${file.intent.purpose === 'voice_note' ? ' voice' : ''}`}
                 >
                   {file.intent.purpose !== 'voice_note' &&
-                    (previewKind(file.intent.mimeType) === 'image' ? (
+                    (previewKind(file.intent.mimeType, file.intent.name) ===
+                    'image' ? (
                       <span className="pending-thumb">
                         <BlobPreview
                           blob={file.bytes}
@@ -212,11 +213,13 @@ export function Composer({
                       <small className="media-error">{file.error}</small>
                     )}
                     {file.intent.purpose !== 'voice_note' &&
-                      previewKind(file.intent.mimeType) !== 'image' && (
+                      previewKind(file.intent.mimeType, file.intent.name) !==
+                        'image' && (
                         <BlobPreview
                           blob={file.bytes}
                           name={file.intent.name}
                           fallback={null}
+                          compact
                         />
                       )}
                   </div>
