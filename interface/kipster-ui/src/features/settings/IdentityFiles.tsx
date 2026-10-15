@@ -11,8 +11,7 @@ import { BarTools, Block, Callout, Row, Segmented } from './ui'
 import { useSheet } from './sheet'
 
 const identityFiles = [
-  { name: 'AGENTS.md', what: 'How it works' },
-  { name: 'soul.md', what: 'Values and voice' },
+  { name: 'soul.md', what: 'Character and how it works' },
   { name: 'identity.md', what: 'Who it is' },
 ]
 type Backup = IdentityBackups['backups'][number]

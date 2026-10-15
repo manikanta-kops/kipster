@@ -22,7 +22,7 @@ else if(x.method==='thread/start'){record({instructions:x.params.baseInstruction
 else if(x.method==='turn/start'){
  record({input:x.params.input});
  send({id:x.id,result:{turn:{id:'turn-1'}}});
- setTimeout(()=>send({id:101,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'call-1',tool:'admin_call',arguments:{operation:'agents.create',operationId:'stable-create',arguments:{name:'Scout'}}}}),10);
+ setTimeout(()=>send({id:101,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'call-1',tool:'run_admin_operation',arguments:{operation:'agents.create',operationId:'stable-create',arguments:{name:'Scout'}}}}),10);
 }else if(x.id===101){record({answer:101,success:x.result.success});send({id:102,method:'item/tool/call',params:{threadId:'thread-1',turnId:'turn-1',callId:'call-2',tool:'admin_agents_create',arguments:{name:'Scout'}}})}
 else if(x.id===102){record({answer:102,success:x.result.success});send({method:'turn/completed',params:{threadId:'thread-1',turn:{id:'turn-1',status:'completed'}}})}
 });
@@ -32,8 +32,8 @@ else if(x.id===102){record({answer:102,success:x.result.success});send({method:'
 }
 
 const tools = [
-  { name: 'conversation_publish', description: 'Publish a message.', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, additionalProperties: false } },
-  { name: 'admin_call', description: 'Run one administration operation.', inputSchema: { type: 'object', properties: { operation: { type: 'string' } }, required: ['operation'] } },
+  { name: 'post_chat_message', description: 'Publish a message.', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, additionalProperties: false } },
+  { name: 'run_admin_operation', description: 'Run one administration operation.', inputSchema: { type: 'object', properties: { operation: { type: 'string' } }, required: ['operation'] } },
 ]
 
 test('Core tools, instructions and prompt reach Codex unchanged, and only offered tools are forwarded', async () => {
@@ -53,7 +53,7 @@ test('Core tools, instructions and prompt reach Codex unchanged, and only offere
     const log = await read()
     assert.equal(log[0].instructions, 'Core instructions')
     assert.deepEqual(log[0].tools, tools.map(tool => ({ type: 'function', ...tool })))
-    assert.deepEqual(calls, [{ attemptId: 'attempt', callId: 'call-1', name: 'admin_call', arguments: { operation: 'agents.create', operationId: 'stable-create', arguments: { name: 'Scout' } } }])
+    assert.deepEqual(calls, [{ attemptId: 'attempt', callId: 'call-1', name: 'run_admin_operation', arguments: { operation: 'agents.create', operationId: 'stable-create', arguments: { name: 'Scout' } } }])
     assert.deepEqual(log.filter(item => item.answer), [{ answer: 101, success: true }, { answer: 102, success: false }], 'a tool Core did not offer is refused before it reaches Core')
     assert.deepEqual(log.find(item => item.input).input, [{ type: 'text', text: 'Core prompt' }], 'Core renders the turn; the adapter sends it unchanged')
     assert.equal(events.at(-1).kind, 'ended')

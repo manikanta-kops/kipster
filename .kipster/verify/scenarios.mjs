@@ -513,7 +513,7 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
     }
     case 'kip-files': {
       // The fixture kip attaches one real file of each common type by path, in
-      // a new thread and again in a reply, through conversation_publish.
+      // a new thread and again in a reply, through post_chat_message.
       const bootstrap = await get('/v1/bootstrap')
       const pdfViewer = await page.evaluate(
         () => navigator.pdfViewerEnabled === true,

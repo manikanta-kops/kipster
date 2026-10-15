@@ -66,8 +66,8 @@ const scenarios = {
     done()
   },
   async repeat() {
-    await call('interactions_ask', { prompt: 'First?', options: [], freeText: true }, 'toolu_a')
-    log({ second: await call('interactions_ask', { prompt: 'Second?', options: [], freeText: true }, 'toolu_b') })
+    await call('ask_user_question', { prompt: 'First?', options: [], freeText: true }, 'toolu_a')
+    log({ second: await call('ask_user_question', { prompt: 'Second?', options: [], freeText: true }, 'toolu_b') })
     done()
   },
   async error() { send({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'API Error: overloaded', session_id: session }) },

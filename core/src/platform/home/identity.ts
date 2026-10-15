@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { link, lstat, open, readdir, readFile, rename, rm } from 'node:fs/promises'
 
-export const identityFileNames = ['AGENTS.md', 'soul.md', 'identity.md'] as const
+export const identityFileNames = ['soul.md', 'identity.md'] as const
 export type IdentityFileName = typeof identityFileNames[number]
 /** `owner` may change any identity file; `kipster` may change only the Learned section of identity.md. */
 export type IdentityAuthor = 'owner' | 'kipster'

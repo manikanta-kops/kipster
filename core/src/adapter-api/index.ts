@@ -190,7 +190,7 @@ export interface AdapterHost {
   now(): string
   /**
    * Authenticated by Core and correlated to the originating attempt. To show a provider's own approval or question,
-   * call `interactions_request_approval` or `interactions_ask` with a call ID starting `native:`. Such an approval may
+   * call `request_user_approval` or `ask_user_question` with a call ID starting `native:`. Such an approval may
    * add `grant: { key, label, scopes }`: the person can then allow the action for the conversation or always, and
    * later executions receive `key` in `approvalGrants`. Keys are the adapter's own; prefix them with its ID.
    */

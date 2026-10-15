@@ -131,7 +131,7 @@ try {
     await writeFile(join(reports, name), 'Retained garden report')
   const attach = async (text, name) => {
     const [attached] = (
-      await tool('conversation_publish', {
+      await tool('post_chat_message', {
         text,
         files: [join(reports, name)],
       })
@@ -140,7 +140,7 @@ try {
   }
   const file = await attach('Garden report', 'garden.txt')
   const published = (
-    await tool('artifacts_copy_to_organization', { artifactId: file.id })
+    await tool('copy_attachment_to_workspace', { artifactId: file.id })
   ).artifact
   const copySource = await attach('Copy this report too', 'copy-only.txt')
   vite = spawn(
@@ -813,7 +813,7 @@ try {
   const adminExecution = await until(() =>
     executions.find((e) => e.context.runId === adminRun.runId),
   )
-  await adminExecution.handle.callTool(randomUUID(), 'admin_call', {
+  await adminExecution.handle.callTool(randomUUID(), 'run_admin_operation', {
     operation: 'agents.archive',
     arguments: { agentId: maple.id },
   })
@@ -960,7 +960,7 @@ try {
   )
   const delegation = await parentExecution.handle.callTool(
     randomUUID(),
-    'agents_delegate',
+    'delegate_to_kip',
     { recipientId: helper.id, request: 'Ask the owner which color to use' },
   )
   parentExecution.handle.release({

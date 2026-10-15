@@ -87,7 +87,7 @@ for (const mode of ['streaming', 'waiting', 'asking']) test(`SIGKILL while ${mod
   const changed = await fetch(ctx.server.url + `/v1/agents/${ids.rootAgentId}/settings`, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ version: 1, operationId: randomUUID(), settings: { modelId: { set: 'fixture-current' } } }) })
   assert.equal(changed.status, 200)
   const marker = 'Current continuation instruction marker'
-  await writeFile(join(ctx.home, 'agents', ids.rootAgentId, 'AGENTS.md'), marker + '\n')
+  await writeFile(join(ctx.home, 'agents', ids.rootAgentId, 'soul.md'), marker + '\n')
   assert.equal(attempt.settings.modelId, 'fixture-model')
   const answer = { version: 1, operationId: randomUUID(), interactionId: card.interactionId, threadId: receipt.threadId, runId: receipt.runId, attemptId: attempt.attemptId, answer: { kind: 'choice', optionId: 'yes' } }
   const results = await Promise.all([post(ctx.server.url, '/v1/work/interactions/answer', answer), post(ctx.server.url, '/v1/work/interactions/answer', { ...answer, operationId: randomUUID() })])

@@ -13,6 +13,7 @@ import type {
   TextInteraction,
   TextDelegation,
 } from '../data/text.ts'
+import { protocolRange } from '@kipster/core/protocol'
 import { createAdministration, DEMO_IDS } from './admin.ts'
 import { createFakeMedia } from './media.ts'
 import { createFakeDocuments, type DocumentPart } from './documents.ts'
@@ -96,7 +97,7 @@ export function createFakeCore(
   }
   const initialRelease = () => ({
     coreVersion: options.coreVersion ?? '0.0.0-demo',
-    protocol: { ...(options.protocol ?? { current: 1, oldest: 1 }) },
+    protocol: { ...(options.protocol ?? protocolRange) },
   })
   let release = initialRelease()
   const chats = new Map<string, Chat>()

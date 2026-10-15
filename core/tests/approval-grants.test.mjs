@@ -50,10 +50,10 @@ test('approval grants cover the conversation or every kip, reach executions and 
     await until(() => adapter.contexts.length, n => n === 1, 'first execution')
     assert.deepEqual(adapter.contexts[0].approvalGrants, [])
     const attempt = adapter.contexts[0].attemptId
-    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'tool-1', name: 'interactions_request_approval', arguments: card('test:arc') }), /Invalid interaction fields/, 'a kip cannot offer itself a grant')
-    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'native:bad', name: 'interactions_request_approval', arguments: card('test:arc', ['forever']) }), /Invalid approval grant/)
+    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'tool-1', name: 'request_user_approval', arguments: card('test:arc') }), /Invalid interaction fields/, 'a kip cannot offer itself a grant')
+    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'native:bad', name: 'request_user_approval', arguments: card('test:arc', ['forever']) }), /Invalid approval grant/)
     const arguments_ = card('test:arc', ['conversation'])
-    const asked = { ...await host.invokeTool({ attemptId: attempt, callId: 'native:1', name: 'interactions_request_approval', arguments: arguments_ }), proposalId: arguments_.proposalId }
+    const asked = { ...await host.invokeTool({ attemptId: attempt, callId: 'native:1', name: 'request_user_approval', arguments: arguments_ }), proposalId: arguments_.proposalId }
     adapter.handles[0].emit({ kind: 'ended', attemptId: attempt, confirmed: true })
     await until(async () => (await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [first.runId])).rows[0]?.state, x => x === 'waiting', 'waiting')
     const page = threadSnapshot.parse(await (await fetch(`${server.url}/v1/threads/${first.threadId}/snapshot`)).json())
@@ -74,7 +74,7 @@ test('approval grants cover the conversation or every kip, reach executions and 
     assert.notEqual(elsewhere.threadId, first.threadId)
     assert.deepEqual(adapter.contexts[2].approvalGrants, [], 'a conversation grant stays in its conversation')
     const chrome = card('test:chrome')
-    const askedChrome = { ...await host.invokeTool({ attemptId: adapter.contexts[2].attemptId, callId: 'native:2', name: 'interactions_request_approval', arguments: chrome }), proposalId: chrome.proposalId }
+    const askedChrome = { ...await host.invokeTool({ attemptId: adapter.contexts[2].attemptId, callId: 'native:2', name: 'request_user_approval', arguments: chrome }), proposalId: chrome.proposalId }
     adapter.handles[2].emit({ kind: 'ended', attemptId: adapter.contexts[2].attemptId, confirmed: true })
     await until(async () => (await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [elsewhere.runId])).rows[0]?.state, x => x === 'waiting', 'waiting on Chrome')
     const before = permissionSettings.parse((await call('GET', '/v1/settings/permissions')).data).revision

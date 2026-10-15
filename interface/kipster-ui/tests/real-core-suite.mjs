@@ -59,18 +59,18 @@ const docMarkdown = [
   '```',
 ].join('\n')
 async function writeDoc(handle) {
-  await handle.callTool('fixture-doc-create', 'documents_create', {
+  await handle.callTool('fixture-doc-create', 'create_rich_doc', {
     title: 'Trip plan',
     markdown: docMarkdown,
   })
   return 'Fixture wrote a rich doc.'
 }
 async function reviseDoc(handle, documentId, gate) {
-  const doc = await handle.callTool('fixture-doc-read', 'documents_read', {
+  const doc = await handle.callTool('fixture-doc-read', 'read_rich_doc', {
     documentId,
   })
   const heading = doc.blocks.find((block) => block.markdown.startsWith('# '))
-  await handle.callTool('fixture-doc-edit', 'documents_edit', {
+  await handle.callTool('fixture-doc-edit', 'edit_rich_doc', {
     documentId,
     operations: [
       { op: 'replace', blockId: heading.id, markdown: '# Trip plan, revised' },

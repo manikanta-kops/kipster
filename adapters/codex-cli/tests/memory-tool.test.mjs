@@ -17,7 +17,7 @@ else if(x.method==='mcpServerStatus/list')send({id:x.id,result:{data:[],nextCurs
 else if(x.method==='config/read')send({id:x.id,result:{config:{mcp_servers:{}}}});
 else if(x.method==='thread/start'){
  const tools=x.params.dynamicTools.map(t=>t.name);
- if(!tools.includes('memory_save')||!tools.includes('memory_search')||!tools.includes('memory_correct')||!tools.includes('memory_publish')||!tools.includes('memory_link')||!tools.includes('memory_relationship_get')||!tools.includes('memory_relationship_list')||!tools.includes('memory_relationship_update')||!tools.includes('memory_unlink'))send({id:x.id,error:{message:'memory tools absent'}});
+ if(!tools.includes('memory_save')||!tools.includes('search_memory')||!tools.includes('memory_correct')||!tools.includes('memory_publish')||!tools.includes('memory_link')||!tools.includes('memory_relationship_get')||!tools.includes('memory_relationship_list')||!tools.includes('memory_relationship_update')||!tools.includes('memory_unlink'))send({id:x.id,error:{message:'memory tools absent'}});
  else send({id:x.id,result:{thread:{id:'thread-1'}}});
 }else if(x.method==='turn/start'){
  if(x.params.input[0].text!=='Core prompt'){send({id:x.id,error:{message:'Core prompt absent'}});return;}
@@ -35,7 +35,7 @@ else if(x.id===102){send({method:'turn/completed',params:{threadId:'thread-1',tu
  const adapter=createAdapter({dataDirectory:join(directory,'codex-data'),now:()=>new Date().toISOString(),async invokeTool(request){calls.push(request);return {status:'completed',record:{id:'memory-1'}}}})
  try{
   assert.equal((await adapter.readiness()).ready,true)
-  const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',prompt:'Core prompt',tools:['memory_save','memory_search','memory_correct','memory_publish','memory_link','memory_relationship_get','memory_relationship_list','memory_relationship_update','memory_unlink'].map(name=>({name,description:name,inputSchema:{type:'object'}})),memory:['Amsterdam office opens at ten'],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'old',text:'',parts:[{kind:'file',artifactId:'historical',purpose:'attachment',name:'history.txt',mimeType:'text/plain',size:10,availability:'unavailable'}]},{messageId:'message',text:'Remember office hours'}],triggerMessageId:'message'})
+  const handle=await adapter.execute({runId:'run',attemptId:'attempt',organizationId:null,agentId:'agent',workingDirectory:directory,instructions:'Current',prompt:'Core prompt',tools:['memory_save','search_memory','memory_correct','memory_publish','memory_link','memory_relationship_get','memory_relationship_list','memory_relationship_update','memory_unlink'].map(name=>({name,description:name,inputSchema:{type:'object'}})),memory:['Amsterdam office opens at ten'],settings:{adapterId:'codex-cli',modelId:'test-model'},input:[{messageId:'old',text:'',parts:[{kind:'file',artifactId:'historical',purpose:'attachment',name:'history.txt',mimeType:'text/plain',size:10,availability:'unavailable'}]},{messageId:'message',text:'Remember office hours'}],triggerMessageId:'message'})
   const events=[];for await(const event of handle.events)events.push(event)
   assert.equal(calls.length,2)
   assert.deepEqual(calls[0],{attemptId:'attempt',callId:'save-1',name:'memory_save',arguments:{kind:'fact',text:'Amsterdam office opens at ten'}})

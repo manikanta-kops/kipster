@@ -5,7 +5,7 @@ import { memorySettings } from './settings.js'
 import { MEMORY_READ, memoryAccess, readThread, recentThreads, searchMemory, type MemoryRange, type ThreadScope } from './search.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-/** Most cards `memory_forget` deletes for one query, and candidates it returns instead when more match. */
+/** Most cards `forget_memory` deletes for one query, and candidates it returns instead when more match. */
 export const FORGET_LIMITS = { matches: 20, candidates: 50, query: 200 } as const
 
 /** The run a memory tool call belongs to: its agent, context, thread and trigger message. */
@@ -68,13 +68,13 @@ const threadScope = (run: MemoryRun, agents: string[] | null, exclude: string | 
 const cardScope = (run: MemoryRun): CardScope => run.kip ? 'all' : { organizationId: run.organizationId }
 
 /**
- * The memory tools of an execution (decision record 10, section 6), bound to its current attempt: `memory_search`,
- * `memory_recent_threads`, `memory_read_thread`, `memory_remember` and `memory_forget`. Refused while the agent has
+ * The memory tools of an execution (decision record 10, section 6), bound to its current attempt: `search_memory`,
+ * `list_recent_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has
  * memory off.
  */
 export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | undefined, attemptId: string, incarnation: string, name: string, input: Record<string, unknown>): Promise<unknown> {
   const run = await boundRun(db, attemptId, incarnation)
-  if (name === 'memory_search') {
+  if (name === 'search_memory') {
     fields(input, ['query', 'from', 'to', 'agent'], name)
     const query = text(input, 'query', name, MEMORY_READ.queryChars)!
     const range: MemoryRange = { from: instant(input.from, 'from', name, false), to: instant(input.to, 'to', name, true) }
@@ -83,11 +83,11 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const settings = await memorySettings(db, run.installationId)
     return searchMemory(db, run.installationId, embedding, { query, range, cards: cardScope(run), threads: threadScope(run, agents, run.threadId), cardCount: settings.searchCardCount, itemCount: settings.searchChunkCount, timeoutMs: MEMORY_READ.toolEmbedMs })
   }
-  if (name === 'memory_recent_threads') {
+  if (name === 'list_recent_threads') {
     fields(input, ['agent'], name)
     return recentThreads(db, run.installationId, threadScope(run, await agentArgument(db, run, input.agent, name), run.threadId))
   }
-  if (name === 'memory_read_thread') {
+  if (name === 'read_thread') {
     fields(input, ['threadId', 'fromPosition', 'toPosition'], name)
     const threadId = text(input, 'threadId', name, 36)!
     const from = position(input, 'fromPosition', name) ?? 1, to = position(input, 'toPosition', name) ?? null
@@ -96,7 +96,7 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     if (!page) throw new Error('Thread not found')
     return page
   }
-  if (name === 'memory_remember') {
+  if (name === 'save_memory') {
     fields(input, ['statement', 'type', 'subject', 'details'], name)
     const cards = new CardService(db, run.installationId, embedding)
     // The card is confirmed: the user said it in the message this run answers. CardService checks the fields, and that
@@ -107,7 +107,7 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const embedded = await embedCards(db, run.installationId, embedding, [cardId], MEMORY_READ.toolEmbedMs).catch(() => ({ embedded: 0, failed: true }))
     return { card: await cards.get(cardId), embedded: embedded.embedded > 0 }
   }
-  if (name === 'memory_forget') {
+  if (name === 'forget_memory') {
     fields(input, ['cardId', 'query'], name)
     if ((input.cardId === undefined) === (input.query === undefined)) throw new Error(`Invalid ${name} arguments: give cardId or query`)
     const scope = cardScope(run)

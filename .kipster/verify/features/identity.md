@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-- Global soul.md, identity.md and AGENTS.md files.
+- Global soul.md and identity.md files.
 - Editable identity guidance, compare-and-swap writes, backups and restore.
 - Kip memory (decision record 10), stored in Core: the Settings Memory section and its Cards view.
 

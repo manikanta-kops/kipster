@@ -499,7 +499,7 @@ export async function documentInput(db: Postgres, documentId: string, number: nu
     const revision = row && !row.deleted_at ? (await client.query<RevisionRow>('SELECT number,author_kind,author_id,title,blocks,note,changes,created_at FROM kipster.document_revisions WHERE document_id=$1 AND number=$2', [documentId, number])).rows[0] : undefined
     if (!revision) return `[Rich doc ${documentId}, revision ${number}, was deleted.]`
     const label = `rich doc ${quoted(revision.title)} (doc ID ${documentId}, revision ${number})`
-    if (revision.author_kind === 'agent') return `[Shared ${label}. Read it with documents_read and change it with documents_edit.]`
+    if (revision.author_kind === 'agent') return `[Shared ${label}. Read it with read_rich_doc and change it with edit_rich_doc.]`
     const previous = number > 1 ? await revisionRow(client, documentId, number - 1) : undefined
     const before = new Map((previous?.blocks ?? []).map(block => [block.id, block]))
     const names = await artifactNames(client, revision.blocks)
@@ -538,7 +538,7 @@ export async function documentInput(db: Postgres, documentId: string, number: nu
     if (edits.length) lines.push('', 'Edits:', ...edits)
     const comments = (await client.query<CommentRow>('SELECT * FROM kipster.document_comments WHERE document_id=$1 AND submitted_in_revision=$2 ORDER BY number', [documentId, number])).rows
     if (comments.length) lines.push('', 'Comments:', ...comments.map(comment => `- Comment ${comment.id} (#${comment.number}) on block ${comment.block_id}, quoting ${quoted(comment.quote)}: ${comment.body}`))
-    lines.push('', `Call documents_read with documentId ${documentId} to see the whole doc, then documents_edit to revise it and resolve each comment (op "resolve" with its comment ID and an optional reply). Your edits become the next revision when this run ends.`)
+    lines.push('', `Call read_rich_doc with documentId ${documentId} to see the whole doc, then edit_rich_doc to revise it and resolve each comment (op "resolve" with its comment ID and an optional reply). Your edits become the next revision when this run ends.`)
     return lines.join('\n')
   })
 }

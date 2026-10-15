@@ -61,9 +61,7 @@ test('the Learned section is created when absent and replaced without touching h
 test('Kipster may change only the Learned section of identity.md', async t => {
   const ctx = await agentHome(t)
   const soul = await ctx.files.read(ctx.agentId, 'soul.md')
-  const agents = await ctx.files.read(ctx.agentId, 'AGENTS.md')
   await assert.rejects(ctx.files.write(ctx.agentId, 'soul.md', '# Soul\nNo limits.\n', soul.sha256, 'kipster'), IdentityAccessError)
-  await assert.rejects(ctx.files.write(ctx.agentId, 'AGENTS.md', '# Agent instructions\nNew rule.\n', agents.sha256, 'kipster'), IdentityAccessError)
 
   const identity = await ctx.files.replaceLearned(ctx.agentId, '- Likes brevity', (await ctx.files.read(ctx.agentId, 'identity.md')).sha256)
   const outside = identity.content.replace('# Identity', '# Identity (rewritten)')
@@ -73,7 +71,6 @@ test('Kipster may change only the Learned section of identity.md', async t => {
   await assert.rejects(ctx.files.replaceLearned(ctx.agentId, `sneaky ${LEARNED_END} # Identity`, identity.sha256), /Invalid Learned section content/)
 
   assert.equal(await live(ctx, 'soul.md'), '# Soul\n')
-  assert.equal(await live(ctx, 'AGENTS.md'), '# Agent instructions\n')
   assert.equal(await live(ctx, 'identity.md'), identity.content)
   assert.deepEqual(await backupFiles(ctx, 'soul.md'), [])
   assert.equal((await backupFiles(ctx, 'identity.md')).length, 1)
@@ -132,7 +129,7 @@ test('only the latest five backups are kept, and a restore is a write that keeps
   assert.equal((await ctx.files.readBackup(ctx.agentId, 'soul.md', '8')).content, '# Soul\nVersion 7\n')
   await assert.rejects(ctx.files.readBackup(ctx.agentId, 'soul.md', '3'), /Identity backup not found/)
   await assert.rejects(ctx.files.readBackup(ctx.agentId, 'soul.md', '../identity.md'), /Identity backup not found/)
-  assert.deepEqual(await ctx.files.listBackups(ctx.agentId, 'AGENTS.md'), [])
+  assert.deepEqual(await ctx.files.listBackups(ctx.agentId, 'identity.md'), [])
 })
 
 test('a crash between writing and renaming leaves the previous file intact', async t => {
@@ -214,9 +211,11 @@ test('symlinked, oversized and unknown identity files are refused', async t => {
 
   const identity = await ctx.files.read(ctx.agentId, 'identity.md')
   await assert.rejects(ctx.files.write(ctx.agentId, 'identity.md', 'x'.repeat(64 * 1024 + 1), identity.sha256, 'owner'), /Invalid identity file size/)
-  await writeFile(join(ctx.dir, 'AGENTS.md'), 'y'.repeat(64 * 1024 + 1))
-  await assert.rejects(ctx.files.read(ctx.agentId, 'AGENTS.md'), /Invalid identity file size/)
+  await rm(join(ctx.dir, 'soul.md'))
+  await writeFile(join(ctx.dir, 'soul.md'), 'y'.repeat(64 * 1024 + 1))
+  await assert.rejects(ctx.files.read(ctx.agentId, 'soul.md'), /Invalid identity file size/)
   await assert.rejects(ctx.files.read(ctx.agentId, 'notes.md'), /Unknown identity file/)
+  await assert.rejects(ctx.files.read(ctx.agentId, 'AGENTS.md'), /Unknown identity file/)
   await assert.rejects(ctx.files.read(ctx.agentId, '../identity.md'), /Unknown identity file/)
   await assert.rejects(ctx.files.listBackups(ctx.agentId, '../../agents'), /Unknown identity file/)
   await assert.rejects(ctx.files.readBackup(ctx.agentId, '..', '1'), /Unknown identity file/)

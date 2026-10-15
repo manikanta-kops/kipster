@@ -34,7 +34,7 @@ const routes = {
   '/v1/agents/{id}/learning': ['learning.agent_set'],
   '/v1/memory/cards': ['memory.cards_list'],
   '/v1/memory/cards/{id}': ['memory.card_get', 'memory.card_update', 'memory.card_delete'],
-  '/v1/agents/{id}/identity/(AGENTS\\.md|soul\\.md|identity\\.md)(?:/(backups)(?:/([^/]+)(/restore)?)?)?': ['identity.get', 'identity.set', 'identity.backups', 'identity.backup_get', 'identity.restore'],
+  '/v1/agents/{id}/identity/(soul\\.md|identity\\.md)(?:/(backups)(?:/([^/]+)(/restore)?)?)?': ['identity.get', 'identity.set', 'identity.backups', 'identity.backup_get', 'identity.restore'],
   '/v1/settings/updates': ['updates.get', 'updates.settings_set'],
   '/v1/updates': ['updates.get'],
   '/v1/updates/check': ['updates.check'],

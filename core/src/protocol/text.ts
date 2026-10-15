@@ -123,7 +123,7 @@ export const learningSettings = object({ version: literal(1), enabled: boolean()
   // Core sends these; they are optional so a client also reads a Core that predates them.
   nightlyModel: optional(nullable(nightlyModelRead)), coreCardCount: optional(integer()), searchCardCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
 export type LearningSettings = Infer<typeof learningSettings>
-export const identityFileName = union(literal('AGENTS.md'), literal('soul.md'), literal('identity.md'))
+export const identityFileName = union(literal('soul.md'), literal('identity.md'))
 export const identityWrite = object({ version: literal(1), content: string(), expectedSha256: nonempty() })
 export type IdentityWrite = Infer<typeof identityWrite>
 export const identityRestore = object({ version: literal(1), expectedSha256: nonempty() })

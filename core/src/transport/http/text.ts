@@ -261,7 +261,7 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         const { version: _, ...update } = agentLearningUpdate.parse(await body(request))
         json(response, 200, { version: 1, ...await runtime.learning.setAgent(actor, agentLearningMatch[1]!, update) }); return
       }
-      const identityMatch = /^\/v1\/agents\/([0-9a-f-]{36})\/identity\/(AGENTS\.md|soul\.md|identity\.md)(?:\/(backups)(?:\/([^/]+)(\/restore)?)?)?$/.exec(path)
+      const identityMatch = /^\/v1\/agents\/([0-9a-f-]{36})\/identity\/(soul\.md|identity\.md)(?:\/(backups)(?:\/([^/]+)(\/restore)?)?)?$/.exec(path)
       if (identityMatch) {
         const agentId = identityMatch[1]!, file = identityMatch[2] as IdentityFileName, backupId = identityMatch[4]
         const reply = (value: object) => json(response, 200, { version: 1, agentId, ...value })

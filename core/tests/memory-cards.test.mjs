@@ -78,7 +78,7 @@ async function setup(t) {
     assert.equal(response.status, 202)
     const accepted = response.data
     const execution = await until(() => executions.find(e => e.context.runId === accepted.runId), Boolean, `execution of ${accepted.runId}`)
-    return { ...execution, source: { threadId: accepted.threadId, messageId: accepted.messageId }, tool: (callId, operation, args = {}) => execution.handle.callTool(callId, 'admin_call', { operation, arguments: args }) }
+    return { ...execution, source: { threadId: accepted.threadId, messageId: accepted.messageId }, tool: (callId, operation, args = {}) => execution.handle.callTool(callId, 'run_admin_operation', { operation, arguments: args }) }
   }
   const cards = new CardService(runtime.db, installationId)
   return { runtime, db: runtime.db, installationId, ownerId, organizationId, rootAgentId, serve, call, ok, refused, start, cards }
@@ -202,11 +202,11 @@ test('Kip reads, edits and deletes cards through the admin catalog with the same
   const { sister, steak, budget } = await seed(ctx)
   const run = await ctx.start({ kind: 'installation', installationId: ctx.installationId }, 'Fix my memory')
 
-  const listing = await run.handle.callTool('list', 'admin_operations', { area: 'memory' })
+  const listing = await run.handle.callTool('list', 'list_admin_operations', { area: 'memory' })
   assert.deepEqual(listing.areas[0].operations.map(item => item.operation), ['memory.cards_list', 'memory.card_get', 'memory.card_update', 'memory.card_delete'])
-  const update = await run.handle.callTool('describe', 'admin_operations', { operation: 'memory.card_update' })
+  const update = await run.handle.callTool('describe', 'list_admin_operations', { operation: 'memory.card_update' })
   assert.deepEqual([update.kind, update.operationId, update.arguments.required], ['write', 'required', ['cardId']])
-  const write = (callId, operation, operationId, args) => run.handle.callTool(callId, 'admin_call', { operation, arguments: args, operationId })
+  const write = (callId, operation, operationId, args) => run.handle.callTool(callId, 'run_admin_operation', { operation, arguments: args, operationId })
 
   assert.deepEqual(await run.tool('cards', 'memory.cards_list'), await ctx.ok('GET', '/v1/memory/cards'))
   assert.deepEqual(await run.tool('ended', 'memory.cards_list', { ended: true, limit: 2 }), await ctx.ok('GET', '/v1/memory/cards?ended=true&limit=2'))

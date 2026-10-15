@@ -124,7 +124,7 @@ const runLock = run => ['SELECT 1 FROM kipster.text_runs WHERE id=$1 FOR UPDATE'
 const writers = {
   vectors: {
     barrier: threadLock,
-    write: (ctx, run, key) => run.call('vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: `notes_${key}` }),
+    write: (ctx, run, key) => run.call('manage_vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: `notes_${key}` }),
     landed: (ctx, key) => count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.vector_collections WHERE name=$1', [`notes_${key}`]),
   },
   'task data': {
@@ -189,7 +189,7 @@ test('artifacts: files attached before the change are fenced before they are pub
   t.after(() => rm(folder, { recursive: true, force: true }))
   const attached = async (key, callId = randomUUID()) => {
     await writeFile(join(folder, `${key}.txt`), key)
-    return outcome(run.call('conversation_publish', { text: key, files: [join(folder, `${key}.txt`)] }, callId))
+    return outcome(run.call('post_chat_message', { text: key, files: [join(folder, `${key}.txt`)] }, callId))
   }
   const claims = state => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifact_file_attachments WHERE state=$1`, [state])
   const ready = await attached('earlier')
@@ -255,7 +255,7 @@ test('voice: a transcription claimed before the change never lands its result; o
 test('delegation: work delegated just before the recipient changes fails back to the parent; later delegation is refused', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegate = key => outcome(parent.call('agents_delegate', { recipientId: ctx.scout, request: `Check ${key}` }))
+  const delegate = key => outcome(parent.call('delegate_to_kip', { recipientId: ctx.scout, request: `Check ${key}` }))
   const barrier = await ctx.hold('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [parent.threadId])
   const racing = delegate('before')
   await ctx.waiting(1)
@@ -283,7 +283,7 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
   const running = await ctx.running()
   const queued = await ctx.submit(running.chatId, 'After that', { mode: 'reply', threadId: running.threadId })
   const asking = await ctx.running(ctx.scout, 'Ask me something')
-  const question = await asking.call('interactions_ask', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
+  const question = await asking.call('ask_user_question', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
   asking.found.handle.release({ kind: 'ended', attemptId: asking.attemptId, confirmed: true })
   await until(async () => (await ctx.state(asking.runId)).state, state => state === 'waiting', 'question wait')
   const other = await ctx.running(ctx.root, 'Unaffected work')
@@ -315,7 +315,7 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
 test('fenceAffectedWork of an organization stops every run in its chats, delegated children included', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('agents_delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
   parent.found.handle.release({ kind: 'ended', attemptId: parent.attemptId, confirmed: true })
   const child = await ctx.execution(delegated.childRunId)
   const own = await ctx.running(ctx.scout, 'Own work')
@@ -374,8 +374,8 @@ test('dispatch stops queued work of an agent that stopped being live without run
 test('indexing leases that complete after the owner stops being live write nothing', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.running()
-  const collection = await run.call('vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: 'notes' })
-  await run.call('vector_collections', { operation: 'upsert', target: { kind: 'agent', ownerId: ctx.scout }, collectionId: collection.collectionId, key: 'room', expectedRevision: 0, text: 'Floor two', metadata: {} })
+  const collection = await run.call('manage_vector_collections', { operation: 'create', target: { kind: 'agent', ownerId: ctx.scout }, name: 'notes' })
+  await run.call('manage_vector_collections', { operation: 'upsert', target: { kind: 'agent', ownerId: ctx.scout }, collectionId: collection.collectionId, key: 'room', expectedRevision: 0, text: 'Floor two', metadata: {} })
   const intents = () => ctx.db.query(`SELECT 'vector' AS kind, status, embedding IS NULL AS empty FROM kipster.vector_index_intents`).then(result => result.rows)
   for (const [kind, indexer] of [['vector', ctx.runtime.vectors]]) {
     ctx.embedding.gate = deferred()
@@ -400,7 +400,7 @@ test('a reply accepted into a parent thread while the delegated child is fenced 
   const ctx = await setup(t)
   // The root agent's run waits on Scout's delegated child; Scout also has work of its own.
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('agents_delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
   parent.found.handle.release({ kind: 'ended', attemptId: parent.attemptId, confirmed: true })
   await until(async () => (await ctx.state(parent.runId)).state, state => state === 'waiting', 'parent waits on its child')
   const own = await ctx.running(ctx.scout, 'Own work')

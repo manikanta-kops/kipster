@@ -249,7 +249,7 @@ try {
           ]) {
             const result = await handle.callTool(
               callId,
-              'conversation_publish',
+              'post_chat_message',
               { text: message, files },
             )
             if (result.status !== 'completed') throw Error(result.reason)
@@ -304,13 +304,13 @@ try {
         if (submitted) {
           const doc = await handle.callTool(
             'fixture-doc-read',
-            'documents_read',
+            'read_rich_doc',
             { documentId: submitted[1] },
           )
           const heading = doc.blocks.find((block) =>
             block.markdown.startsWith('# '),
           )
-          await handle.callTool('fixture-doc-edit', 'documents_edit', {
+          await handle.callTool('fixture-doc-edit', 'edit_rich_doc', {
             documentId: submitted[1],
             operations: [
               {
@@ -329,7 +329,7 @@ try {
           return
         }
         if (text.includes('write a rich doc')) {
-          await handle.callTool('fixture-doc-create', 'documents_create', {
+          await handle.callTool('fixture-doc-create', 'create_rich_doc', {
             title: 'Trip plan',
             markdown:
               '# Trip plan\n\nWe fly out in May.\n\n- [ ] Book flights\n- [ ] Reserve a hotel\n\n```question\nprompt: Where should we go?\nother: true\noptions:\n- Oslo | Fjords and design\n- Lisbon | Sun and tiles\n```\n\n```scale\nprompt: How flexible are the dates?\nmin: 1\nmax: 5\nstep: 1\nminLabel: Fixed\nmaxLabel: Open\n```',
