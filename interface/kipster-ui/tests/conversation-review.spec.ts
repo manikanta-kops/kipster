@@ -133,6 +133,9 @@ for (const layout of ['expanded', 'narrow'] as const) {
       const text = `Keep ${layout} ${outcome} reply`
       const input = pane.getByRole('textbox', { name: 'Reply in this thread' })
       await input.fill(text)
+      await expect(
+        pane.getByRole('button', { name: 'Send message', exact: true }),
+      ).toBeEnabled()
       await input.press('Enter')
       await expect(input).toHaveValue('')
       await expect(pane.getByText(text, { exact: true }).first()).toBeVisible()
@@ -346,6 +349,9 @@ test('closing a thread preserves its recovery on the feed and reopening moves it
   await pane
     .getByRole('textbox', { name: 'Reply in this thread' })
     .fill('Recovery belongs to the original thread')
+  await expect(
+    pane.getByRole('button', { name: 'Send message', exact: true }),
+  ).toBeEnabled()
   await pane
     .getByRole('textbox', { name: 'Reply in this thread' })
     .press('Enter')

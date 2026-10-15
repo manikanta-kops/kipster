@@ -406,6 +406,7 @@
 .set-mono {
   font-variant-numeric: tabular-nums;
   color: var(--label-2);
+  -webkit-user-select: text;
   user-select: text;
   overflow-wrap: anywhere;
   text-align: right;
@@ -1140,6 +1141,7 @@
   color: var(--label-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  -webkit-user-select: text;
   user-select: text;
 }
 .set-empty {

@@ -51,6 +51,9 @@
   --drop-lg:
     0 2px 4px rgba(20, 30, 50, 0.06), 0 30px 70px rgba(20, 30, 50, 0.22);
   --drop-sm: 0 4px 12px rgba(20, 30, 50, 0.1);
+  /* Centered lift; its ink fits the reply pane's 8px bottom clearance. */
+  --composer-drop:
+    0 0 4px rgba(20, 30, 50, 0.12), 0 0 8px -4px rgba(20, 30, 50, 0.32);
   --shine-band: rgba(255, 255, 255, 0.55);
   --avatar-edge: rgba(255, 255, 255, 0.9);
   --presence-edge: #fff;
@@ -87,6 +90,7 @@
   --drop: 0 1px 1px rgba(0, 0, 0, 0.25), 0 16px 40px rgba(0, 0, 0, 0.38);
   --drop-lg: 0 2px 4px rgba(0, 0, 0, 0.3), 0 34px 80px rgba(0, 0, 0, 0.5);
   --drop-sm: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --composer-drop: 0 0 4px rgba(0, 0, 0, 0.3), 0 0 8px -4px rgba(0, 0, 0, 0.65);
   --shine-band: rgba(255, 255, 255, 0.18);
   --avatar-edge: rgba(24, 26, 34, 0.95);
   --presence-edge: #16181f;

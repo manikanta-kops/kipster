@@ -10,6 +10,7 @@ import { readMigrationManifest } from '../scripts/check-migrations.mjs'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { loadMigrations, openRuntime } from '../dist/runtime.js'
 import { messageRecord } from '../dist/modules/conversations/public.js'
+import { threadMessage } from '../dist/protocol/index.js'
 import { trustedOwner } from '../dist/modules/identity/public.js'
 import { readSettings } from '../dist/modules/settings/public.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
@@ -147,6 +148,84 @@ for (const prefixOnly of [false, true]) {
     } finally { await runtime.close() }
   })
 }
+
+test(
+  'message times upgrade final rows and retained replay without finalizing drafts',
+  { skip: noDatabase },
+  async (t) => {
+    const fixture = await database(t)
+    const migrations = await loadMigrations()
+    await fixture.db.migrate(migrations.filter((item) => item.version < '030'))
+    const { ids } = await seed(fixture.db, false)
+    const draftId = randomUUID()
+    await fixture.db.query(
+      'INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,final) VALUES ($1,$2,3,$3,$4::jsonb,false)',
+      [
+        draftId,
+        ids.threadId,
+        ids.rootAgentId,
+        JSON.stringify([{ kind: 'text', text: 'unfinished' }]),
+      ],
+    )
+    const rows = (
+      await fixture.db.query(
+        'SELECT id,thread_id,author_id,parts,final,position FROM kipster.messages ORDER BY position',
+      )
+    ).rows
+    // Replay includes an earlier draft of the now-final answer as well as a still-live draft.
+    const events = [rows[0], { ...rows[1], final: false }, rows[1], rows[2]]
+    for (const [index, row] of events.entries()) {
+      await fixture.db.query(
+        'INSERT INTO kipster.thread_events(thread_id,position,event_id,type,resource_id,revision,data) VALUES ($1,$2,$3,$4,$5,1,$6::jsonb)',
+        [
+          ids.threadId,
+          index + 1,
+          randomUUID(),
+          row.final ? 'message-final' : 'message-draft',
+          row.id,
+          JSON.stringify({
+            id: row.id,
+            threadId: row.thread_id,
+            authorId: row.author_id,
+            parts: row.parts,
+            final: row.final,
+            revision: 1,
+            position: Number(row.position),
+          }),
+        ],
+      )
+    }
+    await fixture.db.migrate(migrations)
+    for (const id of [ids.messageId, ids.answerId]) {
+      const final = threadMessage.parse(await messageRecord(fixture.db, id))
+      assert.equal(final.finishedAt, final.createdAt)
+    }
+    const draft = threadMessage.parse(await messageRecord(fixture.db, draftId))
+    assert.equal(Object.hasOwn(draft, 'finishedAt'), false)
+    assert.equal(
+      (
+        await fixture.db.query(
+          'SELECT finished_at FROM kipster.messages WHERE id=$1',
+          [draftId],
+        )
+      ).rows[0].finished_at,
+      null,
+    )
+    for (const { data } of (
+      await fixture.db.query(
+        'SELECT data FROM kipster.thread_events ORDER BY position',
+      )
+    ).rows) {
+      const entry = threadMessage.parse(data)
+      assert.equal(
+        entry.createdAt,
+        (await messageRecord(fixture.db, entry.id)).createdAt,
+      )
+      assert.equal(Object.hasOwn(entry, 'finishedAt'), entry.final)
+      if (entry.final) assert.equal(entry.finishedAt, entry.createdAt)
+    }
+  },
+)
 
 test('a fresh database gets the Kip memory schema and none of the first engine', { skip: noDatabase }, async t => {
   const fixture = await database(t)

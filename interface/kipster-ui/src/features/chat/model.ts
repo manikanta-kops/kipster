@@ -94,6 +94,10 @@ export interface Message {
   threadId: string
   authorId: string
   createdAt: string
+  /** When Core created the message; absent from older Cores. */
+  sentAt?: string
+  /** When Core finalized the message; absent until final or from older Cores. */
+  finishedAt?: string
   parts: ContentPart[]
 }
 export interface WorkspaceData {

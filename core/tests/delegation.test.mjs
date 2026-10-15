@@ -70,6 +70,10 @@ test('capacity-one delegation routes exact child question and internal result ba
     assert.equal(snapshot.delegations[0].recipientAgentId,b)
     assert.equal(snapshot.delegations[0].result,undefined)
     const privateThread=(await runtime.db.query('SELECT thread_id FROM kipster.text_runs WHERE id=$1',[child.runId])).rows[0].thread_id
+    const delegatedMessage = (await runtime.db.query('SELECT created_at,finished_at FROM kipster.messages WHERE thread_id=$1 ORDER BY position LIMIT 1', [privateThread])).rows[0]
+    assert.deepEqual(delegatedMessage.finished_at, delegatedMessage.created_at)
+    const delegatedEvent = (await runtime.db.query("SELECT data FROM kipster.thread_events WHERE thread_id=$1 AND type='message-final' ORDER BY position LIMIT 1", [privateThread])).rows[0].data
+    assert.equal(delegatedEvent.finishedAt, delegatedEvent.createdAt)
     assert.equal((await fetch(`${server.url}/v1/threads/${privateThread}/snapshot`)).status,403)
     assert.equal((await fetch(`${server.url}/v1/threads/${privateThread}/events?after=t:${privateThread}:0`)).status,403)
     const privateReply=await post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope,target:{context:ctx,chatId:chat},mode:'reply',threadId:privateThread,parts:[{kind:'text',text:'probe'}]})

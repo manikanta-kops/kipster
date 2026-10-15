@@ -1,4 +1,4 @@
-import { sealAttemptMessages } from '../conversations/public.js'
+import { sealAttemptMessages, messageRecord } from '../conversations/public.js'
 import { randomUUID } from 'node:crypto'
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
 import type { Jobs } from '../../platform/jobs/public.js'
@@ -104,14 +104,14 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
     const id=randomUUID(),threadId=randomUUID(),runId=randomUUID(),messageId=randomUUID()
     const parts=[{kind:'text',text:request},...allIds.map(artifactId=>({kind:'file',artifactId,purpose:'attachment'}))]
     await client.query('INSERT INTO kipster.threads(id,chat_id,internal,next_message_position,next_queue_position) VALUES ($1,$2,true,2,2)',[threadId,scope.chatId])
-    await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts) VALUES ($1,$2,1,$3,$4::jsonb)',[messageId,threadId,scope.agentId,JSON.stringify(parts)])
+    await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,finished_at) VALUES ($1,$2,1,$3,$4::jsonb,now())',[messageId,threadId,scope.agentId,JSON.stringify(parts)])
     for(const [index,artifactId] of allIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index+1,artifactId,'attachment'])
     await client.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'queued')",[runId,scope.installationId])
     await client.query("INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,'queued',1)",[runId,threadId,messageId])
     await client.query(`INSERT INTO kipster.delegations(id,installation_id,origin_thread_id,root_run_id,parent_run_id,parent_attempt_id,ordinal,child_run_id,call_id,sender_agent_id,recipient_agent_id,context_kind,context_id,responsible_human_id,depth,request,artifact_ids,state)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid[],'queued')`,[id,scope.installationId,originThreadId,rootRunId,scope.runId,attemptId,nextOrdinal,runId,callId,scope.agentId,recipientId,scope.contextKind,scope.contextId,scope.humanId,depth,request,allIds])
     await client.query("UPDATE kipster.text_runs SET state='waiting',revision=revision+1 WHERE id=$1 AND state='running'",[scope.runId])
-    await publishThreadChange(client,scope.installationId,scope.humanId,threadId,scope.chatId,'message-final',messageId,1,{id:messageId,threadId,authorId:scope.agentId,parts,final:true,revision:1,position:1},'queued',messageId)
+    await publishThreadChange(client, scope.installationId, scope.humanId, threadId, scope.chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
     await publishThreadChange(client,scope.installationId,scope.humanId,threadId,scope.chatId,'work-changed',runId,1,await workRecord(client,runId),'queued',null)
     await publishThreadChange(client,scope.installationId,scope.humanId,scope.threadId,scope.chatId,'work-changed',scope.runId,Number((await client.query<{revision:string}>('SELECT revision FROM kipster.text_runs WHERE id=$1',[scope.runId])).rows[0]!.revision),await workRecord(client,scope.runId),'waiting',null)
     const record=await delegationRecord(client,id)

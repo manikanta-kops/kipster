@@ -1374,6 +1374,8 @@ export function Workspace({
         authorId: message.authorId,
         createdAt: summary.createdAt,
         timestampKnown: message.id === items[0]?.id,
+        sentAt: message.createdAt,
+        finishedAt: message.finishedAt,
         status: message.final ? 'final' : 'draft',
         revision: message.revision,
         preparation: message.preparation,

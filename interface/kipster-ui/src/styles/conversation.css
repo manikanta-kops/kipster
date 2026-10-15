@@ -69,6 +69,10 @@
 }
 
 /* Markdown */
+.markdown {
+  -webkit-user-select: text;
+  user-select: text;
+}
 .markdown > * {
   margin: 0 0 8px;
 }
@@ -497,14 +501,14 @@
   padding: 6px;
   border-radius: 26px;
   background: var(--sheen), var(--glass-thick);
-  box-shadow: var(--edge), var(--drop);
+  box-shadow: var(--edge), var(--composer-drop);
   transition: box-shadow 0.2s;
 }
 .composer:focus-within {
   box-shadow:
     var(--edge),
     inset 0 0 0 1.5px color-mix(in oklab, var(--tint) 45%, transparent),
-    var(--drop);
+    var(--composer-drop);
 }
 .composer textarea {
   flex: 1;
@@ -970,7 +974,11 @@
 }
 
 .app-shell .composer-dock {
-  max-height: calc(100dvh - 92px);
+  /* The scrollport needs ink space too. Negative margins preserve the bar's
+     original bounds, including on narrow windows and while recovery scrolls. */
+  padding: 8px;
+  margin: -8px;
+  max-height: calc(100dvh - 92px + 16px);
   overflow-y: auto;
   overscroll-behavior: contain;
 }

@@ -90,8 +90,11 @@ test('conversation_publish attaches files of any type by absolute and relative p
     const row = rows.find(item => item.id === file.artifactId)
     assert.deepEqual({ ...row, id: undefined }, { id: undefined, name: file.name, mime_type: types[file.name], size_bytes: String(samples[file.name].length), sha256: digest(samples[file.name]), owner_kind: 'agent', owner_id: e.a, author_id: e.a, provenance: 'generated', state: 'ready' })
   }
-  const message = (await e.runtime.db.query('SELECT parts,author_id FROM kipster.messages WHERE id=$1', [published.messageId])).rows[0]
+  const message = (await e.runtime.db.query('SELECT parts,author_id,created_at,finished_at FROM kipster.messages WHERE id=$1', [published.messageId])).rows[0]
   assert.equal(message.author_id, e.a)
+  assert.ok(message.created_at instanceof Date && message.finished_at instanceof Date)
+  const final = (await e.runtime.db.query("SELECT data FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final' ORDER BY position DESC LIMIT 1", [published.messageId])).rows[0].data
+  assert.deepEqual([final.createdAt, final.finishedAt], [message.created_at.toISOString(), message.finished_at.toISOString()])
   assert.deepEqual(message.parts, [{ kind: 'text', text: 'Here are your files' }, ...published.files.map(file => ({ kind: 'file', artifactId: file.artifactId, purpose: 'attachment' }))])
   assert.deepEqual((await e.runtime.db.query('SELECT ordinal,artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [published.messageId])).rows, published.files.map((file, index) => ({ ordinal: index + 1, artifact_id: file.artifactId })))
   // The person reads each file as it was when published, whatever happens to the source.
@@ -164,6 +167,10 @@ test('agents_delegate passes files by path to the recipient and replays without 
   const delegated = await e.call('agents_delegate', args, 'delegate-files')
   assert.deepEqual(delegated.files.map(file => [file.name, file.mimeType, file.size]), [['brief.pdf', 'application/pdf', samples['report.pdf'].length]])
   const artifactId = delegated.files[0].artifactId
+  const requestMessage = (await e.runtime.db.query('SELECT m.id,m.created_at,m.finished_at FROM kipster.delegations d JOIN kipster.text_runs r ON r.id=d.child_run_id JOIN kipster.messages m ON m.id=r.input_message_id WHERE d.id=$1', [delegated.id])).rows[0]
+  assert.ok(requestMessage.created_at instanceof Date && requestMessage.finished_at instanceof Date)
+  const requestEvent = (await e.runtime.db.query("SELECT data FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final'", [requestMessage.id])).rows[0].data
+  assert.deepEqual([requestEvent.createdAt, requestEvent.finishedAt, requestEvent.parts.at(-1).artifactId], [requestMessage.created_at.toISOString(), requestMessage.finished_at.toISOString(), artifactId])
   assert.deepEqual((await e.runtime.db.query('SELECT owner_kind,owner_id,state FROM kipster.artifacts WHERE id=$1', [artifactId])).rows[0], { owner_kind: 'agent', owner_id: e.a, state: 'ready' })
   const artifacts = await e.count('SELECT count(*)::int AS n FROM kipster.artifacts')
   const replay = await e.call('agents_delegate', args, 'delegate-files')
