@@ -1,5 +1,5 @@
 // Entry point ONLY for factory verify-kit/tester instance supervision.
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer, request as httpRequest } from 'node:http'
 import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
@@ -12,6 +12,7 @@ import {
   isolatedEnvironment,
   replaceEnvironment,
 } from '../isolation.mjs'
+import { filesPerMessage, fixtureDirectory, fixtureFiles } from './files.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const {
@@ -218,6 +219,44 @@ try {
           return
         }
         if (text.startsWith('__hold__')) return
+        if (text.startsWith('__files__')) {
+          // Writes one real file of each common type into the working directory,
+          // then attaches them by alternating absolute and relative paths.
+          const folder = 'kipster-fixture-files'
+          await mkdir(join(context.workingDirectory, folder), {
+            recursive: true,
+          })
+          const paths = []
+          for (const [index, { name }] of fixtureFiles.entries()) {
+            const bytes = await readFile(join(fixtureDirectory, name))
+            const path = join(context.workingDirectory, folder, name)
+            // Rewriting identical bytes would race an earlier run's attach.
+            if (!(await readFile(path).catch(() => null))?.equals(bytes))
+              await writeFile(path, bytes)
+            paths.push(index % 2 ? `${folder}/${name}` : path)
+          }
+          for (const [callId, message, files] of [
+            [
+              'fixture-files-publish',
+              'Fixture files',
+              paths.slice(0, filesPerMessage),
+            ],
+            [
+              'fixture-files-publish-more',
+              'More fixture files',
+              paths.slice(filesPerMessage),
+            ],
+          ]) {
+            const result = await handle.callTool(
+              callId,
+              'conversation_publish',
+              { text: message, files },
+            )
+            if (result.status !== 'completed') throw Error(result.reason)
+          }
+          reply(`Fixture sent files: ${text}`)
+          return
+        }
         if (
           text.startsWith('__question__') ||
           text.startsWith('__approval__')

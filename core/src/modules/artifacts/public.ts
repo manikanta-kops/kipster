@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { mkdir, lstat, open, realpath, link, rm, stat, unlink, readdir } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
 import type { Home } from '../../platform/home/public.js'
 import { isLive, type TrustedActor } from '../identity/public.js'
@@ -14,17 +14,71 @@ const sha = /^[a-f0-9]{64}$/
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
 export const MAX_FILES_PER_MESSAGE = 10
 export const MAX_MESSAGE_FILE_BYTES = 50 * 1024 * 1024
-export const MAX_TOOL_WRITE_BYTES = 1024 * 1024
-export const MAX_ATTEMPT_WRITE_BYTES = 5 * 1024 * 1024
-export const MAX_ATTEMPT_OUTPUT_FILES = 32
 export const MAX_ATTEMPT_PUBLICATIONS = 32
 export interface ArtifactTarget { installationId: string; callerId: string; context: Context; chatId: string; threadId?: string }
 export interface UploadIntent { uploadId: string; target: ArtifactTarget; name: string; mimeType: string; size: number; sha256: string; purpose: 'attachment' | 'voice_note' }
 export interface ArtifactMetadata { id: string; name: string; mimeType: string; size: number; sha256: string; revision: number; availability: 'registered' | 'failed' | 'missing'; ownership: { kind: 'installation'|'organization'|'agent'; id: string }; provenance: { kind: 'upload'|'generated'|'published'; authorId: string }; sourceId?: string }
-export interface ArtifactHooks { afterUploadLink?(id:string):Promise<void>; afterWriteLink?(id:string):Promise<void>; afterPublishLink?(id:string):Promise<void> }
+export interface ArtifactHooks { afterUploadLink?(id:string):Promise<void>; afterAttachLink?(id:string):Promise<void>; afterPublishLink?(id:string):Promise<void> }
+/** Files an execution attaches by path: `paths` resolve against `base`; `artifactIds` are the call's other files, counted in the message limits. */
+export interface FileRequest { paths: readonly string[]; base: string; artifactIds: readonly string[]; requestHash: string }
+export interface AttachedFile { artifactId: string; name: string; mimeType: string; size: number }
+export interface FileAttachment { files: AttachedFile[]; settle(client: SqlClient): Promise<void>; abandon(): Promise<void> }
 interface ArtifactRow { id: string; installation_id: string; owner_kind: 'installation'|'organization'|'agent'; owner_id: string; source_id: string|null; provenance: 'upload'|'generated'|'published'; author_id: string; name: string; mime_type: string; size_bytes: string; sha256: string; state: 'staging'|'ready'|'failed'|'recovery-needed'; revision: string }
 interface LiveAttempt { agent_id:string; thread_id:string; installation_id:string; caller_id:string; organization_id:string|null }
 class ArtifactContentUnavailableError extends Error {}
+
+const mimeTypes: Record<string, string> = {
+  mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', flac: 'audio/flac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
+  webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime',
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', heic: 'image/heic',
+  pdf: 'application/pdf', txt: 'text/plain', log: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  json: 'application/json', html: 'text/html', htm: 'text/html', css: 'text/css', xml: 'application/xml', yaml: 'application/yaml', yml: 'application/yaml',
+  js: 'text/javascript', mjs: 'text/javascript', cjs: 'text/javascript',
+  ...Object.fromEntries(['ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'swift', 'c', 'h', 'cpp', 'hpp', 'cs', 'php', 'sh', 'zsh', 'sql', 'toml', 'ini'].map(extension => [extension, 'text/plain'])),
+  zip: 'application/zip', tar: 'application/x-tar', gz: 'application/gzip', tgz: 'application/gzip', '7z': 'application/x-7z-compressed',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+}
+/** The MIME type of a file name's extension, or `application/octet-stream`. */
+export function mimeTypeFor(name: string): string { return mimeTypes[extname(name).slice(1).toLowerCase()] ?? 'application/octet-stream' }
+const megabytes = (bytes: number) => `${bytes / 1024 / 1024} MB`
+const messageTooLarge = `Cannot attach these files: together they exceed the ${megabytes(MAX_MESSAGE_FILE_BYTES)} limit per message`
+/** The stored size of the given artifacts together. */
+async function storedBytes(client: SqlClient|Postgres, artifactIds: readonly string[]): Promise<number> {
+  if (!artifactIds.length) return 0
+  return Number((await client.query<{total:string}>('SELECT coalesce(sum(size_bytes),0)::text AS total FROM kipster.artifacts WHERE id=ANY($1::uuid[])',[artifactIds])).rows[0]!.total)
+}
+/** Refuses an execution's message or delegation whose files, already authorized, together exceed the per-message limit. Exactly the limit is accepted. */
+export async function requireMessageFileLimit(client: SqlClient, artifactIds: readonly string[]): Promise<void> {
+  if (await storedBytes(client, artifactIds) > MAX_MESSAGE_FILE_BYTES) throw new Error(messageTooLarge)
+}
+function attachError(raw: string, error: unknown): Error {
+  const code = (error as NodeJS.ErrnoException).code
+  return new Error(`Cannot attach ${raw}: ${code === 'ENOENT' || code === 'ENOTDIR' ? 'the file does not exist' : code === 'EACCES' || code === 'EPERM' ? 'permission denied' : 'the file cannot be read'}`)
+}
+function attachLimits(raw: string, info: { isFile(): boolean; size: number }): void {
+  if (!info.isFile()) throw new Error(`Cannot attach ${raw}: not a regular file`)
+  if (info.size > MAX_UPLOAD_BYTES) throw new Error(`Cannot attach ${raw}: larger than the ${megabytes(MAX_UPLOAD_BYTES)} limit per file`)
+}
+/** The size of a regular file within the upload limit; `raw` names it in errors. */
+async function attachableSize(raw: string, path: string): Promise<number> {
+  const info = await stat(path).catch(error => { throw attachError(raw, error) })
+  attachLimits(raw, info)
+  return info.size
+}
+/** The bytes of a regular file within the upload limit, refused when it changes while read. */
+async function snapshot(raw: string, path: string): Promise<Buffer> {
+  // Non-blocking, so a path replaced by a FIFO cannot hang the read before it is refused.
+  const handle = await open(path, constants.O_RDONLY | constants.O_NONBLOCK).catch(error => { throw attachError(raw, error) })
+  try {
+    const before = await handle.stat()
+    attachLimits(raw, before)
+    const bytes = await handle.readFile().catch(error => { throw attachError(raw, error) })
+    const after = await handle.stat()
+    if (bytes.length !== before.size || after.size !== before.size || after.mtimeMs !== before.mtimeMs) throw new Error(`Cannot attach ${raw}: the file changed while it was read`)
+    return bytes
+  } finally { await handle.close() }
+}
 
 function validIntent(intent: UploadIntent): void {
   if (!uuid.test(intent.uploadId) || !uuid.test(intent.target.installationId) || !uuid.test(intent.target.callerId) || !uuid.test(intent.target.chatId) || (intent.target.threadId && !uuid.test(intent.target.threadId))) throw new Error('Invalid upload identity')
@@ -77,11 +131,12 @@ export class ArtifactService {
   private stage(id: string,token: string): string { if(!uuid.test(id)||!uuid.test(token))throw new Error('Invalid staging identity');return join(this.staging,`${id}.${token}`) }
   private output(agentId:string,threadId:string,attemptId:string,outputId:string):string{return join(this.home.output(agentId,threadId,attemptId),outputId)}
   /** The attempt still runs and its agent, and organization, are live. Owners are locked before the attempt and run rows. */
-  private async liveAttempt(client:SqlClient,attemptId:string,incarnation:string):Promise<LiveAttempt>{
+  private async liveAttempt(client:SqlClient,attemptId:string,incarnation:string,waiting=false):Promise<LiveAttempt>{
     if(!uuid.test(attemptId)||!uuid.test(incarnation))throw new Error('Invalid attempt identity')
+    const states=waiting?"('running','waiting')":"('running')"
     const sql=`SELECT COALESCE(d.recipient_agent_id,c.agent_id) AS agent_id,r.thread_id,c.installation_id,c.caller_id,CASE WHEN c.context_kind='organization' THEN c.context_id ELSE NULL END AS organization_id
       FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id LEFT JOIN kipster.delegations d ON d.child_run_id=r.id
-      WHERE a.id=$1 AND a.incarnation=$2 AND a.state='issued' AND r.current_attempt_id=a.id AND r.state='running' AND r.stop_requested=false`
+      WHERE a.id=$1 AND a.incarnation=$2 AND a.state='issued' AND r.current_attempt_id=a.id AND r.state IN ${states} AND r.stop_requested=false`
     const owners=(await client.query<LiveAttempt>(sql,[attemptId,incarnation])).rows[0]
     if(!owners)throw new Error('Attempt is not live')
     if(!await isLive(client,owners.installation_id,'agent',owners.agent_id)||owners.organization_id&&!await isLive(client,owners.installation_id,'organization',owners.organization_id))throw new Error('Attempt owner is not live')
@@ -89,61 +144,88 @@ export class ArtifactService {
     if(!row)throw new Error('Attempt is not live')
     return row
   }
-  async writeOutput(attemptId:string,incarnation:string,callId:string,name:string,content:string):Promise<{status:'completed';outputId:string;name:string;size:number;sha256:string}> {
-    if(!callId||callId.length>200||!name||name.length>128||!(/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name))||name==='.'||name==='..'||typeof content!=='string')throw new Error('Invalid artifact write arguments')
-    const bytes=Buffer.from(content,'utf8')
-    if(bytes.length>MAX_TOOL_WRITE_BYTES)throw new Error('Invalid artifact write size')
-    const contentHash=createHash('sha256').update(bytes).digest('hex'),requestHash=createHash('sha256').update(JSON.stringify([name,content])).digest('hex')
+  /**
+   * Snapshots files an execution names by path into managed storage as staging agent-owned artifacts for one
+   * message or delegation. Relative paths resolve against `base`. The caller makes them ready with `settle` in
+   * the transaction that attaches them, then calls `abandon`, which fails whatever is still staging. A replay of
+   * the call returns the same artifacts, and different arguments under its call ID are a replay conflict.
+   */
+  async attachFiles(attemptId:string,incarnation:string,callId:string,request:FileRequest):Promise<FileAttachment> {
+    const {paths,base,artifactIds,requestHash}=request
+    if(!callId||callId.length>200||!sha.test(requestHash)||!isAbsolute(base)||!paths.length||paths.some(path=>typeof path!=='string'||!path||path.includes('\0')))throw new Error('Invalid file attachment arguments')
+    if(paths.length+artifactIds.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
+    const resolved=paths.map(path=>resolve(base,path))
+    const repeated=paths.find((_,index)=>resolved.indexOf(resolved[index]!)!==index)
+    if(repeated!==undefined)throw new Error(`Cannot attach ${repeated}: it is listed more than once`)
+    const prior=await this.priorAttachment(this.db,attemptId,callId,requestHash)
+    if(prior)return prior
+    // Every size is checked before any bytes are read.
+    const shared=artifactIds.filter(id=>uuid.test(id))
+    const sharedBytes=await storedBytes(this.db,shared)
+    let total=sharedBytes
+    for(const [index,path] of resolved.entries())total+=await attachableSize(paths[index]!,path)
+    if(total>MAX_MESSAGE_FILE_BYTES)throw new Error(messageTooLarge)
+    const files:{id:string;name:string;mimeType:string;bytes:Buffer;sha256:string}[]=[]
+    for(const [index,path] of resolved.entries()){const bytes=await snapshot(paths[index]!,path),name=basename(path);if(name.length>255||/[\x00-\x1f]/.test(name))throw new Error(`Cannot attach ${paths[index]}: the file name is not supported`);files.push({id:randomUUID(),name,mimeType:mimeTypeFor(name),bytes,sha256:createHash('sha256').update(bytes).digest('hex')})}
+    if(sharedBytes+files.reduce((sum,file)=>sum+file.bytes.length,0)>MAX_MESSAGE_FILE_BYTES)throw new Error(messageTooLarge)
+    const ids=files.map(file=>file.id)
     const claim=await this.db.transaction(async client=>{
-      const attempt=await this.liveAttempt(client,attemptId,incarnation)
-      const prior=(await client.query<{id:string;name:string;size_bytes:string;sha256:string;request_sha256:string;state:string}>('SELECT * FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
-      if(prior){if(prior.request_sha256!==requestHash)throw new Error('Artifact write replay conflict');if(prior.state==='ready')return {status:'ready' as const,id:prior.id,attempt};throw new Error('Artifact write pending or failed')}
-      const count=(await client.query<{count:number}>('SELECT count(*)::int AS count FROM kipster.artifact_output_writes WHERE attempt_id=$1',[attemptId])).rows[0]!.count
-      if(count>=MAX_ATTEMPT_OUTPUT_FILES)throw new Error('Attempt output count exceeded')
-      const usage=(await client.query<{total:string}>("SELECT coalesce(sum(size_bytes),0)::text AS total FROM kipster.artifact_output_writes WHERE attempt_id=$1 AND state IN ('staging','ready')",[attemptId])).rows[0]!
-      if(Number(usage.total)+bytes.length>MAX_ATTEMPT_WRITE_BYTES)throw new Error('Attempt output quota exceeded')
-      const id=randomUUID()
-      await client.query('INSERT INTO kipster.artifact_output_writes(id,attempt_id,call_id,name,request_sha256,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)',[id,attemptId,callId,name,requestHash,bytes.length,contentHash,'staging'])
-      return {status:'claimed' as const,id,attempt}
+      const attempt=await this.liveAttempt(client,attemptId,incarnation,true)
+      const raced=await this.priorAttachment(client,attemptId,callId,requestHash)
+      if(raced)return {status:'ready' as const,attachment:raced}
+      for(const [ordinal,file] of files.entries()){
+        await client.query('INSERT INTO kipster.artifacts(id,installation_id,owner_kind,owner_id,provenance,author_id,name,mime_type,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[file.id,attempt.installation_id,'agent',attempt.agent_id,'generated',attempt.agent_id,file.name,file.mimeType,file.bytes.length,file.sha256,'staging'])
+        await client.query('INSERT INTO kipster.artifact_file_attachments(attempt_id,call_id,ordinal,request_sha256,artifact_id,state) VALUES ($1,$2,$3,$4,$5,$6)',[attemptId,callId,ordinal,requestHash,file.id,'staging'])
+      }
+      return {status:'claimed' as const,attempt}
     })
-    if(claim.status==='ready')return {status:'completed',outputId:claim.id,name,size:bytes.length,sha256:contentHash}
-    const dir=this.home.output(claim.attempt.agent_id,claim.attempt.thread_id,attemptId),path=this.output(claim.attempt.agent_id,claim.attempt.thread_id,attemptId,claim.id),staged=path+'.tmp'
+    if(claim.status==='ready')return claim.attachment
+    const abandon=()=>this.abandonAttachment(attemptId,callId,ids)
     try{
-      await directory(dir,this.home.root)
-      const handle=await open(staged,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600)
-      try{await handle.writeFile(bytes);await handle.sync()}finally{await handle.close()}
-      await link(staged,path);await syncDirectory(dir);await unlink(staged)
-      await this.hooks.afterWriteLink?.(claim.id)
-      await this.db.transaction(async client=>{await this.liveAttempt(client,attemptId,incarnation);await client.query("UPDATE kipster.artifact_output_writes SET state='ready' WHERE id=$1 AND state='staging'",[claim.id])})
-      return {status:'completed',outputId:claim.id,name,size:bytes.length,sha256:contentHash}
-    }catch(error){const failed=await this.db.query("UPDATE kipster.artifact_output_writes SET state='failed' WHERE id=$1 AND state='staging'",[claim.id]).then(result=>!!result.rowCount).catch(()=>false);await rm(staged,{force:true}).catch(()=>undefined);if(failed)await rm(path,{force:true}).catch(()=>undefined);throw error}
+      for(const file of files){
+        const staged=this.stage(file.id,randomUUID())
+        const handle=await open(staged,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600)
+        try{await handle.writeFile(file.bytes);await handle.sync()}finally{await handle.close()}
+        await link(staged,this.object(file.id));await unlink(staged)
+        await this.hooks.afterAttachLink?.(file.id)
+      }
+      await syncDirectory(this.objects)
+    }catch(error){await abandon();throw error}
+    const attempt=claim.attempt
+    return {
+      files:files.map(file=>({artifactId:file.id,name:file.name,mimeType:file.mimeType,size:file.bytes.length})),
+      async settle(client){
+        if(!await isLive(client,attempt.installation_id,'agent',attempt.agent_id,false))throw new Error('Attempt owner is not live')
+        const ready=await client.query("UPDATE kipster.artifacts SET state='ready' WHERE id=ANY($1::uuid[]) AND state='staging'",[ids])
+        if(ready.rowCount!==ids.length)throw new Error('Attached files are no longer available')
+        await client.query("UPDATE kipster.artifact_file_attachments SET state='ready' WHERE attempt_id=$1 AND call_id=$2 AND state='staging'",[attemptId,callId])
+      },
+      abandon,
+    }
   }
-  async publishOutput(attemptId:string,incarnation:string,callId:string,outputId:string):Promise<{status:'completed';artifact:ArtifactMetadata}> {
-    if(!callId||callId.length>200||!uuid.test(outputId))throw new Error('Invalid artifact publication arguments')
-    const requestHash=createHash('sha256').update(outputId).digest('hex')
-    const claim=await this.db.transaction(async client=>{
-      const attempt=await this.liveAttempt(client,attemptId,incarnation)
-      const prior=(await client.query<{artifact_id:string;request_sha256:string;state:string}>('SELECT * FROM kipster.artifact_publications WHERE attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
-      if(prior){if(prior.request_sha256!==requestHash)throw new Error('Artifact publication replay conflict');if(prior.state==='ready')return {status:'ready' as const,id:prior.artifact_id,attempt};throw new Error('Artifact publication pending or failed')}
-      await this.publicationCapacity(client,attemptId)
-      const written=(await client.query<{id:string;name:string;size_bytes:string;sha256:string;state:string}>('SELECT * FROM kipster.artifact_output_writes WHERE id=$1 AND attempt_id=$2',[outputId,attemptId])).rows[0]
-      if(!written||written.state!=='ready')throw new Error('Output file unavailable')
-      const id=randomUUID(),mimeType='text/plain; charset=utf-8'
-      await client.query('INSERT INTO kipster.artifacts(id,installation_id,owner_kind,owner_id,provenance,author_id,name,mime_type,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[id,attempt.installation_id,'agent',attempt.agent_id,'generated',attempt.agent_id,written.name,mimeType,written.size_bytes,written.sha256,'staging'])
-      await client.query('INSERT INTO kipster.artifact_publications(attempt_id,call_id,input_id,request_sha256,artifact_id,state) VALUES ($1,$2,$3,$4,$5,$6)',[attemptId,callId,outputId,requestHash,id,'staging'])
-      return {status:'claimed' as const,id,attempt,written}
-    })
-    if(claim.status==='ready')return {status:'completed',artifact:metadata((await this.db.query<ArtifactRow>('SELECT * FROM kipster.artifacts WHERE id=$1',[claim.id])).rows[0]!)}
-    const source=this.output(claim.attempt.agent_id,claim.attempt.thread_id,attemptId,outputId),destination=this.object(claim.id),staged=this.stage(claim.id,randomUUID())
-    try{
-      const bytes=await managedFile(source,this.home.output(claim.attempt.agent_id,claim.attempt.thread_id,attemptId))
-      if(bytes.length!==Number(claim.written.size_bytes)||createHash('sha256').update(bytes).digest('hex')!==claim.written.sha256)throw new Error('Output file integrity changed')
-      const handle=await open(staged,constants.O_CREAT|constants.O_EXCL|constants.O_WRONLY|constants.O_NOFOLLOW,0o600)
-      try{await handle.writeFile(bytes);await handle.sync()}finally{await handle.close()}
-      await link(staged,destination);await syncDirectory(this.objects);await unlink(staged)
-      await this.hooks.afterPublishLink?.(claim.id)
-      return await this.db.transaction(async client=>{await this.liveAttempt(client,attemptId,incarnation);await client.query("UPDATE kipster.artifacts SET state='ready' WHERE id=$1 AND state='staging'",[claim.id]);await client.query("UPDATE kipster.artifact_publications SET state='ready' WHERE attempt_id=$1 AND call_id=$2 AND state='staging'",[attemptId,callId]);return {status:'completed' as const,artifact:metadata(await this.row(client,claim.id))}})
-    }catch(error){const failed=await this.db.transaction(async client=>{const changed=await client.query("UPDATE kipster.artifacts SET state='failed',failure=$2 WHERE id=$1 AND state='staging'",[claim.id,error instanceof Error?error.message:'Publication failed']);await client.query("UPDATE kipster.artifact_publications SET state='failed' WHERE attempt_id=$1 AND call_id=$2 AND state='staging'",[attemptId,callId]);return !!changed.rowCount}).catch(()=>false);await rm(staged,{force:true}).catch(()=>undefined);if(failed)await rm(destination,{force:true}).catch(()=>undefined);throw error}
+  /** The request hash a call's attached files were claimed for, or null when the call attached none. */
+  async attachmentRequest(attemptId:string,callId:string):Promise<string|null>{
+    if(!uuid.test(attemptId))return null
+    return (await this.db.query<{request_sha256:string}>('SELECT request_sha256 FROM kipster.artifact_file_attachments WHERE attempt_id=$1 AND call_id=$2 LIMIT 1',[attemptId,callId])).rows[0]?.request_sha256??null
+  }
+  /** The finished attachment of a call, or null when the call has none. */
+  private async priorAttachment(client:SqlClient|Postgres,attemptId:string,callId:string,requestHash:string):Promise<FileAttachment|null>{
+    const rows=(await client.query<{request_sha256:string;state:string;artifact_id:string;name:string;mime_type:string;size_bytes:string}>('SELECT f.request_sha256,f.state,f.artifact_id,a.name,a.mime_type,a.size_bytes FROM kipster.artifact_file_attachments f JOIN kipster.artifacts a ON a.id=f.artifact_id WHERE f.attempt_id=$1 AND f.call_id=$2 ORDER BY f.ordinal',[attemptId,callId])).rows
+    if(!rows.length)return null
+    if(rows.some(row=>row.request_sha256!==requestHash))throw new Error('File attachment replay conflict')
+    if(rows.some(row=>row.state!=='ready'))throw new Error('File attachment pending or failed')
+    return {files:rows.map(row=>({artifactId:row.artifact_id,name:row.name,mimeType:row.mime_type,size:Number(row.size_bytes)})),settle:async()=>undefined,abandon:async()=>undefined}
+  }
+  /** Fails the attached files that never became ready and removes their bytes. Committed ready files stay. */
+  private async abandonAttachment(attemptId:string,callId:string,ids:readonly string[]):Promise<void>{
+    const failed=await this.db.transaction(async client=>{
+      const changed=await client.query<{id:string}>("UPDATE kipster.artifacts SET state='failed',failure='File attachment was not published' WHERE id=ANY($1::uuid[]) AND state='staging' RETURNING id",[ids])
+      await client.query("UPDATE kipster.artifact_file_attachments SET state='failed' WHERE attempt_id=$1 AND call_id=$2 AND state='staging'",[attemptId,callId])
+      return changed.rows.map(row=>row.id)
+    }).catch(()=>[] as string[])
+    if(!failed.length)return
+    for(const id of failed)await rm(this.object(id),{force:true}).catch(()=>undefined)
+    for(const name of await readdir(this.staging).catch(()=>[] as string[]))if(failed.includes(name.slice(0,36))&&name[36]==='.')await rm(join(this.staging,name),{force:true}).catch(()=>undefined)
   }
   async copyToOrganization(attemptId:string,incarnation:string,callId:string,sourceId:string):Promise<{status:'completed';artifact:ArtifactMetadata}> {
     if(!callId||callId.length>200||!uuid.test(sourceId))throw new Error('Invalid organization publication arguments')
@@ -381,6 +463,7 @@ export class ArtifactService {
     await this.db.query("UPDATE kipster.artifacts SET state='failed',failure='Interrupted generated publication' WHERE state='staging' AND provenance<>'upload'")
     await this.db.query("UPDATE kipster.artifact_output_writes SET state='failed' WHERE state='staging'")
     await this.db.query("UPDATE kipster.artifact_publications SET state='failed' WHERE state='staging'")
+    await this.db.query("UPDATE kipster.artifact_file_attachments SET state='failed' WHERE state='staging'")
     await this.db.query("UPDATE kipster.artifact_organization_copies SET state='failed' WHERE state='staging'")
     await this.cleanupFailedFiles()
     const ready=(await this.db.query<ArtifactRow>("SELECT * FROM kipster.artifacts WHERE state='ready'")).rows

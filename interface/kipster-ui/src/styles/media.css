@@ -171,6 +171,45 @@
   min-width: 0;
   height: 36px;
 }
+.pdf-preview {
+  display: block;
+  width: 100%;
+  height: 360px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--fill);
+}
+/* Text files: the start of the file as plain, escaped text */
+.text-preview {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.text-preview section {
+  max-height: 240px;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 10px;
+  background: var(--fill);
+  box-shadow: inset 0 0 0 0.5px var(--hairline-2);
+}
+.text-preview pre {
+  margin: 0;
+  color: var(--label);
+  font: 12px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 4;
+}
+.text-preview section:focus-visible {
+  outline: 2.5px solid color-mix(in oklab, var(--tint) 70%, transparent);
+  outline-offset: 2px;
+}
+.text-preview small {
+  padding: 0 6px;
+  font-size: 11.5px;
+  color: var(--label-3);
+}
 
 /* Voice note player */
 .voice-note {

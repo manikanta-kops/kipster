@@ -6,6 +6,7 @@ import { publishThreadChange, interactionNotificationChanged } from '../synchron
 import { workRecord } from '../conversations/public.js'
 import { interactionRecord } from './interactions.js'
 import { isLive, refuseAgent } from '../identity/public.js'
+import { requireMessageFileLimit } from '../artifacts/public.js'
 
 export interface DelegationRecord {
   /** `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted. */
@@ -54,8 +55,14 @@ export async function delegationStatus(db:Postgres,attemptId:string,incarnation:
   if(!row||row.parent_run_id!==scope.runId)throw new Error('Delegation access denied')
   return delegationRecord(db,id)
 }
-export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnation:string,callId:string,recipientId:string,request:string,artifactIds:readonly string[]=[]):Promise<DelegationRecord>{
-  if(!callId||callId.length>200||typeof recipientId!=='string'||!/^[0-9a-f-]{36}$/i.test(recipientId)||typeof request!=='string'||!request.trim()||request.length>16000||!Array.isArray(artifactIds)||artifactIds.length>10||new Set(artifactIds).size!==artifactIds.length||artifactIds.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Invalid delegation request')
+/**
+ * Files the sender attached by path for a delegation: already stored, and made ready by `settle` in the delegation's
+ * transaction. They follow `artifactIds` in the request message.
+ */
+export interface DelegationFiles { files: readonly { artifactId: string }[]; settle(client: SqlClient): Promise<void> }
+export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnation:string,callId:string,recipientId:string,request:string,artifactIds:readonly string[]=[],attached?:DelegationFiles):Promise<DelegationRecord>{
+  const attachedIds=attached?.files.map(file=>file.artifactId)??[],allIds=[...artifactIds,...attachedIds]
+  if(!callId||callId.length>200||typeof recipientId!=='string'||!/^[0-9a-f-]{36}$/i.test(recipientId)||typeof request!=='string'||!request.trim()||request.length>16000||!Array.isArray(artifactIds)||allIds.length>10||new Set(artifactIds).size!==artifactIds.length||artifactIds.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Invalid delegation request')
   const first=await boundScope(db,attemptId,incarnation)
   const priorParent=(await db.query<{origin_thread_id:string;root_run_id:string;depth:number}>('SELECT origin_thread_id,root_run_id,depth FROM kipster.delegations WHERE child_run_id=$1',[first.runId])).rows[0]
   const originThreadId=priorParent?.origin_thread_id??first.threadId,rootRunId=priorParent?.root_run_id??first.runId,depth=(priorParent?.depth??0)+1
@@ -64,10 +71,10 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[originThreadId])
     if(first.threadId!==originThreadId)await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[first.threadId])
     const scope=await boundScope(client,attemptId,incarnation)
-    const prior=(await client.query<{id:string;recipient_agent_id:string;request:string;artifact_ids:string[]}>('SELECT id,recipient_agent_id,request,artifact_ids FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
-    if(prior){if(prior.recipient_agent_id!==recipientId||prior.request!==request||JSON.stringify(prior.artifact_ids)!==JSON.stringify(artifactIds))throw new Error('Delegation identity conflict');return delegationRecord(client,prior.id)}
-    const same=(await client.query<{id:string}>(`SELECT id FROM kipster.delegations WHERE parent_run_id=$1 AND recipient_agent_id=$2 AND request=$3 AND artifact_ids=$4::uuid[] ORDER BY ordinal LIMIT 1`,[scope.runId,recipientId,request,artifactIds])).rows[0]
-    if(same)return delegationRecord(client,same.id)
+    const prior=(await client.query<{id:string;recipient_agent_id:string;request:string;artifact_ids:string[]}>('SELECT id,recipient_agent_id,request,artifact_ids FROM kipster.delegations WHERE (parent_attempt_id=$1 AND call_id=$2) OR id=(SELECT delegation_id FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2)',[attemptId,callId])).rows[0]
+    if(prior){if(prior.recipient_agent_id!==recipientId||prior.request!==request||JSON.stringify(prior.artifact_ids)!==JSON.stringify(allIds))throw new Error('Delegation identity conflict');return delegationRecord(client,prior.id)}
+    const same=(await client.query<{id:string}>(`SELECT id FROM kipster.delegations WHERE parent_run_id=$1 AND recipient_agent_id=$2 AND request=$3 AND artifact_ids=$4::uuid[] ORDER BY ordinal LIMIT 1`,[scope.runId,recipientId,request,allIds])).rows[0]
+    if(same){await client.query('INSERT INTO kipster.delegation_calls(attempt_id,call_id,delegation_id) VALUES ($1,$2,$3)',[attemptId,callId,same.id]);return delegationRecord(client,same.id)}
     if(scope.agentId===recipientId)throw new Error('Delegation cycle: agent cannot delegate to itself')
     const limits=(await client.query<{delegation_depth_limit:number;delegation_root_budget:number;delegation_fanout_limit:number}>('SELECT delegation_depth_limit,delegation_root_budget,delegation_fanout_limit FROM kipster.execution_permits WHERE installation_id=$1',[scope.installationId])).rows[0]!
     if(depth>limits.delegation_depth_limit)throw new Error('Delegation depth limit reached')
@@ -92,15 +99,17 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
       const file=(await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id WHERE ma.artifact_id=$1 AND m.thread_id=$2 LIMIT 1`,[id,scope.threadId])).rows[0]
       if(!file)throw new Error('Delegation file access denied')
     }
+    await requireMessageFileLimit(client,allIds)
+    await attached?.settle(client)
     const id=randomUUID(),threadId=randomUUID(),runId=randomUUID(),messageId=randomUUID()
-    const parts=[{kind:'text',text:request},...artifactIds.map(artifactId=>({kind:'file',artifactId,purpose:'attachment'}))]
+    const parts=[{kind:'text',text:request},...allIds.map(artifactId=>({kind:'file',artifactId,purpose:'attachment'}))]
     await client.query('INSERT INTO kipster.threads(id,chat_id,internal,next_message_position,next_queue_position) VALUES ($1,$2,true,2,2)',[threadId,scope.chatId])
-    await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,finished_at) VALUES ($1,$2,1,$3,$4::jsonb,now())', [messageId, threadId, scope.agentId, JSON.stringify(parts)])
-    for(const [index,artifactId] of artifactIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index+1,artifactId,'attachment'])
+    await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,finished_at) VALUES ($1,$2,1,$3,$4::jsonb,now())',[messageId,threadId,scope.agentId,JSON.stringify(parts)])
+    for(const [index,artifactId] of allIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index+1,artifactId,'attachment'])
     await client.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'queued')",[runId,scope.installationId])
     await client.query("INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,'queued',1)",[runId,threadId,messageId])
     await client.query(`INSERT INTO kipster.delegations(id,installation_id,origin_thread_id,root_run_id,parent_run_id,parent_attempt_id,ordinal,child_run_id,call_id,sender_agent_id,recipient_agent_id,context_kind,context_id,responsible_human_id,depth,request,artifact_ids,state)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid[],'queued')`,[id,scope.installationId,originThreadId,rootRunId,scope.runId,attemptId,nextOrdinal,runId,callId,scope.agentId,recipientId,scope.contextKind,scope.contextId,scope.humanId,depth,request,artifactIds])
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid[],'queued')`,[id,scope.installationId,originThreadId,rootRunId,scope.runId,attemptId,nextOrdinal,runId,callId,scope.agentId,recipientId,scope.contextKind,scope.contextId,scope.humanId,depth,request,allIds])
     await client.query("UPDATE kipster.text_runs SET state='waiting',revision=revision+1 WHERE id=$1 AND state='running'",[scope.runId])
     await publishThreadChange(client, scope.installationId, scope.humanId, threadId, scope.chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
     await publishThreadChange(client,scope.installationId,scope.humanId,threadId,scope.chatId,'work-changed',runId,1,await workRecord(client,runId),'queued',null)

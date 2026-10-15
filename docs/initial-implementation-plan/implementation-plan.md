@@ -130,9 +130,8 @@ The model can send several user-facing messages during one run. An intermediate 
 Provide model-facing operations along these lines:
 
 - `activity.report`: publish meaningful work status, with a stable activity ID for updates.
-- `conversation.publish`: publish an intermediate or final message with content parts and artifact IDs.
+- `conversation.publish`: publish an intermediate or final message with content parts, artifact IDs and files attached by path; Core snapshots each file into managed storage.
 - `interactions.ask` and `interactions.request_approval`: create a durable question or approval through Core, with supported adapter continuation.
-- `artifacts.publish`: register and finalize a generated file for sharing.
 - Structured-data and vector read/write operations described below.
 
 Instruct models to communicate meaningful milestones, decisions, and blockers using these operations. Progress is public commentary, not private chain of thought. Model silence must not leave the UI unable to determine whether a run is active; lifecycle and connection status come from Kipster.
@@ -252,7 +251,7 @@ Give each run a designated output directory in the execution context and instruc
 <kipster-home>/agents/<agent-id>/outputs/<thread-id>/<attempt-id>/
 ```
 
-The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there and call `artifacts.publish` when a file is ready. The Core registers the artifact and returns an artifact ID for `messages.publish`. Merely creating a file does not publish a partial or temporary file to the user.
+The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path with `files` on `conversation_publish` or `agents_delegate`, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
 
 Filesystem directories and HTTP routes are separate namespaces. A public route might be `/v1/files/<artifact-id>/content`, regardless of where bytes are stored. Use IDs rather than thread titles or provider names as storage identity. Store stable artifact IDs in messages; clients resolve them against the currently configured backend URL.
 

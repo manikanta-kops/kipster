@@ -122,4 +122,4 @@ Sources: [official notification plugin](https://v2.tauri.app/plugin/notification
 
 The injected `Platform.recording` service owns permission requests, MediaRecorder and media tracks. Browser and Tauri webviews use the web capability when available; unsupported hosts return an explicit error. Microphone permission is requested only after the recording action. Cancel, errors and obsolete permission results stop tracks. Stopped recordings enter the ordinary durable attachment path with explicit voice-note purpose. There is no browser transcription or live two-way voice.
 
-Tauri permits Blob image/media rendering without enabling uploaded scripts, and macOS includes the microphone usage description. Actual packaged webview recording and OS consent remain unverified; browser synthetic-media tests do not establish desktop support.
+Tauri permits Blob image/media rendering and Blob PDF frames without enabling uploaded scripts, and macOS includes the microphone usage description. Actual packaged webview recording and OS consent remain unverified; browser synthetic-media tests do not establish desktop support.

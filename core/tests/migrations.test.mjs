@@ -155,7 +155,7 @@ test(
   async (t) => {
     const fixture = await database(t)
     const migrations = await loadMigrations()
-    await fixture.db.migrate(migrations.filter((item) => item.version < '028'))
+    await fixture.db.migrate(migrations.filter((item) => item.version < '030'))
     const { ids } = await seed(fixture.db, false)
     const draftId = randomUUID()
     await fixture.db.query(
