@@ -2,7 +2,7 @@
 
 Playground is the starter organization of a new Kipster installation. People use it
 to try Kipster: chat with each kip, hand work between them and watch what they
-remember over time. Kipster calls its agents kips.
+remember over time.
 
 ## Team
 
