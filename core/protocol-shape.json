@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":1,"oldest":1},
+  "protocol": {"current":2,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
@@ -2958,11 +2958,7 @@
     },
     "identityFileName": {
       "type": "union",
-      "of": [
-        {"type":"literal","value":"AGENTS.md"},
-        {"type":"literal","value":"soul.md"},
-        {"type":"literal","value":"identity.md"}
-      ]
+      "of": [{"type":"literal","value":"soul.md"},{"type":"literal","value":"identity.md"}]
     },
     "interactionState": {
       "type": "union",

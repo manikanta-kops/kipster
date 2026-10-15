@@ -35,7 +35,7 @@ const areas = {
   directory: 'Everything at a glance: workspaces (organizations), kips (agents), memberships and groups.',
   organizations: 'Workspaces: create, rename, describe, edit instructions, delete.',
   agents: 'Kips: create, rename, describe, archive, restore, delete.',
-  identity: 'The identity files of any kip: AGENTS.md (working rules), soul.md (character) and identity.md (role).',
+  identity: 'The identity files of any kip: soul.md (character and working rules) and identity.md (role).',
   memberships: 'Which kips belong to which workspace.',
   groups: 'The sidebar groups of a workspace and the kips shown in each.',
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
@@ -479,14 +479,14 @@ const operationsRequest = object({ area: optional(nonempty()), operation: option
 const callRequest = object({ operation: nonempty(), arguments: optional(record()), operationId: optional(boundedString(1, 200)) })
 
 /**
- * Runs one administration tool call of the admin agent: `admin_operations` lists the catalog or describes one operation,
- * and `admin_call` runs one. Operations call the same services as the HTTP routes, authorized for the calling attempt.
+ * Runs one administration tool call of the admin agent: `list_admin_operations` lists the catalog or describes one operation,
+ * and `run_admin_operation` runs one. Operations call the same services as the HTTP routes, authorized for the calling attempt.
  * A write with a receipt uses the explicit operation ID, stable across execution retries; reusing it returns its receipt.
  */
 export async function administrationTool(host: AdministrationToolHost, caller: AgentCaller, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
   if (typeof callId !== 'string' || !callId || callId.length > 160) throw new Error('Invalid administration call ID')
   await authorizeAdministration(host.db, caller)
-  if (name === 'admin_operations') {
+  if (name === 'list_admin_operations') {
     const request = operationsRequest.parse(args)
     if (request.operation !== undefined) {
       const definition = adminOperations[request.operation]
@@ -499,13 +499,13 @@ export async function administrationTool(host: AdministrationToolHost, caller: A
         area, description: areas[area],
         operations: Object.entries(adminOperations).filter(([, definition]) => definition.area === area).map(([operation, definition]) => ({ operation, kind: definition.kind, description: definition.description })),
       })),
-      next: 'Call admin_operations with an operation name to read its arguments, then run it with admin_call.',
+      next: 'Call list_admin_operations with an operation name to read its arguments, then run it with run_admin_operation.',
     }
   }
-  if (name !== 'admin_call') throw new Error('Unsupported administration tool')
+  if (name !== 'run_admin_operation') throw new Error('Unsupported administration tool')
   const request = callRequest.parse(args)
   const definition = Object.hasOwn(adminOperations, request.operation) ? adminOperations[request.operation] : undefined
-  if (!definition) throw new Error(`Unknown administration operation ${request.operation}; list the operations with admin_operations`)
+  if (!definition) throw new Error(`Unknown administration operation ${request.operation}; list the operations with list_admin_operations`)
   const values = request.arguments ?? {}
   if (Buffer.byteLength(JSON.stringify(values)) > (definition.maxBytes ?? 64 * 1024)) throw new TypeError(`Invalid ${request.operation} arguments: too large`)
   if (definition.receipt && request.operationId === undefined) throw new TypeError(`${request.operation} needs an operationId`)

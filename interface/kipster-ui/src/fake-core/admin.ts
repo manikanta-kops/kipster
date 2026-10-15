@@ -738,17 +738,14 @@ export function createAdministration(options: Options = {}) {
       ['GET|PUT', `/v1/organizations/${resource}/instructions`],
       ['GET|PUT', '/v1/settings/learning'],
       ['PUT', `/v1/agents/${resource}/learning`],
-      [
-        'GET|PUT',
-        `/v1/agents/${resource}/identity/(AGENTS\\.md|soul\\.md|identity\\.md)`,
-      ],
+      ['GET|PUT', `/v1/agents/${resource}/identity/(soul\\.md|identity\\.md)`],
       [
         'GET',
-        `/v1/agents/${resource}/identity/(AGENTS\\.md|soul\\.md|identity\\.md)/backups(?:/[^/]+)?`,
+        `/v1/agents/${resource}/identity/(soul\\.md|identity\\.md)/backups(?:/[^/]+)?`,
       ],
       [
         'POST',
-        `/v1/agents/${resource}/identity/(AGENTS\\.md|soul\\.md|identity\\.md)/backups/[^/]+/restore`,
+        `/v1/agents/${resource}/identity/(soul\\.md|identity\\.md)/backups/[^/]+/restore`,
       ],
       ['POST', '/v1/execution-adapters/refresh'],
       ['POST', '/v1/(organizations|agents)'],
@@ -896,8 +893,7 @@ export function createAdministration(options: Options = {}) {
       })
     if (family === 'agents' && action === 'identity') {
       const agent = findAgent(targetId)
-      if (!['AGENTS.md', 'soul.md', 'identity.md'].includes(childId))
-        return undefined
+      if (!['soul.md', 'identity.md'].includes(childId)) return undefined
       const key = `${targetId}/${childId}`
       let entry = identities.get(key)
       if (!entry) {

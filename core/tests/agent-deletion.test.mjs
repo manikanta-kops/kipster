@@ -135,13 +135,13 @@ async function populate(ctx) {
   const workspace = ctx.runtime.home.agent(ctx.scout)
   await mkdir(workspace, { recursive: true })
   await writeFile(join(workspace, 'report.txt'), 'Quarterly numbers')
-  const [shown] = (await own.call('conversation_publish', { text: 'Here is the report', files: ['report.txt'] })).files.map(file => ({ id: file.artifactId }))
-  const publication = (await own.call('artifacts_copy_to_organization', { artifactId: shown.id })).artifact
+  const [shown] = (await own.call('post_chat_message', { text: 'Here is the report', files: ['report.txt'] })).files.map(file => ({ id: file.artifactId }))
+  const publication = (await own.call('copy_attachment_to_workspace', { artifactId: shown.id })).artifact
   const unshown = await retiredPublication(ctx, own, 'draft.txt', 'Draft only')
   const target = { kind: 'agent', ownerId: ctx.scout }
-  const collection = await own.call('vector_collections', { target, operation: 'create', name: 'notes' })
-  await own.call('vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
-  await own.call('data_tables', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
+  const collection = await own.call('manage_vector_collections', { target, operation: 'create', name: 'notes' })
+  await own.call('manage_vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
+  await own.call('manage_data_tables', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
   ctx.finish(own)
   await ctx.settled(own.runId, 'completed')
 
@@ -150,14 +150,14 @@ async function populate(ctx) {
 
   // Root delegates to Scout; Scout shows a file in its reply thread and passes it on to Helper.
   const parent = await ctx.running(ctx.root, 'Ask Scout for the numbers')
-  const delegated = await parent.call('agents_delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
   parent.release({ kind: 'ended', confirmed: true })
   await ctx.settled(parent.runId, 'waiting')
   const child = ctx.bind({ runId: delegated.childRunId }, await ctx.execution(delegated.childRunId))
   ctx.provider(child, 'codex-scout-child')
   await writeFile(join(workspace, 'checked.txt'), 'Checked numbers')
-  const [childFile] = (await child.call('conversation_publish', { text: 'Checked', files: ['checked.txt'] })).files.map(file => ({ id: file.artifactId }))
-  const further = await child.call('agents_delegate', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
+  const [childFile] = (await child.call('post_chat_message', { text: 'Checked', files: ['checked.txt'] })).files.map(file => ({ id: file.artifactId }))
+  const further = await child.call('delegate_to_kip', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
   let mark = ctx.executions.length
   child.release({ kind: 'ended', confirmed: true })
   ctx.finish(ctx.bind({}, await ctx.execution(further.childRunId)), 'Looks right')
@@ -356,7 +356,7 @@ test('copying files keeps each file shown in an organization\'s chats in that or
   const secondContext = { kind: 'organization', organizationId: second }
   const there = await ctx.running(ctx.scout, 'Summarize', secondContext)
   await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'summary.txt'), 'Summary')
-  await there.call('conversation_publish', { text: 'Summary attached', files: ['summary.txt'] })
+  await there.call('post_chat_message', { text: 'Summary attached', files: ['summary.txt'] })
   ctx.finish(there)
   await ctx.settled(there.runId, 'completed')
 
@@ -484,8 +484,8 @@ test('organization deletion fences work, removes owned resources and preserves g
   const running = await ctx.running(ctx.helper, 'Work before deletion')
   const deletionCursor = await ctx.cursor()
   const shared = { kind: 'organization', ownerId: ctx.organizationId }
-  const sharedCollection = await running.call('vector_collections', { target: shared, operation: 'create', name: 'shared_notes' })
-  await running.call('data_tables', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
+  const sharedCollection = await running.call('manage_vector_collections', { target: shared, operation: 'create', name: 'shared_notes' })
+  await running.call('manage_data_tables', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
   // Cards learned in the other organization's thread: one carries the deleted organization, one is global.
   const otherMessage = (await ctx.db.query('SELECT input_message_id AS id FROM kipster.text_runs WHERE id=$1', [other.runId])).rows[0].id
   const card = async organizationId => {

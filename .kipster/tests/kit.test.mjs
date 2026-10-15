@@ -204,7 +204,7 @@ test('the __files__ fixture attaches every committed file of each common type', 
   assert.match(start, /text\.startsWith\('__files__'\)/)
   assert.match(start, /'fixture-files-publish'/)
   assert.match(start, /'fixture-files-publish-more'/)
-  assert.match(start, /'conversation_publish'/)
+  assert.match(start, /'post_chat_message'/)
   // The driver admits only Chrome's own PDF viewer beyond the allowed origins.
   const drive = await readFile(resolve(kitRoot, 'verify/drive.mjs'), 'utf8')
   assert.match(drive, /host === 'mhjfbmdgcfjbbpaeojofohoefgiehjai'/)

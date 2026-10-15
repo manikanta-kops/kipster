@@ -91,12 +91,12 @@ async function setup(t) {
   return {
     service, supervisor, endpoint, plugins, runtime, server, call, ok, executions, db: runtime.db,
     client: createClient({ baseUrl: server.url }),
-    /** Starts a run of Kip and returns its execution; `tool` makes an admin_call from it. */
+    /** Starts a run of Kip and returns its execution; `tool` makes a run_admin_operation call from it. */
     async run(text = 'Plugins') {
       const accepted = await ok('POST', '/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId, callerId: ownerId }, target: { context: installation, chatId }, mode: 'root', parts: [{ kind: 'text', text }] })
       const execution = await until(() => executions.find(e => e.context.runId === accepted.runId), `execution of ${accepted.runId}`)
       let n = 0
-      return { ...execution, tool: (operation, args = {}) => execution.handle.callTool(`plugins-${++n}`, 'admin_call', { operation, arguments: args }) }
+      return { ...execution, tool: (operation, args = {}) => execution.handle.callTool(`plugins-${++n}`, 'run_admin_operation', { operation, arguments: args }) }
     },
   }
 }
@@ -244,12 +244,12 @@ test('every plugin route relays the plugin server, and a sign-in returns through
 test('Kip manages plugins through the admin operations', { skip: noDatabase, timeout: 120000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.run('Connect my fixture account')
-  const listing = await run.handle.callTool('list', 'admin_operations', { area: 'plugins' })
+  const listing = await run.handle.callTool('list', 'list_admin_operations', { area: 'plugins' })
   assert.deepEqual(listing.areas.map(area => area.operations.map(item => [item.operation, item.kind])), [[
     ['plugins.list', 'read'], ['plugins.get', 'read'], ['plugins.sign_in', 'write'], ['plugins.sign_in_status', 'read'], ['plugins.accounts_list', 'read'],
     ['plugins.account_rename', 'write'], ['plugins.default_set', 'write'], ['plugins.default_clear', 'write'], ['plugins.account_remove', 'write'],
   ]])
-  const signIn = await run.handle.callTool('describe', 'admin_operations', { operation: 'plugins.sign_in' })
+  const signIn = await run.handle.callTool('describe', 'list_admin_operations', { operation: 'plugins.sign_in' })
   assert.deepEqual(Object.keys(signIn.arguments.properties), ['pluginId', 'address'], 'Kip never passes a return address')
 
   assert.deepEqual(await run.tool('plugins.list'), await ctx.ok('GET', '/v1/plugins'))

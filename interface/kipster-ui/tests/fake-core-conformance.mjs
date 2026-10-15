@@ -459,7 +459,7 @@ test('settings, effective inheritance, adapters, learning and identity files con
     'PUT',
     { version: 1, enabled: true, sleepTime: null },
   )
-  for (const file of ['AGENTS.md', 'soul.md', 'identity.md']) {
+  for (const file of ['soul.md', 'identity.md']) {
     const path = `/v1/agents/${agentId}/identity/${file}`
     const current = await json(path, protocol.identityFile)
     const changed = await json(path, protocol.identityFile, 'PUT', {

@@ -60,6 +60,10 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
   })
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
+// Agent and document tools keep their Core operation names.
+const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['delegate_to_kip', 'agents.delegate'], ['check_kip_task', 'agents.delegation_status']])
+const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
+const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&value.every(item=>typeof item==='string')
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
@@ -68,32 +72,32 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
     async invokeTool(request) {
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
-      if (request.name === 'conversation_publish') {
+      if (request.name === 'post_chat_message') {
         if (Object.keys(args).some(key=>!['text','artifactIds','files'].includes(key)) || (args.text!==undefined&&typeof args.text!=='string') || !strings(args.artifactIds) || !strings(args.files)) throw new Error('Invalid publication arguments')
         return dispatcher.publishToolText(request.attemptId, request.callId, typeof args.text==='string'?args.text:'', args.artifactIds as string[]|undefined, args.files as string[]|undefined)
       }
-      if(request.name==='audio_transcribe'){
+      if(request.name==='transcribe_voice_note'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid transcription arguments')
         return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
       }
-      if(request.name==='artifacts_copy_to_organization'){
+      if(request.name==='copy_attachment_to_workspace'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid organization publication arguments')
         return dispatcher.copyArtifactTool(request.attemptId,request.callId,args.artifactId)
       }
-      if (request.name === 'interactions_ask' || request.name === 'interactions_request_approval') {
-        const kind = request.name === 'interactions_ask' ? 'question' : 'approval'
+      if (request.name === 'ask_user_question' || request.name === 'request_user_approval') {
+        const kind = request.name === 'ask_user_question' ? 'question' : 'approval'
         // A grant outlives its card, so only an adapter translating a provider's own approval may offer one.
         if (args.grant !== undefined && !request.callId.startsWith('native:')) throw new Error('Invalid interaction fields')
         return dispatcher.askToolInteraction(request.attemptId, request.callId, { ...args, kind } as unknown as InteractionInput)
       }
-      // Agent tools keep their Core names, such as `agents.delegate` for `agents_delegate`.
-      if (/^agents_(list|get|delegate|delegation_status)$/.test(request.name)) return dispatcher.agentTool(request.attemptId,request.callId,request.name.replace('_','.'),args)
-      if ((request.name === 'admin_operations' || request.name === 'admin_call') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
-      if (/^memory_(search|recent_threads|read_thread|remember|forget)$/.test(request.name) && dispatcher.memoryTool) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
-      if (request.name === 'data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
-      if (request.name === 'vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
-      const document = /^documents_(create|list|read|edit|delete)$/.exec(request.name)
-      if (document && dispatcher.documentTool) return dispatcher.documentTool(request.attemptId, request.callId, `documents.${document[1]}`, args)
+      const agentOperation = agentOperations.get(request.name)
+      if (agentOperation) return dispatcher.agentTool(request.attemptId, request.callId, agentOperation, args)
+      if ((request.name === 'list_admin_operations' || request.name === 'run_admin_operation') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
+      if (memoryTools.has(request.name) && dispatcher.memoryTool) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
+      if (request.name === 'manage_data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
+      if (request.name === 'manage_vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
+      const documentOperation = documentOperations.get(request.name)
+      if (documentOperation && dispatcher.documentTool) return dispatcher.documentTool(request.attemptId, request.callId, documentOperation, args)
       throw new Error('Unsupported Kipster tool')
     },
   }
@@ -684,7 +688,7 @@ export class TextDispatcher {
       const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, resolved.instructions.agent, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const instructions = [resolved.instructions.system, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance, memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
@@ -788,7 +792,7 @@ export class TextDispatcher {
     if (!row) return { status: 'failed', reason: 'Unknown attempt' }
     const context = await runContext(this.runtime.db, row.intent_id)
     if (!context) return { status: 'failed', reason: 'Unknown run' }
-    const requestHash = files.length ? fileRequestHash(['conversation_publish', text, artifactIds, files]) : null
+    const requestHash = files.length ? fileRequestHash(['post_chat_message', text, artifactIds, files]) : null
     if (await this.fileReplayConflict(attemptId, callId, requestHash, 'SELECT 1 FROM kipster.messages WHERE source_attempt_id=$1 AND publication_id=$2 AND publication_source=\'tool\'')) return { status: 'failed', reason: 'File attachment replay conflict' }
     let attachment: FileAttachment | undefined
     try {
@@ -851,7 +855,7 @@ export class TextDispatcher {
     if(name==='agents.delegate'){
       if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files))throw new Error('Invalid delegation arguments')
       const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[]
-      const requestHash=files.length?fileRequestHash(['agents_delegate',args.recipientId,args.request,artifactIds,files]):null
+      const requestHash=files.length?fileRequestHash(['delegate_to_kip',args.recipientId,args.request,artifactIds,files]):null
       if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2 UNION ALL SELECT 1 FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
       if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)

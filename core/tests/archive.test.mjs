@@ -116,7 +116,7 @@ test('archiving stops the agent\'s work, fails a waiting parent\'s delegation an
   const ctx = await setup(t)
   // A parent waiting on work it delegated to Scout.
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('agents_delegate', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
   parent.release({ kind: 'ended', confirmed: true })
   const child = await ctx.execution(delegated.childRunId)
   await ctx.settled(parent.runId, 'waiting')
@@ -124,7 +124,7 @@ test('archiving stops the agent\'s work, fails a waiting parent\'s delegation an
   const running = await ctx.running()
   const queued = await ctx.submit(running.chatId, 'After that', { mode: 'reply', threadId: running.threadId })
   const asking = await ctx.running(ctx.scout, 'Ask me something')
-  const question = await asking.call('interactions_ask', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
+  const question = await asking.call('ask_user_question', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
   asking.release({ kind: 'ended', confirmed: true })
   await ctx.settled(asking.runId, 'waiting')
   const cursor = await ctx.cursor()
@@ -154,8 +154,8 @@ test('archiving stops the agent\'s work, fails a waiting parent\'s delegation an
   const resumed = await ctx.execution(parent.runId, after)
   assert.deepEqual(resumed.context.delegationResults.map(item => [item.recipientAgentId, item.state, item.failure]), [[ctx.scout, 'failed', 'Agent was archived']])
   const tool = (name, args) => resumed.handle.callTool(randomUUID(), name, args)
-  assert.equal((await tool('agents_list', {})).agents.some(agent => agent.id === ctx.scout), false)
-  await assert.rejects(tool('agents_delegate', { recipientId: ctx.scout, request: 'Try again' }), /Agent is archived/)
+  assert.equal((await tool('list_kips', {})).agents.some(agent => agent.id === ctx.scout), false)
+  await assert.rejects(tool('delegate_to_kip', { recipientId: ctx.scout, request: 'Try again' }), /Agent is archived/)
   ctx.finish({ found: resumed }, 'Scout is unavailable')
   await ctx.settled(parent.runId, 'completed')
 
@@ -210,7 +210,7 @@ test('restoring brings the agent back unchanged: stopped work stays stopped, Ret
   const writer = await ctx.running(ctx.scout, 'Write the notes')
   await mkdir(ctx.runtime.home.agent(ctx.scout), { recursive: true })
   await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'notes.txt'), 'Quarterly notes')
-  const [published] = (await writer.call('conversation_publish', { text: 'Here are the notes', files: ['notes.txt'] })).files
+  const [published] = (await writer.call('post_chat_message', { text: 'Here are the notes', files: ['notes.txt'] })).files
   ctx.finish(writer)
   await ctx.settled(writer.runId, 'completed')
   const file = { id: published.artifactId, target: { installationId: ctx.installationId, callerId: ctx.ownerId, context: ctx.context, chatId: writer.chatId, threadId: writer.threadId } }
@@ -282,14 +282,14 @@ test('the admin agent cannot be archived; operation IDs are receipts; only the o
 
   // The admin agent restores from its installation chat with an explicit stable operation ID.
   const adminRun = await ctx.running(ctx.root, 'Restore Scout', { kind: 'installation', installationId: ctx.installationId })
-  assert.equal(adminRun.found.context.tools.some(tool => tool.name === 'admin_call'), true)
-  const restored = await adminRun.call('admin_call', { operation: 'agents.restore', operationId: 'restore-operation', arguments: { agentId: ctx.scout } }, 'restore-1')
+  assert.equal(adminRun.found.context.tools.some(tool => tool.name === 'run_admin_operation'), true)
+  const restored = await adminRun.call('run_admin_operation', { operation: 'agents.restore', operationId: 'restore-operation', arguments: { agentId: ctx.scout } }, 'restore-1')
   assert.deepEqual([restored.operationId, restored.alreadyApplied, restored.agent.lifecycle], ['restore-operation', false, 'active'])
-  const replay = await adminRun.call('admin_call', { operation: 'agents.restore', operationId: 'restore-operation', arguments: { agentId: ctx.scout } }, 'restore-1')
+  const replay = await adminRun.call('run_admin_operation', { operation: 'agents.restore', operationId: 'restore-operation', arguments: { agentId: ctx.scout } }, 'restore-1')
   assert.deepEqual([replay.alreadyApplied, replay.agent.revision], [true, restored.agent.revision])
   assert.deepEqual({ ...await row(ctx.db, `SELECT actor_kind, actor_id, kind, target_id, state FROM kipster.admin_operations WHERE operation_id=$1`, [restored.operationId]) },
     { actor_kind: 'agent', actor_id: ctx.root, kind: 'agent.restore', target_id: ctx.scout, state: 'succeeded' })
-  const approval = await adminRun.call('admin_call', { operation: 'agents.archive', arguments: { agentId: ctx.scout } })
+  const approval = await adminRun.call('run_admin_operation', { operation: 'agents.archive', arguments: { agentId: ctx.scout } })
   assert.equal(approval.status, 'pending')
   assert.ok(approval.interactionId)
   // Restoring an active agent changes nothing.

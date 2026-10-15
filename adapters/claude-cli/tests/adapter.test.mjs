@@ -19,7 +19,7 @@ async function fixture(t) {
   const home = join(directory, 'agent')
   await mkdir(home)
   const calls = []
-  let answer = request => request.name.startsWith('interactions_') ? { status: 'pending', interactionId: `card-${calls.length}` } : { ok: true, echoed: request.arguments }
+  let answer = request => ['ask_user_question', 'request_user_approval'].includes(request.name) ? { status: 'pending', interactionId: `card-${calls.length}` } : { ok: true, echoed: request.arguments }
   const adapter = createAdapter({ dataDirectory: join(directory, 'data'), now: () => new Date().toISOString(), async invokeTool(request) { calls.push(request); return answer(request) } },
     { executable, environment: { FAKE_CLAUDE_LOG: log, FAKE_CLAUDE_MODE_FILE: modeFile, CLAUDE_CONFIG_DIR: join(directory, 'claude-config') } })
   t.after(async () => { await adapter.close(); await rm(directory, { recursive: true, force: true }) })
@@ -32,7 +32,7 @@ async function fixture(t) {
 }
 const tools = [
   { name: 'notes_echo', description: 'Echo a note.', inputSchema: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] } },
-  { name: 'interactions_ask', description: 'Ask.', inputSchema: { type: 'object' }, waits: 'question' },
+  { name: 'ask_user_question', description: 'Ask.', inputSchema: { type: 'object' }, waits: 'question' },
 ]
 const context = (f, extra = {}) => ({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: f.home, instructions: 'You are Kip.', prompt: 'Core prompt', tools, settings: { adapterId: 'claude-cli', modelId: 'opus', effort: 'high' }, triggerMessageId: 'm1', input: [{ messageId: 'm1', text: 'Hi' }], ...extra })
 async function collect(handle) { const events = []; for await (const event of handle.events) events.push(event); return events }
@@ -97,7 +97,7 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   assert.deepEqual(user[0], { type: 'text', text: 'Core prompt' })
   assert.match(user[1].text, /^Visual input for message "m1", part 2, artifact "photo"/)
   assert.deepEqual(user[2], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png.toString('base64') } })
-  assert.deepEqual(records.find(record => record.listed), { listed: ['notes_echo', 'interactions_ask'], permissionListed: ['prompt'] })
+  assert.deepEqual(records.find(record => record.listed), { listed: ['notes_echo', 'ask_user_question'], permissionListed: ['prompt'] })
   assert.deepEqual(f.calls, [{ attemptId: 'attempt', callId: 'toolu_1', name: 'notes_echo', arguments: { note: 'alpha' } }])
   assert.equal(JSON.parse(records.find(record => record.offered).offered.content[0].text).echoed.note, 'alpha')
   assert.equal(records.find(record => record.unoffered).unoffered.isError, true, 'a tool Core did not offer never reaches Core')
@@ -120,7 +120,7 @@ test('a native approval becomes a Core card bound to the exact action, then resu
   assert.deepEqual(first.slice(1).map(event => event.kind), ['waiting', 'ended'])
   assert.equal(first[1].for, 'approval')
   const card = f.calls[0]
-  assert.equal(card.name, 'interactions_request_approval')
+  assert.equal(card.name, 'request_user_approval')
   assert.equal(card.callId, 'native:toolu_bash')
   assert.equal(card.arguments.proposal, '{"input":{"command":"touch approved.txt"},"tool":"Bash"}', 'regenerated labels are not part of the approved action')
   assert.match(card.arguments.prompt, /^Run `touch approved.txt`\?\nlabel \d+$/)
@@ -299,7 +299,7 @@ test('plugin tools are approved by their server\'s read and write labels', async
   assert.ok(plugins.requests.every(request => request.authorization === `Bearer ${plugins.token}`))
 
   const write = await run([['mcp__plugins__github__create_issue', { title: 'Bug', description: 'Steps', account: 'work' }]], { permissionMode: 'supervised' })
-  assert.deepEqual(write.cards.map(card => [card.name, card.arguments.prompt, card.arguments.grant]), [['interactions_request_approval', 'Use create_issue from github with work?', { key: 'claude-cli:mcp__plugins__github__create_issue', label: 'github: create_issue', scopes: ['conversation', 'always'] }]])
+  assert.deepEqual(write.cards.map(card => [card.name, card.arguments.prompt, card.arguments.grant]), [['request_user_approval', 'Use create_issue from github with work?', { key: 'claude-cli:mcp__plugins__github__create_issue', label: 'github: create_issue', scopes: ['conversation', 'always'] }]])
   assert.equal(write.cards[0].arguments.proposal, '{"input":{"account":"work","description":"Steps","title":"Bug"},"tool":"mcp__plugins__github__create_issue"}', 'every argument a plugin tool receives is bound')
   assert.deepEqual(write.events.map(event => event.kind).slice(-2), ['waiting', 'ended'])
   const unlabelled = await run([['mcp__plugins__github__mystery', {}]])

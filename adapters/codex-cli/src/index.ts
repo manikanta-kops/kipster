@@ -352,7 +352,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
                   if (response.action === 'decline') break
                   continue
                 }
-                const saved = object(await this.host.invokeTool({ attemptId: context.attemptId, callId: `native:${String(message.id)}`, name: interaction.kind === 'approval' ? 'interactions_request_approval' : 'interactions_ask', arguments: interaction.arguments }))
+                const saved = object(await this.host.invokeTool({ attemptId: context.attemptId, callId: `native:${String(message.id)}`, name: interaction.kind === 'approval' ? 'request_user_approval' : 'ask_user_question', arguments: interaction.arguments }))
                 if (saved.status !== 'pending' || typeof saved.interactionId !== 'string') throw new Error('Native interaction was not recorded')
                 queue.push({ kind: 'waiting', attemptId: context.attemptId, for: interaction.kind, interactionId: saved.interactionId })
                 const ended = await rpc.stop()

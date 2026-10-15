@@ -101,7 +101,7 @@ test('the owner creates and updates organizations and agents', { skip: noDatabas
   assert.deepEqual([scout.membership.organizationId, scout.membership.agentId], [organization.id, scout.agent.id])
   assert.deepEqual((await ctx.db.query('SELECT settings FROM kipster.agents WHERE id=$1', [scout.agent.id])).rows[0].settings, { modelId: 'm2' })
   assert.equal(await count(ctx.db, `SELECT count(*) AS n FROM kipster.agent_roles WHERE agent_id=$1`, [scout.agent.id]), 0)
-  for (const file of ['AGENTS.md', 'soul.md', 'identity.md']) assert.ok(await exists(join(ctx.runtime.home.agent(scout.agent.id), file)))
+  for (const file of ['soul.md', 'identity.md']) assert.ok(await exists(join(ctx.runtime.home.agent(scout.agent.id), file)))
   const solo = agentCreateResult.parse((await ctx.call('POST', '/v1/agents', { version: 1, operationId: 'agent-2', name: 'Solo' })).data)
   assert.equal(solo.membership, null)
 
@@ -191,7 +191,7 @@ test('a creation killed around its home seeding finishes on retry with the recor
   assert.deepEqual([agent.agent.id, agent.membership.id, agent.membership.organizationId, agent.alreadyApplied], [agentPlan.target_id, agentPlan.options.membershipId, planned.target_id, true])
   assert.equal(await count(ctx.db, `SELECT count(*) AS n FROM kipster.agents WHERE display_name='Scout'`), 1)
   assert.equal(await count(ctx.db, 'SELECT count(*) AS n FROM kipster.agent_memberships WHERE agent_id=$1', [agent.agent.id]), 1)
-  assert.equal(await exists(join(ctx.runtime.home.agent(agent.agent.id), 'AGENTS.md')), true)
+  assert.equal(await exists(join(ctx.runtime.home.agent(agent.agent.id), 'soul.md')), true)
 
   // Killed after seeding: the retry keeps the seeded home and finishes with the same agent.
   await crash(ctx, 'agent', 'agent-late', 'after-seed')

@@ -139,7 +139,7 @@ async function setup(t, { embedding = true } = {}) {
   return { runtime, db, actor, installationId, kip, scout, garden, studio, embeddingState, embeddingCalls, calls, thread, turn, night, rows, diaryItems }
 }
 
-test('a diary page belongs to its threads\' context: prompts and memory_search show it only where those threads may be seen', { skip: noDatabase, timeout: 90000 }, async t => {
+test('a diary page belongs to its threads\' context: prompts and search_memory show it only where those threads may be seen', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
   const kipSolo = await ctx.thread(ctx.kip, null, 'Solo day SOLOPAGE321', at('09:00', '2026-10-11'))
   const kipHome = await ctx.thread(ctx.kip, null, 'Lunch plans KIPHOME101')
@@ -157,8 +157,8 @@ test('a diary page belongs to its threads\' context: prompts and memory_search s
   assert.match(kip.memory, /KIPHOME101/)
   assert.match(kip.memory, /SOLOPAGE321/)
   for (const hidden of ['GARDENSECRET742', 'GARDENROSE555', 'STUDIOSECRET913', kipGarden, scoutGarden, scoutStudio]) assert.ok(!kip.memory.includes(hidden), hidden)
-  // (c) Kip's memory_search with no agent still finds every kip's organization pages.
-  const everything = await kip.tool('memory_search', { query })
+  // (c) Kip's search_memory with no agent still finds every kip's organization pages.
+  const everything = await kip.tool('search_memory', { query })
   assert.equal(everything.status, 'ok')
   const found = ctx.diaryItems(everything)
   assert.deepEqual(found.find(item => item.summary.includes('GARDENSECRET742'))?.threadIds, [kipGarden])
@@ -170,7 +170,7 @@ test('a diary page belongs to its threads\' context: prompts and memory_search s
   const scout = await ctx.turn(ctx.scout, ctx.garden, query)
   assert.match(scout.memory, /GARDENROSE555/)
   for (const hidden of ['STUDIOSECRET913', scoutStudio, 'GARDENSECRET742', 'KIPHOME101']) assert.ok(!scout.memory.includes(hidden), hidden)
-  const own = await scout.tool('memory_search', { query })
+  const own = await scout.tool('search_memory', { query })
   assert.equal(own.status, 'ok')
   assert.ok(ctx.diaryItems(own).some(item => item.summary.includes('GARDENROSE555')))
   for (const item of ctx.diaryItems(own)) {

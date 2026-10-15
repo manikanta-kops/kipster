@@ -149,7 +149,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
     const yieldTo = async (card: { kind: 'question' | 'approval'; arguments: ObjectValue }, toolUseId: string | undefined): Promise<ToolResult> => {
       yielding = true
       try {
-        const saved = object(await this.host.invokeTool({ attemptId, callId: `native:${toolUseId ?? randomUUID()}`, name: card.kind === 'approval' ? 'interactions_request_approval' : 'interactions_ask', arguments: card.arguments }))
+        const saved = object(await this.host.invokeTool({ attemptId, callId: `native:${toolUseId ?? randomUUID()}`, name: card.kind === 'approval' ? 'request_user_approval' : 'ask_user_question', arguments: card.arguments }))
         if (saved.status !== 'pending' || typeof saved.interactionId !== 'string') throw new Error('Native interaction was not recorded')
         queue.push({ kind: 'waiting', attemptId, for: card.kind, interactionId: saved.interactionId })
         const stopped = await child!.stop()

@@ -11,14 +11,14 @@ function safeId(id: string): string {
   return id
 }
 export class HomeInstructionError extends Error {
-  constructor(readonly file: 'system' | 'agent' | 'soul' | 'identity' | 'organization') {
+  constructor(readonly file: 'system' | 'soul' | 'identity' | 'organization') {
     super(`Required instruction file unavailable: ${file}`)
   }
 }
 
 export const MAX_ORGANIZATION_INSTRUCTIONS_BYTES = 64 * 1024
 
-export interface HomeInstructions { system: string; agent: string; soul: string; identity: string; organization: string | null }
+export interface HomeInstructions { system: string; soul: string; identity: string; organization: string | null }
 
 export class Home {
   readonly root: string
@@ -98,7 +98,6 @@ export class Home {
   async provisionAgent(id: string, files: Partial<Record<IdentityFileName, string>> = {}): Promise<void> {
     const base = this.agent(id)
     await this.directory(base)
-    await this.seed(join(base, 'AGENTS.md'), files['AGENTS.md'] ?? '# Agent instructions\n')
     await this.seed(join(base, 'soul.md'), files['soul.md'] ?? '# Soul\n')
     await this.seed(join(base, 'identity.md'), files['identity.md'] ?? '# Identity\n')
     await this.directory(join(base, 'journal'))
@@ -169,7 +168,6 @@ export class Home {
     const agent = this.agent(agentId)
     return {
       system: await this.readSeed(join(this.root, 'system', 'instructions.md'), 'system'),
-      agent: await this.readSeed(join(agent, 'AGENTS.md'), 'agent'),
       soul: await this.readSeed(join(agent, 'soul.md'), 'soul'),
       identity: await this.readSeed(join(agent, 'identity.md'), 'identity'),
       organization: organizationId ? await this.readSeed(join(this.organization(organizationId), 'instructions.md'), 'organization') : null,
