@@ -20,7 +20,7 @@ export interface Card {
 export interface CardSource { threadId: string; messageId: string }
 export interface CardInput { type: string; subject: string; statement: string; details?: Record<string, unknown> | undefined; confirmed?: boolean | undefined }
 export interface CardEdit { type?: string | undefined; subject?: string | undefined; statement?: string | undefined; details?: Record<string, unknown> | undefined; confirmed?: boolean | undefined }
-/** The cards a caller may see: installation cards plus one organization's, or every card (Kip's tools only). */
+/** The cards a caller may see: installation cards plus one organization's, or every card (the admin kip's tools only). */
 export type CardScope = { organizationId: string | null } | 'all'
 
 export const CARD_LIMITS = { type: 40, subject: 200, statement: 2000, detailsBytes: 4096, sources: 50, page: 200 } as const

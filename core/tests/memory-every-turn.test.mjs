@@ -277,7 +277,7 @@ test('the unprocessed line counts the kip\'s visible threads since last night, a
   await penny.finish()
 })
 
-test('list_recent_threads and read_thread: Kip reads every kip\'s threads, another kip only its own visible ones', { skip: noDatabase, timeout: 60000 }, async t => {
+test('list_recent_threads and read_thread: the admin kip reads every kip\'s threads, another kip only its own visible ones', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const scoutGarden = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden plans\nsecond line' }, { text: 'Sure' }, { author: 'user', text: 'Third' }], { processed: false })
   const scoutStudio = await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio plans' }], { processed: false })
@@ -305,11 +305,11 @@ test('list_recent_threads and read_thread: Kip reads every kip\'s threads, anoth
   assert.equal((await scout.tool('read_thread', { threadId: scoutGarden.id, toPosition: 1 })).messages.length, 1)
   assert.deepEqual((await scout.tool('read_thread', { threadId: internal })).internal, true)
   assert.deepEqual((await scout.tool('list_recent_threads', {})).threads.map(item => item.threadId), [scoutGarden.id])
-  for (const [name, args] of [['list_recent_threads', { agent: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only Kip may name an agent/)
+  for (const [name, args] of [['list_recent_threads', { agent: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only the admin kip may name an agent/)
   await scout.finish()
 })
 
-test('search_memory: Kip may search another kip with a date range; other kips search their own visible memory', { skip: noDatabase, timeout: 60000 }, async t => {
+test('search_memory: the admin kip may search another kip with a date range; other kips search their own visible memory', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const early = await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio lamp' }, { text: 'Ok' }])
   await ctx.chunk(early.id, ctx.scout, ctx.studio, 'Studio lamp order', { at: '2026-09-01T09:00:00Z' })

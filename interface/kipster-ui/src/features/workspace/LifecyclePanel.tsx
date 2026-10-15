@@ -279,7 +279,7 @@ export function ArchiveSettings({
             lead={<KipAvatar look={look(a.id)} />}
             label={a.name}
             sub={
-              a.admin ? 'Your main kip is protected' : look(a.id).description
+              a.admin ? 'Your admin kip is protected' : look(a.id).description
             }
             control={
               a.admin ? (

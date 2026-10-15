@@ -76,7 +76,7 @@ export function InteractionCard({
           size={15}
           weight={ended ? 'bold' : 'regular'}
         />
-        {data.actorsById[item.sourceAgentId]?.name ?? 'Kip'} ·{' '}
+        {data.actorsById[item.sourceAgentId]?.name ?? 'A kip'} ·{' '}
         {item.kind === 'approval'
           ? 'Approval requested'
           : item.kind === 'question'

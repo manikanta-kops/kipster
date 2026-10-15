@@ -89,31 +89,31 @@ export class NightlyMemory {
    * rebuild, a failed run to retry, a core re-pick still owed or, with an embedding provider, rows waiting for an
    * embedding, oldest night first. The agent's own chunks and diary pages wait for it. Cards, shared by the
    * installation, wait for any agent whose sleep time arrives: a due run embeds them, and with none due, one agent whose
-   * night begins, Kip first, runs for them alone. Agents due with nothing to do have their night recorded, so a message
+   * night begins, the admin kip first, runs for them alone. Agents due with nothing to do have their night recorded, so a message
    * later that day waits for the next sleep time. */
   async due(): Promise<string[]> {
     const now = this.options.clock()
     const embedding = this.options.embedding !== undefined
-    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; failure: string | null; repick: boolean | null; pending: boolean; owed: boolean; unembedded: boolean; kip: boolean }>(
+    const rows = (await this.db.query<{ id: string; sleep_time: string; night: string | null; retry_at: Date | null; failure: string | null; repick: boolean | null; pending: boolean; owed: boolean; unembedded: boolean; admin: boolean }>(
       `SELECT a.id, left(COALESCE(a.sleep_time, i.sleep_time)::text, 5) AS sleep_time, n.night::text AS night, n.retry_at, n.failure, n.repick,
          EXISTS (SELECT 1 FROM kipster.direct_chats c JOIN kipster.threads t ON t.chat_id=c.id WHERE c.agent_id=a.id AND ${unprocessedThreadCondition('t.id', 'c')}) AS pending,
          EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.summary IS NULL) AS owed,
          $2::boolean AND (EXISTS (SELECT 1 FROM kipster.thread_chunks ch WHERE ch.agent_id=a.id AND ch.embedding IS NULL)
            OR EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.embedding IS NULL AND d.summary IS NOT NULL)) AS unembedded,
-         EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS kip
+         EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin
        FROM kipster.agents a JOIN kipster.installations i ON i.id=a.installation_id LEFT JOIN kipster.memory_nights n ON n.agent_id=a.id
        WHERE a.installation_id=$1 AND ${learningCondition('a.id')} ORDER BY n.night NULLS FIRST, a.id`, [this.installationId, embedding])).rows
     const cards = embedding && (await this.db.query('SELECT 1 FROM kipster.cards WHERE installation_id=$1 AND embedding IS NULL LIMIT 1', [this.installationId])).rows.length > 0
     const due: string[] = []
-    const idle: { id: string; night: string; kip: boolean }[] = []
+    const idle: { id: string; night: string; admin: boolean }[] = []
     for (const row of rows) {
       const night = sleepDay(now, row.sleep_time)
       if (row.night !== null && row.night >= night) continue
-      if (!row.pending && !row.owed && !row.unembedded && row.failure === null && !row.repick) { idle.push({ id: row.id, night, kip: row.kip }); continue }
+      if (!row.pending && !row.owed && !row.unembedded && row.failure === null && !row.repick) { idle.push({ id: row.id, night, admin: row.admin }); continue }
       if (row.retry_at && row.retry_at > now) continue
       due.push(row.id)
     }
-    const cardAgent = cards && due.length === 0 ? (idle.find(row => row.kip) ?? idle[0]) : undefined
+    const cardAgent = cards && due.length === 0 ? (idle.find(row => row.admin) ?? idle[0]) : undefined
     if (cardAgent) due.push(cardAgent.id)
     for (const row of idle) if (row !== cardAgent) await this.finish(row.id, row.night, null, true)
     return due

@@ -1333,6 +1333,7 @@ export function createFakeCore(
             'target',
             'mode',
             'parts',
+            'viewingOrganizationId',
             ...(row.mode === 'reply' ? ['threadId'] : []),
           ],
           ['submissionId', 'scope', 'target', 'mode', 'parts'],

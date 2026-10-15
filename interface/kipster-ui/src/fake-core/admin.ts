@@ -587,6 +587,7 @@ export function createAdministration(options: Options = {}) {
       documents: true,
       permissionModes: true,
       memoryCards: true,
+      viewingWorkspace: true,
     },
   })
   const adapters = () => ({

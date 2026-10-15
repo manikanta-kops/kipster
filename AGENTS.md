@@ -6,7 +6,9 @@ connect it to AI providers. Core, interfaces and adapters are independent
 packages. Protocol and adapter contracts ship inside Core.
 
 User-facing text calls agents *kips*. Code, protocol, storage and documentation
-keep the term agent. The default main kip is named Kip.
+keep the term agent. The admin kip is created at install with the starting name
+Kip; the person may rename it, so text for models and people says *the admin kip*
+for the role and never uses the name Kip for it.
 
 Read the [product and architecture plan](docs/initial-implementation-plan/implementation-plan.md)
 and the relevant [decision records](docs/initial-implementation-plan/) before

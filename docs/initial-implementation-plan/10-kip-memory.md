@@ -25,7 +25,7 @@ dig deeper.
   organization thread carries that organization and appears only to kips working
   in it.
 - **Threads** are private to the kip they belong to.
-- **Kip**, the main kip, can search and read every kip's threads and every card,
+- **The admin kip** can search and read every kip's threads and every card,
   organization ones included, but only through tools. Nothing from other kips or
   organizations is placed in its prompt, and organization cards never become
   its core cards.

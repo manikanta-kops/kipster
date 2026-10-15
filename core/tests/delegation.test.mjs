@@ -37,9 +37,10 @@ test('capacity-one delegation routes exact child question and internal result ba
     await until(()=>fixture.contexts.length,n=>n===1,'parent execution')
     const parent=fixture.contexts[0]
     assert.equal(parent.agentId,a)
-    assert.deepEqual((await dispatcher.agentTool(parent.attemptId,'list','agents.list',{})).agents.map(x=>x.id).sort(),[a,b].sort())
-    assert.equal((await dispatcher.agentTool(parent.attemptId,'get-hidden','agents.get',{agentId:hidden})).agent,null)
-    await assert.rejects(dispatcher.agentTool(parent.attemptId,'hidden','agents.delegate',{recipientId:hidden,request:'Leak'}),/unavailable in originating context/)
+    // The admin kip sees every other kip, and a kip outside every workspace has nowhere to work.
+    assert.deepEqual((await dispatcher.agentTool(parent.attemptId,'list','agents.list',{})).agents.map(x=>x.id).sort(),[b,hidden].sort())
+    assert.deepEqual((await dispatcher.agentTool(parent.attemptId,'get-hidden','agents.get',{agentId:hidden})).agent,{id:hidden,name:'Hidden agent',workspaces:[]})
+    await assert.rejects(dispatcher.agentTool(parent.attemptId,'hidden','agents.delegate',{recipientId:hidden,request:'Leak'}),/Hidden agent is not in any workspace/)
     const [first,replayed]=await Promise.all([dispatcher.agentTool(parent.attemptId,'delegate-1','agents.delegate',{recipientId:b,request:'Review technical risk'}),dispatcher.agentTool(parent.attemptId,'delegate-1','agents.delegate',{recipientId:b,request:'Review technical risk'})])
     assert.equal(first.id,replayed.id)
     const independent=await dispatcher.publishToolText(parent.attemptId,'parent-comment','I am checking the rest of the request while B reviews risk')
@@ -132,25 +133,46 @@ async function environment(limit=1,extraAgents=['Agent B']){
   return {runtime,dispatcher,fixture,server,post,context,scope,chat,submit,a,others,url,home,close}
 }
 
-test('installation context discovers and delegates only root-admin agents', {skip:noDatabase,timeout:30000},async()=>{
-  const e=await environment(1,['Admin B','Ordinary C'])
+test('the admin kip lists every kip and delegates into a workspace from outside it', {skip:noDatabase,timeout:30000},async()=>{
+  const e=await environment(1,['Planner','Writer'])
   try{
-    await e.runtime.db.query("INSERT INTO kipster.agent_roles(agent_id,role) VALUES ($1,'root-admin')",[e.others[0]])
-    for(const id of [e.a,e.others[0]])await e.runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1',[id,JSON.stringify({adapterId:'delegation-fixture',modelId:'fixture'})])
+    const [planner,writer]=e.others,org=e.context.organizationId,studio=randomUUID()
+    await e.runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[studio,e.scope.installationId,'Studio'])
+    await e.runtime.db.query('INSERT INTO kipster.agent_memberships(organization_id,agent_id) VALUES ($1,$2)',[studio,planner])
+    // The person renamed the admin kip; every kip reads the new name.
+    await e.runtime.db.query("UPDATE kipster.agents SET display_name='John',settings=$2::jsonb WHERE id=$1",[e.a,JSON.stringify({adapterId:'delegation-fixture',modelId:'fixture'})])
     const context={kind:'installation',installationId:e.scope.installationId}
     const chat=(await e.post('/v1/direct-chats',{version:1,context,agentId:e.a})).data.chatId
-    const root=(await e.post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope:e.scope,target:{context,chatId:chat},mode:'root',parts:[{kind:'text',text:'Consult admin B'}]})).data
-    await until(()=>e.fixture.contexts.length,n=>n===1,'installation parent')
+    const root=(await e.post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope:e.scope,target:{context,chatId:chat},mode:'root',parts:[{kind:'text',text:'Ask Planner for a plan'}],viewingOrganizationId:org})).data
+    await until(()=>e.fixture.contexts.length,n=>n===1,'admin parent')
     const parent=e.fixture.contexts[0]
+    assert.match(parent.instructions,/You are John, the admin kip of this Kipster installation\. You work outside every workspace and can act in all of them\./)
+    assert.match(parent.prompt,new RegExp(`The person has the Org workspace open \\(workspaceId ${org}\\)\\.`))
+    assert.deepEqual(parent.tools.find(tool=>tool.name==='delegate_to_kip').inputSchema.properties.workspaceId.type,'string')
     const listed=await e.dispatcher.agentTool(parent.attemptId,'list-install','agents.list',{})
-    assert.deepEqual(listed.agents.map(x=>x.id).sort(),[e.a,e.others[0]].sort())
-    assert.equal((await e.dispatcher.agentTool(parent.attemptId,'get-ordinary','agents.get',{agentId:e.others[1]})).agent,null)
-    await assert.rejects(e.dispatcher.agentTool(parent.attemptId,'ordinary','agents.delegate',{recipientId:e.others[1],request:'Review'}),/unavailable/)
-    const delegated=await e.dispatcher.agentTool(parent.attemptId,'admin','agents.delegate',{recipientId:e.others[0],request:'Review'})
+    assert.deepEqual(listed.agents,[{id:planner,name:'Planner',workspaces:[{id:org,name:'Org'},{id:studio,name:'Studio'}]},{id:writer,name:'Writer',workspaces:[{id:org,name:'Org'}]}])
+    await assert.rejects(e.dispatcher.agentTool(parent.attemptId,'ambiguous','agents.delegate',{recipientId:planner,request:'Plan'}),/Planner works in Org .*, Studio .*; pass workspaceId/)
+    await assert.rejects(e.dispatcher.agentTool(parent.attemptId,'elsewhere','agents.delegate',{recipientId:writer,request:'Plan',workspaceId:studio}),/Writer does not work in that workspace/)
+    const delegated=await e.dispatcher.agentTool(parent.attemptId,'plan','agents.delegate',{recipientId:planner,request:'Plan the launch',workspaceId:org})
     e.fixture.handles[0].emit({kind:'ended',attemptId:parent.attemptId,confirmed:true})
-    await until(()=>e.fixture.contexts.length,n=>n===2,'installation child')
-    assert.equal(e.fixture.contexts[1].agentId,e.others[0])
-    assert.equal(e.fixture.contexts[1].runId,delegated.childRunId)
+    await until(()=>e.fixture.contexts.length,n=>n===2,'workspace child')
+    const child=e.fixture.contexts[1]
+    assert.equal(child.agentId,planner)
+    assert.equal(child.runId,delegated.childRunId)
+    assert.equal(child.organizationId,org)
+    assert.match(child.instructions,/You are Planner, a kip in the Org workspace\. John is the admin kip and manages kips, workspaces and settings\./)
+    assert.equal(child.tools.find(tool=>tool.name==='delegate_to_kip').inputSchema.properties.workspaceId,undefined)
+    assert.doesNotMatch(child.prompt,/workspace open/)
+    // The task runs in Planner's own chat in the workspace; the admin kip's thread keeps its own chat.
+    const childChat=(await e.runtime.db.query('SELECT c.agent_id,c.context_kind,c.context_id FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE r.id=$1',[child.runId])).rows[0]
+    assert.deepEqual(childChat,{agent_id:planner,context_kind:'organization',context_id:org})
+    e.fixture.handles[1].emit({kind:'text',attemptId:child.attemptId,messageId:'plan',text:'Step one, step two',final:true})
+    e.fixture.handles[1].emit({kind:'ended',attemptId:child.attemptId,confirmed:true})
+    await until(()=>e.fixture.contexts.length,n=>n===3,'admin resumes')
+    assert.deepEqual(e.fixture.contexts[2].delegationResults.map(item=>[item.state,item.result]),[['completed','Step one, step two']])
+    const origin=(await e.runtime.db.query("SELECT s.chat_id,(SELECT count(*)::int FROM kipster.thread_events v WHERE v.thread_id=s.thread_id AND v.type='delegation-changed') AS changes FROM kipster.app_thread_summaries s WHERE s.thread_id=$1",[root.threadId])).rows[0]
+    assert.equal(origin.chat_id,chat)
+    assert.ok(origin.changes>=3)
   }finally{await e.close()}
 })
 

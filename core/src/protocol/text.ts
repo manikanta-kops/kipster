@@ -26,8 +26,10 @@ const parts: Schema<Infer<typeof partList>> = { describe: () => ({ ...partList.d
   return parsed
 } }
 const target = object({ context, chatId: id })
-export const rootSubmission = object({ version: literal(1), submissionId: id, scope: callerScope, target, mode: literal('root'), parts })
-export const replySubmission = object({ version: literal(1), submissionId: id, scope: callerScope, target, mode: literal('reply'), threadId: id, parts })
+/** The workspace the person has open while they write to the admin kip, which acts there when asked. */
+const viewingOrganizationId = optional(id)
+export const rootSubmission = object({ version: literal(1), submissionId: id, scope: callerScope, target, mode: literal('root'), parts, viewingOrganizationId })
+export const replySubmission = object({ version: literal(1), submissionId: id, scope: callerScope, target, mode: literal('reply'), threadId: id, parts, viewingOrganizationId })
 export const textSubmission = union(rootSubmission, replySubmission)
 export type TextSubmission = Infer<typeof textSubmission>
 export const directChatRequest = object({ version: literal(1), context, agentId: id })
@@ -105,10 +107,10 @@ export const interactionResponseReceipt = union(
   object({version:literal(1),operationId:id,outcome:union(literal('accepted'),literal('rejected')),interaction:threadInteraction},false),
   object({version:literal(1),operationId:id,status:literal('unknown')},false),
 )
-/** The model the nightly memory run uses instead of Kip's. */
+/** The model the nightly memory run uses instead of the admin kip's. */
 export const nightlyModel = object({ adapterId: boundedString(1, 200), modelId: boundedString(1, 200), effort: optional(boundedString(1, 200)) })
 const nightlyModelRead = object({ adapterId: nonempty(), modelId: nonempty(), effort: optional(nonempty()) }, false)
-/** Changes the installation's memory settings: the switch, the default sleep time, the nightly model (null for Kip's)
+/** Changes the installation's memory settings: the switch, the default sleep time, the nightly model (null for the admin kip's)
  * and the counts of core cards and of cards and thread chunks from a turn's search. Omitted fields are unchanged. */
 export const learningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(clockTime()), nightlyModel: optional(nullable(nightlyModel)),
   coreCardCount: optional(boundedInteger(0, 200)), searchCardCount: optional(boundedInteger(0, 50)), searchChunkCount: optional(boundedInteger(0, 30)) })
@@ -176,7 +178,9 @@ export type TextEvent = Infer<typeof textEvent>
 /** Features this Core offers. Flags newer than `voiceRecording` are absent from a Core that predates them; `plugins` then reads as false. */
 const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memoryCards: optional(boolean()),
   /** Kipster Plugins are ready: the `/v1/plugins` routes answer instead of returning 503 `plugins-unavailable`. */
-  plugins: optional(boolean()) }, false)
+  plugins: optional(boolean()),
+  /** A text submission may carry `viewingOrganizationId`, the workspace the person has open. */
+  viewingWorkspace: optional(boolean()) }, false)
 export const bootstrapCapabilities: Schema<Omit<Infer<typeof bootstrapFlags>, 'plugins'> & { plugins: boolean }> = { describe: () => bootstrapFlags.describe(), parse(value, path = '$') {
   const parsed = bootstrapFlags.parse(value, path)
   return { ...parsed, plugins: parsed.plugins ?? false }

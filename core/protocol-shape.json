@@ -435,7 +435,8 @@
           "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"}]},
           "min": 1,
           "max": 32
-        }
+        },
+        "viewingOrganizationId": {"type":"optional","of":{"type":"string","min":1}}
       }
     },
     "rootSubmission": {
@@ -456,7 +457,8 @@
           "items": {"type":"union","of":[{"ref":"textPart"},{"ref":"filePart"}]},
           "min": 1,
           "max": 32
-        }
+        },
+        "viewingOrganizationId": {"type":"optional","of":{"type":"string","min":1}}
       }
     },
     "settingsPatch": {
@@ -759,7 +761,8 @@
         "documents": {"type":"optional","of":{"type":"boolean"}},
         "permissionModes": {"type":"optional","of":{"type":"boolean"}},
         "memoryCards": {"type":"optional","of":{"type":"boolean"}},
-        "plugins": {"type":"optional","of":{"type":"boolean"}}
+        "plugins": {"type":"optional","of":{"type":"boolean"}},
+        "viewingWorkspace": {"type":"optional","of":{"type":"boolean"}}
       }
     },
     "channelEntry": {

@@ -44,6 +44,8 @@ export type Bootstrap = Scope & {
     memoryCards?: boolean
     /** Kipster Plugins are ready; absent from Cores that predate them. */
     plugins?: boolean
+    /** Core accepts the open workspace with a message. */
+    viewingWorkspace?: boolean
   }
 }
 export type Summary = {
@@ -744,6 +746,9 @@ export class TextClient {
             'invalid',
           )
         }),
+        ...(submission.viewingOrganizationId
+          ? { viewingOrganizationId: submission.viewingOrganizationId }
+          : {}),
       })
     } catch (error) {
       // A refusal is final: the message was not accepted and will not be.

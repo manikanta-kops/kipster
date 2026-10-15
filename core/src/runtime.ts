@@ -50,6 +50,7 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/artifacts/migrations/028_file_attachments.sql',
     './modules/work/migrations/029_delegation_calls.sql',
     './modules/conversations/migrations/030_message_finished_at.sql',
+    './modules/conversations/migrations/031_viewing_workspace.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }

@@ -73,7 +73,7 @@ export function ArtifactCard({
     ? [formatSize(artifact.size), type].filter(Boolean).join(' · ')
     : ''
   const owner = artifact?.ownership
-    ? `${artifact.ownership.kind === 'agent' ? 'Kip' : artifact.ownership.kind === 'installation' ? 'Installation' : artifact.ownership.kind === 'organization' ? 'Organization' : artifact.ownership.kind} owned${artifact.ownership.id ? ` · ${artifact.ownership.id}` : ''}${artifact.provenance?.kind === 'published' ? ' · Published copy' : ''}`
+    ? `Owned by ${artifact.ownership.kind === 'agent' ? 'a kip' : artifact.ownership.kind === 'installation' ? 'the installation' : artifact.ownership.kind === 'organization' ? 'an organization' : artifact.ownership.kind}${artifact.ownership.id ? ` · ${artifact.ownership.id}` : ''}${artifact.provenance?.kind === 'published' ? ' · Published copy' : ''}`
     : ''
   const about = [type, owner].filter(Boolean).join(' · ')
   return (

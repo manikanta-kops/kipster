@@ -36,15 +36,16 @@ export function continuationPrompt(context: Omit<TextExecutionContext, 'prompt' 
 }
 
 /**
- * Renders the turn's user input that every adapter sends: memory sections, the history of the thread, the current
- * message and the run's saved context.
+ * Renders the turn's user input that every adapter sends: memory sections, the history of the thread, the workspace the
+ * person has open when the admin kip should know it, the current message and the run's saved context.
  */
-export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>): string {
+export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>, viewing?: { id: string; name: string }): string {
   const trigger = context.input.find(message => message.messageId === context.triggerMessageId)
   const history = context.input.filter(message => message.messageId !== context.triggerMessageId)
   const sections = [
     ...(context.memory ?? []),
     ...(history.length ? [`Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`] : []),
+    ...(viewing ? [`The person has the ${viewing.name} workspace open (workspaceId ${viewing.id}).`] : []),
     `Current user message [${trigger?.messageId ?? 'unknown'}]:\n${describe(trigger)}`,
   ]
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))

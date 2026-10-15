@@ -9,7 +9,7 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const FORGET_LIMITS = { matches: 20, candidates: 50, query: 200 } as const
 
 /** The run a memory tool call belongs to: its agent, context, thread and trigger message. */
-interface MemoryRun { installationId: string; agentId: string; organizationId: string | null; threadId: string; triggerMessageId: string; kip: boolean }
+interface MemoryRun { installationId: string; agentId: string; organizationId: string | null; threadId: string; triggerMessageId: string; admin: boolean }
 
 /** The current, issued attempt of a running run, not stopping, whose agent has memory on. */
 async function boundRun(client: Postgres | SqlClient, attemptId: string, incarnation: string): Promise<MemoryRun> {
@@ -22,7 +22,7 @@ async function boundRun(client: Postgres | SqlClient, attemptId: string, incarna
   if (!row || row.attempt_state !== 'issued' || row.current_attempt_id !== attemptId || !['running', 'waiting'].includes(row.run_state) || row.stop_requested) throw new Error('Attempt no longer owns memory tools')
   const access = await memoryAccess(client, row.agent_id)
   if (!access.enabled) throw new Error('Memory is off for this kip')
-  return { installationId: row.installation_id, agentId: row.agent_id, organizationId: row.context_kind === 'organization' ? row.context_id : null, threadId: row.thread_id, triggerMessageId: row.input_message_id, kip: access.kip }
+  return { installationId: row.installation_id, agentId: row.agent_id, organizationId: row.context_kind === 'organization' ? row.context_id : null, threadId: row.thread_id, triggerMessageId: row.input_message_id, admin: access.admin }
 }
 
 function fields(input: Record<string, unknown>, allowed: readonly string[], tool: string): void {
@@ -50,22 +50,22 @@ function instant(value: unknown, key: string, tool: string, end: boolean): Date 
 }
 
 /**
- * The agent another kip's memory is read for. Only Kip may name one; a kip that is not Kip reads its own memory. Kip
- * without `agent` reads every kip's.
+ * The agent another kip's memory is read for. Only the admin kip may name one; any other kip reads its own memory. The
+ * admin kip without `agent` reads every kip's.
  */
 async function agentArgument(client: Postgres | SqlClient, run: MemoryRun, value: unknown, tool: string): Promise<string[] | null> {
-  if (value === undefined) return run.kip ? null : [run.agentId]
-  if (!run.kip) throw new Error(`Invalid ${tool} arguments: only Kip may name an agent`)
+  if (value === undefined) return run.admin ? null : [run.agentId]
+  if (!run.admin) throw new Error(`Invalid ${tool} arguments: only the admin kip may name an agent`)
   if (typeof value !== 'string' || !uuid.test(value) || !(await client.query('SELECT 1 FROM kipster.agents WHERE id=$1 AND installation_id=$2', [value, run.installationId])).rows.length) throw new Error(`Invalid ${tool} arguments: agent not found`)
   return [value]
 }
 
-/** Threads a run's tools may read: Kip's cover every kip and organization; another kip's cover its own installation
+/** Threads a run's tools may read: the admin kip's cover every kip and organization; another kip's cover its own installation
  * threads and the current organization's. */
 const threadScope = (run: MemoryRun, agents: string[] | null, exclude: string | null = null): ThreadScope =>
-  run.kip ? { agents, organizations: 'all', exclude } : { agents: [run.agentId], organizations: { organizationId: run.organizationId }, exclude }
-/** Cards a run's tools may see: every card for Kip; installation cards plus the current organization's for another kip. */
-const cardScope = (run: MemoryRun): CardScope => run.kip ? 'all' : { organizationId: run.organizationId }
+  run.admin ? { agents, organizations: 'all', exclude } : { agents: [run.agentId], organizations: { organizationId: run.organizationId }, exclude }
+/** Cards a run's tools may see: every card for the admin kip; installation cards plus the current organization's for another kip. */
+const cardScope = (run: MemoryRun): CardScope => run.admin ? 'all' : { organizationId: run.organizationId }
 
 /**
  * The memory tools of an execution (decision record 10, section 6), bound to its current attempt: `search_memory`,
@@ -92,7 +92,7 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const threadId = text(input, 'threadId', name, 36)!
     const from = position(input, 'fromPosition', name) ?? 1, to = position(input, 'toPosition', name) ?? null
     if (to !== null && to < from) throw new Error(`Invalid ${name} arguments: toPosition must not be before fromPosition`)
-    const page = uuid.test(threadId) ? await readThread(db, run.installationId, threadScope(run, run.kip ? null : [run.agentId]), threadId, from, to) : null
+    const page = uuid.test(threadId) ? await readThread(db, run.installationId, threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
     if (!page) throw new Error('Thread not found')
     return page
   }

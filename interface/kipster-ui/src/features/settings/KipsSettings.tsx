@@ -56,7 +56,7 @@ export function KipsPage({
     <Block
       foot={
         admin
-          ? `${admin.name} is your main kip and works outside organizations. The others use their organization’s defaults unless they have their own.`
+          ? `${admin.name} is your admin kip and works outside organizations. The others use their organization’s defaults unless they have their own.`
           : 'Kips use their organization’s defaults unless they have their own.'
       }
     >
@@ -75,7 +75,9 @@ export function KipsPage({
                 />
               </>
             }
-            sub={kip.description || (agent.admin ? 'Your main kip' : undefined)}
+            sub={
+              kip.description || (agent.admin ? 'Your admin kip' : undefined)
+            }
             control={
               <KipSummary
                 client={client}
@@ -201,7 +203,7 @@ export function KipPage({
         label="Model"
         foot={
           agent.admin
-            ? 'Your main kip works outside organizations. Without its own settings, it uses the default adapter and model.'
+            ? 'Your admin kip works outside organizations. Without its own settings, it uses the default adapter and model.'
             : `Without its own setting, each value comes from ${organization?.name ?? 'the organization'}’s defaults.`
         }
         target="agent"

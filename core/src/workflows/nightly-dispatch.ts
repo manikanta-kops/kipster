@@ -40,9 +40,9 @@ export interface NightlyHost {
 }
 
 /**
- * Drives Kip memory's nightly run for the dispatcher. A timer tick runs the due agents one after another while this
+ * Drives memory's nightly run for the dispatcher. A timer tick runs the due agents one after another while this
  * process coordinates. Each model call is a work intent with an issued attempt and an execution permit, run through the
- * adapter registry's maintenance route with Kip's model, or the nightly model when one is set, a deadline and
+ * adapter registry's maintenance route with the admin kip's model, or the nightly model when one is set, a deadline and
  * cancellation on shutdown.
  */
 export class NightlyDispatch {
@@ -78,7 +78,7 @@ export class NightlyDispatch {
     await this.running?.catch(() => undefined)
   }
 
-  /** The adapter settings of the nightly run: the nightly model when set, otherwise Kip's resolved execution settings. */
+  /** The adapter settings of the nightly run: the nightly model when set, otherwise the admin kip's resolved execution settings. */
   private async settings(): Promise<{ adapterId: string; modelId: string; effort?: string; options?: Record<string, unknown> }> {
     const { runtime } = this.host
     const installationId = runtime.bootstrap.installationId
@@ -88,7 +88,7 @@ export class NightlyDispatch {
       return nightlyModel
     }
     const resolved = await resolveAgentSettings(runtime.db, runtime.home, installationId, runtime.bootstrap.rootAgentId, null, this.host.catalog())
-    if ('reason' in resolved) throw new Error(`Kip's model: ${resolved.reason}`)
+    if ('reason' in resolved) throw new Error(`The admin kip's model: ${resolved.reason}`)
     const { adapterId, modelId, effort, options } = resolved.settings
     return { adapterId: adapterId!, modelId: modelId!, ...(effort ? { effort } : {}), ...(options ? { options } : {}) }
   }

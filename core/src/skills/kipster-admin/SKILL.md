@@ -43,7 +43,7 @@ Read an operation with `list_admin_operations` before you call it for the first 
 
 Archiving or deleting a kip, deleting a workspace and installing or restoring a Core version have the kind `approval`.
 So does `permissions.set` with `fullAccess`. The call shows the person an approval card and your turn ends. Nothing changes until they approve. Do not ask for the
-same approval twice. Kip, the main kip, cannot be archived or deleted.
+same approval twice. The admin kip cannot be archived or deleted.
 
 ## Playbooks
 
@@ -79,7 +79,7 @@ person's approval; say plainly that it removes every prompt.
 conversation into searchable thread chunks, shared cards about the person and a diary. `learning.set` turns memory on or
 off for every kip and sets the default `sleepTime` ("HH:MM", local time); `learning.agent_set` does the same for one
 kip. `learning.set` also sets `nightlyModel` (`{ adapterId, modelId, effort? }` from `adapters.list`, or `null` to use
-Kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
+the admin kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
 (cards and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only what they ask for.
 
 **Memory cards.** Cards are the facts about the person every kip shares, such as a preference, a person they know or a

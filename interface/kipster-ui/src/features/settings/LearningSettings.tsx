@@ -182,7 +182,7 @@ export function KipLearning({
   const chosenTime = time ?? agent.sleepTime ?? learning.sleepTime
   const changed = !!time && time !== (agent.sleepTime ?? learning.sleepTime)
   return (
-    <section aria-label="Kip memory" className="set-block">
+    <section aria-label="Memory" className="set-block">
       <h4 className="set-label">Memory</h4>
       <div className="set-group">
         <Row
@@ -219,7 +219,7 @@ export function KipLearning({
             <input
               type="time"
               className="set-time"
-              aria-label="Kip sleep time"
+              aria-label="Sleep time"
               value={chosenTime}
               disabled={state === 'saving'}
               onChange={(e) => setTime(e.target.value)}
@@ -261,10 +261,11 @@ export function KipLearning({
 const modelKey = (adapterId: string, modelId: string) =>
   JSON.stringify([adapterId, modelId])
 
-/** The model of the nightly memory run: Kip's, or one the adapters offer. Saved when chosen. */
+/** The model of the nightly memory run: the admin kip's, or one the adapters offer. Saved when chosen. */
 function NightlyModel({ settings }: { settings: Settings }) {
   const learning = settings.learning!
   const chosen = learning.nightlyModel ?? null
+  const adminModel = `${settings.directory?.agents.find((agent) => agent.admin)?.name ?? 'The admin kip'}’s model`
   const [state, setState] = useState<State>('idle')
   const adapters = settings.adapters?.adapters ?? []
   const options = adapters.flatMap((adapter) =>
@@ -291,7 +292,7 @@ function NightlyModel({ settings }: { settings: Settings }) {
     <>
       <Block
         label="Nightly"
-        foot="Each night this model turns new conversation into memory. Kip’s model is used unless you choose another."
+        foot={`Each night this model turns new conversation into memory. ${adminModel} is used unless you choose another.`}
       >
         <Row
           label="Nightly model"
@@ -305,7 +306,7 @@ function NightlyModel({ settings }: { settings: Settings }) {
                 void save({ nightlyModel: option ? option.model : null })
               }}
             >
-              <option value="">Kip’s model</option>
+              <option value="">{adminModel}</option>
               {chosen && !listed && (
                 <option value={current!}>
                   {chosen.adapterId} · {chosen.modelId} (unavailable)

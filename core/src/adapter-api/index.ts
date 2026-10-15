@@ -70,7 +70,7 @@ export interface TextExecutionContext {
   /** Kipster's thread this turn belongs to. */
   readonly threadId?: string
   /**
-   * Kip memory's sections of this turn, already rendered in `prompt` before the history: memory search results and the
+   * Memory's sections of this turn, already rendered in `prompt` before the history: memory search results and the
    * line about threads not yet searchable. Untrusted user context.
    */
   readonly memory?: readonly string[]
@@ -107,7 +107,7 @@ export interface TextExecutionContext {
 type MaintenanceSettings = { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
 
 /**
- * One step of Kip memory's nightly run: write a thread's chunk boundaries (`chunks`), propose card changes (`cards`),
+ * One step of memory's nightly run: write a thread's chunk boundaries (`chunks`), propose card changes (`cards`),
  * write diary pages (`diary`) or rank the core cards (`core`). Least privilege: no provider IDs, paths, history,
  * identity material, tools or memory beyond what `instructions` contains. Send `instructions` as the user turn of a
  * tool-free, session-free turn and return the structured answer as one final text event.
