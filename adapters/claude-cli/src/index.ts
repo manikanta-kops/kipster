@@ -9,7 +9,6 @@ import { ClaudeProcess, type Message } from './process.js'
 import { permissionTool, ToolServer, type ToolResult } from './tool-server.js'
 import { permissionDecision } from './interactions.js'
 import { nativeInputs } from './inputs.js'
-import { PluginLabels, pluginServers, type PluginTool } from './plugin-tools.js'
 
 type ObjectValue = Record<string, unknown>
 const object = (value: unknown): ObjectValue => value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : {}
@@ -125,7 +124,6 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
   private async conversation(context: TextExecutionContext, settings: NonNullable<TextExecutionContext['settings']>, workingDirectory: string): Promise<ExecutionHandle> {
     const { attemptId } = context
     const tools = context.tools ?? []
-    const plugins = new PluginLabels(pluginServers(context.mcpServers))
     const queue = new Queue()
     const directory = join(this.config.dataDirectory, 'attempts', randomUUID())
     let child: ClaudeProcess | undefined
@@ -188,10 +186,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
         if (toolName.startsWith('mcp__kipster__')) return allow
         if (yielding || ended) return { text: JSON.stringify({ behavior: 'deny', message: 'The attempt is ending.' }) }
         try {
-          const server = plugins.servers.find(item => toolName.startsWith(`mcp__${item.name}__`))
-          const plugin: PluginTool | undefined = server ? await plugins.describe(server.name, toolName.slice(`mcp__${server.name}__`.length), input) : undefined
-          if (yielding || ended) return { text: JSON.stringify({ behavior: 'deny', message: 'The attempt is ending.' }) }
-          const decision = permissionDecision(context, toolName, input, plugin)
+          const decision = permissionDecision(context, toolName, input)
           if (decision.kind === 'ask') return await yieldTo(decision.card, string(args.tool_use_id))
           if (decision.behavior === 'deny') return { text: JSON.stringify({ behavior: 'deny', message: decision.message }) }
           if (decision.proposalId) {
@@ -207,9 +202,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       await privateDirectory(directory)
       const { blocks, readable } = await nativeInputs(context.input)
       const server = (path: string, extra: ObjectValue = {}) => ({ type: 'http', url: `http://127.0.0.1:${port}${path}`, headers: { Authorization: `Bearer ${registration.token}` }, ...extra })
-      // Core's other servers, such as Kipster Plugins, are not always loaded; their tools are left to Claude Code's tool search.
-      const passed = Object.fromEntries(plugins.servers.map(item => [item.name, { type: 'http', url: item.url, headers: { Authorization: `Bearer ${item.bearerToken}` } }]))
-      await writeFile(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { ...passed, kipster: server('/tools', { alwaysLoad: true, timeout: 3600000 }), kipster_permission: server('/permission', { timeout: 3600000 }) } }), { mode: 0o600, flag: 'wx' })
+      await writeFile(join(directory, 'mcp.json'), JSON.stringify({ mcpServers: { kipster: server('/tools', { alwaysLoad: true, timeout: 3600000 }), kipster_permission: server('/permission', { timeout: 3600000 }) } }), { mode: 0o600, flag: 'wx' })
       await writeFile(join(directory, 'instructions.md'), `${context.instructions}\n\n${toolNote}`, { mode: 0o600, flag: 'wx' })
       // A session reopened after a wait keeps its history; one whose transcript is gone starts fresh.
       const resume = context.resume?.providerStateScope === recoveryScope && sessionIdPattern.test(context.resume.threadId) && (await this.sessionFiles(context.resume.threadId)).length ? context.resume : undefined

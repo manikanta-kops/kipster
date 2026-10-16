@@ -1,14 +1,13 @@
 import { ImageInputs } from './image-inputs.js'
 import { nativeInteractions } from './native-interactions.js'
 import { codexPermissions } from './permissions.js'
-import { PluginLabels, pluginServers, tokenVariable, type PluginTool } from './plugin-tools.js'
 import { launchConfig, conversationLaunch, maintenanceLaunch, isolationSettings, privateDirectory, errorCode, probe, type LaunchConfig } from './launch.js'
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
 import { lstat, readdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join, sep } from 'node:path'
-import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, ExecutionMcpServer, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference } from '@kipster/core/adapter'
+import type { AdapterHost, AdapterReadiness, AdapterExecutionContext as ExecutionContext, DurableReconcileResult, ExecutionEvent, ExecutionHandle, MaintenanceCapableAdapter, MaintenanceExecutionContext, RecoveryReference } from '@kipster/core/adapter'
 
 type ObjectValue = Record<string, unknown>
 function object(value: unknown): ObjectValue { return value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : {} }
@@ -105,15 +104,10 @@ class Rpc {
     return this.ended
   }
 }
-/** `disabledMcpServers` names the configured servers a maintenance launch switches off. A conversation adds Core's
- * `mcpServers`; each replaces a configured server of the same name and reads its token from a variable set only for
- * this process, so the token never appears in its arguments. */
-async function appServer(config: LaunchConfig, maintenance = false, disabledMcpServers: readonly string[] = [], mcpServers: readonly ExecutionMcpServer[] = []): Promise<Rpc> {
+/** `disabledMcpServers` names the configured servers a maintenance launch switches off. */
+async function appServer(config: LaunchConfig, maintenance = false, disabledMcpServers: readonly string[] = []): Promise<Rpc> {
   const { root, env } = await (maintenance ? maintenanceLaunch(config) : conversationLaunch(config))
-  if (!maintenance) for (const server of mcpServers) env[tokenVariable(server.name)] = server.bearerToken
-  // Codex asks before every tool of these servers, so the adapter decides by the server's own read/write labels.
-  const passed = mcpServers.map(server => [`mcp_servers.${server.name}`, `{url=${JSON.stringify(server.url)},bearer_token_env_var=${JSON.stringify(tokenVariable(server.name))},default_tools_approval_mode="prompt"}`] as const)
-  const overrides = maintenance ? [...isolationSettings, ...maintenanceProfile, ...disabledMcpServers.map(name => [`mcp_servers.${name}.enabled`, 'false'] as const)] : [...conversationSettings, ...passed]
+  const overrides = maintenance ? [...isolationSettings, ...maintenanceProfile, ...disabledMcpServers.map(name => [`mcp_servers.${name}.enabled`, 'false'] as const)] : conversationSettings
   const child = spawn(config.executable, ['app-server', '--stdio', '--strict-config', ...overrides.flatMap(([key, value]) => ['-c', `${key}=${value}`])], { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'], detached: true })
   return new Rpc(child)
 }
@@ -282,8 +276,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
     if (context.settings?.options && Object.keys(context.settings.options).length) throw new Error('Codex options are unsupported')
     if (!context.workingDirectory) throw new Error('Persistent agent working directory is required')
     const tools = context.tools ?? []
-    const plugins = new PluginLabels(pluginServers(context.mcpServers))
-    const rpc = await appServer(this.config, false, [], plugins.servers)
+    const rpc = await appServer(this.config)
     const queue = new Queue()
     const images = new ImageInputs()
     const owned: Owned = { images, rpc, queue, threadId: undefined, turnId: undefined, ended: false, cancelAcknowledged: false }
@@ -333,10 +326,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
           void (async () => {
             try {
               const changes = fileChanges.get(String(params.itemId))
-              const meta = object(params._meta)
-              const server = method === 'mcpServer/elicitation/request' && meta.codex_approval_kind === 'mcp_tool_call' && typeof meta.tool_name === 'string' ? plugins.servers.find(item => item.name === params.serverName) : undefined
-              const plugin: PluginTool | undefined = server ? await plugins.describe(server.name, meta.tool_name as string, object(meta.tool_params)) : undefined
-              const interactions = nativeInteractions(context, method ?? 'unknown', changes ? { ...params, changes } : params, plugin)
+              const interactions = nativeInteractions(context, method ?? 'unknown', changes ? { ...params, changes } : params)
               let response: ObjectValue = {}
               for (const interaction of interactions) {
                 if (interaction.saved) {

@@ -12,6 +12,7 @@ import { claimPreparation, issueAttempt, childDelegation, delegate, delegationAc
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
+import { pluginGuidance } from '../plugins/tools.js'
 import { executionTools, memoryGuidance, toolGuidance } from './agent-tools.js'
 import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
@@ -87,7 +88,7 @@ async function kipFacts(db: Postgres | SqlClient, installationId: string, agentI
   const viewing = row.admin && row.viewing_id && row.viewing_id !== organizationId ? { id: row.viewing_id, name: row.viewing_name! } : undefined
   return { admin: row.admin, line, ...(viewing ? { viewing } : {}) }
 }
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
@@ -114,6 +115,7 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
       const agentOperation = agentOperations.get(request.name)
       if (agentOperation) return dispatcher.agentTool(request.attemptId, request.callId, agentOperation, args)
       if ((request.name === 'list_admin_operations' || request.name === 'run_admin_operation') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
+      if ((request.name === 'search_plugin_tools' || request.name === 'run_plugin_tool') && dispatcher.pluginTool) return dispatcher.pluginTool(request.attemptId, request.callId, request.name, args)
       if (memoryTools.has(request.name) && dispatcher.memoryTool) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
       if (request.name === 'manage_data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
       if (request.name === 'manage_vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
@@ -707,10 +709,11 @@ export class TextDispatcher {
       const query = (trigger?.parts ?? []).map(part => part.kind === 'text' ? part.text : part.transcription?.text ?? '').filter(Boolean).join('\n')
       const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
       const kip = await kipFacts(this.runtime.db, context.actor.installationId, context.agentId, organizationId, runId)
-      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin })
+      const plugins = await this.runtime.pluginTools?.connected()
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), memory ? memoryGuidance : '', plugins ? pluginGuidance(plugins) : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
@@ -718,9 +721,7 @@ export class TextDispatcher {
         WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
           AND (EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled') OR EXISTS (SELECT 1 FROM kipster.delegations d WHERE d.parent_attempt_id=a.id))`, [runId, attempt.id])).rows[0]?.provider_metadata
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
-      // The person's plugins while the plugin server is ready. The token stays out of the prompt, records and events.
-      const plugins = this.runtime.plugins?.endpoint()
-      execution = { ...prepared, prompt: turnPrompt(prepared, kip.viewing), ...(resume ? { resume } : {}), ...(plugins ? { mcpServers: [{ name: 'plugins', url: `${plugins.url}/mcp`, bearerToken: plugins.token }] } : {}) }
+      execution = { ...prepared, prompt: turnPrompt(prepared, kip.viewing), ...(resume ? { resume } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -856,6 +857,21 @@ export class TextDispatcher {
   /** Memory tools, for an agent with memory on. */
   async memoryTool(attemptId: string, _callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
     return memoryTool(this.runtime.db, this.runtime.embedding, attemptId, this.incarnation, name, args)
+  }
+  /** Plugin tools. A call that runs first adds a progress note naming the plugin and tool to the work block. */
+  async pluginTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+    const service = this.runtime.pluginTools
+    if (!service) return { error: 'Plugins are off in this installation.' }
+    if (name === 'search_plugin_tools') return service.search(args)
+    const row = (await this.runtime.db.query<{ intent_id: string; generation: string; incarnation: string }>('SELECT intent_id,generation,incarnation FROM kipster.attempts WHERE id=$1 AND incarnation=$2', [attemptId, this.incarnation])).rows[0]
+    const context = row ? await runContext(this.runtime.db, row.intent_id) : null
+    if (!row || !context || !callId || callId.length > 200) throw new Error('Attempt no longer owns plugin tools')
+    const attempt: Attempt = { id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }
+    return service.run({
+      installationId: context.actor.installationId, runId: row.intent_id, threadId: context.threadId, attemptId, callId,
+      outputDirectory: await this.runtime.artifacts.outputDirectory(context.agentId, context.threadId, attemptId),
+      onRun: async note => { await this.publishText(attempt, { kind: 'text', attemptId, messageId: `plugin:${callId}`, text: note, final: true, phase: 'progress' }, context, 'tool') },
+    }, args)
   }
   async vectorTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
     if (!this.runtime.vectors) throw new Error('Vector embedding profile is not configured')
@@ -995,7 +1011,7 @@ export class TextDispatcher {
       if (coreParts) parts.push(...await coreParts(client))
       let messageId = prior?.id ?? randomUUID()
       let revision = prior ? Number(prior.revision) + 1 : 1
-      const progress = source === 'native' && event.final && event.phase === 'progress'
+      const progress = event.final && event.phase === 'progress'
       if (prior) {
         await client.query('UPDATE kipster.messages SET parts=$2::jsonb,final=$3,finished_at=CASE WHEN $3 THEN now() ELSE NULL END,revision=$4,progress=$5 WHERE id=$1', [messageId, JSON.stringify(parts), event.final, revision, progress])
       } else {
