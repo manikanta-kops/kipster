@@ -61,7 +61,7 @@ older cursors require a snapshot. Canonical messages and work are not pruned.
 | --- | --- |
 | `@kipster/core/protocol` | JSON value types and runtime text submission, receipt, read, snapshot, directory and event parsers. |
 | `@kipster/core/client` | JSON types, `defineClientOptions` for HTTP(S) URL configuration and `createClient(options, fetch?)`, which reads bootstrap and calls the plugin routes. |
-| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions and extra MCP servers (`mcpServers`) of the execution, opt-in maintenance context for the steps of memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
+| `@kipster/core/adapter` | Injected text execution context with the Kipster tool definitions of the execution, opt-in maintenance context for the steps of memory's nightly run, readiness catalog, events, controls, reconciliation and durable recovery references. |
 | `@kipster/core/transcription` | Replaceable provider contract for derived audio text; no provider is selected by importing it. |
 | `@kipster/core/runtime` | Node-only `openRuntime`, `AdapterRegistry`, `TextDispatcher`, `textPublicationHost` and `startTextServer`. All startup is explicit. |
 
@@ -478,7 +478,18 @@ Core relays the person's [Kipster Plugins](https://github.com/manikanta-kops/kip
 
 `GET /plugins/callback` needs no Kipster session: it is the sign-in return address for a browser that reaches Core rather than the plugin server, and forwards its query unchanged to the plugin server's `/callback`, answering with its page. It keeps Core's Host and Origin checks. Core refuses a `returnAddress` whose path is not exactly that route, or whose host is neither Core's listener nor one of `listen.allowedHosts`, with `400 return-address-refused` before asking the plugin server. Without `returnAddress` the plugin server's own loopback callback is used. The plugin server's `loopback-only`, `invalid-return-address` and `needs-client-metadata-document` explain why it refused a return address or sign-in method. When the plugin server does not answer in time or answers with something Core cannot read, the route fails with `502 plugin-server-failed`.
 
-The admin kip reaches the same operations through the `plugins` area of the administration catalog; its sign-in has no return address, and it gives the person the `authorizationUrl`. While the plugin server is ready, every conversation execution receives it as `mcpServers: [{ name: 'plugins', url: '<plugin server>/mcp', bearerToken }]`; maintenance executions never do. Core never writes the token to the database, events, logs or prompts.
+The admin kip reaches the same operations through the `plugins` area of the administration catalog; its sign-in has no return address, and it gives the person the `authorizationUrl`.
+
+### Plugin tools
+
+Kips reach the tools of connected plugins through two Kipster tools instead of every tool at once. A conversation execution gets them while the plugin server is ready and at least one plugin has an account; its instructions then name the connected plugins, marking one whose accounts all need reconnecting. With none connected, the instructions say so and the tools are left out.
+
+- `search_plugin_tools(query?, plugin?)`: with `query`, up to 8 tools, exact names first, then meaning and keyword matches merged by rank, each with its `inputSchema`, grouped by plugin with its accounts (`id`, `label`, `default`, `status`). With `plugin` alone, every tool of that plugin by name and description.
+- `run_plugin_tool(tool, account?, arguments?)`: checks the arguments against the schema, then runs the call through the plugin server's `/mcp` with the chosen account, or the default. A result's text and structured content return to the kip; images, audio and binary resources are saved in the attempt's output directory and returned as paths; text over 50,000 characters is cut, with the whole text saved beside it. Running it adds a progress note naming the plugin and tool to the work block.
+
+Every plugin tool asks the person on first use with an approval card that offers the grant `plugin:<tool>` for the conversation or always; full access skips the card. The tool then answers `{ status: 'pending' }` and the kip ends its turn. Once approved, the same call with the same tool, account and arguments runs once in that run.
+
+Core keeps a copy of each connected plugin's tools in `kipster.plugin_tools`, with the account argument the plugin server adds removed, and embeds new and changed tools with the installation's embedding provider. It syncs when the accounts change, once a day when tools are used, and when a call names an unknown tool. Tools stay while their account needs reconnecting and go with the plugin's last account. Core never writes the plugin server's token to the database, events, logs or prompts.
 
 ## Boundaries
 

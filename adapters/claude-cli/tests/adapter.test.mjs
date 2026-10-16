@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAdapter } from '../dist/index.js'
-import { fakePlugins } from './fixtures/fake-plugins.mjs'
 
 const fake = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
@@ -243,80 +242,4 @@ test('durable reconciliation confirms an end only when the recorded process grou
   assert.equal((await f.adapter.durableReconcile({ recoveryRef: { ...ref({}), stateScope: 'shared-codex-home' } })).outcome, 'unknown')
   assert.equal((await f.adapter.durableReconcile({ recoveryRef: ref({ processId: 2 ** 22 - 3, threadId: '11111111-2222-4333-8444-555555555555' }) })).outcome, 'ended')
   assert.equal((await f.adapter.durableReconcile({ recoveryRef: ref({ processId: process.pid, threadId: '11111111-2222-4333-8444-555555555555' }) })).outcome, 'unknown', 'a live process without its record is unknown')
-})
-
-test('Core\'s plugin server is passed through deferred, with its token only in the private configuration', async t => {
-  const f = await fixture(t)
-  const plugins = await fakePlugins(t)
-  await ready(f)
-  const mcpServers = [
-    { name: 'plugins', url: plugins.url, bearerToken: plugins.token },
-    { name: 'kipster', url: 'http://127.0.0.1:9/mcp', bearerToken: 'collide-a' },
-    { name: 'kipster_permission', url: 'http://127.0.0.1:9/mcp', bearerToken: 'collide-b' },
-    { name: 'Bad Name', url: 'http://127.0.0.1:9/mcp', bearerToken: 'bad' },
-  ]
-  await collect(await f.adapter.execute(context(f, { mcpServers })))
-  const launch = (await f.records()).findLast(record => record.launch).launch
-  assert.deepEqual(Object.keys(launch.mcp.mcpServers).sort(), ['kipster', 'kipster_permission', 'plugins'])
-  assert.deepEqual(launch.mcp.mcpServers.plugins, { type: 'http', url: plugins.url, headers: { Authorization: `Bearer ${plugins.token}` } }, 'no alwaysLoad, so its tools wait behind tool search')
-  assert.equal(launch.mcp.mcpServers.kipster.alwaysLoad, true)
-  assert.match(launch.mcp.mcpServers.kipster.url, /^http:\/\/127\.0\.0\.1:\d+\/tools$/, 'a colliding name never replaces Kipster\'s own server')
-  assert.match(launch.mcp.mcpServers.kipster_permission.url, /\/permission$/)
-  assert.equal(launch.mcp.mcpServers.kipster_permission.alwaysLoad, undefined)
-  assert.equal(launch.mcpMode, 0o600)
-  assert.equal(JSON.stringify([launch.argv, launch.env, launch.instructions]).includes(plugins.token), false, 'the token is only in the configuration file')
-  await collect(await f.adapter.execute(context(f, { attemptId: 'plain' })))
-  const plain = (await f.records()).findLast(record => record.launch).launch
-  assert.deepEqual(Object.keys(plain.mcp.mcpServers), ['kipster', 'kipster_permission'], 'without mcpServers the configuration is as before')
-  assert.equal(plain.mcp.mcpServers.kipster.alwaysLoad, true)
-  await f.mode('maintenance')
-  const maintenance = { kind: 'maintenance', runId: 'mr', attemptId: 'm1', organizationId: null, agentId: 'agent', mcpServers, maintenance: { task: 'memory', step: 'cards', instructions: 'Cards.', outputSchema: { type: 'object' }, settings: { adapterId: 'claude-cli', modelId: 'haiku' } } }
-  assert.equal((await collect(await f.adapter.execute(maintenance))).at(-1).kind, 'ended')
-  const isolated = (await f.records()).findLast(record => record.launch).launch
-  assert.equal(isolated.argv.includes('--mcp-config'), false, 'maintenance gets no plugin server')
-  assert.ok(isolated.argv.includes('--strict-mcp-config'))
-  assert.equal(JSON.stringify(isolated).includes(plugins.token), false)
-  assert.equal(plugins.requests.length, 0, 'labels are looked up only when a plugin tool asks')
-})
-
-test('plugin tools are approved by their server\'s read and write labels', async t => {
-  const f = await fixture(t)
-  const plugins = await fakePlugins(t)
-  await ready(f)
-  const mcpServers = [{ name: 'plugins', url: plugins.url, bearerToken: plugins.token }]
-  const run = async (calls, extra = {}) => {
-    await f.mode(`plugins ${JSON.stringify(calls)}`)
-    const before = f.calls.length
-    const events = await collect(await f.adapter.execute(context(f, { attemptId: `a${Math.random()}`, mcpServers, ...extra })))
-    const decisions = (await f.records()).filter(record => record.plugin).slice(-calls.length).map(record => record.decision.behavior)
-    return { events, decisions, cards: f.calls.slice(before) }
-  }
-  const read = await run([['mcp__plugins__plugin_list', {}], ['mcp__plugins__github__get_issue', { number: 7 }], ['mcp__plugins__github__get_issue', { number: 8 }]], { permissionMode: 'supervised' })
-  assert.deepEqual(read.decisions, ['allow', 'allow', 'allow'], 'read tools run without a card in supervised mode')
-  assert.deepEqual(read.cards, [])
-  assert.equal(read.events.at(-1).kind, 'ended')
-  assert.equal(plugins.listings(), 2, 'one listing of both pages, kept for the attempt')
-  assert.ok(plugins.requests.every(request => request.authorization === `Bearer ${plugins.token}`))
-
-  const write = await run([['mcp__plugins__github__create_issue', { title: 'Bug', description: 'Steps', account: 'work' }]], { permissionMode: 'supervised' })
-  assert.deepEqual(write.cards.map(card => [card.name, card.arguments.prompt, card.arguments.grant]), [['request_user_approval', 'Use create_issue from github with work?', { key: 'claude-cli:mcp__plugins__github__create_issue', label: 'github: create_issue', scopes: ['conversation', 'always'] }]])
-  assert.equal(write.cards[0].arguments.proposal, '{"input":{"account":"work","description":"Steps","title":"Bug"},"tool":"mcp__plugins__github__create_issue"}', 'every argument a plugin tool receives is bound')
-  assert.deepEqual(write.events.map(event => event.kind).slice(-2), ['waiting', 'ended'])
-  const unlabelled = await run([['mcp__plugins__github__mystery', {}]])
-  assert.equal(unlabelled.cards[0]?.arguments.prompt, 'Use mystery from github with the default account?', 'an unlabelled tool asks and names the default account')
-  const spoofed = await run([['mcp__plugins__github__create_issue', { title: 'Bug', _meta: { 'app.kipster/access': 'read' }, access: 'read' }]])
-  assert.equal(spoofed.cards.length, 1, 'a label in the tool input is never trusted')
-  const own = await run([['mcp__plugins__jira__assign', { account: 'upstream-field', kipster_account: 'ops' }]])
-  assert.equal(own.cards[0].arguments.prompt, 'Use assign from jira with ops?', 'a tool with its own account argument is selected through kipster_account')
-  const ownDefault = await run([['mcp__plugins__jira__assign', { account: 'upstream-field' }]])
-  assert.equal(ownDefault.cards[0].arguments.prompt, 'Use assign from jira with the default account?')
-
-  const full = await run([['mcp__plugins__github__create_issue', { title: 'Bug' }], ['mcp__plugins__github__mystery', {}]], { permissionMode: 'fullAccess' })
-  assert.deepEqual([full.decisions, full.cards], [['allow', 'allow'], []], 'full access allows write and unlabelled tools')
-  const granted = await run([['mcp__plugins__github__create_issue', { title: 'Bug' }]], { approvalGrants: ['claude-cli:mcp__plugins__github__create_issue'] })
-  assert.deepEqual([granted.decisions, granted.cards], [['allow'], []], 'a grant covers the tool')
-
-  plugins.fail()
-  const failed = await run([['mcp__plugins__github__get_issue', { number: 7 }]])
-  assert.equal(failed.cards[0]?.arguments.prompt, 'Use get_issue from github with the default account?', 'a failed lookup leaves the tool unlabelled, so it asks')
 })

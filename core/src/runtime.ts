@@ -12,6 +12,7 @@ import { UpdatesService } from './modules/updates/public.js'
 import { validateEmbeddingProvider, type EmbeddingProvider } from './embedding/index.js'
 import type { TranscriptionProvider } from './transcription/index.js'
 import type { PluginServerControl, PluginServerEndpoint } from './plugins/supervisor.js'
+import { PluginToolService } from './plugins/tools.js'
 export { startTextServer, type TextServer } from './transport/http/text.js'
 export { TextDispatcher, textPublicationHost, type DispatchHooks } from './workflows/text-dispatch.js'
 export type { TranscriptionProvider, TranscriptionResult } from './transcription/index.js'
@@ -51,11 +52,12 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/work/migrations/029_delegation_calls.sql',
     './modules/conversations/migrations/030_message_finished_at.sql',
     './modules/conversations/migrations/031_viewing_workspace.sql',
+    './modules/plugins/migrations/032_plugin_tools.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }
 
-export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
+export interface Runtime { db: Postgres; jobs: Jobs; home: Home; bootstrap: Bootstrap; artifacts: ArtifactService; structured?: StructuredDataService; embedding?: EmbeddingProfile; vectors?: VectorService; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; pluginTools?: PluginToolService; learning: LearningService; updates: UpdatesService; clock: () => Date; close(): Promise<void> }
 export async function openRuntime(config: { connectionString: string; taskDataConnectionString?: string; home: string; names: { owner: string; organization: string; rootAgent: string }; starter?: Starter; executionLimit?: number; embedding?: EmbeddingProvider; transcription?: TranscriptionProvider; plugins?: PluginServerEndpoint; updates?: { channelUrl?: string; coreVersion?: string; managed?: boolean }; onError?: (error: Error) => void | Promise<void>; clock?: () => Date }): Promise<Runtime> {
   if (config.embedding) validateEmbeddingProvider(config.embedding)
   if (config.transcription && config.transcription.contractMajor !== 1) throw new Error('Invalid transcription provider contract')
@@ -94,7 +96,7 @@ export async function openRuntime(config: { connectionString: string; taskDataCo
     vectors?.startIndexing()
     artifacts.startRecovery()
     const learning = new LearningService(db, ids.installationId, !!embedding)
-    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), ...(config.plugins ? {plugins:config.plugins} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
+    return { db, jobs, home, bootstrap: ids, artifacts, ...(structured ? {structured} : {}), ...(embedding && vectors ? {embedding,vectors} : {}), ...(config.transcription ? {transcription:config.transcription} : {}), ...(config.plugins ? {plugins:config.plugins, pluginTools:new PluginToolService(db, ids.installationId, config.plugins, embedding, message => observe(new Error(message)))} : {}), learning, updates: updateService, clock, async close() { try { await updateService.close();await artifacts.stopRecovery();await vectors?.stopIndexing();await config.transcription?.close() } finally { try { await jobs.stop() } finally { await structured?.close(); await db.close() } } } }
   } catch (error) {
     const cleanup: unknown[] = []
     try { await updates?.close() } catch (failure) { cleanup.push(failure) }

@@ -59,6 +59,13 @@ const administration = [
     { operation: text, arguments: { type: 'object' }, operationId: { type: 'string', minLength: 1, maxLength: 200 } }, ['operation']),
 ]
 
+const plugins = [
+  tool('search_plugin_tools', "Search the tools of the person's connected plugins, services such as ElevenLabs or Todoist. With query: the best matching tools with their arguments (inputSchema), grouped by plugin with its accounts; a tool's exact name finds that tool. With plugin alone: every tool of that plugin, by name and description.",
+    { query: text, plugin: text }),
+  tool('run_plugin_tool', 'Run one plugin tool found with search_plugin_tools. arguments follow its inputSchema. account is an account ID from the search; leave it out for the default account. The first use of a tool may return status pending while the person approves it: end your turn, and once approved call it again with the same tool, account and arguments. Files the tool returns are saved and their paths returned.',
+    { tool: text, account: text, arguments: { type: 'object' } }, ['tool']),
+]
+
 const day = { type: 'string', description: 'ISO date (a whole day) or date and time.' }
 const memory = (admin: boolean) => {
   const agent = admin ? { agent: { type: 'string', description: 'The kip whose memory to read. Without it you read every kip\'s.' } } : {}
@@ -76,13 +83,13 @@ const memory = (admin: boolean) => {
 }
 
 /** What an execution may use, decided by Core for each run. `admin` is the admin kip, which acts in every workspace. */
-export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean }
+export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean; plugins?: boolean }
 
 /** The Kipster tools of one execution, in a stable order. */
 export function executionTools(scope: ToolScope): ToolDefinition[] {
   return [
     ...conversation, ...(scope.admin ? [adminCopy] : scope.organization ? [copyToOrganization] : []), ...collaboration(!!scope.admin), ...documents(!!scope.admin),
-    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.structured ? [dataTables] : []), ...(scope.vectors ? [vectorCollections] : []),
+    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables] : []), ...(scope.vectors ? [vectorCollections] : []),
     ...(scope.administration ? administration : []),
   ]
 }
