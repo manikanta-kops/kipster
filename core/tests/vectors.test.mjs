@@ -136,7 +136,10 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal((await oldLease).stale,1)
     await call('lease-delete',{operation:'delete_collection',collectionId:leaseCollection.collectionId,expectedRevision:(await call('lease-describe',{operation:'describe',collectionId:leaseCollection.collectionId})).revision})
     assert.equal((await call('cross-agent',{operation:'discover',target:{kind:'agent',ownerId:otherAgent}})).collections.length,0)
-    await assert.rejects(call('bad-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/outside active context/)
+    // The admin kip may use another workspace's collections, but not a removed one.
+    assert.equal((await call('admin-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}})).collections.length,0)
+    await runtime.db.query('UPDATE kipster.organizations SET provisioned=false WHERE id=$1',[otherOrg])
+    await assert.rejects(call('removed-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/Vector owner unavailable/)
     const org=await call('org-create',{operation:'create',target:{kind:'organization',ownerId:ids.organizationId},name:'shared'})
     assert.equal(org.owner.kind,'organization')
     await runtime.db.query("CREATE FUNCTION kipster.reject_vector_rebuild() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'vector rebuild rejected'; END $$")

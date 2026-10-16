@@ -51,7 +51,8 @@ CREATE INDEX kip_message_calls_sender ON kipster.kip_message_calls(sender_run_id
 
 CREATE INDEX kip_message_calls_chain ON kipster.kip_message_calls(chain_root_id);
 
--- Task data runs in the run's own thread now that no run executes for another agent.
+-- Task data runs in the run's own thread now that no run executes for another agent. The admin kip may use any live
+-- workspace's task data without a membership or that workspace as its context.
 CREATE OR REPLACE FUNCTION task_data.guard_attempt(
   p_attempt uuid, p_incarnation uuid, p_generation bigint,
   p_kind text, p_owner uuid
@@ -63,9 +64,11 @@ DECLARE
   v_context_kind text;
   v_context_id uuid;
   v_actor uuid;
+  v_admin boolean;
 BEGIN
-  SELECT c.installation_id, r.thread_id, r.id, c.context_kind, c.context_id, c.agent_id
-    INTO v_installation, v_thread, v_run, v_context_kind, v_context_id, v_actor
+  SELECT c.installation_id, r.thread_id, r.id, c.context_kind, c.context_id, c.agent_id,
+         EXISTS (SELECT 1 FROM kipster.agent_roles x WHERE x.agent_id=c.agent_id AND x.role='root-admin')
+    INTO v_installation, v_thread, v_run, v_context_kind, v_context_id, v_actor, v_admin
     FROM kipster.attempts a
     JOIN kipster.text_runs r ON r.id=a.intent_id
     JOIN kipster.threads t ON t.id=r.thread_id
@@ -82,14 +85,16 @@ BEGIN
     PERFORM 1 FROM kipster.agents WHERE id=p_owner AND installation_id=v_installation FOR KEY SHARE;
     IF NOT FOUND OR NOT kipster.live_agent(p_owner) THEN RAISE EXCEPTION 'Task-data owner unavailable'; END IF;
   ELSIF p_kind='organization' THEN
-    IF v_context_kind<>'organization' OR v_context_id<>p_owner THEN
+    IF NOT v_admin AND (v_context_kind<>'organization' OR v_context_id<>p_owner) THEN
       RAISE EXCEPTION 'Organization target unavailable in this context';
     END IF;
     PERFORM 1 FROM kipster.organizations WHERE id=p_owner AND installation_id=v_installation FOR KEY SHARE;
     IF NOT FOUND OR NOT kipster.live_organization(p_owner) THEN RAISE EXCEPTION 'Task-data organization unavailable'; END IF;
-    PERFORM 1 FROM kipster.agent_memberships
-      WHERE organization_id=p_owner AND agent_id=v_actor FOR KEY SHARE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'Acting agent is not an organization member'; END IF;
+    IF NOT v_admin THEN
+      PERFORM 1 FROM kipster.agent_memberships
+        WHERE organization_id=p_owner AND agent_id=v_actor FOR KEY SHARE;
+      IF NOT FOUND THEN RAISE EXCEPTION 'Acting agent is not an organization member'; END IF;
+    END IF;
   ELSE
     RAISE EXCEPTION 'Invalid task-data owner kind';
   END IF;

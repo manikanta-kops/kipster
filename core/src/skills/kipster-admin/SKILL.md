@@ -105,6 +105,12 @@ kips use by default with `plugins.default_set` (`plugins.default_clear` removes 
 plugins are off right now; Core starts the plugin server again, so try once more after a short wait, then tell the
 person.
 
+**Data tables and vector collections.** You may read and change any workspace's data tables and vector collections
+and any kip's own ones: set `target` in `manage_data_tables` or `manage_vector_collections` to
+`{"kind": "organization", "ownerId": "<workspace ID>"}` or `{"kind": "agent", "ownerId": "<kip ID>"}`, with IDs from
+`directory.get`. You need no membership and need not be in that workspace's conversation. A deleted workspace or kip is
+refused.
+
 ## What you cannot change
 
 Tell the person how to do these themselves instead:
