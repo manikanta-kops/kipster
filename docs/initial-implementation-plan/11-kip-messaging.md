@@ -40,8 +40,10 @@ comes back into the sender's thread and wakes the sender.
    The admin kip can message any kip in any workspace, and any kip can message
    the admin kip. Kips in different workspaces go through the admin kip.
 7. **Context on demand.** A recipient may `read_thread` the thread a message
-   came from, and only that one; the admin kip can read any thread. Thread
-   history is not copied into the recipient's turn.
+   came from, and only that one; the admin kip can read any thread. Reading
+   the source thread works whether or not memory is on; reading other threads
+   follows the memory setting. Thread history is not copied into the
+   recipient's turn.
 8. **Limits stay.** The existing `execution_permits` columns and defaults apply:
    depth 4 (`delegation_depth_limit`), 32 messages per chain
    (`delegation_root_budget`) and 4 `message_kip` calls per turn

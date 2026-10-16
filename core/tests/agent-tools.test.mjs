@@ -23,6 +23,10 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.deepEqual(waits, { ask_user_question: 'question', request_user_approval: 'approval' })
   assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
   assert.match(memoryGuidance, /search_memory/)
+  // A linked thread offers read_thread for its source thread with memory off, and once with memory on.
+  assert.deepEqual(names({ ...all, linked: true }).filter(name => !full.includes(name)), ['read_thread'])
+  assert.match(executionTools({ ...all, linked: true }).find(tool => tool.name === 'read_thread').description, /^Read the conversation this linked thread's kip messages come from, by position/)
+  assert.deepEqual(names({ ...all, memory: true, linked: true }), names({ ...all, memory: true }))
   const dataTables = executionTools(all).find(tool => tool.name === 'manage_data_tables')
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
   const outside = toolGuidance({ organization: false }), inside = toolGuidance({ organization: true })
