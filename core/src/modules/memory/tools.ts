@@ -14,10 +14,9 @@ interface MemoryRun { installationId: string; agentId: string; organizationId: s
 /** The current, issued attempt of a running run, not stopping, whose agent has memory on. */
 async function boundRun(client: Postgres | SqlClient, attemptId: string, incarnation: string): Promise<MemoryRun> {
   const row = uuid.test(attemptId) ? (await client.query<{ installation_id: string; agent_id: string; context_kind: string; context_id: string; thread_id: string; input_message_id: string; attempt_state: string; run_state: string; stop_requested: boolean; current_attempt_id: string }>(
-    `SELECT c.installation_id, COALESCE(d.recipient_agent_id, c.agent_id) AS agent_id, c.context_kind, c.context_id, r.thread_id, r.input_message_id,
+    `SELECT c.installation_id, c.agent_id, c.context_kind, c.context_id, r.thread_id, r.input_message_id,
        a.state AS attempt_state, r.state AS run_state, r.stop_requested, r.current_attempt_id
      FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
-     LEFT JOIN kipster.delegations d ON d.child_run_id=r.id
      WHERE a.id=$1 AND a.incarnation=$2`, [attemptId, incarnation])).rows[0] : undefined
   if (!row || row.attempt_state !== 'issued' || row.current_attempt_id !== attemptId || !['running', 'waiting'].includes(row.run_state) || row.stop_requested) throw new Error('Attempt no longer owns memory tools')
   const access = await memoryAccess(client, row.agent_id)
@@ -92,7 +91,9 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const threadId = text(input, 'threadId', name, 36)!
     const from = position(input, 'fromPosition', name) ?? 1, to = position(input, 'toPosition', name) ?? null
     if (to !== null && to < from) throw new Error(`Invalid ${name} arguments: toPosition must not be before fromPosition`)
-    const page = uuid.test(threadId) ? await readThread(db, run.installationId, threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
+    // A kip may also read the thread the messages of its linked thread come from, and only that one.
+    const source = !run.admin && uuid.test(threadId) && (await db.query('SELECT 1 FROM kipster.kip_links WHERE linked_thread_id=$1 AND source_thread_id=$2', [run.threadId, threadId])).rows.length > 0
+    const page = uuid.test(threadId) ? await readThread(db, run.installationId, source ? { agents: null, organizations: 'all' } : threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
     if (!page) throw new Error('Thread not found')
     return page
   }

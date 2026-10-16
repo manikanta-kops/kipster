@@ -9,7 +9,8 @@ const identifier = /^[a-z][a-z0-9_]{0,39}$/
 const types = new Set(['text', 'bigint', 'double precision', 'boolean', 'timestamptz', 'jsonb', 'uuid'])
 const mutations = new Set(['create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'drop_table', 'insert', 'update', 'delete'])
 const operations = new Set([...mutations, 'discover', 'describe', 'query'])
-const guardSourceHash = '23e0ea4a3c5f3425b95699fdff65aa31cd60d6f97462003998f7180688d3a291'
+// The guard as migration 033 defines it.
+const guardSourceHash = '7b13135475e50e5accdc1e33df0474d4318388a4c08204f6a10e534d00a37b44'
 
 function object(value: unknown): Input {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected an object')

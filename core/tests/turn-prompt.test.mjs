@@ -22,19 +22,17 @@ test('Core renders the turn: history, the current message and its files', () => 
   ].join('\n'))
 })
 
-test('Core adds saved answers, delegations and receipts to the turn', () => {
+test('Core adds saved answers and receipts to the turn', () => {
   const answer = { id: 'earlier', kind: 'question', prompt: 'Which?', options: [{ id: 'opaque', label: 'Human choice' }], freeText: false, response: { actorId: 'human', answer: { kind: 'choice', optionId: 'opaque' }, acceptedAt: '2026-09-23T00:00:00Z' } }
-  const prompt = turnPrompt({ ...base, triggerMessageId: 'm', input: [{ messageId: 'm', text: 'Ask once' }], interactions: [answer], delegationResults: [{ id: 'd1', recipientAgentId: 'scout', request: 'Look', state: 'completed', result: 'Found it' }], administrationReceipts: { receipts: [{ operationId: 'op', result: { agent: { id: 'saved-agent' } } }], hasMore: false } })
+  const prompt = turnPrompt({ ...base, triggerMessageId: 'm', input: [{ messageId: 'm', text: 'Ask once' }], interactions: [answer], administrationReceipts: { receipts: [{ operationId: 'op', result: { agent: { id: 'saved-agent' } } }], hasMore: false } })
   const sections = prompt.split('\n\n')
   assert.equal(sections[0], 'Current user message [m]:\nAsk once', 'a first message has no history section')
   assert.match(sections[1], /^The human has already answered/)
   assert.match(sections[1], /"optionId":"opaque"/)
   assert.match(sections[1], /Human choice/)
-  assert.match(sections[2], /^Completed delegated tasks/)
-  assert.match(sections[2], /Found it/)
-  assert.match(sections[3], /^Saved administration operation receipts/)
-  assert.match(sections[3], /saved-agent/)
-  assert.equal(sections.length, 4)
+  assert.match(sections[2], /^Saved administration operation receipts/)
+  assert.match(sections[2], /saved-agent/)
+  assert.equal(sections.length, 3)
 })
 
 test('Core leaves out empty administration receipts', () => {

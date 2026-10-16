@@ -10,7 +10,7 @@ const names = scope => executionTools(scope).map(tool => tool.name)
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
-  assert.deepEqual(base, ['post_chat_message', 'transcribe_voice_note', 'ask_user_question', 'request_user_approval', 'list_kips', 'get_kip', 'delegate_to_kip', 'check_kip_task', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc'])
+  assert.deepEqual(base, ['post_chat_message', 'transcribe_voice_note', 'ask_user_question', 'request_user_approval', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc'])
   const full = names(all)
   assert.deepEqual(full.filter(name => !base.includes(name)), ['copy_attachment_to_workspace', 'manage_data_tables', 'manage_vector_collections', 'list_admin_operations', 'run_admin_operation'])
   for (const tool of executionTools(all)) {
@@ -19,7 +19,8 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
     assert.equal(tool.inputSchema.additionalProperties, false)
   }
   const waits = Object.fromEntries(executionTools(all).filter(tool => tool.waits).map(tool => [tool.name, tool.waits]))
-  assert.deepEqual(waits, { ask_user_question: 'question', request_user_approval: 'approval', delegate_to_kip: 'child' })
+  // A kip message never pauses the sender's turn.
+  assert.deepEqual(waits, { ask_user_question: 'question', request_user_approval: 'approval' })
   assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
   assert.match(memoryGuidance, /search_memory/)
   const dataTables = executionTools(all).find(tool => tool.name === 'manage_data_tables')
@@ -27,12 +28,14 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   const outside = toolGuidance({ organization: false }), inside = toolGuidance({ organization: true })
   assert.match(outside, /post_chat_message/)
   assert.match(outside, /create_rich_doc/)
-  assert.match(outside, /delegate_to_kip/)
+  assert.match(outside, /message_kip/)
+  assert.match(outside, /end your turn with an empty reply/)
+  assert.doesNotMatch(outside, /delegat/)
   assert.match(outside, /call post_chat_message with their paths in `files`/)
   assert.doesNotMatch(outside, /artifacts_write|artifacts_publish|harness tools|unavailable Kipster capabilities/)
   assert.doesNotMatch(outside, /copy_attachment_to_workspace/, 'the copy tool is named only where it is offered')
   assert.match(inside, /copy_attachment_to_workspace/)
-  for (const name of ['post_chat_message', 'delegate_to_kip']) assert.deepEqual(executionTools(all).find(tool => tool.name === name).inputSchema.properties.files.items, { type: 'string' })
+  for (const name of ['post_chat_message', 'message_kip']) assert.deepEqual(executionTools(all).find(tool => tool.name === name).inputSchema.properties.files.items, { type: 'string' })
   assert.match(executionTools(all).find(tool => tool.name === 'edit_rich_doc').description, /```question/)
 })
 
@@ -41,7 +44,7 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
   const admin = { organization: false, structured: false, vectors: false, administration: true, memory: true, admin: true }
   const member = { organization: true, structured: false, vectors: false, administration: false, memory: true }
   assert.deepEqual(executionTools(admin).find(tool => tool.name === 'copy_attachment_to_workspace').inputSchema.required, ['artifactId', 'workspaceId'])
-  for (const [tool, name] of [['delegate_to_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_recent_threads', 'agent']]) {
+  for (const [tool, name] of [['message_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_recent_threads', 'agent']]) {
     assert.ok(field(admin, tool, name), `${tool}.${name} for the admin kip`)
     assert.equal(field(member, tool, name), undefined, `${tool}.${name} only for the admin kip`)
   }
@@ -61,7 +64,8 @@ test('every offered tool name reaches its Core handler', async () => {
   for (const name of offered) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
   const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [offered[index], [method, rest.at(-1)]]))
   assert.deepEqual(routed.read_thread, ['memoryTool', 'read_thread'])
-  assert.deepEqual(routed.check_kip_task, ['agentTool', 'agents.delegation_status'])
+  assert.deepEqual(routed.message_kip, ['agentTool', 'agents.message'])
+  for (const name of ['delegate_to_kip', 'check_kip_task']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
   assert.deepEqual(routed.run_admin_operation, ['adminTool', 'run_admin_operation'])
   assert.deepEqual(routed.manage_data_tables[0], 'structuredTool')
   assert.deepEqual(routed.manage_vector_collections[0], 'vectorTool')

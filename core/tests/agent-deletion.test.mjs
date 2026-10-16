@@ -15,7 +15,7 @@ import { adminUrl, noDatabase, taskDataRole } from './support/database.mjs'
 
 // Permanent deletion of an archived agent over HTTP against real PostgreSQL, with the deterministic
 // fixture adapter. The agent's chats, memory, vectors, task data, files and home go; organization
-// publications, delegation records in other agents' threads and a tombstone with its name stay.
+// publications, its messages and answers in other kips' threads and a tombstone with its name stay.
 
 const names = { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }
 const fixture = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
@@ -126,8 +126,9 @@ async function retiredPublication(ctx, run, name, content) {
 
 /**
  * Gives Scout a chat of its own with a file it showed there, a file it never showed, an organization
- * publication, a vector collection, task data and an identity backup; and work Root delegated to
- * it, in which Scout showed a file and passed it on to Helper. Both threads carry memory.
+ * publication, a vector collection, task data and an identity backup; and a message from Root,
+ * answered in a linked thread of Scout's chat, where Scout showed a file and passed it on to Helper.
+ * Scout's own thread and Root's thread carry memory.
  */
 async function populate(ctx) {
   const own = await ctx.running(ctx.scout, 'Write the report')
@@ -148,31 +149,35 @@ async function populate(ctx) {
   const identity = await ctx.runtime.home.identity.write(ctx.scout, 'identity.md', '# Identity\nScout checks numbers.\n', sha256('# Identity\n'), 'owner')
   assert.ok(identity.sha256)
 
-  // Root delegates to Scout; Scout shows a file in its reply thread and passes it on to Helper.
+  // Root messages Scout; Scout shows a file in the linked thread, passes it on to Helper and answers.
   const parent = await ctx.running(ctx.root, 'Ask Scout for the numbers')
-  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const sent = await parent.call('message_kip', { recipientId: ctx.scout, text: 'Check the numbers' })
   parent.release({ kind: 'ended', confirmed: true })
-  await ctx.settled(parent.runId, 'waiting')
-  const child = ctx.bind({ runId: delegated.childRunId }, await ctx.execution(delegated.childRunId))
+  await ctx.settled(parent.runId, 'completed')
+  const kipRun = async (threadId, trigger = 'kip') => (await ctx.db.query('SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind=$2', [threadId, trigger])).rows[0]?.id
+  const childRunId = await kipRun(sent.threadId)
+  const child = ctx.bind({ runId: childRunId }, await ctx.execution(childRunId))
   ctx.provider(child, 'codex-scout-child')
   await writeFile(join(workspace, 'checked.txt'), 'Checked numbers')
   const [childFile] = (await child.call('post_chat_message', { text: 'Checked', files: ['checked.txt'] })).files.map(file => ({ id: file.artifactId }))
-  const further = await child.call('delegate_to_kip', { recipientId: ctx.helper, request: 'Double-check this file', artifactIds: [childFile.id] })
-  let mark = ctx.executions.length
-  child.release({ kind: 'ended', confirmed: true })
+  const further = await child.call('message_kip', { recipientId: ctx.helper, text: 'Double-check this file', artifactIds: [childFile.id] })
+  further.childRunId = await kipRun(further.threadId)
+  ctx.finish(child, 'The numbers are fine')
+  await ctx.settled(childRunId, 'completed')
   ctx.finish(ctx.bind({}, await ctx.execution(further.childRunId)), 'Looks right')
   await ctx.settled(further.childRunId, 'completed')
-  ctx.finish(ctx.bind({}, await ctx.execution(delegated.childRunId, mark)), 'The numbers are fine')
-  await ctx.settled(delegated.childRunId, 'completed')
-  mark = ctx.executions.length
-  ctx.finish(ctx.bind({}, await ctx.execution(parent.runId, mark)), 'Scout says fine')
-  await ctx.settled(parent.runId, 'completed')
+  // Each answer wakes its sender: Root in its thread, Scout in the linked thread.
+  for (const threadId of [parent.threadId, sent.threadId]) {
+    const runId = await until(() => kipRun(threadId, 'answer'), Boolean, `answer in ${threadId}`)
+    ctx.finish(ctx.bind({}, await ctx.execution(runId)), threadId === parent.threadId ? 'Scout says fine' : 'Helper agrees')
+    await ctx.settled(runId, 'completed')
+  }
 
-  const threads = (await ctx.db.query('SELECT thread_id AS id FROM kipster.text_runs WHERE id = ANY($1::uuid[])', [[own.runId, delegated.childRunId]])).rows.map(row => row.id)
-  const runs = [own.runId, delegated.childRunId]
+  const threads = [own.threadId, sent.threadId]
+  const runs = (await ctx.db.query('SELECT id FROM kipster.text_runs WHERE thread_id = ANY($1::uuid[])', [threads])).rows.map(row => row.id)
   const attempts = (await ctx.db.query('SELECT id FROM kipster.attempts WHERE intent_id = ANY($1::uuid[])', [runs])).rows.map(row => row.id)
   const messages = (await ctx.db.query('SELECT id FROM kipster.messages WHERE thread_id = ANY($1::uuid[])', [threads])).rows.map(row => row.id)
-  const data = { own, parent, delegated, further, shown, unshown, childFile, publication, collection, threads, runs, attempts, messages }
+  const data = { own, parent, sent, further, shown, unshown, childFile, publication, collection, threads, runs, attempts, messages }
   return { ...data, memory: await seedMemory(ctx, data) }
 }
 
@@ -260,27 +265,28 @@ async function assertRemoved(ctx, data, events, { copies }) {
   assert.ok(tombstone.deletedAt)
   assert.equal(directory.memberships.filter(item => item.agentId === scout).length, 0)
   assert.deepEqual(events.filter(event => event.type === 'agent-changed' && event.resourceId === scout).map(event => event.data.lifecycle), ['archived', 'deleting', 'deleted'])
-  assert.deepEqual(events.filter(event => event.type === 'thread-removed').map(event => event.data), [{ threadId: data.own.threadId, chatId: data.own.chatId }])
+  assert.deepEqual(events.filter(event => event.type === 'thread-removed').map(event => event.data), [{ threadId: data.own.threadId, chatId: data.own.chatId }, { threadId: data.sent.threadId, chatId: data.sent.chatId }].sort((a, b) => a.threadId.localeCompare(b.threadId)))
   assert.equal(events.filter(event => event.type === 'membership-removed' && event.data.agentId === scout).length, data.memberships ?? 1)
   const agentRow = (await ctx.db.query('SELECT settings, description, sleep_time FROM kipster.agents WHERE id=$1', [scout])).rows[0]
   assert.deepEqual(agentRow, { settings: {}, description: '', sleep_time: null })
 
-  // Its chat is gone; the delegation in Root's thread stays and names Scout.
-  const gone = await ctx.call('GET', `/v1/threads/${data.own.threadId}/snapshot`)
-  assert.ok([403, 410].includes(gone.status), JSON.stringify(gone))
-  stableError.parse(gone.data)
+  // Its chat is gone, the linked thread included; Root's thread keeps Scout's answer and loses the link.
+  for (const threadId of [data.own.threadId, data.sent.threadId]) {
+    const gone = await ctx.call('GET', `/v1/threads/${threadId}/snapshot`)
+    assert.ok([403, 410].includes(gone.status), JSON.stringify(gone))
+    stableError.parse(gone.data)
+  }
   const rootThread = threadSnapshot.parse(await ctx.ok('GET', `/v1/threads/${data.parent.threadId}/snapshot`))
-  const toScout = rootThread.delegations.find(item => item.id === data.delegated.id)
-  assert.equal(toScout.recipientAgentId, scout)
-  assert.equal(toScout.childRunId, null)
-  assert.equal(toScout.state, 'completed')
-  const fromScout = rootThread.delegations.find(item => item.id === data.further.id)
-  assert.equal(fromScout.senderAgentId, scout)
-  assert.equal(fromScout.parentRunId, null)
-  assert.equal(fromScout.childRunId, data.further.childRunId)
-  const results = (await ctx.db.query('SELECT result FROM kipster.delegations WHERE id=$1', [data.delegated.id])).rows[0]
-  assert.equal(results.result, 'Checked\n\nThe numbers are fine')
-  assert.ok(events.some(event => event.type === 'thread-summary' && event.resourceId === data.parent.threadId), 'Root\'s thread is told about the changed delegations')
+  const answer = rootThread.messages.find(message => message.parts.some(part => part.kind === 'kip-answer'))
+  assert.equal(answer.authorId, scout)
+  assert.deepEqual(answer.parts.filter(part => part.kind === 'text').map(part => part.text), ['Checked', 'The numbers are fine'])
+  assert.equal((await ctx.db.query('SELECT count(*)::int AS n FROM kipster.kip_links')).rows[0].n, 0)
+  const summaries = events.filter(event => event.type === 'thread-summary' && event.resourceId === data.parent.threadId)
+  assert.ok(summaries.length, 'Root\'s thread is told it lost the link')
+  assert.equal(summaries.at(-1).data.links, undefined)
+  // The answer kept the file the way Helper's message did.
+  const answered = answer.parts.find(part => part.kind === 'file' || part.kind === 'removed')
+  assert.deepEqual(answered, copies ? { kind: 'file', artifactId: copies.get(data.childFile.id), purpose: 'attachment' } : { kind: 'removed', artifactId: data.childFile.id })
 
   // The message Helper received keeps its text; the file becomes the organization copy or a removed part.
   const request = (await ctx.db.query('SELECT m.id, m.parts FROM kipster.messages m JOIN kipster.text_runs r ON r.input_message_id=m.id WHERE r.id=$1', [data.further.childRunId])).rows[0]
@@ -331,7 +337,7 @@ async function assertRemoved(ctx, data, events, { copies }) {
   // Nothing else points at the agent or at what was removed with it.
   const removed = [...data.threads, ...data.runs, ...data.attempts, ...data.messages, data.own.chatId, data.shown.id, data.unshown.id, data.childFile.id, data.memory.scoutChunk, data.memory.scoutCard, data.collection.collectionId]
   assert.deepEqual(await references(ctx.db, removed), ['app_events.resource_id'])
-  assert.deepEqual(await references(ctx.db, [scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'delegations.recipient_agent_id', 'delegations.sender_agent_id', 'messages.author_id'])
+  assert.deepEqual(await references(ctx.db, [scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'messages.author_id'])
 }
 
 test('permanent deletion removes the agent\'s chats, memory, files and home and keeps a named tombstone', { skip: noDatabase, timeout: 120000 }, async t => {
@@ -441,7 +447,8 @@ test('a restart in the middle of the cleanup finishes it once', { skip: noDataba
     await ctx.settled(run.runId, 'completed')
   }
   const threads = (await ctx.db.query('SELECT t.id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.agent_id=$1 ORDER BY t.id', [ctx.scout])).rows.map(row => row.id)
-  assert.equal(threads.length, 7)
+  // Its own thread, the linked thread Root's message opened and six more.
+  assert.equal(threads.length, 8)
   const cursor = await ctx.cursor()
   await ctx.ok('POST', `/v1/agents/${ctx.scout}/archive`, { version: 1, operationId: randomUUID() })
   // Another process runs the deletion from here on.
@@ -459,7 +466,7 @@ test('a restart in the middle of the cleanup finishes it once', { skip: noDataba
   assert.deepEqual(await crash('after:delete-chats:1'), { code: null, signal: 'SIGKILL' })
   assert.deepEqual(await progress(), { state: 'running', step: 'delete-chats' })
   const left = (await ctx.db.query('SELECT count(*)::int AS n FROM kipster.threads WHERE id = ANY($1::uuid[])', [threads])).rows[0].n
-  assert.ok(left > 0 && left < 7, `threads left after one batch: ${left}`)
+  assert.ok(left > 0 && left < 8, `threads left after one batch: ${left}`)
   assert.deepEqual(await crash('after:remove-home:1'), { code: null, signal: 'SIGKILL' })
   assert.deepEqual(await progress(), { state: 'running', step: 'tombstone' })
   assert.deepEqual(await crash('never'), { code: 0, signal: null })
@@ -472,7 +479,7 @@ test('a restart in the middle of the cleanup finishes it once', { skip: noDataba
   const copies = (await ctx.db.query(`SELECT name FROM kipster.artifacts WHERE owner_kind='organization' AND author_id=$1 AND id <> $2 ORDER BY name`, [ctx.scout, data.publication.id])).rows.map(row => row.name)
   assert.deepEqual(copies, ['checked.txt'])
   assert.equal(await exists(join(ctx.home, 'agents', ctx.scout)), false)
-  assert.deepEqual(await references(ctx.db, [ctx.scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'delegations.recipient_agent_id', 'delegations.sender_agent_id', 'messages.author_id'])
+  assert.deepEqual(await references(ctx.db, [ctx.scout]), ['admin_operations.target_id', 'agents.id', 'app_events.resource_id', 'artifacts.author_id', 'messages.author_id'])
 })
 
 test('organization deletion fences work, removes owned resources and preserves global agents and other organizations', { skip: noDatabase, timeout: 90000 }, async t => {

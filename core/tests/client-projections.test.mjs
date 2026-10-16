@@ -78,7 +78,7 @@ async function setup(t) {
     state: async runId => (await db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [runId])).rows[0]?.state,
     app: async () => appSnapshot.parse(await ok('GET', '/v1/app/snapshot')),
     events: async cursor => (await readEvents(db, appScope, cursor)).events.map(event => textEvent.parse(event)),
-    flip: (kind, id, lifecycle) => db.transaction(client => changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle, 'Owner changed')),
+    flip: (kind, id, lifecycle) => db.transaction(client => changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle)),
   }
   ctx.settled = async (runId, state) => until(() => ctx.state(runId), value => value === state, `${runId} ${state}`)
   ctx.finish = ({ context, handle }, text = 'Done') => {
@@ -193,7 +193,7 @@ test('outstanding notifications survive an expired replay with their current int
   assert.ok(final.notifications.some(n => n.kind === 'failed' && n.runId === failing.runId))
 })
 
-test('a delegated child question on the parent thread is cancelled with the parent', { skip: noDatabase, timeout: 90000 }, async t => {
+test('a question in a kip\'s linked thread notifies there and is cancelled when its turn stops', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
   const org = await ctx.organization('Acme')
   const lead = (await ctx.agent('Lead', org.id)).agent
@@ -201,21 +201,22 @@ test('a delegated child question on the parent thread is cancelled with the pare
   const chatId = await ctx.chat(org.id, lead.id)
   const parent = (await ctx.say(org.id, chatId, 'Ask Helper')).data
   const parentExecution = await ctx.execution(parent.runId)
-  const delegation = await ctx.dispatcher.agentTool(parentExecution.context.attemptId, 'delegate-1', 'agents.delegate', { recipientId: helper.id, request: 'Check the figures' })
+  const sent = await ctx.dispatcher.agentTool(parentExecution.context.attemptId, 'message-1', 'agents.message', { recipientId: helper.id, text: 'Check the figures' })
   parentExecution.handle.release({ kind: 'ended', attemptId: parentExecution.context.attemptId, confirmed: true })
-  await ctx.settled(parent.runId, 'waiting')
-  const child = await ctx.execution(delegation.childRunId)
+  await ctx.settled(parent.runId, 'completed')
+  const childRunId = (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).rows[0].id
+  const child = await ctx.execution(childRunId)
   const start = await ctx.cursor()
   const card = await ctx.dispatcher.askToolInteraction(child.context.attemptId, 'child-ask', { kind: 'question', prompt: 'Which quarter?', freeText: true })
   child.handle.release({ kind: 'ended', attemptId: child.context.attemptId, confirmed: true })
-  await ctx.settled(delegation.childRunId, 'waiting')
+  await ctx.settled(childRunId, 'waiting')
   const [created] = await ctx.notices(start, card.interactionId)
-  assert.deepEqual([created.threadId, created.interactionState], [parent.threadId, 'pending'])
+  assert.deepEqual([created.threadId, created.interactionState], [sent.threadId, 'pending'])
 
   const beforeStop = await ctx.cursor()
-  assert.equal((await ctx.control(org.id, chatId, parent, 'stop', parentExecution.context.attemptId)).data.outcome, 'accepted')
-  await ctx.settled(delegation.childRunId, 'cancelled')
-  assert.deepEqual((await ctx.notices(beforeStop, card.interactionId)).map(n => [n.revision, n.threadId, n.interactionState]), [[2, parent.threadId, 'cancelled']])
+  assert.equal((await ctx.control(org.id, sent.chatId, { threadId: sent.threadId, runId: childRunId }, 'stop', child.context.attemptId)).data.outcome, 'accepted')
+  await ctx.settled(childRunId, 'cancelled')
+  assert.deepEqual((await ctx.notices(beforeStop, card.interactionId)).map(n => [n.revision, n.threadId, n.interactionState]), [[2, sent.threadId, 'cancelled']])
   assert.equal((await ctx.notice(card.interactionId)).interactionState, 'cancelled')
 })
 

@@ -375,7 +375,7 @@ test('the admin agent has no administration tools in an organization chat', { sk
   assert.equal((await installation.tool('list', 'admin.directory.get')).agents.length, 1)
 })
 
-test('a run waiting on a person, or delegated work, cannot use the tools', { skip: noDatabase, timeout: 60000 }, async t => {
+test('a run waiting on a person, or a turn another kip\'s message started, cannot use the tools', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const operations = await ctx.operations()
 
@@ -390,18 +390,20 @@ test('a run waiting on a person, or delegated work, cannot use the tools', { ski
   assert.equal(await ctx.operations(), operations)
   assert.equal(await count(ctx.db, "SELECT count(*) AS n FROM kipster.organizations WHERE display_name='Alpha'"), 0)
 
-  // A second admin agent that receives delegated work in the installation gets no tools there.
+  // A second admin agent whose turn another kip's message started in its installation chat gets no tools there.
   const second = (await ctx.ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name: 'Second admin', settings: fixture })).agent.id
   await ctx.db.query("INSERT INTO kipster.agent_roles(agent_id, role) VALUES ($1, 'root-admin')", [second])
   const recorded = await ctx.operations()
   const parent = await ctx.start()
-  const delegation = await parent.tool('delegate', 'delegate_to_kip', { recipientId: second, request: 'Create an organization' })
+  const sent = await parent.tool('message', 'message_kip', { recipientId: second, text: 'Create an organization' })
   parent.handle.release({ kind: 'ended', attemptId: parent.context.attemptId, confirmed: true })
-  const child = await until(() => ctx.executions.find(e => e.context.runId === delegation.childRunId), Boolean, 'delegated execution')
+  const childRunId = (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).rows[0].id
+  const child = await until(() => ctx.executions.find(e => e.context.runId === childRunId), Boolean, 'kip-started execution')
+  assert.equal((await ctx.db.query('SELECT c.context_kind FROM kipster.direct_chats c WHERE c.id=$1', [sent.chatId])).rows[0].context_kind, 'installation')
   assert.equal(child.context.agentId, second)
   assert.equal(child.context.tools.some(tool => ['list_admin_operations', 'run_admin_operation'].includes(tool.name)), false)
   for (const tool of toolNames) await assert.rejects(toolCall(child, `child-${tool}`, tool, {}), /Administration access denied/, tool)
-  await assert.rejects(toolCall(child, 'create', 'admin.organizations.create', { operationId: 'delegated-create', name: 'From delegated work' }), /Administration access denied/)
+  await assert.rejects(toolCall(child, 'create', 'admin.organizations.create', { operationId: 'kip-create', name: 'From another kip' }), /Administration access denied/)
   assert.equal(await ctx.operations(), recorded)
 })
 

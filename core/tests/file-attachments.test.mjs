@@ -155,44 +155,39 @@ test('a file that cannot be attached is named with its reason and nothing is pub
     assert.match(result.reason, reason)
     assert.deepEqual(await before(), empty, 'nothing is stored or published')
   }
-  await assert.rejects(e.call('delegate_to_kip', { recipientId: e.b, request: 'Check this', files: ['missing.csv'] }), /Cannot attach missing.csv: the file does not exist/)
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Check this', files: ['missing.csv'] }), /Cannot attach missing.csv: the file does not exist/)
   assert.deepEqual(await before(), empty)
-  assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.delegations'), 0)
+  assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.kip_message_calls'), 0)
 })
 
-test('delegate_to_kip passes files by path to the recipient and replays without new files', { skip: noDatabase, timeout: 60000 }, async t => {
+test('message_kip passes files by path to the recipient and replays without new files', { skip: noDatabase, timeout: 60000 }, async t => {
   const e = await environment(t)
   await writeFile(join(e.workspace, 'brief.pdf'), samples['report.pdf'])
-  const args = { recipientId: e.b, request: 'Review the brief', files: ['brief.pdf'] }
-  const delegated = await e.call('delegate_to_kip', args, 'delegate-files')
-  assert.deepEqual(delegated.files.map(file => [file.name, file.mimeType, file.size]), [['brief.pdf', 'application/pdf', samples['report.pdf'].length]])
-  const artifactId = delegated.files[0].artifactId
-  const requestMessage = (await e.runtime.db.query('SELECT m.id,m.created_at,m.finished_at FROM kipster.delegations d JOIN kipster.text_runs r ON r.id=d.child_run_id JOIN kipster.messages m ON m.id=r.input_message_id WHERE d.id=$1', [delegated.id])).rows[0]
-  assert.ok(requestMessage.created_at instanceof Date && requestMessage.finished_at instanceof Date)
-  const requestEvent = (await e.runtime.db.query("SELECT data FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final'", [requestMessage.id])).rows[0].data
-  assert.deepEqual([requestEvent.createdAt, requestEvent.finishedAt, requestEvent.parts.at(-1).artifactId], [requestMessage.created_at.toISOString(), requestMessage.finished_at.toISOString(), artifactId])
+  const args = { recipientId: e.b, text: 'Review the brief', files: ['brief.pdf'] }
+  const sent = await e.call('message_kip', args, 'message-files')
+  assert.deepEqual(sent.files.map(file => [file.name, file.mimeType, file.size]), [['brief.pdf', 'application/pdf', samples['report.pdf'].length]])
+  const artifactId = sent.files[0].artifactId
+  const incoming = (await e.runtime.db.query("SELECT r.id AS run_id,m.id,m.created_at,m.finished_at FROM kipster.text_runs r JOIN kipster.messages m ON m.id=r.input_message_id WHERE r.thread_id=$1 AND r.trigger_kind='kip'", [sent.threadId])).rows[0]
+  assert.ok(incoming.created_at instanceof Date && incoming.finished_at instanceof Date)
+  const incomingEvent = (await e.runtime.db.query("SELECT data FROM kipster.thread_events WHERE resource_id=$1 AND type='message-final'", [incoming.id])).rows[0].data
+  assert.deepEqual([incomingEvent.createdAt, incomingEvent.finishedAt, incomingEvent.parts.at(-1).artifactId], [incoming.created_at.toISOString(), incoming.finished_at.toISOString(), artifactId])
+  // The sender's own message carries the file too, before its kip-message part.
+  assert.deepEqual((await e.runtime.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [sent.messageId])).rows[0].parts.map(part => part.kind), ['text', 'file', 'kip-message'])
   assert.deepEqual((await e.runtime.db.query('SELECT owner_kind,owner_id,state FROM kipster.artifacts WHERE id=$1', [artifactId])).rows[0], { owner_kind: 'agent', owner_id: e.a, state: 'ready' })
   const artifacts = await e.count('SELECT count(*)::int AS n FROM kipster.artifacts')
-  const replay = await e.call('delegate_to_kip', args, 'delegate-files')
-  assert.deepEqual([replay.id, replay.files], [delegated.id, delegated.files])
+  const replay = await e.call('message_kip', args, 'message-files')
+  assert.deepEqual([replay.messageId, replay.files], [sent.messageId, sent.files])
   assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), artifacts)
-  await assert.rejects(e.call('delegate_to_kip', { ...args, request: 'Something else' }, 'delegate-files'), /replay conflict/)
-  await assert.rejects(e.call('delegate_to_kip', { recipientId: e.b, request: 'Review the brief', artifactIds: [artifactId] }, 'delegate-files'), /File attachment replay conflict/)
-  const plain = { recipientId: e.b, request: 'No files here' }
-  const first = await e.call('delegate_to_kip', plain, 'delegate-plain')
-  await assert.rejects(e.call('delegate_to_kip', { ...plain, files: ['brief.pdf'] }, 'delegate-plain'), /File attachment replay conflict/)
-  assert.equal((await e.call('delegate_to_kip', plain, 'delegate-plain')).id, first.id)
-  // A call answered with the run's identical delegation keeps its call identity too.
-  assert.equal((await e.call('delegate_to_kip', plain, 'delegate-same')).id, first.id)
-  await assert.rejects(e.call('delegate_to_kip', { ...plain, files: ['brief.pdf'] }, 'delegate-same'), /File attachment replay conflict/)
-  await assert.rejects(e.call('delegate_to_kip', { ...plain, request: 'Other work' }, 'delegate-same'), /Delegation identity conflict/)
-  assert.equal((await e.call('delegate_to_kip', plain, 'delegate-same')).id, first.id)
-  assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.delegations')], [artifacts, 2])
-  e.fixture.handles[0].emit({ kind: 'ended', attemptId: e.execution.attemptId, confirmed: true })
-  await until(() => e.fixture.contexts.length, n => n === 3, 'recipient executions')
-  const child = e.fixture.contexts.slice(1).find(context => context.input.some(message => message.parts.some(part => part.kind === 'file')))
+  await assert.rejects(e.call('message_kip', { ...args, text: 'Something else' }, 'message-files'), /already sent a different message/)
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review the brief', artifactIds: [artifactId] }, 'message-files'), /already sent a different message/)
+  const plain = { recipientId: e.b, text: 'No files here' }
+  const first = await e.call('message_kip', plain, 'message-plain')
+  await assert.rejects(e.call('message_kip', { ...plain, files: ['brief.pdf'] }, 'message-plain'), /already sent a different message/)
+  assert.equal((await e.call('message_kip', plain, 'message-plain')).messageId, first.messageId)
+  assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.kip_message_calls')], [artifacts, 2])
+  const child = await until(() => e.fixture.contexts.find(context => context.runId === incoming.run_id), Boolean, 'recipient execution')
   assert.equal(child.agentId, e.b)
-  const request = child.input.find(message => message.parts.some(part => part.kind === 'file'))
+  const request = child.input.find(message => message.messageId === incoming.id)
   const file = request.parts.find(part => part.kind === 'file')
   assert.deepEqual([file.artifactId, file.name, file.mimeType, file.availability], [artifactId, 'brief.pdf', 'application/pdf', 'available'])
 })
@@ -206,30 +201,30 @@ test('files reused by artifact ID count toward the 50 MB per-message limit, and 
   // Calls recorded while the files were small, before they count as two 25 MB files and a 1 MB file.
   const earlier = await e.call('post_chat_message', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before')
   assert.equal(earlier.status, 'completed')
-  const delegatedEarlier = await e.call('delegate_to_kip', { recipientId: e.b, request: 'Earlier review', artifactIds: [one, two, three] }, 'delegate-before')
+  const sentEarlier = await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', artifactIds: [one, two, three] }, 'message-before')
   const megabyte = 1024 * 1024
   await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=ANY($1::uuid[])', [[one, two], 25 * megabyte])
   await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=$1', [three, megabyte])
 
-  const stored = async () => Promise.all(['messages', 'message_artifacts', 'delegations', 'delegation_calls', 'work_intents', 'artifacts'].map(table => e.count(`SELECT count(*)::int AS n FROM kipster.${table}`)))
+  const stored = async () => Promise.all(['messages', 'message_artifacts', 'kip_message_calls', 'kip_links', 'work_intents', 'artifacts'].map(table => e.count(`SELECT count(*)::int AS n FROM kipster.${table}`)))
   const before = await stored()
   const tooLarge = 'Cannot attach these files: together they exceed the 50 MB limit per message'
   assert.deepEqual(await e.call('post_chat_message', { text: 'Reuse these files', artifactIds: [one, two, three] }, 'reuse-51mb'), { status: 'failed', reason: tooLarge })
-  await assert.rejects(e.call('delegate_to_kip', { recipientId: e.b, request: 'Review these files', artifactIds: [one, two, three] }, 'delegate-51mb'), { message: tooLarge })
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review these files', artifactIds: [one, two, three] }, 'message-51mb'), { message: tooLarge })
   // With files by path, the shared and new bytes are counted together before any file is read.
   assert.deepEqual(await e.call('post_chat_message', { artifactIds: [one, two], files: ['tiny.txt'] }), { status: 'failed', reason: tooLarge })
-  await assert.rejects(e.call('delegate_to_kip', { recipientId: e.b, request: 'With a note', artifactIds: [one, two], files: ['tiny.txt'] }), { message: tooLarge })
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'With a note', artifactIds: [one, two], files: ['tiny.txt'] }), { message: tooLarge })
   assert.deepEqual(await stored(), before, 'nothing is stored for a refused call')
 
   // Recorded calls are answered with their results, whatever the files count now.
   assert.deepEqual(await e.call('post_chat_message', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before'), earlier)
-  assert.equal((await e.call('delegate_to_kip', { recipientId: e.b, request: 'Earlier review', artifactIds: [one, two, three] }, 'delegate-before')).id, delegatedEarlier.id)
+  assert.deepEqual(await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', artifactIds: [one, two, three] }, 'message-before'), sentEarlier)
   assert.deepEqual(await stored(), before)
 
   // Exactly 50 MB is accepted.
   const atLimit = await e.call('post_chat_message', { text: 'Exactly the limit', artifactIds: [one, two] }, 'publish-50mb')
   assert.equal(atLimit.status, 'completed')
   assert.deepEqual((await e.runtime.db.query('SELECT artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [atLimit.messageId])).rows.map(row => row.artifact_id), [one, two])
-  const delegated = await e.call('delegate_to_kip', { recipientId: e.b, request: 'Review exactly the limit', artifactIds: [one, two] }, 'delegate-50mb')
-  assert.deepEqual((await e.runtime.db.query('SELECT artifact_ids FROM kipster.delegations WHERE id=$1', [delegated.id])).rows[0].artifact_ids, [one, two])
+  const sent = await e.call('message_kip', { recipientId: e.b, text: 'Review exactly the limit', artifactIds: [one, two] }, 'message-50mb')
+  assert.deepEqual((await e.runtime.db.query('SELECT artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [sent.messageId])).rows.map(row => row.artifact_id), [one, two])
 })

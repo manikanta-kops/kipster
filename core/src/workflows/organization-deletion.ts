@@ -19,7 +19,7 @@ export interface OrganizationDeletionHost {
   forgetProviderState(adapterId: string | null, threadIds: readonly string[]): Promise<{ outcome: ForgetOutcome; adapterId: string | null }>
 }
 
-// All organization-context threads, including delegated child threads. Parameters: installation, organization.
+// All organization-context threads, linked threads included. Parameters: installation, organization.
 const organizationThreads = `SELECT t.id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.installation_id=$1 AND c.context_kind='organization' AND c.context_id=$2`
 
 const reasons: Record<Exclude<ForgetOutcome, 'forgotten'>, string> = {
@@ -36,11 +36,11 @@ export function organizationDeletionSteps(host: OrganizationDeletionHost): Opera
   const organization = (operation: Operation): [string, string] => [operation.installationId, operation.targetId]
   const step = (name: string, run: (client: SqlClient, operation: Operation) => Promise<StepOutcome>): OperationStep => ({ name, run })
   return [
-    // 1. Nothing may still write: the work in its chats and the work it delegated from them.
+    // 1. Nothing may still write: the work in its chats.
     step('wait-for-work', async (client, operation) => {
       const counts = (await client.query<{ runs: number }>(`WITH removed AS (${organizationThreads})
         SELECT (SELECT count(*)::int FROM kipster.text_runs r
-            WHERE (r.thread_id IN (SELECT id FROM removed) OR r.id IN (SELECT d.child_run_id FROM kipster.delegations d JOIN kipster.text_runs p ON p.id=d.parent_run_id WHERE p.thread_id IN (SELECT id FROM removed)))
+            WHERE r.thread_id IN (SELECT id FROM removed)
               AND (r.state IN ('queued','preparing','running','waiting','cancellation-requested','recovery-needed')
                 OR EXISTS (SELECT 1 FROM kipster.owned_permits o JOIN kipster.attempts a ON a.id=o.attempt_id WHERE a.intent_id=r.id))) AS runs`,
         organization(operation))).rows[0]!
@@ -69,12 +69,11 @@ export function organizationDeletionSteps(host: OrganizationDeletionHost): Opera
       return { status: 'done', result: { providerState: { forgotten, residue } } }
     }),
 
-    // 4. Its chats, a few threads at a time. Links from other threads into them are cleared first,
-    //    and surviving delegation records keep the agent's name through its tombstone.
+    // 4. Its chats, a few threads at a time, with their kip links.
     step('delete-chats', async (client, operation) => {
       const [installationId, organizationId] = organization(operation)
       await lockInstallation(client, installationId)
-      const batch = (await client.query<{ id: string }>(`SELECT t.id FROM kipster.threads t WHERE t.id IN (${organizationThreads}) ORDER BY t.internal, t.id LIMIT $3`,
+      const batch = (await client.query<{ id: string }>(`SELECT t.id FROM kipster.threads t WHERE t.id IN (${organizationThreads}) ORDER BY t.id LIMIT $3`,
         [installationId, organizationId, ORGANIZATION_DELETION_BATCH.threads])).rows.map(row => row.id)
       await removeThreads(client, installationId, batch, async threadId => {
         await removeThreadMemory(client, [threadId])
