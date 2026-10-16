@@ -18,7 +18,13 @@ Ordinary messages return `Fixture reply: <text>`. Special messages start with
 `__question__` (Blue/Red question), `__approval__` (inert color proposal),
 `__hold__` (wait until Stop), `__fail_once__` (fail once per run, succeed after
 Retry), or `__files__` (publish one real file of each common type by path, then
-reply `Fixture sent files: <text>`). A message containing `write a rich doc`
+reply `Fixture sent files: <text>`). Kip messaging uses three more:
+`__message_kip__ <kip name>: <text>` finds the kip with `list_kips`, sends it
+`<text>` with `message_kip` and replies `Fixture sent a message to <kip name>`;
+`__slow__` replies normally after eight seconds; and `__silent__` gets its own
+text back as the reply, unless a kip's answer starting with it woke the turn,
+which then ends with an empty reply. A kip message starting with `__question__`
+makes the recipient ask in its linked thread. A message containing `write a rich doc`
 creates Trip plan; submission revises its heading and resolves submitted comments. Transcription reports
 unavailable and preserves original voice bytes. Updates use an empty local
 catalog and an unmanaged backend; they never install anything. Plugins run the
@@ -92,6 +98,7 @@ No restart durability claim follows from a browser reload.
 - [Media](features/media.md): managed attachments and generated voice recording.
 - [Updates and desktop](features/updates-desktop.md): version display and safe local catalog checks; native exclusions.
 - [Plugins](features/plugins.md): catalogue search, fixture sign-in, accounts, default and disconnect.
+- [Kip messaging](features/kip-messaging.md): sent cards, linked threads, waiting, answers that wake the sender, questions and the silent end.
 
 These commands were derived from source/tests. Onboarding's evidence records the
 static checks and deterministic gate; live boot is verified by verify-kit and
