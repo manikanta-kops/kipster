@@ -9,6 +9,7 @@ import { startFixture } from '@kipster/plugins/fixture'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { PluginServerSupervisor } from '../dist/plugins/supervisor.js'
+import { toolTitle } from '../dist/plugins/tools.js'
 import { createClient } from '../dist/protocol/client/index.js'
 import { pluginError, pluginPaths } from '../dist/protocol/index.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
@@ -212,6 +213,9 @@ test('every plugin route relays the plugin server, and a sign-in returns through
   assert.ok(!('mcpServers' in ready.context))
   assert.deepEqual(ready.context.tools.filter(tool => tool.name.includes('plugin')).map(tool => tool.name), ['search_plugin_tools', 'run_plugin_tool'])
   assert.match(ready.context.instructions, /Plugins: the person connected [Ff]ixture\./)
+  // Without an embedding provider, keywords of three or more letters rank the tools.
+  const byKeyword = await ready.handle.callTool('keywords', 'search_plugin_tools', { query: 'save a note' })
+  assert.equal(byKeyword.plugins[0].tools[0].name, 'fixture__create_note')
   for (const text of [ready.context.prompt, ready.context.instructions, JSON.stringify(ready.context.input)]) assert.ok(!text.includes(ctx.endpoint.token))
   ready.handle.release({ kind: 'text', attemptId: ready.context.attemptId, messageId: 'reply', text: 'Plugins are ready.', final: true })
   ready.handle.release({ kind: 'ended', attemptId: ready.context.attemptId, confirmed: true })
@@ -408,4 +412,10 @@ test('kips find plugin tools through search and run them after the person approv
   const last = await ctx.run('Anything now?')
   assert.match(last.context.instructions, /Plugins: no services are connected/)
   await finish(last)
+})
+
+test('a tool title drops a leading plugin name', () => {
+  assert.equal(toolTitle({ name: 'todoist__find-tasks', title: 'Todoist: Find Tasks', pluginName: 'Todoist' }), 'Find Tasks')
+  assert.equal(toolTitle({ name: 'todoist__find-tasks', title: 'Find Tasks', pluginName: 'Todoist' }), 'Find Tasks')
+  assert.equal(toolTitle({ name: 'fixture__create_note', title: null, pluginName: 'Fixture' }), 'create note')
 })

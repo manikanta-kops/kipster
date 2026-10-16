@@ -25,7 +25,12 @@ const maxResultText = 50000
 const fileTypes: Record<string, string> = { 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3', 'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/ogg': 'ogg', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'application/pdf': 'pdf' }
 
 /** The tool's own name for people: its title, or its name without the plugin prefix. */
-export const toolTitle = (tool: Pick<PluginTool, 'name' | 'title'>): string => tool.title ?? tool.name.slice(tool.name.indexOf('__') + 2).replaceAll('_', ' ')
+export function toolTitle(tool: Pick<PluginTool, 'name' | 'title' | 'pluginName'>): string {
+  const title = tool.title ?? tool.name.slice(tool.name.indexOf('__') + 2).replaceAll('_', ' ')
+  // Some services start their titles with their own name, which the plugin name already says.
+  const prefix = `${tool.pluginName}:`
+  return title.toLowerCase().startsWith(prefix.toLowerCase()) && title.length > prefix.length ? title.slice(prefix.length).trim() : title
+}
 /** JSON with sorted keys, so the same arguments always give the same text. */
 const canonical = (value: unknown): string => Array.isArray(value) ? `[${value.map(canonical).join(',')}]`
   : value && typeof value === 'object' ? `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${canonical((value as Json)[key])}`).join(',')}}` : JSON.stringify(value) ?? 'null'
@@ -164,9 +169,9 @@ export class PluginToolService {
       accounts: plugin.accounts.map(account => ({ id: account.id, label: account.label, default: account.isDefault || plugin.accounts.length === 1, status: account.status === 'working' ? 'connected' : 'needs reconnecting' })),
       tools,
     })
-    if (pluginId && !query) {
-      const plugin = plugins.find(item => item.id === pluginId || item.name.toLowerCase() === pluginId.toLowerCase())
-      if (!plugin) return { error: `No connected plugin ${JSON.stringify(pluginId)}. Connected: ${plugins.map(item => item.name).join(', ')}.` }
+    const plugin = pluginId ? plugins.find(item => item.id === pluginId || item.name.toLowerCase() === pluginId.toLowerCase()) : undefined
+    if (pluginId && !plugin) return { error: `No connected plugin ${JSON.stringify(pluginId)}. Connected: ${plugins.map(item => item.name).join(', ')}.` }
+    if (plugin && !query) {
       const tools = await pluginToolsOf(this.db, this.installationId, plugin.id)
       return { ...describe(plugin, tools.map(tool => ({ name: tool.name, title: toolTitle(tool), description: tool.description }))), note: 'Search with a tool\'s exact name to get its arguments.' }
     }
@@ -175,8 +180,7 @@ export class PluginToolService {
       const { profile, embedder } = this.embedding.embeddingConfig()
       try { embedding = { model: profile.model, vector: await boundedEmbed(embedder, embeddingQuery(query), 3000) } } catch { /* Keywords still match. */ }
     }
-    const found = (await searchPluginTools(this.db, this.installationId, { query, ...(embedding ? { embedding } : {}), limit: searchLimit * 3 }))
-      .filter(tool => !pluginId || tool.pluginId === pluginId || tool.pluginName.toLowerCase() === pluginId.toLowerCase()).slice(0, searchLimit)
+    const found = await searchPluginTools(this.db, this.installationId, { query, ...(embedding ? { embedding } : {}), ...(plugin ? { pluginId: plugin.id } : {}), limit: searchLimit })
     if (!found.length) return { plugins: [], message: `No connected plugin tool matched. Connected: ${plugins.map(item => item.name).join(', ')}. List one plugin's tools with \`plugin\`, or tell the person they can connect another service in Plugins.` }
     const grouped = new Map<string, Json[]>()
     for (const tool of found) grouped.set(tool.pluginId, [...grouped.get(tool.pluginId) ?? [], { name: tool.name, title: toolTitle(tool), description: tool.description, inputSchema: tool.inputSchema }])

@@ -53,27 +53,25 @@ export async function pluginToolsOf(db: Postgres, installationId: string, plugin
 }
 
 /**
- * The best `limit` tools for a request: exact names first, then meaning and keyword matches merged by rank. Meaning
- * search needs `embedding` from the same model the tools were embedded with; keywords alone work without it.
+ * The best `limit` tools for a request, of one plugin when `pluginId` is given: exact names first, then meaning matches. Meaning search needs `embedding` from
+ * the model the tools were embedded with; without one, keywords of three or more letters rank the tools instead.
  */
-export async function searchPluginTools(db: Postgres, installationId: string, input: { query: string; embedding?: { model: string; vector: readonly number[] }; limit: number }): Promise<PluginTool[]> {
+export async function searchPluginTools(db: Postgres, installationId: string, input: { query: string; embedding?: { model: string; vector: readonly number[] }; pluginId?: string; limit: number }): Promise<PluginTool[]> {
   const query = input.query.trim()
-  const exact = await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND (lower(name)=lower($2) OR lower(split_part(name,'__',2))=lower($2) OR lower(title)=lower($2)) ORDER BY name`, [installationId, query])
-  const meaning = input.embedding ? await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND embedding_model=$2 ORDER BY embedding <=> $3::vector LIMIT $4`,
-    [installationId, input.embedding.model, `[${input.embedding.vector.join(',')}]`, input.limit]) : { rows: [] as Row[] }
-  const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])].slice(0, 32)
-  const keyword = words.length ? await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND search_text @@ to_tsquery('simple',$2)
-    ORDER BY ts_rank(search_text, to_tsquery('simple',$2)) DESC, name LIMIT $3`, [installationId, words.map(word => `${word}:*`).join(' | '), input.limit]) : { rows: [] as Row[] }
-  // Reciprocal rank fusion: a tool ranked well by both searches beats one ranked well by one.
-  const scores = new Map<string, { row: Row; score: number }>()
-  for (const list of [meaning.rows, keyword.rows]) list.forEach((row, rank) => {
-    const entry = scores.get(row.name) ?? { row, score: 0 }
-    entry.score += 1 / (60 + rank)
-    scores.set(row.name, entry)
-  })
-  const merged = [...scores.values()].sort((a, b) => b.score - a.score || a.row.name.localeCompare(b.row.name)).map(entry => entry.row)
+  const plugin = input.pluginId ?? null
+  const exact = await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND ($3::text IS NULL OR plugin_id=$3) AND (lower(name)=lower($2) OR lower(split_part(name,'__',2))=lower($2) OR lower(title)=lower($2)) ORDER BY name`, [installationId, query, plugin])
+  let ranked: Row[] = []
+  if (input.embedding) {
+    ranked = (await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND ($5::text IS NULL OR plugin_id=$5) AND embedding_model=$2 ORDER BY embedding <=> $3::vector LIMIT $4`,
+      [installationId, input.embedding.model, `[${input.embedding.vector.join(',')}]`, input.limit, plugin])).rows
+  } else {
+    // Short words such as "to" or "a" would match nearly every description.
+    const words = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? [])].slice(0, 32)
+    if (words.length) ranked = (await db.query<Row>(`SELECT ${columns} FROM kipster.plugin_tools WHERE installation_id=$1 AND ($4::text IS NULL OR plugin_id=$4) AND search_text @@ to_tsquery('simple',$2)
+      ORDER BY ts_rank(search_text, to_tsquery('simple',$2)) DESC, name LIMIT $3`, [installationId, words.map(word => `${word}:*`).join(' | '), input.limit, plugin])).rows
+  }
   const seen = new Set<string>()
-  return [...exact.rows, ...merged].filter(row => !seen.has(row.name) && !!seen.add(row.name)).slice(0, input.limit).map(tool)
+  return [...exact.rows, ...ranked].filter(row => !seen.has(row.name) && !!seen.add(row.name)).slice(0, input.limit).map(tool)
 }
 
 /** Binds an approval card to the exact call it asks about, in the card's transaction. */
