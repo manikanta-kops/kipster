@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -672,4 +672,42 @@ scenario('a sender writing again leaves the person\'s own held turn in that link
   assert.equal((await e.db.query('SELECT queue_hold FROM kipster.text_runs WHERE id=$1', [own.runId])).rows[0].queue_hold, true)
   assert.equal(await e.state(second.id), 'queued')
   assert.ok(!e.fixture.executions.some(item => item.context.runId === second.id))
+})
+
+scenario('the person opens files a kip sent or answered with in the thread that shows them, and in no other thread', {}, async e => {
+  const upload = async (target, text) => {
+    const bytes = Buffer.from(text), uploadId = randomUUID()
+    const intent = { uploadId, target, name: 'brief.txt', mimeType: 'text/plain', size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), purpose: 'attachment' }
+    const response = await fetch(`${e.server.url}/conversations/media/uploads/${uploadId}?intent=${encodeURIComponent(JSON.stringify(intent))}`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream' }, body: bytes })
+    assert.equal(response.status, 200)
+    return (await response.json()).artifact.id
+  }
+  const download = (id, target) => e.call('GET', `/conversations/media/artifacts/${id}/content?${new URLSearchParams({ target: JSON.stringify({ ...e.scope, ...target }) })}`)
+  // An installation file the admin kip forwards to Planner's workspace.
+  const johnChat = await e.chat(e.john)
+  const sourceFile = await upload({ ...e.scope, context: e.installation, chatId: johnChat }, 'Installation brief')
+  const asked = await e.ok('POST', '/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: e.scope, target: { context: e.installation, chatId: johnChat }, mode: 'root',
+    parts: [{ kind: 'text', text: 'Ask Planner to review this brief' }, { kind: 'file', artifactId: sourceFile, purpose: 'attachment' }] })
+  const john = await e.run(asked.runId)
+  const sent = await john.send(e.planner, 'Review this brief.', { artifactIds: [sourceFile] })
+  john.end()
+  const linked = { context: e.in(e.playground), chatId: sent.chatId, threadId: sent.threadId }
+  assert.deepEqual(await download(sourceFile, linked), { status: 200, data: 'Installation brief' })
+  // A workspace file Planner answers with.
+  const planner = await e.run((await e.kipRun(sent.threadId)).id)
+  const workspaceFile = await upload({ ...e.scope, ...linked }, 'Workspace brief')
+  await e.ok('POST', '/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: e.scope, target: { context: linked.context, chatId: linked.chatId }, mode: 'reply', threadId: linked.threadId,
+    parts: [{ kind: 'file', artifactId: workspaceFile, purpose: 'attachment' }] })
+  assert.equal((await planner.call('post_chat_message', { text: 'Reviewed', artifactIds: [workspaceFile] })).status, 'completed')
+  planner.end()
+  const answerRun = await e.answerRun(asked.threadId)
+  assert.deepEqual(await download(workspaceFile, { context: e.installation, chatId: johnChat, threadId: asked.threadId }), { status: 200, data: 'Workspace brief' })
+  // Another thread of the same chats shows neither file.
+  const other = await e.say(e.planner, 'Something else', { chatId: sent.chatId })
+  assert.equal((await download(sourceFile, { context: linked.context, chatId: sent.chatId, threadId: other.threadId })).status, 403)
+  const otherSource = await e.say(e.john, 'Something else', { chatId: johnChat })
+  assert.equal((await download(workspaceFile, { context: e.installation, chatId: johnChat, threadId: otherSource.threadId })).status, 403)
+  ;(await e.run(answerRun.id)).end()
+  ;(await e.run(other.runId)).end()
+  ;(await e.run(otherSource.runId)).end()
 })

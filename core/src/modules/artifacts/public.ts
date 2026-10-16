@@ -407,13 +407,12 @@ export class ArtifactService {
     if(receipt.status==='accepted')await this.verifyReady(receipt.artifact)
     return receipt
   }
-  /** `execution` reads for a run, which may read every file of its own thread. */
-  private async scopedRecord(client:SqlClient,actor:TrustedActor,id:string,target:ArtifactTarget,execution=false):Promise<ArtifactRow>{
+  private async scopedRecord(client:SqlClient,actor:TrustedActor,id:string,target:ArtifactTarget):Promise<ArtifactRow>{
     await this.authorize(client,actor,target)
     const row=await this.row(client,id)
     if(row.installation_id!==actor.installationId)throw new Error('Artifact access denied')
-    // A run reads every file of its own thread, such as one the admin kip handed over from outside the workspace.
-    if(execution&&target.threadId&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.id=$2 AND t.chat_id=$3 LIMIT 1',[id,target.threadId,target.chatId])).rows.length)return row
+    // Every file of a message in the thread is readable there, such as one a kip sent or answered with from another chat.
+    if(target.threadId&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.id=$2 AND t.chat_id=$3 LIMIT 1',[id,target.threadId,target.chatId])).rows.length)return row
     if(row.owner_kind==='agent'){
       const associated=await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.chat_id=$2 AND ($3::uuid IS NULL OR t.id=$3) LIMIT 1`,[id,target.chatId,target.threadId??null])
       if(!associated.rows.length)throw new Error('Artifact access denied')
@@ -447,7 +446,7 @@ export class ArtifactService {
     return {metadata:record,bytes}
   }
   async inputForExecution(actor:TrustedActor,id:string,target:ArtifactTarget):Promise<{artifactId:string;name:string;mimeType:string;size:number;availability:'available';readablePath:string}|{artifactId:string;name:string;mimeType:string;size:number;availability:'unavailable'}> {
-    const row=await this.db.transaction(client=>this.scopedRecord(client,actor,id,target,true))
+    const row=await this.db.transaction(client=>this.scopedRecord(client,actor,id,target))
     const file=metadata(row),details={artifactId:id,name:file.name,mimeType:file.mimeType,size:file.size}
     if(row.state!=='ready')return {...details,availability:'unavailable'}
     try{await this.verifyReady(file)}catch(error){if(error instanceof ArtifactContentUnavailableError)return {...details,availability:'unavailable'};throw error}
