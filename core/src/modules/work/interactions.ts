@@ -27,7 +27,6 @@ export interface InteractionRecord {
   grant?: { label: string; scopes: ApprovalScope[] }
   response?: { operationId: string; actorId: string; answer: InteractionAnswer; acceptedAt: string }
   revision: number
-  sourceAgentId?: string
 }
 interface ScopeRow { thread_id: string; chat_id: string; installation_id: string; caller_id: string; agent_id: string; state: string; current_attempt_id: string | null; stop_requested: boolean }
 async function scope(client: SqlClient, runId: string): Promise<ScopeRow | undefined> {
@@ -39,13 +38,11 @@ export async function lockInstallation(client: SqlClient, installationId: string
 }
 async function event(client: SqlClient, row: ScopeRow, record: InteractionRecord): Promise<void> {
   await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'interaction-changed', record.id, record.revision, record, row.state, null)
-  const origin=(await client.query<{origin_thread_id:string;chat_id:string}>(`SELECT d.origin_thread_id,t.chat_id FROM kipster.delegations d JOIN kipster.threads t ON t.id=d.origin_thread_id WHERE d.child_run_id=$1`,[record.runId])).rows[0]
-  if(origin)await publishThreadChange(client,row.installation_id,row.caller_id,origin.origin_thread_id,origin.chat_id,'interaction-changed',record.id,record.revision,record,row.state,null)
 }
 export async function interactionRecord(client: SqlClient, id: string): Promise<InteractionRecord> {
-  const row = (await client.query<{ id:string; run_id:string; attempt_id:string; kind:'question'|'approval'; proposal_id:string|null; proposal:string|null; prompt:string; options:{id:string;label:string}[]; free_text:boolean; grant_offer:ApprovalGrantOffer|null; state:string; answer:InteractionAnswer|null; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string; source_agent_id:string|null }>('SELECT x.*,d.recipient_agent_id AS source_agent_id FROM kipster.interactions x LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE x.id=$1', [id])).rows[0]
+  const row = (await client.query<{ id:string; run_id:string; attempt_id:string; kind:'question'|'approval'; proposal_id:string|null; proposal:string|null; prompt:string; options:{id:string;label:string}[]; free_text:boolean; grant_offer:ApprovalGrantOffer|null; state:string; answer:InteractionAnswer|null; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string }>('SELECT x.* FROM kipster.interactions x WHERE x.id=$1', [id])).rows[0]
   if (!row) throw new Error('Interaction not found')
-  return { id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? {proposal:row.proposal}:{}), prompt: row.prompt, options: row.options, freeText: row.free_text, ...(row.grant_offer ? { grant: { label: row.grant_offer.label, scopes: row.grant_offer.scopes } } : {}), state: row.state, ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}), revision: Number(row.revision),...(row.source_agent_id?{sourceAgentId:row.source_agent_id}:{}) }
+  return { id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? {proposal:row.proposal}:{}), prompt: row.prompt, options: row.options, freeText: row.free_text, ...(row.grant_offer ? { grant: { label: row.grant_offer.label, scopes: row.grant_offer.scopes } } : {}), state: row.state, ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}), revision: Number(row.revision) }
 }
 /** The thread the card appears on must still be present. */
 async function presentThread(client: SqlClient, threadId: string): Promise<void> {
@@ -74,11 +71,10 @@ function checkInput(input: InteractionInput): void {
 export async function askInteraction(db: Postgres, attemptId: string, callId: string, input: InteractionInput, bind?: (client: SqlClient, interactionId: string) => Promise<void>): Promise<InteractionRecord> {
   checkInput(input)
   if (!callId || callId.length > 200) throw new Error('Invalid tool call identity')
-  const owner = (await db.query<{ intent_id: string; installation_id: string; origin_thread_id:string|null }>('SELECT a.intent_id,i.installation_id,d.origin_thread_id FROM kipster.attempts a JOIN kipster.work_intents i ON i.id=a.intent_id LEFT JOIN kipster.delegations d ON d.child_run_id=a.intent_id WHERE a.id=$1', [attemptId])).rows[0]
+  const owner = (await db.query<{ intent_id: string; installation_id: string }>('SELECT a.intent_id,i.installation_id FROM kipster.attempts a JOIN kipster.work_intents i ON i.id=a.intent_id WHERE a.id=$1', [attemptId])).rows[0]
   if (!owner) throw new Error('Attempt not found')
   return db.transaction(async client => {
     await lockInstallation(client, owner.installation_id)
-    if(owner.origin_thread_id)await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[owner.origin_thread_id])
     const row = await scope(client, owner.intent_id)
     if (!row) throw new Error('Run not found')
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
@@ -95,7 +91,7 @@ export async function askInteraction(db: Postgres, attemptId: string, callId: st
     await client.query('UPDATE kipster.text_runs SET state=$2,continuation_interaction_id=$3,revision=revision+1 WHERE id=$1', [owner.intent_id, 'waiting', id])
     const record = await interactionRecord(client, id)
     await event(client, { ...row, state: 'waiting' }, record)
-    await createInteractionNotification(client,row.installation_id,row.caller_id,owner.origin_thread_id??row.thread_id,owner.intent_id,id)
+    await createInteractionNotification(client,row.installation_id,row.caller_id,row.thread_id,owner.intent_id,id)
     await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'work-changed', owner.intent_id, Number((await client.query<{revision:string}>('SELECT revision FROM kipster.text_runs WHERE id=$1',[owner.intent_id])).rows[0]!.revision), await workRecord(client, owner.intent_id), 'waiting', null)
     return record
   })
@@ -112,16 +108,15 @@ function validAnswer(record: InteractionRecord, answer: InteractionAnswer, propo
 /** First accepted answer wins. Answer-before-provider-end waits without a second execution. */
 export async function answerInteraction(db: Postgres, jobs: Jobs, actor: TrustedActor, request: { operationId:string; interactionId:string; threadId:string; runId:string; attemptId:string; proposalId?:string; answer:InteractionAnswer }, applyApproval?: (client: SqlClient, record: InteractionRecord) => Promise<void>): Promise<{ outcome:'accepted'|'rejected'; interaction:InteractionRecord }> {
   if (!request.operationId || request.operationId.length > 200) throw new Error('Invalid response operation ID')
-  const owner = (await db.query<{ installation_id:string;origin_thread_id:string|null }>('SELECT i.installation_id,d.origin_thread_id FROM kipster.interactions x JOIN kipster.work_intents i ON i.id=x.run_id LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE x.id=$1',[request.interactionId])).rows[0]
+  const owner = (await db.query<{ installation_id:string }>('SELECT i.installation_id FROM kipster.interactions x JOIN kipster.work_intents i ON i.id=x.run_id WHERE x.id=$1',[request.interactionId])).rows[0]
   if (!owner) throw new Error('Interaction not found')
   return db.transaction(async client => {
     await lockInstallation(client, actor.installationId)
     const authorized=await client.query('SELECT 1 FROM kipster.bootstrap WHERE installation_id=$1 AND owner_id=$2',[actor.installationId,actor.personId])
     if(!authorized.rows.length)throw new Error('Owner access denied')
     const row = await scope(client, request.runId)
-    if (!row || row.installation_id !== actor.installationId || row.caller_id !== actor.personId || owner.installation_id !== actor.installationId || (owner.origin_thread_id??row.thread_id) !== request.threadId) throw new Error('Interaction access denied')
+    if (!row || row.installation_id !== actor.installationId || row.caller_id !== actor.personId || owner.installation_id !== actor.installationId || row.thread_id !== request.threadId) throw new Error('Interaction access denied')
     await presentThread(client, request.threadId)
-    if(owner.origin_thread_id)await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[owner.origin_thread_id])
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[row.thread_id])
     const record = await interactionRecord(client, request.interactionId)
     if (record.runId !== request.runId || record.attemptId !== request.attemptId) throw new Error('Interaction target mismatch')
@@ -160,8 +155,7 @@ export async function interactionReceipt(db: Postgres, actor: TrustedActor, requ
     const authorized=await client.query('SELECT 1 FROM kipster.bootstrap WHERE installation_id=$1 AND owner_id=$2',[actor.installationId,actor.personId])
     if(!authorized.rows.length)throw new Error('Owner access denied')
     const row=await scope(client,request.runId)
-    const origin=(await client.query<{origin_thread_id:string}>('SELECT origin_thread_id FROM kipster.delegations WHERE child_run_id=$1',[request.runId])).rows[0]
-    if(!row||row.installation_id!==actor.installationId||row.caller_id!==actor.personId||(origin?.origin_thread_id??row.thread_id)!==request.threadId)throw new Error('Interaction access denied')
+    if(!row||row.installation_id!==actor.installationId||row.caller_id!==actor.personId||row.thread_id!==request.threadId)throw new Error('Interaction access denied')
     await presentThread(client,request.threadId)
     const card=await interactionRecord(client,request.interactionId)
     if(card.runId!==request.runId||card.attemptId!==request.attemptId)throw new Error('Interaction target mismatch')

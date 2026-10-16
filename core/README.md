@@ -83,9 +83,9 @@ Browser requests may use the exact listening origin or an exact HTTP(S) origin i
 
 These checks reject browser-origin/authority spoofing, including matching untrusted Host/Origin pairs, before reads or mutations. They are not user authentication: a non-browser client can supply trusted headers. Keep this trusted-owner server behind the installation's private access boundary; configure proxy access controls separately.
 
-Managed files use `/conversations/media`: capabilities, bounded binary upload with a stable upload ID, receipt lookup, artifact metadata and content download. Uploads belong to their installation or organization context. Only verified ready originals can enter ordered message parts; a file-only message is valid. Downloads verify bytes and use attachment disposition. Kips create or download files with their own tools and attach them by path with `files` on `post_chat_message` or `delegate_to_kip`; relative paths resolve against the agent's working directory. Core stores each as an immutable agent-owned snapshot typed from its extension, within the upload limits (25 MB per file, 50 MB and 10 files per message, counted with `artifactIds`). `copy_attachment_to_workspace` explicitly copies one into the active organization, up to 32 copies per attempt; the admin kip names the organization with `workspaceId` and may copy any file of its thread. File associations do not change ownership. Interrupted disk/SQL publication is reconciled as a verified upload or an explicit failed operation; failed operation files are cleaned during normal recovery. Historical files with unavailable managed bytes remain explicit unavailable input parts, so later text work can continue without claiming their contents were read.
+Managed files use `/conversations/media`: capabilities, bounded binary upload with a stable upload ID, receipt lookup, artifact metadata and content download. Uploads belong to their installation or organization context. Only verified ready originals can enter ordered message parts; a file-only message is valid. Downloads verify bytes and use attachment disposition. Kips create or download files with their own tools and attach them by path with `files` on `post_chat_message` or `message_kip`; relative paths resolve against the agent's working directory. Core stores each as an immutable agent-owned snapshot typed from its extension, within the upload limits (25 MB per file, 50 MB and 10 files per message, counted with `artifactIds`). `copy_attachment_to_workspace` explicitly copies one into the active organization, up to 32 copies per attempt; the admin kip names the organization with `workspaceId` and may copy any file of its thread. File associations do not change ownership. Interrupted disk/SQL publication is reconciled as a verified upload or an explicit failed operation; failed operation files are cleaned during normal recovery. Historical files with unavailable managed bytes remain explicit unavailable input parts, so later text work can continue without claiming their contents were read.
 
-Agents can discover authorized peers and delegate bounded work through Core-bound tools. A kip in an organization sees and delegates to that organization's members. The admin kip sees every other live kip with its organizations and may delegate to any of them; the task runs in the organization it names with `workspaceId`, else the one its conversation shares with the recipient, else the recipient's only one. Each delegation creates a private child run with a durable parent relationship; the child uses its own agent identity for memory and files. A child run in another context than its parent's runs as an internal thread of the recipient's own chat with the person there, so it gets that organization's instructions, files and memory. Human questions from a child appear on the originating thread and answers return to that child. Parent continuation receives saved child results in request order after the parent provider turn ends. Stop propagates to active descendants; uncertain provider termination retains capacity until reconciliation.
+Kips message each other with `message_kip` (decision record 11). A kip in an organization sees, with `list_kips`, the other kips of that organization and the admin kip, and may message them; a kip in another organization is refused and pointed to the admin kip. The admin kip sees and messages every live kip; a new linked thread goes to the organization it names with `workspaceId`, else the one its conversation shares with the recipient, else the recipient's only one. A message is posted in the sender's thread with a `kip-message` part and, as an ordinary message from the sender, in the linked thread: one visible thread per source thread and recipient, in the recipient's chat with the person, created when needed. The call returns at once with the linked thread's ID and queues the recipient's turn there; the sender's turn goes on. Each run records what started it (`person`, `kip` or `answer`), its chain and depth. When a turn a kip's message started ends, its final text and files are posted into the source thread as one message from the recipient with a `kip-answer` part, which queues the sender's turn behind any running one; failure, Stop and removal answer too ("Planner couldn't finish: …", "Planner stopped before answering.", "Planner was removed before answering."). Turns started by a person or an answer send nothing back, and an empty final reply saves no message. The recipient may `read_thread` the source thread, and only that one. Limits use `execution_permits`: depth 4, 32 messages and answers per chain, 4 messages per turn; over a limit only `message_kip` is refused. A repeated attempt and call ID returns the first result. Kip messages and answers create no notifications; questions in a kip's turn appear in its linked thread and notify as usual. Thread summaries carry `startedBy`, `linkedFrom` and `links` with `waiting`.
 
 Rich documents are block documents agents write for the owner to answer, edit, comment on and submit; see [decision record 7](../docs/initial-implementation-plan/07-rich-documents.md). Bootstrap capabilities include `documents: true`. The owner's routes, with shapes from `@kipster/core/protocol`:
 
@@ -199,7 +199,7 @@ until the person removes it from `alwaysAllowed`. Core passes the grants that
 apply to each execution as `approvalGrants`, and the adapter answers matching
 requests without asking. An approval without a scope allows one request.
 
-When a run continues after waiting for the person or a delegated kip, its execution also carries `resume`: the
+When a run continues after waiting for the person, its execution also carries `resume`: the
 provider thread the previous attempt reported and a short continuation prompt. An adapter that can reopen that
 session sends the continuation instead of the full prompt, so the kip carries on with its own history. A Retry after a
 failure starts fresh.
@@ -252,25 +252,25 @@ cannot revive an adapter whose runner exited; register it again. Without a
 dispatcher, the adapter routes return `503 unavailable`.
 
 Removing an agent from an organization keeps its chat. The chat is read-only:
-new submissions, new delegations to the agent and opening a new chat require the
+new submissions, new kip messages to the agent and opening a new chat require the
 membership, and each takes a key-share lock on the membership row, so a
 concurrent removal either waits for it or refuses it. Work accepted before the
 removal still runs with the organization's defaults, including answers to its
-questions, delegated children, Resume and Retry, and a repeated submission ID
-still returns its receipt. Delegating, and writing organization memory or task
-data, require the membership when the tool is called.
+questions, Resume and Retry, and a repeated submission ID still returns its
+receipt. Messaging kips, and writing organization memory or task data, require
+the membership when the tool is called.
 Adding the agent again opens the same chat with its history; its group
 placement is not restored. Deleting a group keeps its agents and their
 memberships.
 
 Archiving an agent stops its work at once, as described for lifecycle changes
 below: queued and waiting work is cancelled and stays visible, running work is
-asked to stop, pending questions are cancelled, and a parent waiting on work
-delegated to the agent receives a failure. Nothing is removed: memberships,
+asked to stop, pending questions are cancelled, and a kip whose message the
+agent was working on is told it was removed. Nothing is removed: memberships,
 group appearances, settings, memory, files and the home stay, and its chats stay
 readable. The directory lists the agent with `lifecycle: "archived"` and
 publishes `agent-changed`; `agents.list` no longer offers it. Submissions, new
-chats and delegations to an archived agent are refused with the code
+chats and kip messages to an archived agent are refused with the code
 `agent-archived` (HTTP 409), and it neither learns nor sleeps. Restoring sets it
 `active` again with everything it had. Work stopped by the archive stays
 stopped; failed work can be retried.
@@ -298,18 +298,16 @@ organization already has a copy it published. The provider state of every
 removed attempt is then handed to the adapter that ran it (see
 `forgetProviderState`); the operation's result lists what an adapter could not
 forget under `providerState.residue`. After that the agent's chats are removed
-with their threads, messages, runs, questions, notifications and receipts, and
-so are the threads in which it ran work delegated to it from other chats. Its
+with their threads, linked threads included, messages, runs, questions,
+notifications, receipts and kip links. Its
 memory and learning state, vector collections, task-data schema, files and home
 (identity files and their backups included) follow. Last, its memberships,
 group appearances and settings are removed, and the row stays as a `deleted`
 tombstone that keeps its last name.
 
 What belongs to others stays. Organization-owned files, including those the
-agent published or copied, stay readable. A delegation recorded in another
-agent's thread keeps its request, result and both agent IDs; its
-`childRunId` or `parentRunId` becomes null where the run was the deleted
-agent's, so clients name the agent through its tombstone ("Scout · deleted").
+agent published or copied, stay readable. Its messages and answers in other
+kips' threads stay, and clients name it through its tombstone ("Scout · deleted").
 A surviving message that showed one of the agent's files shows the
 organization's copy instead, or a `{ "kind": "removed", "artifactId" }` part.
 Clients receive `agent-changed` (`deleting`, then `deleted`),
@@ -329,7 +327,8 @@ operation receipts; `core/tests/admin-parity.test.mjs` fails when a route has
 neither an operation nor a stated reason to be left out. Core offers the tools
 only for the admin agent's own work in the installation context, names the
 `kipster-admin` skill file in its instructions, and checks again on every call;
-organization chats and delegated work get no administration tools. A call must
+organization chats and turns started by another kip's message get no
+administration tools. A call must
 come from the current attempt of a running run that is not stopping; while the
 run waits on a question or approval, calls are refused. A write that commits
 before a Stop stands; after it, calls are refused.
@@ -349,7 +348,7 @@ card's operation ID, so a repeated answer installs once.
 
 Agents and organizations take new work only while they are live: provisioned
 and `active` (`kipster.live_agent`, `kipster.live_organization`). Every writer of
-agent- or organization-owned state, from submissions, delegation and dispatch to
+agent- or organization-owned state, from submissions, kip messages and dispatch to
 memory, relationships, vectors, task data, files, voice, publications,
 extraction and sleep, checks its owner in its own transaction under a key-share
 lock on the owner row, taken after the installation's execution lock and before
@@ -360,7 +359,7 @@ stay visible, pending questions are cancelled, running work is marked stopping
 and its adapter is asked to cancel, and maintenance not yet issued is cancelled.
 The process that drives an attempt delivers the cancellation within seconds,
 whichever process committed the change. A
-stopped delegated child fails back to a parent that is still working. So a write
+stopped turn that a kip's message started answers that kip. So a write
 either commits before the change and is then stopped, or waits for it and is
 refused; a late provider output is rejected. Chats of an archived agent stay
 readable, and `POST /v1/direct-chats` still opens an existing one; a new chat
@@ -430,7 +429,7 @@ Memory follows [decision record 10](../docs/initial-implementation-plan/10-kip-m
 
 The nightly run (`NightlyMemory`, driven by the coordinating `TextDispatcher` every minute and by `nightlyTick()`) runs each agent once per sleep day, which starts at its sleep time in the host's local time: its own, or the installation default of 01:00. After downtime a missed night runs once when Core next coordinates. An agent with nothing new has its night recorded, so a message later that day waits for the next sleep time. For each thread with final messages after its `processed_position`, oldest first, it:
 
-1. Writes full-text thread chunks with a header (date, kip, organization). A thread segment of up to 600 words is one chunk without a model call; a longer one is split at the topic starts the model proposes, in windows of about 6,000 words, and further at message boundaries so a chunk holds at most about 600 words. A message longer than that is a chunk of its own. A grown thread's chunks are rewritten from its last chunk onward. Progress notes and internal (delegated) threads are left out, and processing stops before a message still being written.
+1. Writes full-text thread chunks with a header (date, kip, organization). A thread segment of up to 600 words is one chunk without a model call; a longer one is split at the topic starts the model proposes, in windows of about 6,000 words, and further at message boundaries so a chunk holds at most about 600 words. A message longer than that is a chunk of its own. A grown thread's chunks are rewritten from its last chunk onward. Progress notes are left out, and processing stops before a message still being written.
 2. Proposes card changes from the user's own new messages, compared with the nearest current cards visible in the thread's context: add, update, replace or skip, each citing its source messages. A change citing a kip's message, an unknown ref or a card outside the thread's context is dropped. A card from an organization thread carries that organization.
 3. Writes the diary page of each local day covered in the thread's context (its organization, or none), built on that page's current summary.
 4. Saves the chunks, card changes and sources, diary pages and the new processed position in one transaction, only while this Core still runs the agent, the agent has memory and the thread is unchanged. A failure leaves the thread for the next run.
@@ -458,7 +457,7 @@ The memory tools (`memoryTool`) are offered only while the agent has memory on, 
 - `save_memory(statement, type, subject, details?)`: a confirmed card in the current context (the organization of an organization thread), sourced to the message the run answers, embedded at once when the provider answers.
 - `forget_memory(cardId | query)`: deletes visible cards, current or ended, with their sources and embeddings; messages stay. A query matches statement or subject case-insensitively and deletes at most 20 cards; with more matches it deletes none and returns the candidates.
 
-A kip's tools see installation cards plus the current organization's, and its own threads in installation and current-organization chats; a delegated thread belongs to the kip whose chat holds it. The admin kip sees every card and every kip's threads through its tools, and only it gets `agent` to read one kip; from any other kip it is refused.
+A kip's tools see installation cards plus the current organization's, and its own threads in installation and current-organization chats; a linked thread belongs to the kip whose chat holds it, and a kip may also read the source thread of a linked thread its turn runs in. The admin kip sees every card and every kip's threads through its tools, and only it gets `agent` to read one kip; from any other kip it is refused.
 
 ## Plugins
 

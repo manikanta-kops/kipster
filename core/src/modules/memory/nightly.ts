@@ -47,10 +47,9 @@ export function sleepDay(now: Date, sleepTime: string): string {
 }
 
 /** SQL condition: the thread in `threadColumn`, of chat `chatColumn`, has final messages the nightly run has not
- * processed. Internal threads (delegated work) and threads of organizations that are going away are left out. */
+ * processed. Threads of organizations that are going away are left out. */
 export function unprocessedThreadCondition(threadColumn: string, chatColumn: string): string {
-  return `(NOT (SELECT internal FROM kipster.threads ut WHERE ut.id = ${threadColumn})
-    AND (${chatColumn}.context_kind = 'installation' OR kipster.live_organization(${chatColumn}.context_id))
+  return `((${chatColumn}.context_kind = 'installation' OR kipster.live_organization(${chatColumn}.context_id))
     AND EXISTS (SELECT 1 FROM kipster.messages um WHERE um.thread_id = ${threadColumn} AND um.final
       AND um.position > COALESCE((SELECT us.processed_position FROM kipster.memory_thread_state us WHERE us.thread_id = ${threadColumn}), 0)))`
 }
@@ -363,7 +362,7 @@ export class NightlyMemory {
     const rows = (await this.db.query<MessageRow & { thread_id: string }>(`SELECT m.thread_id, ${messageColumns}
        FROM kipster.messages m JOIN kipster.threads t ON t.id=m.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
          JOIN kipster.memory_thread_state s ON s.thread_id=m.thread_id ${messageAuthors}
-       WHERE m.thread_id = ANY($1::uuid[]) AND c.agent_id=$2 AND c.installation_id=$3 AND NOT t.internal
+       WHERE m.thread_id = ANY($1::uuid[]) AND c.agent_id=$2 AND c.installation_id=$3
          AND CASE WHEN c.context_kind='organization' THEN c.context_id IS NOT DISTINCT FROM $4::uuid ELSE $4::uuid IS NULL END
          AND m.final AND NOT m.progress AND m.position <= s.processed_position AND m.created_at >= $5 AND m.created_at < $6
        ORDER BY array_position($1::uuid[], m.thread_id), m.position`,

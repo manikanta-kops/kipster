@@ -93,12 +93,12 @@ async function setup(t, { transcribe } = {}) {
     return { ...saved, chatId, found, attemptId, call: (name, args, callId = randomUUID()) => ctx.host.invokeTool({ attemptId, callId, name, arguments: args }) }
   }
   ctx.state = async runId => row(ctx.db, 'SELECT state, stop_requested, cancel_delivery FROM kipster.text_runs WHERE id=$1', [runId])
-  ctx.flip = (id = scout, lifecycle = 'archived', kind = 'agent') => ctx.db.transaction(client => changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle, 'Agent was archived'))
+  ctx.flip = (id = scout, lifecycle = 'archived', kind = 'agent') => ctx.db.transaction(client => changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle))
   /** A lifecycle change that has fenced its work and stays uncommitted until `commit()`. */
   ctx.heldFlip = async (id = scout, lifecycle = 'archived', kind = 'agent') => {
     const flipped = deferred(), release = deferred()
     const done = ctx.db.transaction(async client => {
-      const result = await changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle, 'Agent was archived')
+      const result = await changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle)
       flipped.resolve(result)
       await release.promise
       return result
@@ -252,29 +252,30 @@ test('voice: a transcription claimed before the change never lands its result; o
   assert.equal((await results()).length, 1)
 })
 
-test('delegation: work delegated just before the recipient changes fails back to the parent; later delegation is refused', { skip: noDatabase, timeout: 60000 }, async t => {
+test('kip messages: a message sent just before the recipient changes is answered that it was removed; a later one is refused', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegate = key => outcome(parent.call('delegate_to_kip', { recipientId: ctx.scout, request: `Check ${key}` }))
+  const send = key => outcome(parent.call('message_kip', { recipientId: ctx.scout, text: `Check ${key}` }))
   const barrier = await ctx.hold('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [parent.threadId])
-  const racing = delegate('before')
+  const racing = send('before')
   await ctx.waiting(1)
   const flipping = ctx.flip()
   await ctx.waiting(2)
   await barrier.release()
-  const delegated = await racing
-  assert.equal(delegated.error, undefined)
+  const sent = await racing
+  assert.equal(sent.error, undefined)
   await flipping
-  const record = await row(ctx.db, 'SELECT state, failure, child_run_id FROM kipster.delegations WHERE id=$1', [delegated.value.id])
-  assert.deepEqual([record.state, record.failure], ['failed', 'Agent was archived'])
-  assert.equal((await ctx.state(record.child_run_id)).state, 'cancelled')
-  assert.equal((await ctx.state(parent.runId)).stop_requested, false, 'the surviving parent is not stopped')
-  assert.match((await delegate('after')).error?.message ?? '', /Agent is archived/)
-  // The parent continues once its provider turn ends and sees the failure.
+  const child = await row(ctx.db, "SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.value.threadId])
+  assert.equal((await ctx.state(child.id)).state, 'cancelled')
+  assert.equal((await ctx.state(parent.runId)).stop_requested, false, 'the sender is not stopped')
+  assert.match((await send('after')).error?.message ?? '', /Agent is archived/)
+  // The sender is woken by the answer once its running turn ends.
+  const answer = await row(ctx.db, "SELECT r.id, m.parts FROM kipster.text_runs r JOIN kipster.messages m ON m.id=r.input_message_id WHERE r.thread_id=$1 AND r.trigger_kind='answer'", [parent.threadId])
+  assert.equal(answer.parts[0].text, 'Scout was removed before answering.')
   const from = ctx.executions.length
   parent.found.handle.release({ kind: 'ended', attemptId: parent.attemptId, confirmed: true })
-  const resumed = await ctx.execution(parent.runId, from)
-  assert.deepEqual(resumed.context.delegationResults.map(item => [item.recipientAgentId, item.state, item.failure]), [[ctx.scout, 'failed', 'Agent was archived']])
+  const woken = await ctx.execution(answer.id, from)
+  assert.equal(woken.context.agentId, ctx.root)
   assert.equal(ctx.executions.filter(item => item.context.agentId === ctx.scout).length, 0, 'the archived agent never ran')
 })
 
@@ -289,7 +290,7 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
   const other = await ctx.running(ctx.root, 'Unaffected work')
   const fenced = await ctx.db.transaction(async client => {
     await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [ctx.installationId])
-    return fenceAffectedWork(client, ctx.runtime.jobs, ctx.installationId, { agentId: ctx.scout }, 'Agent was archived')
+    return fenceAffectedWork(client, ctx.runtime.jobs, ctx.installationId, { agentId: ctx.scout })
   })
   assert.deepEqual(new Set(fenced.runs), new Set([running.runId, queued.runId, asking.runId]))
   assert.deepEqual(fenced.cancelAttempts, [running.attemptId])
@@ -312,20 +313,24 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
   assert.equal(await count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.owned_permits'), 1, 'only the unaffected run holds a permit')
 })
 
-test('fenceAffectedWork of an organization stops every run in its chats, delegated children included', { skip: noDatabase, timeout: 60000 }, async t => {
+test('fenceAffectedWork of an organization stops every run in its chats, linked threads included', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const sent = await parent.call('message_kip', { recipientId: ctx.scout, text: 'Check the numbers' })
   parent.found.handle.release({ kind: 'ended', attemptId: parent.attemptId, confirmed: true })
-  const child = await ctx.execution(delegated.childRunId)
+  const childRunId = (await row(ctx.db, "SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).id
+  const child = await ctx.execution(childRunId)
   const own = await ctx.running(ctx.scout, 'Own work')
   const flip = await ctx.heldFlip(ctx.organizationId, 'deleting', 'organization')
   await flip.commit()
-  for (const runId of [parent.runId, delegated.childRunId, own.runId]) assert.equal((await ctx.state(runId)).stop_requested, true, runId)
-  assert.equal((await row(ctx.db, 'SELECT state FROM kipster.delegations WHERE id=$1', [delegated.id])).state, 'cancelled', 'a stopped parent cancels its child')
+  for (const runId of [childRunId, own.runId]) assert.equal((await ctx.state(runId)).stop_requested, true, runId)
   await ctx.dispatcher.deliverCancellations()
   await until(() => ctx.cancels.length, n => n === 2, 'both attempts cancelled')
   assert.deepEqual(new Set(ctx.cancels), new Set([child.context.attemptId, own.attemptId]))
+  // The answer of the stopped kip turn has no live thread to go to.
+  child.handle.release({ kind: 'ended', attemptId: child.context.attemptId, confirmed: true })
+  await until(async () => (await ctx.state(childRunId)).state, state => state === 'cancelled', 'kip turn cancelled')
+  assert.equal(await count(ctx.db, "SELECT count(*)::int AS n FROM kipster.text_runs WHERE trigger_kind='answer'"), 0)
 })
 
 test('new work is refused for an agent that is not live, and its chats stay readable', { skip: noDatabase, timeout: 60000 }, async t => {
@@ -396,15 +401,16 @@ test('indexing leases that complete after the owner stops being live write nothi
   assert.equal((await ctx.runtime.vectors.indexPending(5, true)).ready, 1)
 })
 
-test('a reply accepted into a parent thread while the delegated child is fenced does not deadlock', { skip: noDatabase, timeout: 60000 }, async t => {
+test('a reply accepted into a source thread while its kip turn is fenced does not deadlock', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
-  // The root agent's run waits on Scout's delegated child; Scout also has work of its own.
+  // The root agent messaged Scout; Scout also has work of its own.
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const sent = await parent.call('message_kip', { recipientId: ctx.scout, text: 'Check the numbers' })
   parent.found.handle.release({ kind: 'ended', attemptId: parent.attemptId, confirmed: true })
-  await until(async () => (await ctx.state(parent.runId)).state, state => state === 'waiting', 'parent waits on its child')
+  await until(async () => (await ctx.state(parent.runId)).state, state => state === 'completed', 'sender turn ends')
+  const childRunId = (await row(ctx.db, "SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).id
   const own = await ctx.running(ctx.scout, 'Own work')
-  // An acceptance into the parent's thread locks the thread, then publishes to the application stream.
+  // An acceptance into the source thread locks the thread, then publishes to the application stream.
   const locked = deferred(), publish = deferred()
   const accepting = ctx.db.transaction(async client => {
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [parent.threadId])
@@ -419,16 +425,16 @@ test('a reply accepted into a parent thread while the delegated child is fenced 
   await accepting
   assert.equal((await flipping).error, undefined, 'the lifecycle change completes')
   assert.equal((await ctx.state(own.runId)).stop_requested, true)
-  assert.equal((await row(ctx.db, 'SELECT state FROM kipster.delegations WHERE id=$1', [delegated.id])).state, 'failed')
+  assert.equal((await ctx.state(childRunId)).stop_requested, true)
   const reply = await ctx.submit(parent.chatId, 'Any news?', { mode: 'reply', threadId: parent.threadId })
-  assert.ok(reply.runId, 'a reply into the parent thread is accepted')
+  assert.ok(reply.runId, 'a reply into the source thread is accepted')
 })
 
 test('an operation step that fences work gets its adapter cancellations delivered at once', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.running()
   ctx.dispatcher.operations.register('test.archive', [{ name: 'fence', async run(client, operation) {
-    await changeLifecycle(client, ctx.runtime.jobs, ctx.installationId, 'agent', operation.targetId, 'archived', 'Agent was archived')
+    await changeLifecycle(client, ctx.runtime.jobs, ctx.installationId, 'agent', operation.targetId, 'archived')
     return { status: 'done' }
   } }])
   const id = await ctx.db.transaction(async client => {

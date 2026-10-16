@@ -51,10 +51,10 @@ export async function requireOrganizationMember(db: Postgres, actor: TrustedActo
   if (!result.rows.length) throw new Error('Organization access denied')
 }
 
-// A run the admin agent may administer from: its own chat in the installation context, not delegated work.
-const administrationRunSql = `FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
-  LEFT JOIN kipster.delegations d ON d.child_run_id=r.id`
-const administrationRunAllowed = `c.context_kind='installation' AND d.id IS NULL AND EXISTS (SELECT 1 FROM kipster.agent_roles x JOIN kipster.agents g ON g.id=x.agent_id
+// A run the admin agent may administer from: its own chat in the installation context, in a turn not started by
+// another kip's message, so no other kip can have the installation administered for it.
+const administrationRunSql = `FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id`
+const administrationRunAllowed = `c.context_kind='installation' AND r.trigger_kind<>'kip' AND EXISTS (SELECT 1 FROM kipster.agent_roles x JOIN kipster.agents g ON g.id=x.agent_id
   WHERE x.agent_id=c.agent_id AND x.role='root-admin' AND g.installation_id=c.installation_id AND kipster.live_agent(g.id))`
 
 /** Whether the run is the live admin agent's own work in the installation context, which may use the administration tools. */
@@ -65,7 +65,7 @@ export async function administrationRun(db: Postgres | SqlClient, installationId
 /**
  * Authorizes an administration call. The owner is checked against the installation. An agent call
  * must come from the current, issued attempt of a running run, not stopping, that the live admin
- * agent executes in its own installation chat; delegated work and a run waiting on a person are
+ * agent executes in its own installation chat; a turn another kip's message started and a run waiting on a person are
  * refused. With `lock`, the caller's transaction takes the installation's execution lock and
  * share-locks the run, so a Stop, an interaction or a newer attempt either commits first and the
  * call is refused, or waits until the call commits.

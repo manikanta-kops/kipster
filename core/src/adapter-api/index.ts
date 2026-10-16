@@ -17,9 +17,9 @@ export interface ToolDefinition {
   readonly description: string
   readonly inputSchema: Readonly<Record<string, unknown>>
   /**
-   * Set when a successful call leaves the run waiting: on a person's answer (`question`, `approval`), whose result has
-   * `status: 'pending'` and an `interactionId`, or on delegated work (`child`), whose result has an `id` and a `state`
-   * that is not yet final. A provider turn may make one question or approval call.
+   * Set when a successful call leaves the run waiting on a person's answer (`question`, `approval`), whose result has
+   * `status: 'pending'` and an `interactionId`. A provider turn may make one question or approval call. Core no longer
+   * offers `child` tools; the value stays so released adapters keep compiling.
    */
   readonly waits?: 'question' | 'approval' | 'child'
 }
@@ -47,15 +47,15 @@ export interface TextExecutionContext {
   readonly instructions: string
   /**
    * This turn's user input, rendered by Core: the canonical history, the current message and its files, saved
-   * interaction answers, completed delegations, saved administration receipts and retrieved memory. Send it as the
+   * interaction answers, saved administration receipts and retrieved memory. Send it as the
    * user turn. `input` carries the same messages structurally, for example to attach native image inputs.
    */
   readonly prompt: string
   /**
-   * Present when this execution continues a run whose previous attempt stopped to wait for the person or a delegated
-   * kip. `threadId` and `providerStateScope` are what that attempt reported in its `provider` event. An adapter that
-   * can reopen that provider session sends `prompt`, a short continuation, as the user turn instead of the full
-   * `prompt` above; if the session cannot be reopened it starts fresh with the full prompt. Absent after a Retry.
+   * Present when this execution continues a run whose previous attempt stopped to wait for the person. `threadId`
+   * and `providerStateScope` are what that attempt reported in its `provider` event. An adapter that can reopen that
+   * provider session sends `prompt`, a short continuation, as the user turn instead of the full `prompt` above; if the
+   * session cannot be reopened it starts fresh with the full prompt. Absent after a Retry.
    */
   readonly resume?: { readonly threadId: string; readonly providerStateScope: string; readonly prompt: string }
   /** Kipster's thread this turn belongs to. */
@@ -85,7 +85,6 @@ export interface TextExecutionContext {
   /** Settled interactions in durable order, including all earlier attempts of this run. */
   readonly interactions?: readonly { readonly id: string; readonly kind: 'question' | 'approval'; readonly prompt: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly freeText: boolean; readonly proposalId?: string; readonly proposal?: string; readonly response: { readonly actorId: string; readonly answer: unknown; readonly acceptedAt: string } }[]
   readonly continuation?: { readonly kind: 'question' | 'approval'; readonly prompt: string; readonly proposalId?: string; readonly proposal?: string; readonly answer: unknown }
-  readonly delegationResults?: readonly { readonly id:string; readonly recipientAgentId:string; readonly request:string; readonly state:string; readonly result?:string; readonly failure?:string }[]
   readonly maintenance?: never
 }
 
@@ -129,7 +128,6 @@ export interface MaintenanceExecutionContext {
   readonly triggerMessageId?: never
   readonly interactions?: never
   readonly continuation?: never
-  readonly delegationResults?: never
   readonly resume?: never
 }
 

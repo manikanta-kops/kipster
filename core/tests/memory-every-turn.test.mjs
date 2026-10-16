@@ -282,9 +282,6 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   const scoutGarden = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden plans\nsecond line' }, { text: 'Sure' }, { author: 'user', text: 'Third' }], { processed: false })
   const scoutStudio = await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio plans' }], { processed: false })
   const kipThread = await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'Kip plans' }], { processed: false })
-  const internal = randomUUID()
-  await ctx.db.query('INSERT INTO kipster.threads(id, chat_id, internal) SELECT $1, chat_id, true FROM kipster.threads WHERE id=$2', [internal, scoutGarden.id])
-  await ctx.db.query('INSERT INTO kipster.messages(id, thread_id, position, author_id, parts) VALUES ($1,$2,1,$3,$4::jsonb)', [randomUUID(), internal, ctx.scout, JSON.stringify([{ kind: 'text', text: 'Delegated work' }])])
 
   const kip = await ctx.turn(ctx.kip, null, 'Catch up')
   const page = await kip.tool('read_thread', { threadId: scoutGarden.id, fromPosition: 2 })
@@ -303,7 +300,6 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   await assert.rejects(scout.tool('read_thread', { threadId: kipThread.id }), /Thread not found/)
   await assert.rejects(scout.tool('read_thread', { threadId: scoutStudio.id }), /Thread not found/, 'another organization of the same kip')
   assert.equal((await scout.tool('read_thread', { threadId: scoutGarden.id, toPosition: 1 })).messages.length, 1)
-  assert.deepEqual((await scout.tool('read_thread', { threadId: internal })).internal, true)
   assert.deepEqual((await scout.tool('list_recent_threads', {})).threads.map(item => item.threadId), [scoutGarden.id])
   for (const [name, args] of [['list_recent_threads', { agent: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only the admin kip may name an agent/)
   await scout.finish()

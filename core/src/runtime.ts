@@ -53,6 +53,7 @@ export async function loadMigrations(): Promise<{ version: string; sql: string }
     './modules/conversations/migrations/030_message_finished_at.sql',
     './modules/conversations/migrations/031_viewing_workspace.sql',
     './modules/plugins/migrations/032_plugin_tools.sql',
+    './modules/work/migrations/033_kip_messaging.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }

@@ -19,10 +19,8 @@ export interface AgentDeletionHost {
   forgetProviderState(adapterId: string | null, threadIds: readonly string[]): Promise<{ outcome: ForgetOutcome; adapterId: string | null }>
 }
 
-// The threads removed with the agent: those of its chats, and those in other agents' chats where it
-// ran work delegated to it. Parameters: $1 installation, $2 agent.
-const agentThreads = `SELECT t.id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.installation_id=$1 AND c.agent_id=$2
-  UNION SELECT r.thread_id FROM kipster.delegations d JOIN kipster.text_runs r ON r.id=d.child_run_id WHERE d.installation_id=$1 AND d.recipient_agent_id=$2`
+// The threads removed with the agent: those of its chats, linked threads included. Parameters: $1 installation, $2 agent.
+const agentThreads = `SELECT t.id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.installation_id=$1 AND c.agent_id=$2`
 
 const reasons: Record<Exclude<ForgetOutcome, 'forgotten'>, string> = {
   unsupported: 'The adapter cannot forget provider state',
@@ -38,11 +36,11 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
   const agent = (operation: Operation): [string, string] => [operation.installationId, operation.targetId]
   const step = (name: string, run: (client: SqlClient, operation: Operation) => Promise<StepOutcome>): OperationStep => ({ name, run })
   return [
-    // 1. Nothing may still write: the work in its chats and the work it delegated from them.
+    // 1. Nothing may still write: the work in its chats.
     step('wait-for-work', async (client, operation) => {
       const counts = (await client.query<{ runs: number }>(`WITH removed AS (${agentThreads})
         SELECT (SELECT count(*)::int FROM kipster.text_runs r
-            WHERE (r.thread_id IN (SELECT id FROM removed) OR r.id IN (SELECT d.child_run_id FROM kipster.delegations d JOIN kipster.text_runs p ON p.id=d.parent_run_id WHERE p.thread_id IN (SELECT id FROM removed)))
+            WHERE r.thread_id IN (SELECT id FROM removed)
               AND (r.state IN ('queued','preparing','running','waiting','cancellation-requested','recovery-needed')
                 OR EXISTS (SELECT 1 FROM kipster.owned_permits o JOIN kipster.attempts a ON a.id=o.attempt_id WHERE a.intent_id=r.id))) AS runs`,
         agent(operation))).rows[0]!
@@ -91,12 +89,12 @@ export function agentDeletionSteps(host: AgentDeletionHost): OperationStep[] {
       return { status: 'done', result: { providerState: { forgotten, residue } } }
     }),
 
-    // 4. Its chats, a few threads at a time. Links from other threads into them are cleared first,
-    //    and surviving delegation records keep the agent's name through its tombstone.
+    // 4. Its chats, a few threads at a time, with their kip links. Its messages in other kips' threads keep
+    //    its name through its tombstone.
     step('delete-chats', async (client, operation) => {
       const [installationId, agentId] = agent(operation)
       await lockInstallation(client, installationId)
-      const batch = (await client.query<{ id: string }>(`SELECT t.id FROM kipster.threads t WHERE t.id IN (${agentThreads}) ORDER BY t.internal, t.id LIMIT $3`,
+      const batch = (await client.query<{ id: string }>(`SELECT t.id FROM kipster.threads t WHERE t.id IN (${agentThreads}) ORDER BY t.id LIMIT $3`,
         [installationId, agentId, AGENT_DELETION_BATCH.threads])).rows.map(row => row.id)
       await removeThreads(client, installationId, batch, async threadId => {
         await removeThreadMemory(client, [threadId])
