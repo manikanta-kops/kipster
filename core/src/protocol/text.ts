@@ -116,6 +116,10 @@ export const threadInteraction = object({ id, version:literal(1), runId:id, atte
  * `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted.
  */
 export const threadDelegation = object({id,parentRunId:nullable(id),childRunId:nullable(id),senderAgentId:id,recipientAgentId:id,originThreadId:id,depth:integer(),ordinal:integer(),request:string(),state:union(literal('queued'),literal('running'),literal('waiting'),literal('completed'),literal('failed'),literal('cancelled'),literal('recovery-needed')),failure:optional(string()),revision:integer()},false)
+/**
+ * `delegations` stays required: released clients reject a snapshot without it, so Core sends it, empty once
+ * delegation is gone, until a protocol raise removes it (decision records 5.1.7 and 11).
+ */
 export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:array(threadDelegation), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
 export type AppSnapshot = Infer<typeof appSnapshot>
 export type ThreadSnapshot = Infer<typeof threadSnapshot>
