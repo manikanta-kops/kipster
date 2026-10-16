@@ -10,7 +10,7 @@ const types = new Set(['text', 'bigint', 'double precision', 'boolean', 'timesta
 const mutations = new Set(['create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'drop_table', 'insert', 'update', 'delete'])
 const operations = new Set([...mutations, 'discover', 'describe', 'query'])
 // The guard as migration 033 defines it.
-const guardSourceHash = '7b13135475e50e5accdc1e33df0474d4318388a4c08204f6a10e534d00a37b44'
+const guardSourceHash = 'd27a55c6d66008bad89db4f8d6846148e3f9ec01d20b063ba8d6a6fc7b9b5961'
 
 function object(value: unknown): Input {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Expected an object')

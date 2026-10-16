@@ -27,7 +27,8 @@ const collaboration = (admin: boolean) => [
   tool('get_kip', 'Get a kip you can message by ID.', { agentId: text }, ['agentId']),
   messageKip(admin),
 ]
-const dataTables = tool('manage_data_tables', 'Use bounded Core task-data tables. Set an explicit agent or active-organization owner target. Operations: discover, describe, create_table, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.', {
+const dataOwners = (admin: boolean) => admin ? 'any kip (agent) or any workspace (organization)' : 'a kip (agent) or this conversation\'s workspace (organization)'
+const dataTables = (admin: boolean) => tool('manage_data_tables', `Use bounded Core task-data tables. Set an explicit owner target: ${dataOwners(admin)}. Operations: discover, describe, create_table, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.`, {
   operation: { type: 'string', enum: ['discover', 'describe', 'create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'query', 'insert', 'update', 'delete', 'drop_table'] },
   target: owner, table: text,
   columns: { type: 'array', maxItems: 16, items: { type: 'object', properties: { name: text, type: { type: 'string', enum: ['text', 'bigint', 'double precision', 'boolean', 'timestamptz', 'jsonb', 'uuid'] } }, required: ['name', 'type'], additionalProperties: false } },
@@ -35,7 +36,7 @@ const dataTables = tool('manage_data_tables', 'Use bounded Core task-data tables
   where: { type: 'object', properties: { column: text, equals: {} }, required: ['column', 'equals'], additionalProperties: false },
   afterId: text, limit: { type: 'integer', minimum: 1, maximum: 50 },
 }, ['operation', 'target'])
-const vectorCollections = tool('manage_vector_collections', 'Manage named Core vector collections for an explicit agent or active organization owner. Upsert retained text with a stable key and expectedRevision (0 creates); indexing is durable and may be pending or failed. Search requires a query and returns only compatible ready embeddings with pagination cursor.', {
+const vectorCollections = (admin: boolean) => tool('manage_vector_collections', `Manage named Core vector collections for an explicit owner target: ${dataOwners(admin)}. Upsert retained text with a stable key and expectedRevision (0 creates); indexing is durable and may be pending or failed. Search requires a query and returns only compatible ready embeddings with pagination cursor.`, {
   operation: { type: 'string', enum: ['create', 'discover', 'describe', 'get', 'upsert', 'search', 'delete_record', 'delete_collection'] },
   target: owner, name: text, collectionId: text, key: text, expectedRevision: { type: 'integer' }, text, metadata: { type: 'object' }, query: text,
   limit: { type: 'integer', minimum: 1, maximum: 20 }, cursor: text, after: text,
@@ -88,7 +89,7 @@ export interface ToolScope { organization: boolean; structured: boolean; vectors
 export function executionTools(scope: ToolScope): ToolDefinition[] {
   return [
     ...conversation, ...(scope.admin ? [adminCopy] : scope.organization ? [copyToOrganization] : []), ...collaboration(!!scope.admin), ...documents(!!scope.admin),
-    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables] : []), ...(scope.vectors ? [vectorCollections] : []),
+    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
     ...(scope.administration ? administration : []),
   ]
 }

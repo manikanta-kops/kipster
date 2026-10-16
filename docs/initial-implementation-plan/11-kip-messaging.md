@@ -77,7 +77,10 @@ comes back into the sender's thread and wakes the sender.
   `Planner (kip in Playground):`. A message from a kip says that its answer
   returns automatically.
 - The admin kip may use any live workspace's data tables and vector
-  collections, and other kips' own ones.
+  collections, and other kips' own ones, from any of its conversations and
+  without a membership. Workspace kips keep their rules: the workspace of their
+  conversation, as a member, and any live kip's own data. A deleted workspace or
+  kip is refused for every kip, and the attempt and lock checks stay the same.
 - Real provider runs are not part of automated proof; tests drive the
   deterministic execution fixture on real Core.
 

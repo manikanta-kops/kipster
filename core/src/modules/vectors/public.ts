@@ -6,7 +6,7 @@ import { isLive } from '../identity/public.js'
 type Target = { kind:'agent'|'organization'; ownerId:string }
 type Input = Record<string,unknown>
 type Profile = {generation:string;dimension:number|null;provider:string;model:string}
-type Identity = {actor_id:string;context_kind:string;context_id:string;thread_id:string;run_id:string;run_state:string;attempt_state:string;intent_state:string;current_attempt_id:string;generation:string;intent_generation:string;incarnation:string;stop_requested:boolean}
+type Identity = {actor_id:string;admin:boolean;context_kind:string;context_id:string;thread_id:string;run_id:string;run_state:string;attempt_state:string;intent_state:string;current_attempt_id:string;generation:string;intent_generation:string;incarnation:string;stop_requested:boolean}
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const namePattern=/^[a-z][a-z0-9_]{0,39}$/
 const ops=new Set(['create','discover','describe','get','upsert','search','delete_record','delete_collection'])
@@ -46,12 +46,17 @@ function cursor(value:unknown):Input|null {
   catch {throw new Error('Invalid vector cursor')}
 }
 const encode=(value:Input)=>Buffer.from(JSON.stringify(value)).toString('base64url')
-const identitySql=`SELECT c.agent_id AS actor_id,c.context_kind,c.context_id,
+const identitySql=`SELECT c.agent_id AS actor_id,
+  EXISTS (SELECT 1 FROM kipster.agent_roles x WHERE x.agent_id=c.agent_id AND x.role='root-admin') AS admin,c.context_kind,c.context_id,
   r.thread_id,r.id AS run_id,r.state AS run_state,
   r.stop_requested,a.state AS attempt_state,i.state AS intent_state,r.current_attempt_id,a.generation,i.generation AS intent_generation,a.incarnation
   FROM kipster.attempts a JOIN kipster.work_intents i ON i.id=a.intent_id JOIN kipster.text_runs r ON r.id=i.id
   JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
   WHERE a.id=$1 AND c.installation_id=$2`
+/** Refuses an organization owner outside the run's workspace context. The admin kip may use any live workspace. */
+function requireContext(row:Identity,owner:Target):void {
+  if(owner.kind==='organization'&&!row.admin&&(row.context_kind!=='organization'||row.context_id!==owner.ownerId))throw new Error('Vector organization target is outside active context')
+}
 
 /** Deletes up to `limit` collections of an owner with their records, sources and index state. Returns how many were deleted. */
 export async function deleteOwnerCollections(client:SqlClient,installationId:string,owner:Target,limit:number):Promise<number>{
@@ -74,7 +79,7 @@ export class VectorService {
   private async guard(client:SqlClient,attemptId:string,incarnation:string,owner:Target,lock:boolean):Promise<Identity> {
     const initial=(await client.query<Identity>(identitySql,[attemptId,this.installationId])).rows[0]
     if(!initial)throw new Error('Unknown vector attempt')
-    if(owner.kind==='organization'&&(initial.context_kind!=='organization'||initial.context_id!==owner.ownerId))throw new Error('Vector organization target is outside active context')
+    requireContext(initial,owner)
     if(lock){
       const capacity=await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE',[this.installationId])
       if(!capacity.rows.length)throw new Error('Missing vector execution guard')
@@ -87,7 +92,7 @@ export class VectorService {
     }
     const current=(await client.query<Identity>(identitySql,[attemptId,this.installationId])).rows[0]
     if(!current||current.thread_id!==initial.thread_id||!this.live(current,attemptId,incarnation))throw new Error('Vector attempt no longer owns tools')
-    if(owner.kind==='organization'&&(current.context_kind!=='organization'||current.context_id!==owner.ownerId))throw new Error('Vector organization target is outside active context')
+    requireContext(current,owner)
     if(!lock)await this.owners(client,current.actor_id,owner,false)
     return current
   }
@@ -123,7 +128,7 @@ export class VectorService {
     const payloadHash=hash(canonical(input))
     const identified=(await this.db.query<Identity>(identitySql,[attemptId,this.installationId])).rows[0]
     if(!identified||identified.incarnation!==incarnation)throw new Error('Unknown vector attempt')
-    if(owner.kind==='organization'&&(identified.context_kind!=='organization'||identified.context_id!==owner.ownerId))throw new Error('Vector organization target is outside active context')
+    requireContext(identified,owner)
     if(writes.has(operation))return this.db.transaction(async client=>{
       await client.query("SET LOCAL transaction_timeout='5s'")
       await client.query("SET LOCAL lock_timeout='1500ms'")
