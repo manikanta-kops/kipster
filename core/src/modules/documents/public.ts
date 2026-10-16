@@ -362,13 +362,13 @@ async function markdownBlocks(client: SqlClient, blocks: readonly StoredBlock[])
   return blocks.map(block => ({ id: block.id, markdown: blockMarkdown(block, names) }))
 }
 
-export interface DocumentCreation { title: string; markdown: string; organizationId?: string }
+export interface DocumentCreation { title: string; markdown: string; workspaceId?: string }
 export function documentCreation(value: Record<string, unknown>): DocumentCreation {
-  fields(value, ['title', 'markdown', 'organizationId'], 'documents.create')
+  fields(value, ['title', 'markdown', 'workspaceId'], 'documents.create')
   if (typeof value.title !== 'string' || !value.title.trim() || value.title.trim().length > DOCUMENT_LIMITS.titleLength) throw new Error(`Invalid title: 1 to ${DOCUMENT_LIMITS.titleLength} characters`)
   if (typeof value.markdown !== 'string' || Buffer.byteLength(value.markdown) > DOCUMENT_LIMITS.bytes) throw new Error('Invalid markdown: a string of at most 512 KiB')
-  if (value.organizationId !== undefined && (typeof value.organizationId !== 'string' || !uuid.test(value.organizationId))) throw new Error('Invalid organizationId')
-  return { title: value.title.trim(), markdown: value.markdown, ...(typeof value.organizationId === 'string' ? { organizationId: value.organizationId } : {}) }
+  if (value.workspaceId !== undefined && (typeof value.workspaceId !== 'string' || !uuid.test(value.workspaceId))) throw new Error('Invalid workspaceId')
+  return { title: value.title.trim(), markdown: value.markdown, ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}) }
 }
 
 /**
@@ -380,11 +380,11 @@ export async function createDocumentIn(client: SqlClient, run: { installationId:
   const prior = (await client.query<{ id: string }>('SELECT id FROM kipster.documents WHERE created_attempt_id=$1 AND created_call_id=$2', [run.attemptId, callId])).rows[0]
   if (prior) return [{ kind: 'document', documentId: prior.id, revision: 1 }]
   let context = run.context
-  if (input.organizationId !== undefined && !(context.kind === 'organization' && context.organizationId === input.organizationId)) {
+  if (input.workspaceId !== undefined && !(context.kind === 'organization' && context.organizationId === input.workspaceId)) {
     const root = (await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'", [run.agentId])).rows.length > 0
-    if (!root) throw new Error('Only Kip can create a doc in another workspace')
-    if (!await isLive(client, run.installationId, 'organization', input.organizationId, false)) throw new Error('Organization not found')
-    context = { kind: 'organization', organizationId: input.organizationId }
+    if (!root) throw new Error('Only the admin kip can create a doc in another workspace')
+    if (!await isLive(client, run.installationId, 'organization', input.workspaceId, false)) throw new Error('Workspace not found')
+    context = { kind: 'organization', organizationId: input.workspaceId }
   }
   const blocks = parseMarkdown(input.markdown)
   checkBlocks(blocks)

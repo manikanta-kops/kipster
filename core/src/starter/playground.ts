@@ -17,7 +17,7 @@ async function files(key: string): Promise<AgentFiles> {
   return Object.fromEntries(await Promise.all(identityFileNames.map(async file => [file, await text(`${key}/${file}`)] as const)))
 }
 
-/** The content a new installation starts with: the Playground organization, Kip and a team of four agents in two groups. */
+/** The content a new installation starts with: the Playground organization, the admin kip and a team of four agents in two groups. */
 export async function playground(): Promise<Starter> {
   return {
     organization: { description: 'A starter organization for trying Kipster.', instructions: await text('organization.md') },

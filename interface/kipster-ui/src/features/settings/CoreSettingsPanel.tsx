@@ -320,7 +320,7 @@ export function CoreSettingsPanel({
     const agent = directory?.agents.find((a) => a.id === agentId)
     const lifecycleAgent = lifecycle?.directory.agents[agentId]
     return {
-      name: agent?.name ?? actor?.name ?? lifecycleAgent?.name ?? 'Kip',
+      name: agent?.name ?? actor?.name ?? lifecycleAgent?.name ?? 'Unknown kip',
       admin: agent?.admin ?? lifecycleAgent?.admin ?? false,
       color: actor?.kind === 'agent' ? actor.color : undefined,
       description:
@@ -330,7 +330,7 @@ export function CoreSettingsPanel({
     }
   }
   const agentName = (agentId: string) =>
-    directory?.agents.find((a) => a.id === agentId)?.name ?? 'Kip'
+    directory?.agents.find((a) => a.id === agentId)?.name ?? 'Unknown kip'
   const readOnly = (agentId: string) =>
     directory?.agents.find((a) => a.id === agentId)?.lifecycle === 'archived'
   const workspaceView =

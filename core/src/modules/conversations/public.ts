@@ -134,7 +134,9 @@ export async function acceptTextIn(client: SqlClient, jobs: Jobs, artifacts: Art
         await c.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index,part.artifactId,part.purpose])
         if(part.purpose==='voice_note')await c.query("INSERT INTO kipster.voice_preparations(message_id,ordinal,artifact_id,source_sha256,status) VALUES ($1,$2,$3,$4,'pending')",[messageId,index,part.artifactId,record.sha256])
       }
-      await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,$4,$5)', [intentId, threadId, messageId, 'queued', queuePosition])
+      // A workspace that is gone or not this installation's is dropped rather than refusing the message.
+      const viewing = submission.viewingOrganizationId && await isLive(c, actor.installationId, 'organization', submission.viewingOrganizationId, false) ? submission.viewingOrganizationId : null
+      await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position,viewing_organization_id) VALUES ($1,$2,$3,$4,$5,$6)', [intentId, threadId, messageId, 'queued', queuePosition, viewing])
       await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'message-final', messageId, 1, await messageRecord(c, messageId), 'queued', messageId)
       await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'work-changed', intentId, 1, await workRecord(c, intentId), 'queued', null)
       return { version: 1, status: 'accepted', chatId: submission.target.chatId, threadId, messageId, runId: intentId }

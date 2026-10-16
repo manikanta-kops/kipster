@@ -104,7 +104,7 @@ export function IdentityGroup({
   endpoint: string
   agentId: string
   name: string
-  /** The main kip, which can change any kip's files. */
+  /** The admin kip, which can change any kip's files. */
   admin?: string
   readOnly: boolean
 }) {

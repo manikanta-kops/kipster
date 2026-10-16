@@ -166,7 +166,7 @@ test('root administrator never inherits selected organization and incompatible i
   await dialog(page).getByRole('button', { name: /Admin/ }).click()
   await expect(
     page.getByText(
-      'Your main kip works outside organizations. Without its own settings, it uses the default adapter and model.',
+      'Your admin kip works outside organizations. Without its own settings, it uses the default adapter and model.',
     ),
   ).toBeVisible()
 })

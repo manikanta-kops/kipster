@@ -7,7 +7,7 @@ import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHos
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
 import { acceptsType } from '../transcription/index.js'
-import type { CoordinatorLock, SqlClient } from '../platform/postgres/public.js'
+import type { CoordinatorLock, Postgres, SqlClient } from '../platform/postgres/public.js'
 import { claimPreparation, issueAttempt, childDelegation, delegate, delegationActivity, delegationRecord, delegationStatus, finishDelegation, getAgent, listAgents, reconcileInterruptedDelegations, stopRun, type Attempt } from '../modules/work/public.js'
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
@@ -66,6 +66,27 @@ const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['l
 const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&value.every(item=>typeof item==='string')
+
+/**
+ * Who the kip is, from its current name and role, so a renamed kip knows its new name. The admin kip also learns the
+ * workspace the person has open, unless the conversation is already in it.
+ */
+async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; viewing?: { id: string; name: string } }> {
+  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null }>(`SELECT a.display_name AS name,
+      EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin,
+      (SELECT o.display_name FROM kipster.organizations o WHERE o.id=$3::uuid) AS workspace,
+      (SELECT g.display_name FROM kipster.agents g JOIN kipster.agent_roles r ON r.agent_id=g.id AND r.role='root-admin' WHERE g.installation_id=$1 AND kipster.live_agent(g.id) ORDER BY g.id LIMIT 1) AS admin_name,
+      o.id AS viewing_id, o.display_name AS viewing_name
+    FROM kipster.agents a LEFT JOIN kipster.text_runs t ON t.id=$4 LEFT JOIN kipster.organizations o ON o.id=t.viewing_organization_id AND kipster.live_organization(o.id)
+    WHERE a.id=$2 AND a.installation_id=$1`, [installationId, agentId, organizationId, runId])).rows[0]
+  if (!row) throw new Error('Agent not found')
+  const line = row.admin
+    ? row.workspace ? `You are ${row.name}, the admin kip of this Kipster installation, working here in the ${row.workspace} workspace. You can act in every workspace.`
+      : `You are ${row.name}, the admin kip of this Kipster installation. You work outside every workspace and can act in all of them.`
+    : `You are ${row.name}, a kip ${row.workspace ? `in the ${row.workspace} workspace` : 'in this Kipster installation'}.${row.admin_name ? ` ${row.admin_name} is the admin kip and manages kips, workspaces and settings.` : ''}`
+  const viewing = row.admin && row.viewing_id && row.viewing_id !== organizationId ? { id: row.viewing_id, name: row.viewing_name! } : undefined
+  return { admin: row.admin, line, ...(viewing ? { viewing } : {}) }
+}
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
@@ -81,8 +102,8 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
         return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
       }
       if(request.name==='copy_attachment_to_workspace'){
-        if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid organization publication arguments')
-        return dispatcher.copyArtifactTool(request.attemptId,request.callId,args.artifactId)
+        if(Object.keys(args).some(key=>!['artifactId','workspaceId'].includes(key))||typeof args.artifactId!=='string'||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid organization publication arguments')
+        return dispatcher.copyArtifactTool(request.attemptId,request.callId,args.artifactId,args.workspaceId as string|undefined)
       }
       if (request.name === 'ask_user_question' || request.name === 'request_user_approval') {
         const kind = request.name === 'ask_user_question' ? 'question' : 'approval'
@@ -171,7 +192,7 @@ export class TextDispatcher {
   /** When each adapter was last probed, and probes that work is waiting for. */
   private readonly probedAt = new Map<string, number>()
   private readonly reprobes = new Map<string, Promise<void>>()
-  /** Kip memory's nightly run, while this process coordinates. */
+  /** Memory's nightly run, while this process coordinates. */
   private readonly nightly: NightlyDispatch
   /** `hostCatalog`, when given, is the catalog of a direct adapter; otherwise its readiness report supplies it. */
   constructor(private readonly runtime: Runtime, private readonly adapter: TextExecutionAdapter | AdapterRegistry, private readonly hooks: DispatchHooks = {}, private readonly hostCatalog: Catalog | null = null) {
@@ -681,14 +702,15 @@ export class TextDispatcher {
       const delegationResults=delegationRows.map(row=>({id:row.id,recipientAgentId:row.recipient_agent_id,request:row.request,state:row.state,...(row.result!==null?{result:row.result}:{}),...(row.failure!==null?{failure:row.failure}:{})}))
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
-      // Kip memory: core cards in the stable instructions, then search results and the unprocessed-threads line before the history.
+      // Memory: core cards in the stable instructions, then search results and the unprocessed-threads line before the history.
       const trigger = input.find(message => message.messageId === context.inputMessageId)
       const query = (trigger?.parts ?? []).map(part => part.kind === 'text' ? part.text : part.transcription?.text ?? '').filter(Boolean).join('\n')
       const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
-      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null })
+      const kip = await kipFacts(this.runtime.db, context.actor.installationId, context.agentId, organizationId, runId)
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null }), memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), memory ? memoryGuidance : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
@@ -698,7 +720,7 @@ export class TextDispatcher {
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
       // The person's plugins while the plugin server is ready. The token stays out of the prompt, records and events.
       const plugins = this.runtime.plugins?.endpoint()
-      execution = { ...prepared, prompt: turnPrompt(prepared), ...(resume ? { resume } : {}), ...(plugins ? { mcpServers: [{ name: 'plugins', url: `${plugins.url}/mcp`, bearerToken: plugins.token }] } : {}) }
+      execution = { ...prepared, prompt: turnPrompt(prepared, kip.viewing), ...(resume ? { resume } : {}), ...(plugins ? { mcpServers: [{ name: 'plugins', url: `${plugins.url}/mcp`, bearerToken: plugins.token }] } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -742,7 +764,8 @@ export class TextDispatcher {
       if(!child)return
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[child.originThreadId])
       const changed=await client.query<{id:string}>("UPDATE kipster.delegations SET state='running',revision=revision+1 WHERE id=$1 AND state='queued' RETURNING id",[child.id])
-      if(changed.rows.length){const record=await delegationRecord(client,child.id);await publishThreadChange(client,context.actor.installationId,context.actor.personId,child.originThreadId,context.chatId,'delegation-changed',child.id,record.revision,delegationActivity(record),'running',null)}
+      const origin=(await client.query<{chat_id:string}>('SELECT chat_id FROM kipster.threads WHERE id=$1',[child.originThreadId])).rows[0]!
+      if(changed.rows.length){const record=await delegationRecord(client,child.id);await publishThreadChange(client,context.actor.installationId,context.actor.personId,child.originThreadId,origin.chat_id,'delegation-changed',child.id,record.revision,delegationActivity(record),'running',null)}
     })
     await this.hooks.afterIssue?.(attempt.id)
     try {
@@ -830,7 +853,7 @@ export class TextDispatcher {
     if (!this.runtime.structured) throw new Error('Task-data service is not configured')
     return this.runtime.structured.invoke(attemptId,this.incarnation,callId,args)
   }
-  /** Kip memory's tools, for an agent with memory on. */
+  /** Memory tools, for an agent with memory on. */
   async memoryTool(attemptId: string, _callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
     return memoryTool(this.runtime.db, this.runtime.embedding, attemptId, this.incarnation, name, args)
   }
@@ -853,17 +876,17 @@ export class TextDispatcher {
       return delegationStatus(this.runtime.db,attemptId,this.incarnation,args.delegationId)
     }
     if(name==='agents.delegate'){
-      if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files))throw new Error('Invalid delegation arguments')
-      const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[]
-      const requestHash=files.length?fileRequestHash(['delegate_to_kip',args.recipientId,args.request,artifactIds,files]):null
+      if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files','workspaceId'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files)||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid delegation arguments')
+      const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[],workspaceId=args.workspaceId as string|undefined
+      const requestHash=files.length?fileRequestHash(['delegate_to_kip',args.recipientId,args.request,artifactIds,files,workspaceId??null]):null
       if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2 UNION ALL SELECT 1 FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
-      if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds)
+      if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,undefined,workspaceId)
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
       const row=(await this.runtime.db.query<{intent_id:string}>('SELECT intent_id FROM kipster.attempts WHERE id=$1',[attemptId])).rows[0]
       const context=row?await runContext(this.runtime.db,row.intent_id):null
       if(!context)throw new Error('Attempt no longer owns delegation')
       const attachment=await this.attachFiles(attemptId,callId,context.agentId,files,artifactIds,requestHash)
-      try{return {...await delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,attachment),files:attachment.files}}
+      try{return {...await delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,attachment,workspaceId),files:attachment.files}}
       finally{await attachment.abandon()}
     }
     throw new Error('Unsupported agent tool')
@@ -944,7 +967,7 @@ export class TextDispatcher {
     return settled?result:{status:'unavailable',reason:'cancelled'}
   }
 
-  async copyArtifactTool(attemptId:string,callId:string,artifactId:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId)}
+  async copyArtifactTool(attemptId:string,callId:string,artifactId:string,workspaceId?:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId,workspaceId)}
 
   /** `coreParts`, when given, runs in the publication's transaction and returns parts Core appends, such as a document card; the call ID alone then identifies the publication. `attach` makes files attached by path ready in that transaction. */
   private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = [], coreParts?: (client: SqlClient) => Promise<MessagePart[]>, attach?: (client: SqlClient) => Promise<void>): Promise<string | null> {

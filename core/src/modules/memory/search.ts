@@ -36,11 +36,11 @@ export type MemoryItem =
   | { kind: 'diary'; agentId: string; organizationId: string | null; day: string; threadIds: string[]; summary: string }
 export type SearchResult = { status: 'ok'; cards: Card[]; items: MemoryItem[] } | { status: 'unavailable'; reason: string }
 
-/** The agent's memory switch, and whether it is Kip, the main kip (the root administration agent). */
-export async function memoryAccess(client: Postgres | SqlClient, agentId: string): Promise<{ enabled: boolean; kip: boolean }> {
-  const row = (await client.query<{ enabled: boolean; kip: boolean }>(`SELECT ${learningCondition('$1::uuid')} AS enabled,
-    EXISTS (SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1::uuid AND role='root-admin') AS kip`, [agentId])).rows[0]
-  return { enabled: row?.enabled === true, kip: row?.kip === true }
+/** The agent's memory switch, and whether it is the admin kip. */
+export async function memoryAccess(client: Postgres | SqlClient, agentId: string): Promise<{ enabled: boolean; admin: boolean }> {
+  const row = (await client.query<{ enabled: boolean; admin: boolean }>(`SELECT ${learningCondition('$1::uuid')} AS enabled,
+    EXISTS (SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1::uuid AND role='root-admin') AS admin`, [agentId])).rows[0]
+  return { enabled: row?.enabled === true, admin: row?.admin === true }
 }
 
 /** SQL condition: a thread chunk (`ch`) or diary page (`d`) is in the scope. A diary page belongs to one context, as its
@@ -187,7 +187,7 @@ export interface TurnMemory { instructions: string; sections: string[] }
 /**
  * The memory of one turn (decision record 10, section 5), or null while the agent has memory off. The prompt sees only
  * the agent's own chunks and diary pages, its installation threads plus the current organization's, and installation
- * cards plus the current organization's, for Kip too. Core cards change only when cards do, so the instructions stay
+ * cards plus the current organization's, for the admin kip too. Core cards change only when cards do, so the instructions stay
  * byte-identical between turns.
  */
 export async function turnMemory(db: Postgres, embedding: EmbeddingProfile | undefined, turn: { installationId: string; agentId: string; organizationId: string | null; threadId: string; query: string }): Promise<TurnMemory | null> {
@@ -202,7 +202,7 @@ export async function turnMemory(db: Postgres, embedding: EmbeddingProfile | und
   }
   const unprocessed = await unprocessedCount(db, turn.installationId, { ...scope })
   if (unprocessed > 0) {
-    sections.push(`${unprocessed === 1 ? '1 thread since last night is' : `${unprocessed} threads since last night are`} not searchable yet. If search does not answer, read them with \`list_recent_threads\`.${access.kip ? ' Other kips\' recent threads are available through the same tool.' : ''}`)
+    sections.push(`${unprocessed === 1 ? '1 thread since last night is' : `${unprocessed} threads since last night are`} not searchable yet. If search does not answer, read them with \`list_recent_threads\`.${access.admin ? ' Other kips\' recent threads are available through the same tool.' : ''}`)
   }
   const core = await coreCards(db, turn.installationId, settings.coreCardCount)
   return { instructions: core.length ? `Core memory: cards about the user, shared by every kip. A card's ID works with forget_memory.\n${core.map(item => cardLine(item)).join('\n')}` : '', sections }

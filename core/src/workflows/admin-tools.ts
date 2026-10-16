@@ -316,7 +316,7 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'learning.get': operation({
     area: 'learning', kind: 'read', input: none,
-    description: 'Read the memory settings: the switch and default sleep time of the installation, the switch and sleep time of each kip, the nightly model (null runs the nightly memory steps with Kip\'s model), coreCardCount (cards loaded on every turn) and searchCardCount and searchChunkCount (cards and thread chunks a turn\'s memory search adds). A kip has memory while both switches are on; available tells whether meaning search has an embedding provider.',
+    description: 'Read the memory settings: the switch and default sleep time of the installation, the switch and sleep time of each kip, the nightly model (null runs the nightly memory steps with the admin kip\'s model), coreCardCount (cards loaded on every turn) and searchCardCount and searchChunkCount (cards and thread chunks a turn\'s memory search adds). A kip has memory while both switches are on; available tells whether meaning search has an embedding provider.',
     run: ({ host, caller }) => host.learning.get(caller),
   }),
   'learning.set': operation({

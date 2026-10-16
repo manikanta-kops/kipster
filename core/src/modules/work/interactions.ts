@@ -39,8 +39,8 @@ export async function lockInstallation(client: SqlClient, installationId: string
 }
 async function event(client: SqlClient, row: ScopeRow, record: InteractionRecord): Promise<void> {
   await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'interaction-changed', record.id, record.revision, record, row.state, null)
-  const origin=(await client.query<{origin_thread_id:string}>(`SELECT d.origin_thread_id FROM kipster.delegations d WHERE d.child_run_id=$1`,[record.runId])).rows[0]
-  if(origin)await publishThreadChange(client,row.installation_id,row.caller_id,origin.origin_thread_id,row.chat_id,'interaction-changed',record.id,record.revision,record,row.state,null)
+  const origin=(await client.query<{origin_thread_id:string;chat_id:string}>(`SELECT d.origin_thread_id,t.chat_id FROM kipster.delegations d JOIN kipster.threads t ON t.id=d.origin_thread_id WHERE d.child_run_id=$1`,[record.runId])).rows[0]
+  if(origin)await publishThreadChange(client,row.installation_id,row.caller_id,origin.origin_thread_id,origin.chat_id,'interaction-changed',record.id,record.revision,record,row.state,null)
 }
 export async function interactionRecord(client: SqlClient, id: string): Promise<InteractionRecord> {
   const row = (await client.query<{ id:string; run_id:string; attempt_id:string; kind:'question'|'approval'; proposal_id:string|null; proposal:string|null; prompt:string; options:{id:string;label:string}[]; free_text:boolean; grant_offer:ApprovalGrantOffer|null; state:string; answer:InteractionAnswer|null; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string; source_agent_id:string|null }>('SELECT x.*,d.recipient_agent_id AS source_agent_id FROM kipster.interactions x LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE x.id=$1', [id])).rows[0]

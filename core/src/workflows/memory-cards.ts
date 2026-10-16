@@ -58,7 +58,7 @@ async function claimCardOperation(client: SqlClient, actor: AdminCaller, authori
 }
 
 /**
- * Changes the type, subject, statement or details of a current card and marks it confirmed: the person, or Kip for
+ * Changes the type, subject, statement or details of a current card and marks it confirmed: the person, or the admin kip for
  * them, stated it. Changed content is embedded again by the next nightly run. Saving the card's current values changes
  * nothing. With an `operationId`, a repeat of the same edit changes nothing again and returns the card as it is now.
  */

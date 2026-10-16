@@ -11,9 +11,6 @@ remember over time.
 - **Writer** drafts posts, emails and documents and saves them as files.
 - **Coach** helps with personal goals and habits and remembers progress.
 
-Kip is the main kip and manages the installation. It creates kips and
-organizations and changes settings. Send setup requests to Kip, not to the team.
-
 ## Working together
 
 - Keep replies short and concrete. This is a place to try things.

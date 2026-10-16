@@ -227,19 +227,29 @@ export class ArtifactService {
     for(const id of failed)await rm(this.object(id),{force:true}).catch(()=>undefined)
     for(const name of await readdir(this.staging).catch(()=>[] as string[]))if(failed.includes(name.slice(0,36))&&name[36]==='.')await rm(join(this.staging,name),{force:true}).catch(()=>undefined)
   }
-  async copyToOrganization(attemptId:string,incarnation:string,callId:string,sourceId:string):Promise<{status:'completed';artifact:ArtifactMetadata}> {
-    if(!callId||callId.length>200||!uuid.test(sourceId))throw new Error('Invalid organization publication arguments')
+  /**
+   * Copies a file of the attempt into a workspace: the attempt's own workspace and a file its agent made, or, for the
+   * admin kip, any workspace it names and any file in its thread.
+   */
+  async copyToOrganization(attemptId:string,incarnation:string,callId:string,sourceId:string,workspaceId?:string):Promise<{status:'completed';artifact:ArtifactMetadata}> {
+    if(!callId||callId.length>200||!uuid.test(sourceId)||workspaceId!==undefined&&!uuid.test(workspaceId))throw new Error('Invalid organization publication arguments')
     const claim=await this.db.transaction(async client=>{
       const attempt=await this.liveAttempt(client,attemptId,incarnation)
-      if(!attempt.organization_id)throw new Error('Organization publication requires organization context')
-      const prior=(await client.query<{artifact_id:string;source_id:string;state:string}>('SELECT * FROM kipster.artifact_organization_copies WHERE attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
-      if(prior){if(prior.source_id!==sourceId)throw new Error('Organization publication replay conflict');if(prior.state==='ready')return {status:'ready' as const,id:prior.artifact_id};throw new Error('Organization publication pending or failed')}
+      const admin=(await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'",[attempt.agent_id])).rows.length>0
+      const organizationId=workspaceId??attempt.organization_id
+      if(!organizationId)throw new Error(admin?'Name the workspace with workspaceId':'Organization publication requires organization context')
+      if(organizationId!==attempt.organization_id&&!admin)throw new Error('Only the admin kip can copy a file into another workspace')
+      if(organizationId!==attempt.organization_id&&!await isLive(client,attempt.installation_id,'organization',organizationId))throw new Error('Workspace not found')
+      const prior=(await client.query<{artifact_id:string;source_id:string;organization_id:string;state:string}>('SELECT * FROM kipster.artifact_organization_copies WHERE attempt_id=$1 AND call_id=$2',[attemptId,callId])).rows[0]
+      if(prior){if(prior.source_id!==sourceId||prior.organization_id!==organizationId)throw new Error('Organization publication replay conflict');if(prior.state==='ready')return {status:'ready' as const,id:prior.artifact_id};throw new Error('Organization publication pending or failed')}
       await this.publicationCapacity(client,attemptId)
       const source=await this.row(client,sourceId)
-      if(source.installation_id!==attempt.installation_id||source.owner_kind!=='agent'||source.owner_id!==attempt.agent_id||source.state!=='ready')throw new Error('Source artifact unavailable')
+      const own=source.owner_kind==='agent'&&source.owner_id===attempt.agent_id
+      const inThread=admin&&!own&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id WHERE ma.artifact_id=$1 AND m.thread_id=$2 LIMIT 1',[sourceId,attempt.thread_id])).rows.length>0
+      if(source.installation_id!==attempt.installation_id||!(own||inThread)||source.state!=='ready')throw new Error('Source artifact unavailable')
       const id=randomUUID()
-      await client.query('INSERT INTO kipster.artifacts(id,installation_id,owner_kind,owner_id,source_id,provenance,author_id,name,mime_type,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,attempt.installation_id,'organization',attempt.organization_id,sourceId,'published',attempt.agent_id,source.name,source.mime_type,source.size_bytes,source.sha256,'staging'])
-      await client.query('INSERT INTO kipster.artifact_organization_copies(attempt_id,call_id,source_id,organization_id,artifact_id,state) VALUES ($1,$2,$3,$4,$5,$6)',[attemptId,callId,sourceId,attempt.organization_id,id,'staging'])
+      await client.query('INSERT INTO kipster.artifacts(id,installation_id,owner_kind,owner_id,source_id,provenance,author_id,name,mime_type,size_bytes,sha256,state) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)',[id,attempt.installation_id,'organization',organizationId,sourceId,'published',attempt.agent_id,source.name,source.mime_type,source.size_bytes,source.sha256,'staging'])
+      await client.query('INSERT INTO kipster.artifact_organization_copies(attempt_id,call_id,source_id,organization_id,artifact_id,state) VALUES ($1,$2,$3,$4,$5,$6)',[attemptId,callId,sourceId,organizationId,id,'staging'])
       return {status:'claimed' as const,id,source}
     })
     if(claim.status==='ready')return {status:'completed',artifact:metadata((await this.db.query<ArtifactRow>('SELECT * FROM kipster.artifacts WHERE id=$1',[claim.id])).rows[0]!)}
@@ -401,6 +411,8 @@ export class ArtifactService {
     await this.authorize(client,actor,target,internal)
     const row=await this.row(client,id)
     if(row.installation_id!==actor.installationId)throw new Error('Artifact access denied')
+    // A run reads every file of its own thread, such as one the admin kip handed over from outside the workspace.
+    if(internal&&target.threadId&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.id=$2 AND t.chat_id=$3 LIMIT 1',[id,target.threadId,target.chatId])).rows.length)return row
     if(row.owner_kind==='agent'){
       const associated=await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.chat_id=$2 AND ($3::uuid IS NULL OR t.id=$3) AND (t.internal=false OR $4=true) LIMIT 1`,[id,target.chatId,target.threadId??null,internal])
       if(!associated.rows.length)throw new Error('Artifact access denied')

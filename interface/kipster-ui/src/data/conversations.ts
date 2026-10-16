@@ -11,6 +11,8 @@ export interface Submission {
   submissionId: string
   target: ConversationTarget
   parts: ContentPart[]
+  /** The workspace the person has open while writing to the admin kip. */
+  viewingOrganizationId?: string
 }
 export type Receipt =
   | {

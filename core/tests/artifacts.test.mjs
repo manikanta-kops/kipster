@@ -168,6 +168,43 @@ test('files attached by path fence replays and Stop; organization copy owns inde
   }
 })
 
+test('the admin kip copies a file from its chat into any workspace; another kip only into its own', {skip:noDatabase}, async()=>{
+  const admin=new Postgres(adminUrl),database=`kipster_artifacts_${randomUUID().replaceAll('-','')}`
+  const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-admin-copy-'))
+  await admin.query(`CREATE DATABASE "${database}"`)
+  const url=new URL(adminUrl);url.pathname=`/${database}`
+  let runtime
+  try{
+    runtime=await openRuntime({connectionString:url.href,home:homePath,names:{owner:'Owner',organization:'One',rootAgent:'Root'}})
+    const actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId},org=runtime.bootstrap.organizationId,other=randomUUID(),member=randomUUID()
+    await runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[other,actor.installationId,'Two'])
+    await runtime.db.query('INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[member,actor.installationId,'Member'])
+    await runtime.db.query('INSERT INTO kipster.agent_memberships(organization_id,agent_id) VALUES ($1,$2)',[org,member])
+    const started=async(context,agentId,parts)=>{
+      const {chatId}=await resolveDirectChat(runtime.db,actor,context,agentId)
+      const receipt=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts})
+      const incarnation=randomUUID()
+      const attempt=await runtime.db.transaction(async client=>{const claim=await claimPreparation(client,receipt.runId,incarnation);assert.equal(await issueAttempt(client,claim),true);await client.query("UPDATE kipster.text_runs SET state='running',current_attempt_id=$2 WHERE id=$1",[receipt.runId,claim.id]);return claim})
+      return {chatId,attempt,incarnation}
+    }
+    const installation={kind:'installation',installationId:actor.installationId}
+    const {chatId}=await resolveDirectChat(runtime.db,actor,installation,runtime.bootstrap.rootAgentId)
+    const bytes=Buffer.from('brief')
+    const uploaded=(await runtime.artifacts.upload(actor,{uploadId:randomUUID(),target:{installationId:actor.installationId,callerId:actor.personId,context:installation,chatId},name:'brief.txt',mimeType:'text/plain',size:bytes.length,sha256:digest(bytes),purpose:'attachment'},stream(bytes))).artifact
+    const root=await started(installation,runtime.bootstrap.rootAgentId,[{kind:'text',text:'Put this in workspace One'},{kind:'file',artifactId:uploaded.id,purpose:'attachment'}])
+    await assert.rejects(runtime.artifacts.copyToOrganization(root.attempt.id,root.incarnation,'no-workspace',uploaded.id),/Name the workspace with workspaceId/)
+    await assert.rejects(runtime.artifacts.copyToOrganization(root.attempt.id,root.incarnation,'unknown',uploaded.id,randomUUID()),/Workspace not found/)
+    const copy=await runtime.artifacts.copyToOrganization(root.attempt.id,root.incarnation,'copy',uploaded.id,org)
+    assert.deepEqual(copy.artifact.ownership,{kind:'organization',id:org})
+    await assert.rejects(runtime.artifacts.copyToOrganization(root.attempt.id,root.incarnation,'copy',uploaded.id,other),/replay conflict/)
+    const work=await started({kind:'organization',organizationId:org},member,[{kind:'text',text:'Copy it elsewhere'}])
+    await assert.rejects(runtime.artifacts.copyToOrganization(work.attempt.id,work.incarnation,'elsewhere',copy.artifact.id,other),/Only the admin kip can copy a file into another workspace/)
+    await assert.rejects(runtime.artifacts.copyToOrganization(work.attempt.id,work.incarnation,'not-own',copy.artifact.id),/Source artifact unavailable/)
+  }finally{
+    await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(homePath,{recursive:true,force:true})
+  }
+})
+
 test('process death between attached bytes and SQL receipt leaves explicit failure, never a ready artifact', {skip:noDatabase}, async()=>{
   const admin=new Postgres(adminUrl),database=`kipster_artifacts_${randomUUID().replaceAll('-','')}`
   const homePath=await mkdtemp(join(tmpdir(),'kipster_artifacts-output-crash-'))

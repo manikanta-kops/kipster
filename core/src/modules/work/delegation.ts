@@ -31,14 +31,23 @@ export async function childDelegation(client:SqlClient,runId:string):Promise<{id
   const row=(await client.query<{id:string;origin_thread_id:string;parent_run_id:string|null}>('SELECT id,origin_thread_id,parent_run_id FROM kipster.delegations WHERE child_run_id=$1',[runId])).rows[0]
   return row?{id:row.id,originThreadId:row.origin_thread_id,parentRunId:row.parent_run_id}:null
 }
-export async function listAgents(db:Postgres,attemptId:string,incarnation:string):Promise<{id:string;name:string}[]> {
+export interface AvailableAgent { id:string; name:string; workspaces?:{id:string;name:string}[] }
+const isAdmin=async(client:SqlClient,agentId:string):Promise<boolean>=>(await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'",[agentId])).rows.length>0
+/** The live workspaces an agent works in, by name. */
+const workspacesOf=async(client:SqlClient,agentId:string):Promise<{id:string;name:string}[]>=>(await client.query<{id:string;name:string}>(`SELECT o.id,o.display_name AS name FROM kipster.agent_memberships m JOIN kipster.organizations o ON o.id=m.organization_id WHERE m.agent_id=$1 AND kipster.live_organization(o.id) ORDER BY o.display_name,o.id`,[agentId])).rows
+/** The kips a run may delegate to: the admin kip sees every other live kip with its workspaces; any other kip sees its context's. */
+export async function listAgents(db:Postgres,attemptId:string,incarnation:string):Promise<AvailableAgent[]> {
   const scope=await boundScope(db,attemptId,incarnation)
+  if(await isAdmin(db,scope.agentId)){
+    const rows=await db.query<{id:string;display_name:string}>('SELECT a.id,a.display_name FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$2 ORDER BY a.display_name,a.id',[scope.installationId,scope.agentId])
+    return Promise.all(rows.rows.map(async row=>({id:row.id,name:row.display_name,workspaces:await workspacesOf(db,row.id)})))
+  }
   const rows=await db.query<{id:string;display_name:string}>(scope.contextKind==='organization'
     ? `SELECT a.id,a.display_name FROM kipster.agents a JOIN kipster.agent_memberships m ON m.agent_id=a.id WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND m.organization_id=$2 ORDER BY a.display_name,a.id`
     : `SELECT a.id,a.display_name FROM kipster.agents a JOIN kipster.agent_roles r ON r.agent_id=a.id AND r.role='root-admin' WHERE a.installation_id=$1 AND kipster.live_agent(a.id) ORDER BY a.display_name,a.id`,scope.contextKind==='organization'?[scope.installationId,scope.contextId]:[scope.installationId])
   return rows.rows.map(row=>({id:row.id,name:row.display_name}))
 }
-export async function getAgent(db:Postgres,attemptId:string,incarnation:string,agentId:string):Promise<{id:string;name:string}|null>{
+export async function getAgent(db:Postgres,attemptId:string,incarnation:string,agentId:string):Promise<AvailableAgent|null>{
   return (await listAgents(db,attemptId,incarnation)).find(x=>x.id===agentId)??null
 }
 interface Scope { runId:string; threadId:string; chatId:string; installationId:string; humanId:string; agentId:string; contextKind:'installation'|'organization'; contextId:string; attemptState:string; runState:string; stopRequested:boolean }
@@ -60,9 +69,39 @@ export async function delegationStatus(db:Postgres,attemptId:string,incarnation:
  * transaction. They follow `artifactIds` in the request message.
  */
 export interface DelegationFiles { files: readonly { artifactId: string }[]; settle(client: SqlClient): Promise<void> }
-export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnation:string,callId:string,recipientId:string,request:string,artifactIds:readonly string[]=[],attached?:DelegationFiles):Promise<DelegationRecord>{
+/**
+ * The workspace a delegated task runs in. Another kip's tasks stay in its own context. The admin kip names the
+ * workspace, or Core picks the one the recipient shares with the admin kip's conversation, or the recipient's only one.
+ */
+async function delegationContext(client:SqlClient,scope:Scope,recipientId:string,workspaceId:string|undefined):Promise<{kind:'installation'|'organization';id:string}>{
+  const current={kind:scope.contextKind,id:scope.contextId}
+  if(!await isAdmin(client,scope.agentId)){
+    if(workspaceId!==undefined&&!(scope.contextKind==='organization'&&workspaceId===scope.contextId))throw new Error('Only the admin kip can delegate into another workspace')
+    return current
+  }
+  const name=(await client.query<{display_name:string}>('SELECT display_name FROM kipster.agents WHERE id=$1 AND installation_id=$2',[recipientId,scope.installationId])).rows[0]?.display_name
+  if(name===undefined)throw new Error('Recipient agent unavailable in originating context')
+  if(await isAdmin(client,recipientId))return current
+  const workspaces=await workspacesOf(client,recipientId)
+  if(workspaceId!==undefined){
+    if(!workspaces.some(item=>item.id===workspaceId))throw new Error(`${name} does not work in that workspace`)
+    return {kind:'organization',id:workspaceId}
+  }
+  if(scope.contextKind==='organization'&&workspaces.some(item=>item.id===scope.contextId))return current
+  if(workspaces.length===1)return {kind:'organization',id:workspaces[0]!.id}
+  if(!workspaces.length)throw new Error(`${name} is not in any workspace`)
+  throw new Error(`${name} works in ${workspaces.map(item=>`${item.name} (${item.id})`).join(', ')}; pass workspaceId`)
+}
+/** The chat the delegated task runs in: the sender's own in its context, otherwise the recipient's chat with the person in the target workspace. */
+async function delegationChat(client:SqlClient,scope:Scope,recipientId:string,target:{kind:'installation'|'organization';id:string}):Promise<string>{
+  if(target.kind===scope.contextKind&&target.id===scope.contextId)return scope.chatId
+  return (await client.query<{id:string}>(`INSERT INTO kipster.direct_chats(id,installation_id,caller_id,context_kind,context_id,agent_id) VALUES ($1,$2,$3,$4,$5,$6)
+    ON CONFLICT (installation_id,caller_id,context_kind,context_id,agent_id) DO UPDATE SET id=kipster.direct_chats.id RETURNING id`,[randomUUID(),scope.installationId,scope.humanId,target.kind,target.id,recipientId])).rows[0]!.id
+}
+const threadChat=async(client:SqlClient,threadId:string):Promise<string>=>(await client.query<{chat_id:string}>('SELECT chat_id FROM kipster.threads WHERE id=$1',[threadId])).rows[0]!.chat_id
+export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnation:string,callId:string,recipientId:string,request:string,artifactIds:readonly string[]=[],attached?:DelegationFiles,workspaceId?:string):Promise<DelegationRecord>{
   const attachedIds=attached?.files.map(file=>file.artifactId)??[],allIds=[...artifactIds,...attachedIds]
-  if(!callId||callId.length>200||typeof recipientId!=='string'||!/^[0-9a-f-]{36}$/i.test(recipientId)||typeof request!=='string'||!request.trim()||request.length>16000||!Array.isArray(artifactIds)||allIds.length>10||new Set(artifactIds).size!==artifactIds.length||artifactIds.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id)))throw new Error('Invalid delegation request')
+  if(!callId||callId.length>200||typeof recipientId!=='string'||!/^[0-9a-f-]{36}$/i.test(recipientId)||typeof request!=='string'||!request.trim()||request.length>16000||!Array.isArray(artifactIds)||allIds.length>10||new Set(artifactIds).size!==artifactIds.length||artifactIds.some(id=>typeof id!=='string'||!/^[0-9a-f-]{36}$/i.test(id))||workspaceId!==undefined&&!/^[0-9a-f-]{36}$/i.test(workspaceId))throw new Error('Invalid delegation request')
   const first=await boundScope(db,attemptId,incarnation)
   const priorParent=(await db.query<{origin_thread_id:string;root_run_id:string;depth:number}>('SELECT origin_thread_id,root_run_id,depth FROM kipster.delegations WHERE child_run_id=$1',[first.runId])).rows[0]
   const originThreadId=priorParent?.origin_thread_id??first.threadId,rootRunId=priorParent?.root_run_id??first.runId,depth=(priorParent?.depth??0)+1
@@ -85,14 +124,15 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
     const nextOrdinal=Number((await client.query<{n:string}>('SELECT count(*) AS n FROM kipster.delegations WHERE parent_run_id=$1',[scope.runId])).rows[0]!.n)+1
     const ancestors=await client.query<{sender_agent_id:string}>(`WITH RECURSIVE parents AS (SELECT d.sender_agent_id,d.parent_run_id FROM kipster.delegations d WHERE d.child_run_id=$1 UNION ALL SELECT d.sender_agent_id,d.parent_run_id FROM kipster.delegations d JOIN parents p ON d.child_run_id=p.parent_run_id) SELECT sender_agent_id FROM parents`,[scope.runId])
     if(ancestors.rows.some(row=>row.sender_agent_id===recipientId))throw new Error('Delegation cycle detected')
+    const target=await delegationContext(client,scope,recipientId,workspaceId)
     // An organization recipient must be a member; its membership row stays locked until the delegation commits.
-    const available=(await client.query<{id:string}>(scope.contextKind==='organization'
+    const available=(await client.query<{id:string}>(target.kind==='organization'
       ? `SELECT a.id FROM kipster.agents a JOIN kipster.agent_memberships m ON m.agent_id=a.id WHERE a.id=$1 AND a.installation_id=$2 AND m.organization_id=$3 FOR KEY SHARE OF m`
-      : `SELECT a.id FROM kipster.agents a JOIN kipster.agent_roles r ON r.agent_id=a.id AND r.role='root-admin' WHERE a.id=$1 AND a.installation_id=$2`,scope.contextKind==='organization'?[recipientId,scope.installationId,scope.contextId]:[recipientId,scope.installationId])).rows[0]
+      : `SELECT a.id FROM kipster.agents a JOIN kipster.agent_roles r ON r.agent_id=a.id AND r.role='root-admin' WHERE a.id=$1 AND a.installation_id=$2`,target.kind==='organization'?[recipientId,scope.installationId,target.id]:[recipientId,scope.installationId])).rows[0]
     // The recipient, and the organization it works in, must be live until the delegation commits.
     if(!available)throw new Error('Recipient agent unavailable in originating context')
     if(!await isLive(client,scope.installationId,'agent',recipientId))await refuseAgent(client,scope.installationId,recipientId,'Recipient agent unavailable in originating context')
-    if(scope.contextKind==='organization'&&!await isLive(client,scope.installationId,'organization',scope.contextId))throw new Error('Organization unavailable for delegation')
+    if(target.kind==='organization'&&!await isLive(client,scope.installationId,'organization',target.id))throw new Error('Organization unavailable for delegation')
     // The delegating agent must still be a member: a removed agent's run finishes without starting new work.
     if(scope.contextKind==='organization'&&!(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2 FOR KEY SHARE',[scope.contextId,scope.agentId])).rows.length)throw new Error('Delegating agent is not an organization member')
     for(const id of artifactIds){
@@ -102,20 +142,21 @@ export async function delegate(db:Postgres,jobs:Jobs,attemptId:string,incarnatio
     await requireMessageFileLimit(client,allIds)
     await attached?.settle(client)
     const id=randomUUID(),threadId=randomUUID(),runId=randomUUID(),messageId=randomUUID()
+    const chatId=await delegationChat(client,scope,recipientId,target),originChatId=await threadChat(client,originThreadId)
     const parts=[{kind:'text',text:request},...allIds.map(artifactId=>({kind:'file',artifactId,purpose:'attachment'}))]
-    await client.query('INSERT INTO kipster.threads(id,chat_id,internal,next_message_position,next_queue_position) VALUES ($1,$2,true,2,2)',[threadId,scope.chatId])
+    await client.query('INSERT INTO kipster.threads(id,chat_id,internal,next_message_position,next_queue_position) VALUES ($1,$2,true,2,2)',[threadId,chatId])
     await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,finished_at) VALUES ($1,$2,1,$3,$4::jsonb,now())',[messageId,threadId,scope.agentId,JSON.stringify(parts)])
     for(const [index,artifactId] of allIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)',[messageId,index+1,artifactId,'attachment'])
     await client.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'queued')",[runId,scope.installationId])
     await client.query("INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,'queued',1)",[runId,threadId,messageId])
     await client.query(`INSERT INTO kipster.delegations(id,installation_id,origin_thread_id,root_run_id,parent_run_id,parent_attempt_id,ordinal,child_run_id,call_id,sender_agent_id,recipient_agent_id,context_kind,context_id,responsible_human_id,depth,request,artifact_ids,state)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid[],'queued')`,[id,scope.installationId,originThreadId,rootRunId,scope.runId,attemptId,nextOrdinal,runId,callId,scope.agentId,recipientId,scope.contextKind,scope.contextId,scope.humanId,depth,request,allIds])
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::uuid[],'queued')`,[id,scope.installationId,originThreadId,rootRunId,scope.runId,attemptId,nextOrdinal,runId,callId,scope.agentId,recipientId,target.kind,target.id,scope.humanId,depth,request,allIds])
     await client.query("UPDATE kipster.text_runs SET state='waiting',revision=revision+1 WHERE id=$1 AND state='running'",[scope.runId])
-    await publishThreadChange(client, scope.installationId, scope.humanId, threadId, scope.chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
-    await publishThreadChange(client,scope.installationId,scope.humanId,threadId,scope.chatId,'work-changed',runId,1,await workRecord(client,runId),'queued',null)
+    await publishThreadChange(client, scope.installationId, scope.humanId, threadId, chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
+    await publishThreadChange(client,scope.installationId,scope.humanId,threadId,chatId,'work-changed',runId,1,await workRecord(client,runId),'queued',null)
     await publishThreadChange(client,scope.installationId,scope.humanId,scope.threadId,scope.chatId,'work-changed',scope.runId,Number((await client.query<{revision:string}>('SELECT revision FROM kipster.text_runs WHERE id=$1',[scope.runId])).rows[0]!.revision),await workRecord(client,scope.runId),'waiting',null)
     const record=await delegationRecord(client,id)
-    await publishThreadChange(client,scope.installationId,scope.humanId,originThreadId,scope.chatId,'delegation-changed',id,record.revision,delegationActivity(record),'running',null)
+    await publishThreadChange(client,scope.installationId,scope.humanId,originThreadId,originChatId,'delegation-changed',id,record.revision,delegationActivity(record),'running',null)
     await jobs.send(client,runId)
     return record
   })
@@ -168,7 +209,7 @@ export async function cancelDelegationTree(client:SqlClient,parentRunId:string):
       await client.query("UPDATE kipster.work_intents SET state='settled' WHERE id=$1 AND state<>'uncertain'",[item.child_run_id])
     }else if(run.current_attempt_id)cancelAttempts.push(run.current_attempt_id)
     const cards=await client.query<{id:string}>("UPDATE kipster.interactions SET state='cancelled',revision=revision+1 WHERE run_id=$1 AND state='pending' RETURNING id",[item.child_run_id])
-    const chat=(await client.query<{chat_id:string}>('SELECT chat_id FROM kipster.threads WHERE id=$1',[run.thread_id])).rows[0]!
+    const chat={chat_id:await threadChat(client,item.origin_thread_id)}
     for(const card of cards.rows){const record=await interactionRecord(client,card.id);await publishThreadChange(client,item.installation_id,item.responsible_human_id,item.origin_thread_id,chat.chat_id,'interaction-changed',card.id,record.revision,record,'cancelled',null);await interactionNotificationChanged(client,card.id)}
     await client.query("UPDATE kipster.delegations SET state='cancelled',revision=revision+1,finished_at=now() WHERE id=$1 AND state NOT IN ('completed','failed','cancelled','recovery-needed')",[item.id])
     const record=await delegationRecord(client,item.id)

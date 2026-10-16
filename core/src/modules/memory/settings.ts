@@ -4,12 +4,12 @@ import { publishAppEvent } from '../synchronization/public.js'
 import type { Catalog } from '../settings/public.js'
 import { clockTime } from '../../protocol/schema.js'
 
-/** The model the nightly run uses instead of Kip's. */
+/** The model the nightly run uses instead of the admin kip's. */
 export interface NightlyModel { adapterId: string; modelId: string; effort?: string }
 export interface AgentLearning { agentId: string; enabled: boolean; sleepTime: string | null; revision: number; effective: boolean }
 export interface LearningSettings {
   enabled: boolean; sleepTime: string; revision: number; available: boolean; agents: AgentLearning[]
-  /** Null runs the nightly steps with Kip's model. */
+  /** Null runs the nightly steps with the admin kip's model. */
   nightlyModel: NightlyModel | null
   coreCardCount: number; searchCardCount: number; searchChunkCount: number
 }
@@ -137,7 +137,7 @@ export class LearningService {
 
 type Change = { enabled?: boolean; sleepTime?: string | null; nightlyModel?: NightlyModel | null } & Partial<Record<Count, number>>
 /** Validates a learning change: a switch value, a sleep time ("HH:MM"; null clears an agent's own), and for the
- * installation the nightly model (null for Kip's) and the counts. At least one field changes. */
+ * installation the nightly model (null for the admin kip's) and the counts. At least one field changes. */
 function learningUpdate(update: unknown, agent: boolean): Change {
   if (!update || typeof update !== 'object' || Array.isArray(update)) throw new Error('Invalid learning update')
   const { enabled, sleepTime: time, ...rest } = update as Record<string, unknown>

@@ -264,14 +264,14 @@ test('kips see their workspace, owners delete docs, and doc files are read throu
   const organization = { kind: 'organization', organizationId: ctx.organizationId }
   const root = await ctx.start()
   const { documentId: rootDoc } = await root.tool('c1', 'create_rich_doc', { title: 'Root doc', markdown: 'Private' })
-  const { documentId: teamDoc } = await root.tool('c2', 'create_rich_doc', { title: 'Team doc', markdown: 'Shared', organizationId: ctx.organizationId })
+  const { documentId: teamDoc } = await root.tool('c2', 'create_rich_doc', { title: 'Team doc', markdown: 'Shared', workspaceId: ctx.organizationId })
   assert.deepEqual((await ctx.detail(teamDoc)).document.context, organization)
   assert.deepEqual(new Set((await root.tool('l1', 'list_rich_docs', {})).documents.map(entry => entry.documentId)), new Set([rootDoc, teamDoc]))
 
   const member = await ctx.start(scout, organization, 'Hello')
   assert.deepEqual((await member.tool('l1', 'list_rich_docs', {})).documents.map(entry => entry.documentId), [teamDoc])
   await assert.rejects(member.tool('r1', 'read_rich_doc', { documentId: rootDoc }), /Document not found/)
-  await assert.rejects(member.tool('c1', 'create_rich_doc', { title: 'Elsewhere', markdown: '', organizationId: randomUUID() }), /Only Kip/)
+  await assert.rejects(member.tool('c1', 'create_rich_doc', { title: 'Elsewhere', markdown: '', workspaceId: randomUUID() }), /Only the admin kip/)
   const own = await member.tool('c2', 'create_rich_doc', { title: 'Scout notes', markdown: 'Mine' })
   assert.deepEqual((await ctx.detail(own.documentId)).document.context, organization)
   assert.equal((await member.tool('r2', 'read_rich_doc', { documentId: teamDoc })).title, 'Team doc')

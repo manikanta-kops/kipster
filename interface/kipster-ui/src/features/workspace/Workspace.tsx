@@ -1475,6 +1475,12 @@ export function Workspace({
           chatId,
           ...(threadId ? { threadId } : {}),
         }}
+        viewingOrganizationId={
+          context.kind === 'installation' &&
+          identity.capabilities?.viewingWorkspace === true
+            ? (nav.organizationId ?? undefined)
+            : undefined
+        }
         label={threadId ? 'Reply in this thread' : 'Start a new thread'}
         dropHint={
           threadId ? 'Files join your reply' : 'Files join a new thread'
@@ -1736,7 +1742,7 @@ export function Workspace({
               run: () => openThread(latestBusy.threadId),
             }
           : undefined
-  // Kip's sign follows the root admin's own chat, whichever chat is open.
+  // The admin kip's sign follows its own chat, whichever chat is open.
   const kipId = view.agentRoles[0]?.agentId
   const isKipThread = (s: (typeof summaries)[string] | undefined) =>
     s?.contextKind === 'installation' && s.agentId === kipId
@@ -2219,7 +2225,7 @@ export function Workspace({
                         : 'Loading conversations…'
                       : agent
                         ? (chatErrors[key] ?? 'Opening conversation…')
-                        : 'Choose another organization or open your main kip for installation-level conversations.'}
+                        : 'Choose another organization or open your admin kip for installation-level conversations.'}
                   </p>
                 </div>
               )}

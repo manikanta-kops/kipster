@@ -36,6 +36,21 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.match(executionTools(all).find(tool => tool.name === 'edit_rich_doc').description, /```question/)
 })
 
+test('only the admin kip gets the fields that reach other workspaces and kips, and no tool names Kip', () => {
+  const field = (scope, tool, name) => executionTools(scope).find(item => item.name === tool)?.inputSchema.properties[name]
+  const admin = { organization: false, structured: false, vectors: false, administration: true, memory: true, admin: true }
+  const member = { organization: true, structured: false, vectors: false, administration: false, memory: true }
+  assert.deepEqual(executionTools(admin).find(tool => tool.name === 'copy_attachment_to_workspace').inputSchema.required, ['artifactId', 'workspaceId'])
+  for (const [tool, name] of [['delegate_to_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_recent_threads', 'agent']]) {
+    assert.ok(field(admin, tool, name), `${tool}.${name} for the admin kip`)
+    assert.equal(field(member, tool, name), undefined, `${tool}.${name} only for the admin kip`)
+  }
+  assert.equal(field(member, 'copy_attachment_to_workspace', 'workspaceId'), undefined)
+  assert.match(executionTools(admin).find(tool => tool.name === 'list_kips').description, /every kip with the workspaces/)
+  assert.match(toolGuidance({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
+  for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + toolGuidance(scope), /\bKip\b/)
+})
+
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }

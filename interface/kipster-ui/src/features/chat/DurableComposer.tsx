@@ -13,6 +13,7 @@ export function DurableComposer({
   scope,
   recordingContext,
   target,
+  viewingOrganizationId,
   label,
   dropHint,
   send,
@@ -23,6 +24,7 @@ export function DurableComposer({
   scope: string
   recordingContext?: string
   target: ConversationTarget
+  viewingOrganizationId?: string
   label: string
   dropHint?: string
   disabled?: boolean
@@ -59,6 +61,7 @@ export function DurableComposer({
             }
           }),
         ],
+        ...(viewingOrganizationId ? { viewingOrganizationId } : {}),
       }
       const { cleared } = await send(submission, {
         ...(prepared.draft ?? { key, revision: '', text }),
