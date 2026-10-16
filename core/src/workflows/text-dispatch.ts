@@ -3,7 +3,7 @@ import { administrationReceipts } from '../modules/administration/public.js'
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { createHash, randomUUID } from 'node:crypto'
-import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle } from '../adapter-api/index.js'
+import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle, MessageAuthor, TextExecutionContext } from '../adapter-api/index.js'
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
 import { acceptsType } from '../transcription/index.js'
@@ -72,8 +72,8 @@ const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&
  * Who the kip is, from its current name and role, so a renamed kip knows its new name. The admin kip also learns the
  * workspace the person has open, unless the conversation is already in it.
  */
-async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; viewing?: { id: string; name: string } }> {
-  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null }>(`SELECT a.display_name AS name,
+async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; trigger: 'person' | 'kip' | 'answer'; viewing?: { id: string; name: string } }> {
+  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null; trigger: 'person' | 'kip' | 'answer' | null }>(`SELECT a.display_name AS name,t.trigger_kind AS trigger,
       EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin,
       (SELECT o.display_name FROM kipster.organizations o WHERE o.id=$3::uuid) AS workspace,
       (SELECT g.display_name FROM kipster.agents g JOIN kipster.agent_roles r ON r.agent_id=g.id AND r.role='root-admin' WHERE g.installation_id=$1 AND kipster.live_agent(g.id) ORDER BY g.id LIMIT 1) AS admin_name,
@@ -86,7 +86,15 @@ async function kipFacts(db: Postgres | SqlClient, installationId: string, agentI
       : `You are ${row.name}, the admin kip of this Kipster installation. You work outside every workspace and can act in all of them.`
     : `You are ${row.name}, a kip ${row.workspace ? `in the ${row.workspace} workspace` : 'in this Kipster installation'}.${row.admin_name ? ` ${row.admin_name} is the admin kip and manages kips, workspaces and settings.` : ''}`
   const viewing = row.admin && row.viewing_id && row.viewing_id !== organizationId ? { id: row.viewing_id, name: row.viewing_name! } : undefined
-  return { admin: row.admin, line, ...(viewing ? { viewing } : {}) }
+  return { admin: row.admin, line, trigger: row.trigger ?? 'person', ...(viewing ? { viewing } : {}) }
+}
+/** The people and kips with these IDs as message authors; a kip names its live workspaces, sorted. */
+async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map<string, MessageAuthor>> {
+  const rows = (await db.query<{ id: string; name: string; agent: boolean; admin: boolean; workspaces: string[] }>(`SELECT p.id,p.display_name AS name,false AS agent,false AS admin,'{}'::text[] AS workspaces FROM kipster.people p WHERE p.id=ANY($1::uuid[])
+    UNION ALL SELECT a.id,a.display_name,true,EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin'),
+      ARRAY(SELECT o.display_name FROM kipster.agent_memberships m JOIN kipster.organizations o ON o.id=m.organization_id WHERE m.agent_id=a.id AND kipster.live_organization(o.id) ORDER BY o.display_name,o.id)
+    FROM kipster.agents a WHERE a.id=ANY($1::uuid[])`, [[...new Set(ids)]])).rows
+  return new Map(rows.map(row => [row.id, !row.agent ? { kind: 'person', id: row.id, name: row.name } : row.admin ? { kind: 'admin-kip', id: row.id, name: row.name } : { kind: 'kip', id: row.id, name: row.name, workspaces: row.workspaces }]))
 }
 /** For a linked thread: which kip's conversation its kip messages come from, and how to read it. */
 async function linkedThreadLine(db: Postgres, threadId: string, readable: boolean): Promise<string> {
@@ -708,8 +716,15 @@ export class TextDispatcher {
       const unsupported = Object.keys(resolved.settings.options ?? {}).filter(key => !(route!.supportedOptions ?? []).includes(key))
       if (unsupported.length) throw new Error(`Unsupported execution option: ${unsupported.join(', ')}`)
       const history = await executionHistory(this.runtime.db, runId)
+      const recipients = (parts: readonly MessagePart[]) => parts.flatMap(part => part.kind === 'kip-message' ? [part.recipientId] : [])
+      const authors = await messageAuthors(this.runtime.db, history.messages.flatMap(message => [message.authorId, ...recipients(message.parts)]))
+      // Every message names its author, and a kip's message the kip it went to; anyone missing from the directory is the person.
+      const author = (message: (typeof history.messages)[number]): Pick<TextExecutionContext['input'][number], 'author' | 'kipMessageTo' | 'kipAnswer'> => {
+        const recipient = authors.get(recipients(message.parts)[0] ?? '')
+        return { author: authors.get(message.authorId) ?? { kind: 'person', id: message.authorId, name: '' }, ...(recipient && recipient.kind !== 'person' ? { kipMessageTo: recipient } : {}), ...(message.parts.some(part => part.kind === 'kip-answer') ? { kipAnswer: true as const } : {}) }
+      }
       // A removed file is left out; its message keeps the other parts.
-      const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,parts:(await Promise.all(message.parts.map(async (part,index)=>{
+      const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,...author(message),parts:(await Promise.all(message.parts.map(async (part,index)=>{
         if(part.kind==='text')return part
         // Kip message and answer markers add no content; the message's own text and files carry it.
         if(part.kind==='removed'||part.kind==='kip-message'||part.kind==='kip-answer')return null
@@ -744,7 +759,7 @@ export class TextDispatcher {
         WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
           AND EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled')`, [runId, attempt.id])).rows[0]?.provider_metadata
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
-      execution = { ...prepared, prompt: turnPrompt(prepared, kip.viewing), ...(resume ? { resume } : {}) }
+      execution = { ...prepared, prompt: turnPrompt(prepared, { trigger: kip.trigger, ...(kip.viewing ? { viewing: kip.viewing } : {}) }), ...(resume ? { resume } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
