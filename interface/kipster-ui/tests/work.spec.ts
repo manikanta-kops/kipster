@@ -61,10 +61,10 @@ test('question dismissal is not stop; approval comment is not approval', async (
   )
   expect((await inspect(page)).answers[0].interaction.proposalId).toBeTruthy()
 })
-test('stop waits for settlement, holds new replies, resume does not revive children', async ({
+test('stop waits for settlement, holds new replies and resume runs the next one', async ({
   page,
 }) => {
-  const s = await setup(page, 'delegation')
+  const s = await setup(page, 'running')
   await submit(page, s.endpoint, s.target, 'First accepted follow-up')
   await page.getByRole('button', { name: 'Stop work', exact: true }).click()
   await expect(work(page)).toContainText('Cancellation requested')
@@ -79,7 +79,6 @@ test('stop waits for settlement, holds new replies, resume does not revive child
     state: 'cancelled',
     cancelDelivery: 'confirmed-ended',
   })
-  const stopped = await threadState(page, s.threadId)
   await page
     .getByRole('button', { name: 'Resume follow-ups', exact: true })
     .click()
@@ -88,14 +87,6 @@ test('stop waits for settlement, holds new replies, resume does not revive child
   const current = await threadState(page, s.threadId)
   expect(current.work[0].state).toBe('cancelled')
   expect(current.work[1].state).toBe('running')
-  expect(current.delegations[0].state).toBe('cancelled')
-  await demo(page, '/work', {
-    threadId: s.threadId,
-    delegation: stopped.delegations[0],
-  })
-  expect((await threadState(page, s.threadId)).work[1].runId).toBe(
-    current.work[1].runId,
-  )
 })
 test('backend queue cancellation retains authored content and unsupported steering keeps selected item queued', async ({
   page,
@@ -174,33 +165,20 @@ test('published done text does not hide later failure or complete work', async (
     page.getByText('Done! The output is ready.', { exact: true }),
   ).toBeVisible()
 })
-test('saved child identity is retained by delegated interaction responses', async ({
+test('an answer goes to the run and attempt that asked, naming the asking kip', async ({
   page,
 }) => {
   const s = await setup(page)
   const state = await threadState(page, s.threadId)
-  const childRunId = crypto.randomUUID()
-  const childAttemptId = crypto.randomUUID()
+  const askingRunId = crypto.randomUUID()
+  const askingAttemptId = crypto.randomUUID()
   await demo(page, '/work', {
     threadId: s.threadId,
     work: {
       ...state.work[0],
-      runId: childRunId,
-      attemptId: childAttemptId,
+      runId: askingRunId,
+      attemptId: askingAttemptId,
       queuePosition: 2,
-    },
-    delegation: {
-      id: crypto.randomUUID(),
-      parentRunId: state.work[0].runId,
-      childRunId,
-      senderAgentId: ids.researcher,
-      recipientAgentId: ids.engineer,
-      originThreadId: s.threadId,
-      depth: 1,
-      ordinal: 1,
-      request: 'Check the implementation',
-      state: 'running',
-      revision: 1,
     },
   })
   await demo(page, '/work', {
@@ -208,8 +186,8 @@ test('saved child identity is retained by delegated interaction responses', asyn
     interaction: {
       ...state.interactions[0],
       sourceAgentId: ids.engineer,
-      runId: childRunId,
-      attemptId: childAttemptId,
+      runId: askingRunId,
+      attemptId: askingAttemptId,
       revision: state.interactions[0].revision + 1,
     },
   })
@@ -222,8 +200,8 @@ test('saved child identity is retained by delegated interaction responses', asyn
     .fill('Ask about desktop only')
   await page.getByRole('button', { name: 'Send answer', exact: true }).click()
   const body = (await sent).postDataJSON()
-  expect(body.runId).toBe(childRunId)
-  expect(body.attemptId).toBe(childAttemptId)
+  expect(body.runId).toBe(askingRunId)
+  expect(body.attemptId).toBe(askingAttemptId)
   await expect(answer(page)).toContainText('Ask about desktop only')
 })
 test('competing tabs display the actual first accepted answer', async ({

@@ -68,19 +68,6 @@ test('thread states derive from the work model', () => {
     reason: '',
   })
   expect(deriveThreadState(approval, 'thread', false)).toBe('approval')
-
-  const delegated = withFlow('running')
-  delegated.delegations.push({
-    ...resource,
-    runId: 'run',
-    attemptId: 'attempt',
-    fromAgentId: 'ari',
-    toAgentId: 'niko',
-    childRunId: 'child',
-    state: 'running',
-    createdAt: '2026-01-01T00:00:00Z',
-  })
-  expect(deriveThreadState(delegated, 'thread', false)).toBe('delegating')
 })
 
 test('the summary shows the most important state', () => {

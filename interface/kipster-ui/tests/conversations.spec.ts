@@ -316,6 +316,56 @@ test('safe markdown and stream finalization retain identity and unknown content 
   await expect(pane.getByText('Readable part', { exact: true })).toBeVisible()
 })
 
+test('kip messages and answers show their text and files without unsupported content', async ({
+  page,
+}) => {
+  await setup(page)
+  const state = await demo(page, '/inspect')
+  const thread = state.threads.find(
+    (t: { messages: { parts: { text?: string }[] }[] }) =>
+      t.messages[0].parts[0].text === title,
+  )
+  const pane = await open(page)
+  const linked = { threadId: crypto.randomUUID(), chatId: crypto.randomUUID() }
+  const message = (text: string, marker: object, position: number) => ({
+    id: crypto.randomUUID(),
+    threadId: thread.summary.threadId,
+    authorId: DEMO_IDS.researcher,
+    position,
+    revision: 1,
+    final: true,
+    parts: [{ kind: 'text', text }, marker],
+  })
+  await demo(page, '/message', {
+    threadId: thread.summary.threadId,
+    message: message(
+      'Which plans are confirmed?',
+      { kind: 'kip-message', recipientId: DEMO_IDS.engineer, ...linked },
+      thread.messages.length + 1,
+    ),
+  })
+  await demo(page, '/message', {
+    threadId: thread.summary.threadId,
+    message: message(
+      'Berlin and Lisbon are confirmed.',
+      { kind: 'kip-answer', agentId: DEMO_IDS.engineer, ...linked },
+      thread.messages.length + 2,
+    ),
+  })
+  await expect(
+    pane.getByText('Which plans are confirmed?', { exact: true }),
+  ).toBeVisible()
+  await expect(
+    pane.getByText('Berlin and Lisbon are confirmed.', { exact: true }),
+  ).toBeVisible()
+  await page.reload()
+  if (!(await pane.isVisible())) await open(page)
+  await expect(
+    pane.getByText('Berlin and Lisbon are confirmed.', { exact: true }),
+  ).toBeVisible()
+  await expect(pane.getByText(/Unsupported content/)).toHaveCount(0)
+})
+
 test('complete root snapshots preserve all older roots and deterministic order beyond one hundred', async ({
   page,
 }) => {

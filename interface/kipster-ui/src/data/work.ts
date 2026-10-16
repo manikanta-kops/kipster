@@ -46,23 +46,10 @@ export interface QueueEntry extends WorkResource {
   state: 'queued' | 'held' | 'consumed' | 'cancelled'
   actions: AvailableAction[]
 }
-export interface Delegation extends WorkResource {
-  runId: string
-  attemptId: string
-  fromAgentId: string
-  toAgentId: string
-  childRunId: string
-  request?: { originMessageId: string; summary: string }
-  result?: { id: string; summary: string; receivedAt: string; late: boolean }
-  originInteractionId?: string
-  state: WorkState
-  createdAt: string
-}
 export type Answer = InteractionResponseCommand['answer']
 export type InteractionResponse = NonNullable<TextInteraction['response']>
 export interface Interaction extends WorkResource, TextInteraction {
   sourceAgentId: string
-  delegationId?: string
   continuation: 'waiting' | 'ready' | 'recovery-needed' | 'cancelled'
   reason: string
 }
@@ -70,14 +57,12 @@ export interface WorkRecords {
   workflows: Workflow[]
   runs: Run[]
   queue: QueueEntry[]
-  delegations: Delegation[]
   interactions: Interaction[]
 }
 export const emptyWork = (): WorkRecords => ({
   workflows: [],
   runs: [],
   queue: [],
-  delegations: [],
   interactions: [],
 })
 export interface WorkOperation {

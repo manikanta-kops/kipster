@@ -11,7 +11,6 @@ export type LiveState =
   | 'preparing'
   | 'thinking'
   | 'writing'
-  | 'delegating'
   | 'question'
   | 'approval'
   | 'held'
@@ -63,12 +62,6 @@ export const liveStates: Record<
   thinking: {
     label: 'Thinking',
     description: 'Thinking',
-    tone: 'run',
-    priority: 2,
-  },
-  delegating: {
-    label: 'Delegating',
-    description: 'Waiting on a delegated kip',
     tone: 'run',
     priority: 2,
   },
@@ -124,12 +117,6 @@ export function deriveThreadState(
     return pending.kind
   const queue = work.queue.filter((q) => q.target.threadId === threadId)
   const flow = work.workflows.find((w) => w.target.threadId === threadId)
-  const delegating = work.delegations.some(
-    (d) =>
-      d.target.threadId === threadId &&
-      !d.result &&
-      (d.state === 'running' || d.state === 'waiting'),
-  )
   const queued = queue.some((q) => q.state === 'queued')
   switch (flow?.state) {
     case undefined:
@@ -139,9 +126,9 @@ export function deriveThreadState(
           ? 'queued'
           : 'ready'
     case 'running':
-      return delegating ? 'delegating' : drafting ? 'writing' : 'thinking'
+      return drafting ? 'writing' : 'thinking'
     case 'waiting':
-      return delegating ? 'delegating' : 'question'
+      return 'question'
     case 'preparing':
       return 'preparing'
     case 'queued':

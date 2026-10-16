@@ -176,6 +176,8 @@ Duplicate responses from devices return the recorded outcome. Cancelled or super
 
 ## 8. Agent-to-agent work
 
+> Superseded by [decision block 11, kip messaging](./11-kip-messaging.md).
+
 An agent may ask another agent for help during an active workflow. Kipster is the intermediary: it durably routes the request, dispatches recipient work, tracks status, and returns correlated results and continuation signals.
 
 Persist the asking and receiving agents, originating chat/thread/run, explicit organization or installation context, request content/files, delivery identity, status, result, and continuation relationship. Preserve this provenance even though the UI initially shows only concise summaries. No implicit organization switch or global single “current organization” may retarget a request.

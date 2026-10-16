@@ -688,7 +688,8 @@ export class TextDispatcher {
       // A removed file is left out; its message keeps the other parts.
       const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,parts:(await Promise.all(message.parts.map(async (part,index)=>{
         if(part.kind==='text')return part
-        if(part.kind==='removed')return null
+        // Kip message and answer markers add no content; the message's own text and files carry it.
+        if(part.kind==='removed'||part.kind==='kip-message'||part.kind==='kip-answer')return null
         if(part.kind==='document')return {kind:'text' as const,text:await documentInput(this.runtime.db,part.documentId,part.revision)}
         const file=await this.runtime.artifacts.inputForExecution(context.actor,part.artifactId,{installationId:context.actor.installationId,callerId:context.actor.personId,context:context.context,chatId:context.chatId,threadId:context.threadId})
         const derived=part.purpose==='voice_note'?(await this.runtime.db.query<{status:string;transcript:string|null;provider_id:string|null;failure:string|null}>(`SELECT status,transcript,provider_id,failure FROM kipster.voice_preparations WHERE message_id=$1 AND ordinal=$2`,[message.messageId,index])).rows[0]:undefined

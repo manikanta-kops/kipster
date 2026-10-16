@@ -17,7 +17,19 @@ export const filePart = object({ kind: literal('file'), artifactId: id, purpose:
 export type TextPart = Infer<typeof textPart> | Infer<typeof filePart>
 /** A file that was removed with its owner, such as a permanently deleted agent. Messages never submit it. */
 export const removedPart = object({ kind: literal('removed'), artifactId: id })
-const messagePart = union(textPart, filePart, removedPart, documentPart)
+/**
+ * Marks the message a kip sent to another kip from this thread; the message also carries the text and files sent.
+ * `threadId` and `chatId` name the linked thread in the recipient's chat. Messages never submit it.
+ */
+export const kipMessagePart = object({ kind: literal('kip-message'), recipientId: id, threadId: id, chatId: id }, false)
+export type KipMessagePart = Infer<typeof kipMessagePart>
+/**
+ * Marks a kip's answer posted into the thread its message came from, authored by the answering kip with its final
+ * text and files; failure, stop and removal answers use it too. `threadId` and `chatId` name the linked thread.
+ */
+export const kipAnswerPart = object({ kind: literal('kip-answer'), agentId: id, threadId: id, chatId: id }, false)
+export type KipAnswerPart = Infer<typeof kipAnswerPart>
+const messagePart = union(textPart, filePart, removedPart, documentPart, kipMessagePart, kipAnswerPart)
 export type MessagePart = Infer<typeof messagePart>
 const partList = array(union(textPart, filePart))
 const parts: Schema<Infer<typeof partList>> = { describe: () => ({ ...partList.describe(), min: 1, max: 32 }), parse(value: unknown, path = '$') {
@@ -56,7 +68,16 @@ export const cancelDelivery = union(literal('none'),literal('requested'),literal
 export const workSummary = object({ runId: id, attemptId: nullable(id), state: workState, queueHold: boolean(), cancelDelivery, revision: integer() }, false)
 export const queueEntry = object({ id, threadId: id, messageId: id, acceptanceOrder: integer(), state: union(literal('preparing'), literal('queued'), literal('held'), literal('consumed'), literal('cancelled')), revision: integer() }, false)
 export const snapshot = object({ version: literal(1), scope: streamScope, cursor: id, messages: array(message), work: array(workSummary), queue: array(queueEntry), next: nullable(id) }, false)
-export const appThreadSummary = object({ threadId: id, chatId: id, contextKind: union(literal('installation'), literal('organization')), contextId: id, agentId: id, revision: integer(), state: string(), lastMessageId: id, createdAt: utcTimestamp() }, false)
+/** The thread a linked thread's messages come from: `agentId` is the sending kip, `title` the source thread's title. */
+export const threadLinkedFrom = object({ threadId: id, chatId: id, agentId: id, title: string() }, false)
+export type ThreadLinkedFrom = Infer<typeof threadLinkedFrom>
+/** A kip this thread has messaged and its linked thread; `waiting` while a message sent from here has no answer yet. */
+export const threadLink = object({ agentId: id, threadId: id, chatId: id, waiting: boolean() }, false)
+export type ThreadLink = Infer<typeof threadLink>
+/** `startedBy` is the author of the thread's first message, the person or a kip. */
+export const appThreadSummary = object({ threadId: id, chatId: id, contextKind: union(literal('installation'), literal('organization')), contextId: id, agentId: id, revision: integer(), state: string(), lastMessageId: id, createdAt: utcTimestamp(),
+  startedBy: optional(id), linkedFrom: optional(threadLinkedFrom), links: optional(array(threadLink)) }, false)
+export type AppThreadSummary = Infer<typeof appThreadSummary>
 export const interactionState = union(literal('pending'), literal('settled'), literal('cancelled'), literal('superseded'))
 /**
  * An interaction notification carries its interaction's current state; each change takes the next revision.
@@ -90,7 +111,10 @@ export const interactionAnswer = union(
   object({kind:literal('decline'),comment:optional(string())}),
 )
 export const threadInteraction = object({ id, version:literal(1), runId:id, attemptId:id, kind:union(literal('question'),literal('approval')), proposalId:optional(id), proposal:optional(nonempty()), prompt:string(), options:array(object({id,label:nonempty()})), freeText:boolean(), grant:optional(approvalGrant), state:interactionState, revision:integer(), sourceAgentId:optional(id), response:optional(object({operationId:id,actorId:id,answer:interactionAnswer,acceptedAt:utcTimestamp()})) }, false)
-/** `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted. */
+/**
+ * Deprecated by kip messaging (decision record 11): clients ignore it and `delegation-changed`.
+ * `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted.
+ */
 export const threadDelegation = object({id,parentRunId:nullable(id),childRunId:nullable(id),senderAgentId:id,recipientAgentId:id,originThreadId:id,depth:integer(),ordinal:integer(),request:string(),state:union(literal('queued'),literal('running'),literal('waiting'),literal('completed'),literal('failed'),literal('cancelled'),literal('recovery-needed')),failure:optional(string()),revision:integer()},false)
 export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:array(threadDelegation), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
 export type AppSnapshot = Infer<typeof appSnapshot>

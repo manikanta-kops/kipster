@@ -179,7 +179,6 @@ test('bootstrap, directory and seeded snapshots conform to public schemas', asyn
   const kinds = new Set()
   let files = 0
   let voices = 0
-  let delegations = 0
   for (const thread of app.threads) {
     const snapshot = await json(
       `/v1/threads/${thread.threadId}/snapshot`,
@@ -187,7 +186,6 @@ test('bootstrap, directory and seeded snapshots conform to public schemas', asyn
     )
     for (const work of snapshot.work) states.add(work.state)
     for (const interaction of snapshot.interactions) kinds.add(interaction.kind)
-    delegations += snapshot.delegations.length
     for (const message of snapshot.messages)
       for (const part of message.parts) {
         if (part.kind === 'file') files++
@@ -207,7 +205,114 @@ test('bootstrap, directory and seeded snapshots conform to public schemas', asyn
   ])
     assert.ok(states.has(state), state)
   assert.ok(kinds.has('question') && kinds.has('approval'))
-  assert.ok(files && voices && delegations && app.notifications.length)
+  assert.ok(files && voices && app.notifications.length)
+})
+
+test('kip messaging summary fields and message parts round-trip through Core’s schemas', async (t) => {
+  const { json, request } = harness(t)
+  const inspect = await json('/__demo/inspect')
+  const [source, linked] = inspect.threads
+  const sender = source.summary.agentId
+  const recipient = inspect.ids.engineer
+  const fields = {
+    startedBy: sender,
+    linkedFrom: {
+      threadId: source.summary.threadId,
+      chatId: source.summary.chatId,
+      agentId: sender,
+      title: 'Berlin research',
+    },
+  }
+  const links = [
+    {
+      agentId: recipient,
+      threadId: linked.summary.threadId,
+      chatId: linked.summary.chatId,
+      waiting: true,
+    },
+  ]
+  await json('/__demo/summary', undefined, 'POST', {
+    threadId: linked.summary.threadId,
+    ...fields,
+  })
+  await json('/__demo/summary', undefined, 'POST', {
+    threadId: source.summary.threadId,
+    links,
+  })
+  const invalid = await request('/__demo/summary', 'POST', {
+    threadId: source.summary.threadId,
+    links: [{ agentId: recipient }],
+  })
+  assert.equal(invalid.ok, false)
+  const app = await json('/v1/app/snapshot', protocol.appSnapshot)
+  const summary = (threadId) =>
+    app.threads.find((thread) => thread.threadId === threadId)
+  assert.deepEqual(
+    {
+      startedBy: summary(linked.summary.threadId).startedBy,
+      linkedFrom: summary(linked.summary.threadId).linkedFrom,
+    },
+    fields,
+  )
+  assert.deepEqual(summary(source.summary.threadId).links, links)
+  const sent = {
+    kind: 'kip-message',
+    recipientId: recipient,
+    threadId: linked.summary.threadId,
+    chatId: linked.summary.chatId,
+  }
+  const answer = {
+    kind: 'kip-answer',
+    agentId: recipient,
+    threadId: linked.summary.threadId,
+    chatId: linked.summary.chatId,
+  }
+  const message = (authorId, parts, position) => ({
+    id: randomUUID(),
+    threadId: source.summary.threadId,
+    authorId,
+    createdAt: new Date().toISOString(),
+    position,
+    revision: 1,
+    final: true,
+    parts,
+  })
+  const base = source.messages.length
+  const messages = [
+    message(
+      sender,
+      [{ kind: 'text', text: 'Which plans are confirmed?' }, sent],
+      base + 1,
+    ),
+    message(
+      recipient,
+      [{ kind: 'text', text: 'Berlin and Lisbon.' }, answer],
+      base + 2,
+    ),
+  ]
+  for (const item of messages)
+    await json('/__demo/message', undefined, 'POST', {
+      threadId: source.summary.threadId,
+      message: item,
+    })
+  const path = `/v1/threads/${source.summary.threadId}`
+  const snapshot = await json(`${path}/snapshot`, protocol.threadSnapshot)
+  for (const item of messages)
+    assert.deepEqual(
+      snapshot.messages.find((m) => m.id === item.id).parts,
+      item.parts,
+    )
+  const events = await replay(
+    await request(`${path}/events?after=t:${source.summary.threadId}:0`),
+    snapshot.cursor,
+  )
+  assert.deepEqual(
+    events
+      .filter((event) => event.type === 'message-final')
+      .flatMap((event) => event.data.parts)
+      .filter((part) => part.kind.startsWith('kip-')),
+    [sent, answer],
+  )
 })
 
 test('submissions and receipts are idempotent and scoped; history has no invented route', async (t) => {
@@ -1232,7 +1337,6 @@ test('all seed event families validate and expired cursors explicitly resynchron
     'message-final',
     'work-changed',
     'interaction-changed',
-    'delegation-changed',
   ])
     assert.ok(kinds.has(type), type)
   await json(
@@ -1459,7 +1563,7 @@ test('the fake handler serves only its exact demo origin', async (t) => {
   }
 })
 
-test('agent deletion preserves or removes shared file references and never revives cancelled delegation', async (t) => {
+test('agent deletion preserves or removes shared file references', async (t) => {
   for (const copyFilesToOrganizations of [true, false]) {
     await t.test(`copy files: ${copyFilesToOrganizations}`, async (t) => {
       const { json, request } = harness(t)
@@ -1468,7 +1572,6 @@ test('agent deletion preserves or removes shared file references and never reviv
       const agentId = inspect.ids.engineer
       const app = await json('/v1/app/snapshot', protocol.appSnapshot)
       let selected
-      let delegated
       for (const summary of app.threads.filter(
         (summary) => summary.agentId !== agentId,
       )) {
@@ -1476,14 +1579,6 @@ test('agent deletion preserves or removes shared file references and never reviv
           `/v1/threads/${summary.threadId}/snapshot`,
           protocol.threadSnapshot,
         )
-        if (
-          snapshot.delegations.some(
-            (delegation) =>
-              delegation.recipientAgentId === agentId &&
-              delegation.state === 'running',
-          )
-        )
-          delegated = summary
         const target = {
           installationId: bootstrap.installationId,
           callerId: bootstrap.callerId,
@@ -1513,7 +1608,6 @@ test('agent deletion preserves or removes shared file references and never reviv
         selected,
         'a generated personal file is shared in a surviving thread',
       )
-      assert.ok(delegated, 'the agent has an active delegated child')
       const original = await request(
         `/conversations/media/artifacts/${selected.artifact.id}/content${selected.suffix}`,
       )
@@ -1523,15 +1617,6 @@ test('agent deletion preserves or removes shared file references and never reviv
         protocol.agentResult,
         'POST',
         op(),
-      )
-      const delegatedSnapshot = await json(
-        `/v1/threads/${delegated.threadId}/snapshot`,
-        protocol.threadSnapshot,
-      )
-      assert.ok(
-        delegatedSnapshot.delegations
-          .filter((item) => item.recipientAgentId === agentId)
-          .every((item) => item.state === 'cancelled'),
       )
       const deletion = op({ copyFilesToOrganizations })
       await json(
@@ -1585,19 +1670,6 @@ test('agent deletion preserves or removes shared file references and never reviv
       )
       assert.equal(missing.status, 404)
       protocol.stableError.parse(await missing.json())
-      await json('/__demo/advance', undefined, 'POST', {
-        threadId: delegated.threadId,
-        steps: 5,
-      })
-      const after = await json(
-        `/v1/threads/${delegated.threadId}/snapshot`,
-        protocol.threadSnapshot,
-      )
-      assert.ok(
-        after.delegations
-          .filter((item) => item.recipientAgentId === agentId)
-          .every((item) => item.state === 'cancelled'),
-      )
     })
   }
 })

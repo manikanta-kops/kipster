@@ -1,3 +1,4 @@
+import * as protocol from '@kipster/core/protocol'
 import { CoreSettingsClient } from '../src/data/core-settings.js'
 import { expect, test } from '@playwright/test'
 import {
@@ -75,12 +76,11 @@ test('pages skip malformed items and still require the lists used by the UI', ()
     messages: [message, { ...message, parts: null }],
     work: [work, { ...work, queuePosition: null }],
     interactions: [],
-    delegations: [],
     next: null,
   }
   expect(parseThreadPage(thread).messages).toEqual([message])
   expect(parseThreadPage(thread).work).toEqual([work])
-  expect(() => parseThreadPage({ ...thread, delegations: undefined })).toThrow(
+  expect(() => parseThreadPage({ ...thread, interactions: undefined })).toThrow(
     TextHttpError,
   )
 })
@@ -228,7 +228,6 @@ test('voice preparation is parsed as derived status beside the original part', (
       messages: [voice],
       work: [],
       interactions: [],
-      delegations: [],
       next: null,
     }).messages[0].preparation?.[0].status,
   ).toBe('unavailable')
@@ -240,68 +239,88 @@ test('voice preparation is parsed as derived status beside the original part', (
   ).toBe('future-status')
 })
 
-test('collaboration stream exposes activity and source of a routed question without child result', () => {
-  const delegation = {
-    id: 'delegation',
-    parentRunId: 'run',
-    childRunId: 'child',
-    senderAgentId: 'agent-a',
-    recipientAgentId: 'agent-b',
-    originThreadId: 'thread',
-    depth: 1,
-    ordinal: 1,
-    request: 'Review risk',
-    state: 'completed',
-    revision: 3,
+test('kip messaging summaries and message parts parse through Core’s schemas and the client keeps them', () => {
+  const linked = {
+    ...summary,
+    startedBy: 'agent-a',
+    linkedFrom: {
+      threadId: 'source',
+      chatId: 'source-chat',
+      agentId: 'agent-a',
+      title: 'Berlin research',
+    },
   }
-  const card = {
-    id: 'question',
-    version: 1,
-    runId: 'child',
-    attemptId: 'child-attempt',
-    kind: 'question',
-    prompt: 'Which market?',
-    options: [{ id: 'eu', label: 'Europe' }],
-    freeText: false,
-    state: 'pending',
-    revision: 1,
-    sourceAgentId: 'agent-b',
+  const source = {
+    ...summary,
+    threadId: 'source',
+    startedBy: 'caller',
+    links: [
+      { agentId: 'agent-b', threadId: 'thread', chatId: 'chat', waiting: true },
+    ],
   }
-  const page = parseThreadPage({
+  const sent = {
+    ...message,
+    authorId: 'agent-a',
+    parts: [
+      { kind: 'text', text: 'Which plans are confirmed?' },
+      {
+        kind: 'kip-message',
+        recipientId: 'agent-b',
+        threadId: 'thread',
+        chatId: 'chat',
+      },
+    ],
+  }
+  const answer = {
+    ...message,
+    id: 'answer',
+    authorId: 'agent-b',
+    position: 2,
+    parts: [
+      { kind: 'text', text: 'Berlin and Lisbon.' },
+      {
+        kind: 'kip-answer',
+        agentId: 'agent-b',
+        threadId: 'thread',
+        chatId: 'chat',
+      },
+    ],
+  }
+  for (const value of [linked, source])
+    expect(protocol.appThreadSummary.parse(value)).toEqual(value)
+  for (const value of [sent, answer])
+    expect(
+      protocol.threadMessage.parse({
+        ...value,
+        createdAt: '2026-09-23T00:00:00.000Z',
+      }).parts,
+    ).toEqual(value.parts)
+  const app = parseAppPage({
     version: 1,
-    scope: { kind: 'thread', ...scope, threadId: 'thread' },
-    cursor: 't:thread:2',
-    messages: [message],
-    work: [work],
-    interactions: [card],
-    delegations: [delegation],
+    scope: { kind: 'application', ...scope },
+    cursor: 'cursor',
+    threads: [linked, source],
+    notifications: [],
     next: null,
   })
-  expect(page.delegations[0].recipientAgentId).toBe('agent-b')
-  expect(page.interactions[0].sourceAgentId).toBe('agent-b')
-  const activity = parseWireEvent(
-    {
-      ...envelope('delegation-changed', delegation, 'delegation'),
-      cursor: 't:thread:2',
-      scope: { kind: 'thread', ...scope, threadId: 'thread' },
-      revision: 3,
-    },
-    scope,
-    'thread',
-  )
-  expect(activity.type).toBe('delegation-changed')
+  expect(app.threads).toEqual([linked, source])
+  const page = parseThreadPage({
+    version: 1,
+    scope: { kind: 'thread', ...scope, threadId: 'source' },
+    cursor: 't:source:2',
+    messages: [sent, answer],
+    work: [],
+    interactions: [],
+    next: null,
+  })
+  expect(page.messages.map((m) => m.parts)).toEqual([sent.parts, answer.parts])
+  // A marker missing its thread is dropped; the message keeps its text.
   expect(
-    parseThreadPage({
-      version: 2,
-      scope: { kind: 'thread', ...scope, threadId: 'thread' },
-      cursor: 't:thread:2',
-      messages: [],
-      work: [],
-      interactions: [],
-      delegations: [{ ...delegation, result: 'additional data' }],
-      next: null,
-    }).delegations[0],
-  ).toMatchObject(delegation)
+    parseMessage({
+      ...answer,
+      parts: [answer.parts[0], { kind: 'kip-answer', agentId: 'agent-b' }],
+    }).parts,
+  ).toEqual([answer.parts[0]])
 })
 
 test('voice preparation tolerates unusual values without imposing Core rules', () => {
