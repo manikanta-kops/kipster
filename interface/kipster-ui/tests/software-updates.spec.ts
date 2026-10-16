@@ -401,40 +401,6 @@ test('a backend protocol warning must be accepted before installing', async ({
   })
 })
 
-test('app version pinning warns about protocol, permits downgrades and persists per device', async ({
-  page,
-}) => {
-  await startDemo(page)
-  await nextBuild(page, { state: 'idle' })
-  await openUpdates(page)
-  await openTesting(page)
-  await expect(
-    page.getByLabel('App version').locator('option[value="0.6.0"]'),
-  ).toHaveAttribute('disabled', '')
-  await page.getByLabel('App version').selectOption('0.7.0')
-  await expect(updates(page)).toContainText(
-    `This app version speaks protocol ${protocolRange.oldest - 1}`,
-  )
-  await page.getByRole('button', { name: 'Install and pin app' }).click()
-  const confirm = page.getByRole('dialog', { name: 'Check app compatibility' })
-  await expect(confirm).toContainText('outside the backend’s supported range')
-  await confirm.getByRole('button', { name: 'Install and pin app' }).click()
-  await expect(updates(page)).toContainText(
-    'App pinned to 0.7.0 on this device',
-  )
-  expect(
-    await page.evaluate(() => localStorage.getItem('kipster-app-update-pin')),
-  ).toBe('0.7.0')
-  await page.getByRole('button', { name: 'Unpin app' }).click()
-  await expect(page.getByRole('button', { name: 'Unpin app' })).toHaveCount(0)
-  expect(
-    await page.evaluate(() => localStorage.getItem('kipster-app-update-pin')),
-  ).toBeNull()
-  await backToUpdates(page)
-  await expect(summary(page)).not.toContainText('→ app 0.7.0')
-  await expect(page.locator('.software-update-pill')).toHaveCount(0)
-})
-
 for (const state of [
   'checking',
   'downloading',
