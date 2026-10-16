@@ -67,14 +67,15 @@ const plugins = [
 ]
 
 const day = { type: 'string', description: 'ISO date (a whole day) or date and time.' }
+const readThread = (what: string) => tool('read_thread', `${what}, by position, a bounded page at a time; nextPosition continues the page.`,
+  { threadId: text, fromPosition: { type: 'integer', minimum: 1 }, toPosition: { type: 'integer', minimum: 1 } }, ['threadId'])
 const memory = (admin: boolean) => {
   const agent = admin ? { agent: { type: 'string', description: 'The kip whose memory to read. Without it you read every kip\'s.' } } : {}
   return [
     tool('search_memory', 'Meaning search over the memory you may see: cards about the user, conversation chunks of threads before last night, and diary pages. Optional from and to limit it to a date range. Returns whole items with their thread IDs and dates, or an unavailable status.',
       { query: text, from: day, to: day, ...agent }, ['query']),
     tool('list_recent_threads', 'List threads with messages since last night that search cannot find yet, each with its ID, time and first line.', { ...agent }),
-    tool('read_thread', 'Read a thread\'s messages by position, a bounded page at a time; nextPosition continues the page.',
-      { threadId: text, fromPosition: { type: 'integer', minimum: 1 }, toPosition: { type: 'integer', minimum: 1 } }, ['threadId']),
+    readThread('Read a thread\'s messages'),
     tool('save_memory', 'Save a confirmed card now: one fact the user just told you in the current message. type is a short kind such as fact, preference, person, goal, commitment, event or routine; subject names who or what it is about, such as user. details holds optional structured values.',
       { statement: text, type: text, subject: text, details: { type: 'object' } }, ['statement', 'type', 'subject']),
     tool('forget_memory', 'Delete cards the user asks you to forget, by cardId or by a query matching their statement or subject. A query deletes at most 20 cards; with more matches nothing is deleted and the candidates are returned. Messages are kept.',
@@ -82,14 +83,15 @@ const memory = (admin: boolean) => {
   ]
 }
 
-/** What an execution may use, decided by Core for each run. `admin` is the admin kip, which acts in every workspace. */
-export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean; plugins?: boolean }
+/** What an execution may use, decided by Core for each run. `admin` is the admin kip, which acts in every workspace.
+ * `linked` is a linked thread, whose kip may read its source thread with memory on or off. */
+export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean; plugins?: boolean; linked?: boolean }
 
 /** The Kipster tools of one execution, in a stable order. */
 export function executionTools(scope: ToolScope): ToolDefinition[] {
   return [
     ...conversation, ...(scope.admin ? [adminCopy] : scope.organization ? [copyToOrganization] : []), ...collaboration(!!scope.admin), ...documents(!!scope.admin),
-    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
+    ...(scope.memory ? memory(!!scope.admin) : scope.linked ? [readThread('Read the conversation this linked thread\'s kip messages come from')] : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
     ...(scope.administration ? administration : []),
   ]
 }

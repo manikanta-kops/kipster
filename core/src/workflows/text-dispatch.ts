@@ -96,11 +96,11 @@ async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map
     FROM kipster.agents a WHERE a.id=ANY($1::uuid[])`, [[...new Set(ids)]])).rows
   return new Map(rows.map(row => [row.id, !row.agent ? { kind: 'person', id: row.id, name: row.name } : row.admin ? { kind: 'admin-kip', id: row.id, name: row.name } : { kind: 'kip', id: row.id, name: row.name, workspaces: row.workspaces }]))
 }
-/** For a linked thread: which kip's conversation its kip messages come from, and how to read it. */
-async function linkedThreadLine(db: Postgres, threadId: string, readable: boolean): Promise<string> {
+/** For a linked thread: which kip's conversation its kip messages come from, and how to read it; read_thread is offered there with memory on or off. */
+async function linkedThreadLine(db: Postgres, threadId: string): Promise<string> {
   const row = (await db.query<{ name: string; source_thread_id: string }>(`SELECT a.display_name AS name,l.source_thread_id FROM kipster.kip_links l JOIN kipster.agents a ON a.id=l.sender_agent_id WHERE l.linked_thread_id=$1`, [threadId])).rows[0]
   if (!row) return ''
-  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation, and your final reply to each goes back there automatically.${readable ? ' If a message lacks a detail you need, read that conversation with read_thread.' : ''} A message the person writes here is answered to the person only.`
+  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation, and your final reply to each goes back there automatically. If a message lacks a detail you need, read that conversation with read_thread. A message the person writes here is answered to the person only.`
 }
 
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
@@ -747,10 +747,10 @@ export class TextDispatcher {
       const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
       const kip = await kipFacts(this.runtime.db, context.actor.installationId, context.agentId, organizationId, runId)
       const plugins = await this.runtime.pluginTools?.connected()
-      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length })
+      const linked = await linkedThreadLine(this.runtime.db, context.threadId)
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length, linked: !!linked })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const linked = await linkedThreadLine(this.runtime.db, context.threadId, memory !== null)
       const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), linked, memory ? memoryGuidance : '', plugins ? pluginGuidance(plugins) : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
@@ -1086,9 +1086,11 @@ export class TextDispatcher {
       await client.query('UPDATE kipster.text_runs SET state=$2,queue_hold=$3,failure=$4,retry_continue_generation=$5,cancel_delivery=CASE WHEN stop_requested THEN $6 ELSE cancel_delivery END,revision=revision+1 WHERE id=$1', [attempt.intentId, nextState, releaseRetryHold ? false : row.queue_hold || !['completed','queued','waiting'].includes(nextState), failure, releaseRetryHold || ['failed','cancelled','recovery-needed'].includes(nextState) ? null : row.retry_continue_generation,uncertain?'uncertain':'confirmed-ended'])
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])
       await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, 'work-changed', attempt.intentId, await workRevision(client, attempt.intentId), await workRecord(client, attempt.intentId), nextState, null)
-      // A kip's finished turn is its answer, which notifies nobody; its failures notify as any other.
-      const kipRun = (await client.query<{ trigger_kind: string }>('SELECT trigger_kind FROM kipster.text_runs WHERE id=$1', [attempt.intentId])).rows[0]!.trigger_kind === 'kip'
-      if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState) && !(kipRun && nextState === 'completed')) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
+      // A kip's finished turn is its answer, which notifies nobody, and so does a turn an answer woke that ends without a
+      // message in its thread; their failures notify as any other.
+      const silent = (await client.query<{ silent: boolean }>(`SELECT r.trigger_kind='kip' OR (r.trigger_kind='answer' AND NOT EXISTS (SELECT 1 FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id WHERE a.intent_id=r.id)) AS silent
+        FROM kipster.text_runs r WHERE r.id=$1`, [attempt.intentId])).rows[0]!.silent
+      if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState) && !(silent && nextState === 'completed')) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
       if (nextState === 'queued') await this.runtime.jobs.send(client, attempt.intentId)
       const end = kipRunEnd(nextState, failure)
       if (end) await answerKipRun(client, this.runtime.jobs, attempt.intentId, end)
