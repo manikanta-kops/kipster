@@ -27,6 +27,7 @@ export const scenarios = [
   'voice',
   'updates',
   'plugins',
+  'kip-messaging',
 ]
 
 export async function drive(name, { page, expect, origin, evidenceDir }) {
@@ -53,13 +54,17 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       .getByRole('button', { name: category, exact: true })
       .click()
   }
-  const createKip = async () => {
-    const kip = unique('Factory Scout')
+  const createKip = async (label = 'Factory Scout', organization) => {
+    const kip = unique(label)
     await management('Kips')
     await page
       .getByRole('button', { name: 'Create new kip', exact: true })
       .click()
     await page.getByLabel('Name', { exact: true }).fill(kip)
+    if (organization)
+      await page
+        .getByRole('checkbox', { name: `Add to ${organization}`, exact: true })
+        .check()
     await page.getByRole('button', { name: 'Save', exact: true }).click()
     await expect
       .poll(async () =>
@@ -937,6 +942,347 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
         { id: first.id, label: first.label, isDefault: true },
       ])
       await shot('disconnect')
+      break
+    }
+    case 'kip-messaging': {
+      // Decision record 11, scenarios 1, 2 and 7 and the silent end, on both
+      // sides of each conversation. `__message_kip__` sends a kip message,
+      // `__slow__` delays the answer, `__question__` asks the person and
+      // `__silent__` ends the woken sender's turn without a message.
+      const bootstrap = await get('/v1/bootstrap')
+      const directory = await get('/v1/directory')
+      const you = bootstrap.callerId
+      const adminId = bootstrap.rootAgentId
+      const admin = directory.agents.find((agent) => agent.id === adminId).name
+      const garden = directory.organizations.find(
+        (org) => org.id === bootstrap.organizationId,
+      )
+      const kips = page.getByRole('navigation', { name: 'Kips' })
+      const openAdmin = () =>
+        page.locator('.installation-agents button').first().click()
+      await page
+        .getByRole('combobox', { name: 'Organization' })
+        .selectOption({ label: garden.name })
+      const planner = await createKip('Planner', garden.name)
+      await closeManagement()
+      const plannerId = (await get('/v1/directory')).agents.find(
+        (agent) => agent.name === planner,
+      ).id
+      await expect
+        .poll(async () =>
+          (await get('/v1/directory')).memberships.some(
+            (m) => m.agentId === plannerId && m.organizationId === garden.id,
+          ),
+        )
+        .toBe(true)
+
+      const id = crypto.randomUUID().slice(0, 8)
+      const slow = { timeout: 45000 }
+      const pane = page.locator('.thread-pane')
+      // The open thread once a switch has finished: the one pane showing `text`.
+      const showing = async (text) => {
+        await expect(pane.filter({ hasText: text })).toBeVisible(slow)
+        await expect(pane).toHaveCount(1)
+      }
+      // Opens a thread through a link, retrying while the app learns of it.
+      const follow = (button, text) =>
+        expect(async () => {
+          if (!(await pane.filter({ hasText: text }).count()))
+            await pane
+              .getByRole('button', button)
+              .first()
+              .click({ timeout: 2000 })
+          await expect(pane.filter({ hasText: text })).toBeVisible({
+            timeout: 2000,
+          })
+        }).toPass(slow)
+      const answerCard = (from) =>
+        pane.locator('.message-body').filter({
+          has: page.getByRole('button', {
+            name: `Answer from ${from}’s thread`,
+            exact: true,
+          }),
+        })
+      const shot = (name) =>
+        page.screenshot({ path: `${evidenceDir}/${name}.png`, fullPage: true })
+      const part = (message, kind) =>
+        message.parts.find((item) => item.kind === kind)
+      const textOf = (message) =>
+        message.parts
+          .filter((item) => item.kind === 'text')
+          .map((item) => item.text)
+          .join('\n')
+      // Core's messages of a thread in order, as [author, text].
+      const thread = async (threadId) =>
+        (await get(`/v1/threads/${threadId}/snapshot`)).messages.sort(
+          (a, b) => a.position - b.position,
+        )
+      const said = (messages) =>
+        messages.map((message) => [message.authorId, textOf(message)])
+      // A thread's summary, read from the application snapshot page by page.
+      const summary = async (threadId) => {
+        const first = await get('/v1/app/snapshot')
+        for (let current = first; ;) {
+          const found = current.threads.find((t) => t.threadId === threadId)
+          if (found || !current.next) return found
+          const query = new URLSearchParams({ at: first.cursor })
+          for (const [key, value] of Object.entries(current.next))
+            if (value) query.set(key, value)
+          current = await get(`/v1/app/snapshot?${query}`)
+        }
+      }
+      const linkedOf = async (threadId) =>
+        part(
+          (await thread(threadId)).find((m) => part(m, 'kip-message')),
+          'kip-message',
+        ).threadId
+      const details = { admin, planner, plannerId }
+
+      // 1. You ask the admin kip; it messages Planner, its turn ends and the
+      // thread waits for Planner's answer, which wakes it to reply to you.
+      await openAdmin()
+      const s1Body = `__slow__ Which trip plans are confirmed? ${id}`
+      const s1Text = `__message_kip__ ${planner}: ${s1Body}`
+      const s1 = await root(s1Text)
+      await showing(s1Text)
+      await expect(
+        pane.getByRole('region', { name: `Sent to ${planner}`, exact: true }),
+      ).toContainText(s1Body)
+      await expect(
+        pane.getByText(`Fixture sent a message to ${planner}`, { exact: true }),
+      ).toBeVisible()
+      await expect(pane.locator('.kip-waiting')).toContainText(
+        `Waiting for ${planner}`,
+      )
+      expect((await summary(s1.threadId)).links).toEqual([
+        expect.objectContaining({ agentId: plannerId, waiting: true }),
+      ])
+      await shot('s1-sender-waiting')
+      await follow(
+        { name: `Open in ${planner}’s chat`, exact: true },
+        `${admin} started this thread from`,
+      )
+      await expect(pane).toHaveCount(1)
+      await expect(
+        pane.getByText(`Fixture reply: ${s1Body}`, { exact: true }),
+      ).toBeVisible(slow)
+      await expect(
+        page.locator('.feed-message').filter({ hasText: s1Body }),
+      ).toContainText('Kip message')
+      await shot('s1-recipient')
+      await follow({ name: /^Sent from “/ }, s1Text)
+      await expect(pane).toHaveCount(1)
+      await expect(answerCard(planner)).toContainText(
+        `Fixture reply: ${s1Body}`,
+        slow,
+      )
+      await expect(
+        pane.getByText(`Fixture reply: Fixture reply: ${s1Body}`, {
+          exact: true,
+        }),
+      ).toBeVisible(slow)
+      await expect(pane.locator('.kip-waiting')).toHaveCount(0)
+      await shot('s1-sender')
+      const s1Linked = await linkedOf(s1.threadId)
+      expect(said(await thread(s1.threadId))).toEqual([
+        [you, s1Text],
+        [adminId, s1Body],
+        [adminId, `Fixture sent a message to ${planner}`],
+        [plannerId, `Fixture reply: ${s1Body}`],
+        [adminId, `Fixture reply: Fixture reply: ${s1Body}`],
+      ])
+      expect(part((await thread(s1.threadId))[3], 'kip-answer')).toMatchObject({
+        agentId: plannerId,
+        threadId: s1Linked,
+      })
+      expect(said(await thread(s1Linked))).toEqual([
+        [adminId, s1Body],
+        [plannerId, `Fixture reply: ${s1Body}`],
+      ])
+      expect(await summary(s1Linked)).toMatchObject({
+        agentId: plannerId,
+        contextKind: 'organization',
+        contextId: garden.id,
+        startedBy: adminId,
+        linkedFrom: { threadId: s1.threadId, agentId: adminId },
+      })
+      expect((await summary(s1.threadId)).links).toEqual([
+        expect.objectContaining({
+          agentId: plannerId,
+          threadId: s1Linked,
+          waiting: false,
+        }),
+      ])
+      details.s1 = { threadId: s1.threadId, linkedThreadId: s1Linked }
+
+      // 2. In Planner's thread you ask for the admin kip's feedback and keep
+      // chatting; the answer lands after your messages and wakes Planner.
+      await kips.getByRole('button', { name: planner, exact: true }).click()
+      const s2Body = `__slow__ Feedback on the Berlin trip plan? ${id}`
+      const s2Text = `__message_kip__ ${admin}: ${s2Body}`
+      const s2 = await root(s2Text)
+      await showing(s2Text)
+      await expect(
+        pane.getByText(`Fixture sent a message to ${admin}`, { exact: true }),
+      ).toBeVisible()
+      const followup = `__slow__ Which train do we take? ${id}`
+      await page
+        .getByRole('textbox', { name: 'Reply in this thread' })
+        .fill(followup)
+      await page.getByRole('button', { name: 'Send message' }).last().click()
+      await expect(
+        pane.getByText(`Fixture reply: ${followup}`, { exact: true }),
+      ).toBeVisible(slow)
+      await expect(answerCard(admin)).toContainText(
+        `Fixture reply: ${s2Body}`,
+        slow,
+      )
+      await expect(
+        pane.getByText(`Fixture reply: Fixture reply: ${s2Body}`, {
+          exact: true,
+        }),
+      ).toBeVisible(slow)
+      await shot('s2-sender')
+      const s2Messages = await thread(s2.threadId)
+      const s2Said = said(s2Messages)
+      const at = (author, text) =>
+        s2Said.findIndex(([who, what]) => who === author && what === text)
+      const order = [
+        at(you, s2Text),
+        at(plannerId, s2Body),
+        at(plannerId, `Fixture sent a message to ${admin}`),
+        at(you, followup),
+        at(adminId, `Fixture reply: ${s2Body}`),
+        at(plannerId, `Fixture reply: Fixture reply: ${s2Body}`),
+      ]
+      expect(order.every((index) => index >= 0)).toBe(true)
+      expect(order).toEqual([...order].sort((a, b) => a - b))
+      expect(s2Messages).toHaveLength(7)
+      const s2Answer = s2Messages[order[4]]
+      const s2Linked = await linkedOf(s2.threadId)
+      expect(part(s2Answer, 'kip-answer')).toMatchObject({
+        agentId: adminId,
+        threadId: s2Linked,
+      })
+      // The answer's turn comes after your follow-up's turn in the queue.
+      const s2Work = (await snapshot(s2)).work
+      const turn = (message) =>
+        s2Work.find((work) => work.messageId === message.id)
+      expect(turn(s2Answer).state).toBe('completed')
+      expect(turn(s2Answer).queuePosition).toBeGreaterThan(
+        turn(s2Messages[order[3]]).queuePosition,
+      )
+      details.s2 = {
+        threadId: s2.threadId,
+        linkedThreadId: s2Linked,
+        // Whether the answer arrived while Planner still worked on your follow-up.
+        answerQueuedBehindRunningTurn:
+          order[4] < at(plannerId, `Fixture reply: ${followup}`),
+      }
+      await follow(
+        { name: `Open in ${admin}’s chat`, exact: true },
+        `${planner} started this thread from`,
+      )
+      await expect(pane).toHaveCount(1)
+      await expect(
+        pane.getByText(`Fixture reply: ${s2Body}`, { exact: true }),
+      ).toBeVisible()
+      await shot('s2-recipient')
+      expect(said(await thread(s2Linked))).toEqual([
+        [plannerId, s2Body],
+        [adminId, `Fixture reply: ${s2Body}`],
+      ])
+      expect(await summary(s2Linked)).toMatchObject({
+        agentId: adminId,
+        contextKind: 'installation',
+        startedBy: plannerId,
+        linkedFrom: { threadId: s2.threadId, agentId: plannerId },
+      })
+
+      // 7. Planner, working for the admin kip, asks you in the linked thread;
+      // you answer there and Planner's answer goes back to the admin kip.
+      await openAdmin()
+      const s7Body = `__question__ Book the hotel for the Berlin trip? ${id}`
+      const s7Text = `__message_kip__ ${planner}: ${s7Body}`
+      const s7 = await root(s7Text)
+      await showing(s7Text)
+      await expect(
+        pane.getByRole('region', { name: `Sent to ${planner}`, exact: true }),
+      ).toContainText(s7Body)
+      await expect(pane.locator('.kip-waiting')).toContainText(
+        `Waiting for ${planner}`,
+      )
+      await follow(
+        { name: `Open in ${planner}’s chat`, exact: true },
+        `${admin} started this thread from`,
+      )
+      await expect(pane).toHaveCount(1)
+      await expect(
+        pane.getByText('Choose a color', { exact: true }),
+      ).toBeVisible(slow)
+      await expect(pane.getByText('Needs your answer').first()).toBeVisible()
+      await expect(
+        kips.getByRole('button', { name: planner, exact: true }),
+      ).toHaveAttribute('data-mark', 'needs')
+      await shot('s7-recipient-question')
+      await pane.getByRole('radio', { name: 'Blue', exact: true }).check()
+      await pane
+        .getByRole('button', { name: 'Send answer', exact: true })
+        .click()
+      await expect(pane.getByText(/^Fixture resumed:/)).toBeVisible(slow)
+      await shot('s7-recipient')
+      const s7Linked = await linkedOf(s7.threadId)
+      const s7Recipient = await get(`/v1/threads/${s7Linked}/snapshot`)
+      expect(s7Recipient.interactions).toEqual([
+        expect.objectContaining({ kind: 'question', state: 'settled' }),
+      ])
+      const resumed = textOf(
+        (await thread(s7Linked)).filter((m) => m.authorId === plannerId).at(-1),
+      )
+      expect(resumed).toMatch(/^Fixture resumed:/)
+      await follow({ name: /^Sent from “/ }, s7Text)
+      await expect(pane).toHaveCount(1)
+      await expect(answerCard(planner)).toContainText(resumed, slow)
+      await expect(
+        pane.getByText(`Fixture reply: ${resumed}`, { exact: true }),
+      ).toBeVisible(slow)
+      await shot('s7-sender')
+      expect(said(await thread(s7.threadId))).toEqual([
+        [you, s7Text],
+        [adminId, s7Body],
+        [adminId, `Fixture sent a message to ${planner}`],
+        [plannerId, resumed],
+        [adminId, `Fixture reply: ${resumed}`],
+      ])
+      details.s7 = { threadId: s7.threadId, linkedThreadId: s7Linked }
+
+      // The silent end: Planner's answer repeats `__silent__`, which wakes the
+      // admin kip; it has nothing to add and Core saves no message.
+      await openAdmin()
+      const quietBody = `__silent__ The Berlin budget is approved ${id}`
+      const quietText = `__message_kip__ ${planner}: ${quietBody}`
+      const quiet = await root(quietText)
+      await showing(quietText)
+      await expect(answerCard(planner)).toContainText(quietBody, slow)
+      await expect
+        .poll(async () => {
+          const saved = await snapshot(quiet)
+          const answer = saved.messages.find((m) => part(m, 'kip-answer'))
+          return answer && saved.work.find((w) => w.messageId === answer.id)
+        }, slow)
+        .toMatchObject({ state: 'completed' })
+      expect(said(await thread(quiet.threadId))).toEqual([
+        [you, quietText],
+        [adminId, quietBody],
+        [adminId, `Fixture sent a message to ${planner}`],
+        [plannerId, quietBody],
+      ])
+      await shot('silent-sender')
+      details.silent = { threadId: quiet.threadId }
+      await writeFile(
+        `${evidenceDir}/kip-messaging-details.json`,
+        JSON.stringify(details, null, 2) + '\n',
+      )
       break
     }
     default:
