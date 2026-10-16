@@ -137,7 +137,6 @@ const inks: Record<string, [DotColor, number]> = {
   grey: ['grey', 0.8],
   sound: ['run', 0.6],
 }
-const pip = { W: 'N', S: 'n' }
 const questionMark = ['XX.', '..X', '.X.', '...', '.X.']
 const noSignal = [
   '..XXXXX..',
@@ -407,33 +406,6 @@ export const kipScenes: Record<LiveState, Scene> = {
       for (let q = 0; q < len; q++) g.px(wx + q, gy + 1, 'mark', 0.95 * fade)
     }
     g.kip(kx, k >= n ? 'stand' : walking ? walk(a, 0.1) : 'peck', { v: fade })
-  }),
-  delegating: scene(0.6, (g, _t, a) => {
-    const { gy, x0, x1 } = g,
-      xa = x0 + Math.round((x1 - x0 - 50) / 2),
-      xb = xa + 37,
-      P = 3.4,
-      ph = a % P
-    let e: number,
-      dir = 1,
-      toB = false,
-      toA = false
-    if (ph < 1.1) e = ease(ph / 1.1)
-    else if (ph < 1.7) [e, toB] = [1, true]
-    else if (ph < 2.8) [e, dir] = [1 - ease((ph - 1.7) / 1.1), -1]
-    else [e, toA] = [0, true]
-    g.kip(xa, toA ? 'peck' : 'stand')
-    g.kip(xb, toB ? 'peck' : 'stand', { flip: true, map: pip })
-    const ax = xa + 12,
-      hy = gy - 7,
-      at = (q: number) => [lerp(ax, xb, q), hy - Math.sin(Math.PI * q) * 5]
-    if (toA || toB)
-      g.px(toB ? xb - 1 : xa + 13, gy, 'run', 0.6 + 0.4 * Math.sin(a * 18))
-    else
-      for (let k = 3; k >= 0; k--) {
-        const [x, y] = at(clamp(e - dir * k * 0.05))
-        g.px(x, y, k ? 'sound' : 'run', k ? 0.6 - k * 0.14 : 1)
-      }
   }),
   question: scene(1.4, (g, _t, a) => {
     const { gy, x0, x1 } = g,

@@ -332,55 +332,6 @@ export const scenes: Record<LiveState, Scene> = {
     },
   },
 
-  delegating: {
-    still: 0.55,
-    draw(f, _time, age) {
-      const { cols: W, rows: H } = f
-      const phase = age % 3.4
-      let e = 0,
-        dir = 1,
-        arriveRight = 0,
-        arriveLeft = 0
-      if (phase < 1.1) e = smooth(phase / 1.1)
-      else if (phase < 1.7) {
-        e = 1
-        arriveRight = Math.sin((Math.PI * (phase - 1.1)) / 0.6)
-      } else if (phase < 2.8) {
-        e = 1 - smooth((phase - 1.7) / 1.1)
-        dir = -1
-      } else arriveLeft = Math.sin((Math.PI * (phase - 2.8)) / 0.6)
-      const figure = ['.#.', '###', '.#.', '#.#'],
-        top = H - 5
-      f.bitmap(figure, 1, top, 0.62 + 0.38 * arriveLeft, 'white')
-      f.bitmap(figure, W - 4, top, 0.72 + 0.28 * arriveRight, 'blue')
-      const from = 5,
-        to = W - 6
-      const at = (p: number): [number, number] => [
-        lerp(from, to, p),
-        top - Math.sin(Math.PI * p) * 3,
-      ]
-      for (let x = from; x <= to; x += 2)
-        f.dot(...at((x - from) / (to - from)), 0.1)
-      const moving = phase < 1.1 || (phase >= 1.7 && phase < 2.8)
-      if (moving)
-        for (let k = 3; k >= 0; k--)
-          f.dot(
-            ...at(clamp(e - dir * k * 0.045)),
-            k === 0 ? 1 : 0.5 - k * 0.12,
-            k === 0 ? 'run' : 'white',
-          )
-      else {
-        const [x, y] = at(e)
-        f.dot(
-          x + (e > 0.5 ? -1 : 1),
-          y - 1,
-          0.5 + 0.5 * (arriveLeft + arriveRight),
-          'run',
-        )
-      }
-    },
-  },
-
   question: {
     still: 1.2,
     draw(f, _time, age) {

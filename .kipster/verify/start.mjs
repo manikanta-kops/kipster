@@ -247,11 +247,10 @@ try {
               paths.slice(filesPerMessage),
             ],
           ]) {
-            const result = await handle.callTool(
-              callId,
-              'post_chat_message',
-              { text: message, files },
-            )
+            const result = await handle.callTool(callId, 'post_chat_message', {
+              text: message,
+              files,
+            })
             if (result.status !== 'completed') throw Error(result.reason)
           }
           reply(`Fixture sent files: ${text}`)

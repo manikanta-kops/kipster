@@ -1,7 +1,6 @@
 import { expect, startDemo, demo, DEMO_IDS as ids } from './demo.ts'
 import type { Page } from '@playwright/test'
-export type WorkScenario =
-  'question' | 'approval' | 'delegation' | 'failure' | 'running'
+export type WorkScenario = 'question' | 'approval' | 'failure' | 'running'
 export async function setupWork(
   page: Page,
   scenario: WorkScenario = 'question',

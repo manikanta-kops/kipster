@@ -3,7 +3,6 @@ import {
   parseNotice,
   parseWork,
   parseInteraction,
-  parseDelegation,
 } from '../data/text.ts'
 import type {
   Notice,
@@ -11,9 +10,12 @@ import type {
   TextMessage,
   TextWork,
   TextInteraction,
-  TextDelegation,
 } from '../data/text.ts'
-import { protocolRange } from '@kipster/core/protocol'
+import {
+  protocolRange,
+  threadLink,
+  threadLinkedFrom,
+} from '@kipster/core/protocol'
 import { createAdministration, DEMO_IDS } from './admin.ts'
 import { createFakeMedia } from './media.ts'
 import { createFakeDocuments, type DocumentPart } from './documents.ts'
@@ -38,14 +40,12 @@ export { DEMO_IDS } from './admin.ts'
 export { DEMO_ORIGIN, installFakeCoreTransport } from './transport.ts'
 
 type Chat = { id: string; context: Context; agentId: string }
-type Scenario =
-  'question' | 'approval' | 'delegation' | 'failure' | 'complete' | 'document'
+type Scenario = 'question' | 'approval' | 'failure' | 'complete' | 'document'
 type Thread = {
   summary: Summary
   messages: TextMessage[]
   work: TextWork[]
   interactions: TextInteraction[]
-  delegations: TextDelegation[]
   stages: Map<string, number>
   scenarios: Map<string, Scenario>
 }
@@ -221,43 +221,6 @@ export function createFakeCore(
           ? thread.summary.agentId === ownerId
           : thread.summary.contextKind === 'organization' &&
             thread.summary.contextId === ownerId
-      if (kind === 'agent')
-        for (const delegation of thread.delegations) {
-          if (
-            delegation.recipientAgentId !== ownerId ||
-            !active.has(delegation.state)
-          )
-            continue
-          delegation.state = 'cancelled'
-          delegation.failure =
-            action === 'archive' ? 'Agent was archived' : 'Agent was deleted'
-          delegation.revision++
-          emit(
-            'delegation-changed',
-            delegation,
-            delegation.id,
-            delegation.revision,
-            threadId,
-          )
-          settleInteractions(
-            thread,
-            'cancelled',
-            delegation.childRunId ?? undefined,
-          )
-          const parent = thread.work.find(
-            (run) => run.runId === delegation.parentRunId,
-          )
-          if (
-            parent?.state === 'waiting' &&
-            !thread.interactions.some(
-              (card) => card.runId === parent.runId && card.state === 'pending',
-            )
-          ) {
-            parent.state = 'running'
-            parent.revision++
-            changeWork(thread, parent)
-          }
-        }
       if (!affected) continue
       for (const run of thread.work.filter((run) => active.has(run.state))) {
         run.state = 'cancelled'
@@ -652,7 +615,6 @@ export function createFakeCore(
       messages: [],
       work: [],
       interactions: [],
-      delegations: [],
       stages: new Map(),
       scenarios: new Map(),
     }
@@ -703,19 +665,7 @@ export function createFakeCore(
     const run = thread.work.find(
       (run) => active.has(run.state) || run.queueHold,
     )
-    if (
-      !run ||
-      !active.has(run.state) ||
-      (run.state === 'waiting' &&
-        (thread.interactions.some(
-          (card) => card.runId === run.runId && card.state === 'pending',
-        ) ||
-          !thread.delegations.some(
-            (item) =>
-              item.parentRunId === run.runId && item.state === 'running',
-          )))
-    )
-      return
+    if (!run || !active.has(run.state) || run.state === 'waiting') return
     if (run.state === 'cancellation-requested') {
       run.state = 'cancelled'
       run.cancelDelivery = 'confirmed-ended'
@@ -777,46 +727,8 @@ export function createFakeCore(
         run.revision++
         changeWork(thread, run)
         notify(thread, run, 'failed')
-      } else if (scenario === 'delegation') {
-        const delegation: TextDelegation = {
-          id: id(),
-          parentRunId: run.runId,
-          childRunId: id(),
-          senderAgentId: thread.summary.agentId,
-          recipientAgentId: DEMO_IDS.engineer,
-          originThreadId: thread.summary.threadId,
-          depth: 1,
-          ordinal: 1,
-          request: 'Check the implementation details and report the tradeoffs.',
-          state: 'running',
-          revision: 1,
-        }
-        run.state = 'waiting'
-        run.revision++
-        changeWork(thread, run)
-        thread.delegations.push(delegation)
-        emit(
-          'delegation-changed',
-          delegation,
-          delegation.id,
-          delegation.revision,
-          thread.summary.threadId,
-        )
       }
     } else {
-      for (const delegation of thread.delegations.filter(
-        (item) => item.parentRunId === run.runId && active.has(item.state),
-      )) {
-        delegation.state = 'completed'
-        delegation.revision++
-        emit(
-          'delegation-changed',
-          delegation,
-          delegation.id,
-          delegation.revision,
-          thread.summary.threadId,
-        )
-      }
       const message = addMessage(thread, thread.summary.agentId, [
         {
           kind: 'text',
@@ -946,7 +858,6 @@ export function createFakeCore(
             workPage.some((run) => run.runId === card.runId) ||
             card.sourceAgentId,
         ),
-        delegations: thread.delegations,
         next:
           messages.length > limit || work.length > limit
             ? {
@@ -1125,6 +1036,22 @@ export function createFakeCore(
           changeMessage(thread, message)
           return json({ ok: true })
         }
+        if (path === '/__demo/summary' && method === 'POST') {
+          // The kip messaging fields of a thread summary, as Core sends them.
+          const thread = getThread(text(input.threadId))
+          if (input.startedBy !== undefined)
+            thread.summary.startedBy = text(input.startedBy)
+          if (input.linkedFrom !== undefined)
+            thread.summary.linkedFrom = threadLinkedFrom.parse(input.linkedFrom)
+          if (input.links !== undefined) {
+            if (!Array.isArray(input.links)) throw new Error('Invalid links')
+            thread.summary.links = input.links.map((link) =>
+              threadLink.parse(link),
+            )
+          }
+          summary(thread)
+          return json({ ok: true })
+        }
         if (path === '/__demo/release' && method === 'POST') {
           const protocol = record(input.protocol)
           const protocolNumber = (value: unknown) =>
@@ -1199,22 +1126,6 @@ export function createFakeCore(
                 thread.summary.threadId,
               )
           }
-          if (input.delegation) {
-            const value = parseDelegation(input.delegation)
-            const current = thread.delegations.find(
-              (item) => item.id === value.id,
-            )
-            if (!current) thread.delegations.push(value)
-            else if (value.revision > current.revision)
-              Object.assign(current, value)
-            emit(
-              'delegation-changed',
-              value,
-              value.id,
-              value.revision,
-              thread.summary.threadId,
-            )
-          }
           return json({ ok: true })
         }
         if (path === '/__demo/notification' && method === 'POST') {
@@ -1276,13 +1187,7 @@ export function createFakeCore(
           const thread = getThread(text(input.threadId))
           const scenario = text(input.scenario)
           if (
-            ![
-              'question',
-              'approval',
-              'delegation',
-              'failure',
-              'complete',
-            ].includes(scenario)
+            !['question', 'approval', 'failure', 'complete'].includes(scenario)
           )
             throw new Error('Invalid scenario')
           const run = thread.work.find((run) => active.has(run.state))
@@ -1559,19 +1464,6 @@ export function createFakeCore(
           run.queueHold = true
           run.cancelDelivery = run.attemptId ? 'requested' : 'not-needed'
           settleInteractions(thread, 'cancelled', run.runId)
-          for (const delegation of thread.delegations.filter(
-            (item) => item.parentRunId === run.runId && active.has(item.state),
-          )) {
-            delegation.state = 'cancelled'
-            delegation.revision++
-            emit(
-              'delegation-changed',
-              delegation,
-              delegation.id,
-              delegation.revision,
-              thread.summary.threadId,
-            )
-          }
         }
       } else if (action === 'resume') {
         if (
@@ -1780,7 +1672,7 @@ export function createFakeCore(
       {
         state: 'running',
         title: 'Check the engineering tradeoffs together',
-        scenario: 'delegation',
+        scenario: 'complete',
       },
       {
         state: 'failed',
@@ -1836,8 +1728,7 @@ export function createFakeCore(
         advance(thread)
       } else if (
         definition.state === 'waiting' ||
-        definition.state === 'failed' ||
-        definition.scenario === 'delegation'
+        definition.state === 'failed'
       ) {
         advance(thread)
         advance(thread)

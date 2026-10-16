@@ -7,7 +7,6 @@ import {
   parseWireEvent,
   type Notice,
   type Summary,
-  type TextDelegation,
   type TextInteraction,
   type TextWork,
 } from '../src/data/text.js'
@@ -404,21 +403,8 @@ test('chats of an agent being deleted, or of an organization leaving active, are
   expect(chatGone(directory('active'), installation)).toBe(false)
 })
 
-test('thread work projects current work, held follow-ups and a delegated child question', () => {
+test('thread work projects current work, held follow-ups and the kip asking a question', () => {
   const target = summaryTarget(scope, summary)
-  const delegation: TextDelegation = {
-    id: 'delegation',
-    parentRunId: 'run',
-    childRunId: 'child',
-    senderAgentId: 'scout',
-    recipientAgentId: 'ledger',
-    originThreadId: 'thread',
-    depth: 1,
-    ordinal: 1,
-    request: 'Check the figures',
-    state: 'waiting',
-    revision: 2,
-  }
   const work = threadWork({
     target,
     agentId: 'scout',
@@ -438,8 +424,7 @@ test('thread work projects current work, held follow-ups and a delegated child q
         attemptId: null,
       }),
     ],
-    interactions: [{ ...card, runId: 'child', sourceAgentId: 'ledger' }],
-    delegations: [delegation],
+    interactions: [{ ...card, sourceAgentId: 'ledger' }],
     messages: {
       m3: {
         id: 'm3',
@@ -470,16 +455,11 @@ test('thread work projects current work, held follow-ups and a delegated child q
     { action: 'cancel-queued', allowed: true, reason: '' },
     expect.objectContaining({ action: 'steer', allowed: false }),
   ])
-  // The child's question shows on the parent thread, naming the child agent.
+  // A question names the kip that asks it.
   expect(work.interactions[0]).toMatchObject({
     sourceAgentId: 'ledger',
-    delegationId: 'delegation',
     state: 'pending',
     target,
-  })
-  expect(work.delegations[0]).toMatchObject({
-    fromAgentId: 'scout',
-    toAgentId: 'ledger',
   })
   // Running work can be stopped; a question on the app stream already settled closes the card.
   const running = threadWork({
@@ -490,7 +470,6 @@ test('thread work projects current work, held follow-ups and a delegated child q
       run({ runId: 'next', state: 'waiting', queuePosition: 2 }),
     ],
     interactions: [card],
-    delegations: [],
     messages: {},
     notices: {
       notice: { ...question, interactionState: 'settled', revision: 3 },
@@ -508,19 +487,6 @@ test('thread work projects current work, held follow-ups and a delegated child q
 
 test('work blocks group each run’s steps under the message that started it', () => {
   const target = summaryTarget(scope, summary)
-  const delegation: TextDelegation = {
-    id: 'delegation',
-    parentRunId: 'first',
-    childRunId: 'child',
-    senderAgentId: 'scout',
-    recipientAgentId: 'ledger',
-    originThreadId: 'thread',
-    depth: 1,
-    ordinal: 1,
-    request: 'Check the figures',
-    state: 'completed',
-    revision: 2,
-  }
   const works = [
     run({ runId: 'first', state: 'completed', messageId: 'm1' }),
     run({ runId: 'quiet', state: 'completed', messageId: 'm2' }),
@@ -531,12 +497,11 @@ test('work blocks group each run’s steps under the message that started it', (
     agentId: 'scout',
     works,
     interactions: [
-      // A delegated kip's question belongs to the run that asked it.
-      { ...card, id: 'child-card', runId: 'child', state: 'settled' },
+      // An answered question stays with the run that asked it.
+      { ...card, id: 'first-card', runId: 'first', state: 'settled' },
       // A question from a run that is not loaded stays with current work.
       { ...card, id: 'stray', runId: 'unloaded' },
     ],
-    delegations: [delegation],
     messages: {},
     notices: {},
   })
@@ -546,8 +511,7 @@ test('work blocks group each run’s steps under the message that started it', (
     state: 'completed',
     current: undefined,
   })
-  expect(runs.get('m1')!.interactions.map((i) => i.id)).toEqual(['child-card'])
-  expect(runs.get('m1')!.delegations.map((d) => d.id)).toEqual(['delegation'])
+  expect(runs.get('m1')!.interactions.map((i) => i.id)).toEqual(['first-card'])
   expect(runs.get('m3')!.current).toMatchObject({
     runId: 'now',
     actions: [{ action: 'stop' }],
@@ -794,20 +758,7 @@ test('inbox entries say who did what, with the excerpt and where', () => {
   ).toEqual({ chat: 'unread' })
 })
 
-test('records left by a deleted agent parse: null run links, removed files and removed threads', () => {
-  const delegation = {
-    id: 'delegation',
-    parentRunId: null,
-    childRunId: null,
-    senderAgentId: 'scout',
-    recipientAgentId: 'ledger',
-    originThreadId: 'thread',
-    depth: 1,
-    ordinal: 1,
-    request: 'Check the figures',
-    state: 'completed',
-    revision: 2,
-  }
+test('records left by a deleted agent parse: removed files and removed threads', () => {
   const message = {
     id: 'message',
     threadId: 'thread',
@@ -829,39 +780,13 @@ test('records left by a deleted agent parse: null run links, removed files and r
     messages: [message],
     work: [],
     interactions: [],
-    delegations: [delegation],
     next: null,
   }
   const parsed = parseThreadPage(threadPage)
-  expect(parsed.delegations[0]).toMatchObject({
-    parentRunId: null,
-    childRunId: null,
-  })
   expect(parsed.messages[0].parts[1]).toEqual({
     kind: 'removed',
     artifactId: 'file',
   })
-  expect(
-    threadWork({
-      target: summaryTarget(scope, summary),
-      agentId: 'scout',
-      works: [],
-      interactions: [],
-      delegations: parsed.delegations,
-      messages: {},
-      notices: {},
-    }).delegations[0],
-  ).toMatchObject({
-    fromAgentId: 'scout',
-    toAgentId: 'ledger',
-    state: 'completed',
-  })
-  expect(
-    parseThreadPage({
-      ...threadPage,
-      delegations: [{ ...delegation, childRunId: '' }],
-    }).delegations[0].childRunId,
-  ).toBe('')
   expect(
     parseThreadPage({
       ...threadPage,

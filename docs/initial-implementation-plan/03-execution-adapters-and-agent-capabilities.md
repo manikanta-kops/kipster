@@ -219,8 +219,8 @@ The following is the agreed catalog direction; names and exact arguments remain 
 | `data.describe/query/execute` | Structured agent or organization data access. |
 | `audio.transcribe` | Invoke the same configured service used for voice-note preparation. |
 | `agents.list/get` | Discover agents and their roles. |
-| `agents.delegate` | Durable task request to another agent, optionally with files. |
-| `agents.delegation_status` | Inspect a delegation and its result/status. |
+| `agents.delegate` | Durable task request to another agent, optionally with files. Superseded by `message_kip` in [decision block 11](./11-kip-messaging.md). |
+| `agents.delegation_status` | Inspect a delegation and its result/status. Superseded by [decision block 11](./11-kip-messaging.md): answers always come back, so there is no status lookup. |
 | Administration families | Applicable organization, agent, membership, group, and configuration operations. |
 | Scheduling families | Interface to future scheduling capabilities; detailed scheduling design is separate. |
 
@@ -293,6 +293,8 @@ Agent works
 ```
 
 ### Main mechanism and optional status lookup
+
+> For agent-to-agent work this is superseded by [decision block 11, kip messaging](./11-kip-messaging.md): a message never pauses the sender, and the answer wakes it for a new turn. Questions and approvals still continue as described here.
 
 Core saves an interaction or delegation before presenting or dispatching it. Completion/response triggers correlated continuation. An agent can continue independent work or yield until the dependency is ready. Status lookup remains available through tools when the agent wants it.
 

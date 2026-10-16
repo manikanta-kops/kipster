@@ -278,6 +278,8 @@ Retaining the request does not keep a provider RPC/process alive indefinitely. R
 
 ### 5.4.3 Delegation and default continuation
 
+> Superseded by [decision block 11, kip messaging](./11-kip-messaging.md), which also replaces the delegation parts of 5.4.4.
+
 ```text
 Human -> Agent A -> delegation D1 -> Agent B
               |                       |
@@ -515,7 +517,7 @@ Snapshots restore outstanding notifications even after replay events expire. An 
 | Conversations | Direct-chat resolution, thread start/read/list, ordered messages, history, reactions/activity. |
 | Work controls | Queue inspection/cancel, targeted steering, Stop/Resume, Retry and actual cancellation outcomes. |
 | Interactions | Ask/approve/dismiss/respond, choice/free-text content, exact-action validity and first-response receipt. |
-| Delegation | Task/result/status, continuation intent, child-to-human routing and parent/child correlation. |
+| Delegation | Task/result/status, continuation intent, child-to-human routing and parent/child correlation. Superseded by kip messaging in [decision block 11](./11-kip-messaging.md). |
 | Files/audio | Upload/publication/ownership/metadata/download, preparation/transcription and derived records. |
 | Data/vector/memory | Discovery and scoped targets, custom data, indexing status, current corrections and provenance. |
 | Execution integration | Context/trigger, handle/serializable state, controls, capabilities/options, events/tools/reconciliation. |
@@ -553,7 +555,7 @@ These are acceptance obligations to implement and test, not claims of passing te
 | Question answered four days later | Saved response continues same Kipster thread via native resume or supported reconstruction. |
 | Two devices submit answers | First accepted outcome returned consistently; only one continuation decision. |
 | Dismiss question / decline approval | Different explicit outcomes; neither is silently treated as Stop or approval. |
-| B asks a human while delegated by A | Card in A's original thread, answer routed to B's exact pending work, then result returns to A. |
+| B asks a human while delegated by A | Card in A's original thread, answer routed to B's exact pending work, then result returns to A. Superseded by [decision block 11](./11-kip-messaging.md): the card shows in B's linked thread. |
 | Parent stopped before child finishes | Late result retained; stopped parent not revived. |
 | Execution limit reached during delegation | Dependencies can progress without pretending running providers are suspended or exceeding the limit. |
 | Remove organization membership | Accepted work may finish; global memory and organization contributions stay. |

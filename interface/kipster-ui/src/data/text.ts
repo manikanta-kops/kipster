@@ -79,7 +79,10 @@ export type TextMessage = {
 } & {
   preparation?: (Omit<Preparation, 'status'> & { status: string })[]
   parts: (
-    | Extract<MessagePart, { kind: 'text' | 'removed' | 'document' }>
+    | Extract<
+        MessagePart,
+        { kind: 'text' | 'removed' | 'document' | 'kip-message' | 'kip-answer' }
+      >
     | (Omit<Extract<MessagePart, { kind: 'file' }>, 'purpose'> & {
         purpose: string
       })
@@ -106,12 +109,6 @@ export type TextInteraction = {
     answer: unknown
   }
 }
-type CoreDelegation = Omit<ThreadSnapshot['delegations'][number], 'state'>
-export type TextDelegation = {
-  -readonly [K in keyof CoreDelegation]: CoreDelegation[K]
-} & {
-  state: string
-}
 export type AppPage = Omit<
   AppSnapshot,
   'version' | 'threads' | 'notifications'
@@ -120,15 +117,11 @@ export type AppPage = Omit<
   threads: Summary[]
   notifications: Notice[]
 }
-export type ThreadPage = Omit<
-  ThreadSnapshot,
-  'version' | 'messages' | 'work' | 'interactions' | 'delegations'
-> & {
+export type ThreadPage = Pick<ThreadSnapshot, 'scope' | 'cursor' | 'next'> & {
   version: number
   messages: TextMessage[]
   work: TextWork[]
   interactions: TextInteraction[]
-  delegations: TextDelegation[]
 }
 export type NotificationRemoved = Extract<
   TextEvent,
@@ -145,7 +138,6 @@ export type WireEvent = Omit<TextEvent, 'version' | 'type' | 'data'> & {
     | 'message-final'
     | 'work-changed'
     | 'interaction-changed'
-    | 'delegation-changed'
     | 'thread-summary'
     | 'notification'
     | 'thread-removed'
@@ -158,7 +150,6 @@ export type WireEvent = Omit<TextEvent, 'version' | 'type' | 'data'> & {
     | TextMessage
     | TextWork
     | TextInteraction
-    | TextDelegation
     | Summary
     | Notice
     | ThreadRemoved
@@ -173,7 +164,6 @@ const eventTypes = new Set([
   'message-final',
   'work-changed',
   'interaction-changed',
-  'delegation-changed',
   'thread-summary',
   'notification',
   'thread-removed',
@@ -283,6 +273,19 @@ export function parseMessage(value: unknown): TextMessage {
       )
       return part as Extract<MessagePart, { kind: 'document' }>
     }
+    if (part.kind === 'kip-message' || part.kind === 'kip-answer') {
+      check(
+        typeof (part.kind === 'kip-message'
+          ? part.recipientId
+          : part.agentId) === 'string' &&
+          typeof part.threadId === 'string' &&
+          typeof part.chatId === 'string',
+      )
+      return part as Extract<
+        MessagePart,
+        { kind: 'kip-message' | 'kip-answer' }
+      >
+    }
     return { kind: 'unknown', originalKind: part.kind }
   })
   const preparation =
@@ -366,22 +369,6 @@ export function parseInteraction(value: unknown): TextInteraction {
     }),
   } as TextInteraction
 }
-export function parseDelegation(value: unknown): TextDelegation {
-  check(
-    record(value) &&
-      typeof value.id === 'string' &&
-      nullableText(value.parentRunId) &&
-      nullableText(value.childRunId) &&
-      typeof value.senderAgentId === 'string' &&
-      typeof value.recipientAgentId === 'string' &&
-      typeof value.depth === 'number' &&
-      typeof value.ordinal === 'number' &&
-      typeof value.request === 'string' &&
-      typeof value.state === 'string' &&
-      typeof value.revision === 'number',
-  )
-  return value as TextDelegation
-}
 export function parseAppPage(value: unknown): AppPage {
   check(
     record(value) &&
@@ -413,7 +400,6 @@ export function parseThreadPage(value: unknown): ThreadPage {
     messages: list(value.messages, parseMessage),
     work: list(value.work, parseWork),
     interactions: list(value.interactions, parseInteraction),
-    delegations: list(value.delegations, parseDelegation),
   } as ThreadPage
 }
 export function parseWireEvent(
@@ -448,8 +434,6 @@ export function parseWireEvent(
     data = parseWork(value.data)
   else if (threadId !== null && type === 'interaction-changed')
     data = parseInteraction(value.data)
-  else if (threadId !== null && type === 'delegation-changed')
-    data = parseDelegation(value.data)
   else if (threadId === null && type === 'thread-summary') {
     const summary = parseSummary(value.data)
     if (!knownContext(summary)) return skipped
@@ -649,7 +633,6 @@ export class TextClient {
     messages: TextMessage[]
     work: TextWork[]
     interactions: TextInteraction[]
-    delegations: TextDelegation[]
   }> {
     const pages = await this.paginate<ThreadPage>(
       `/v1/threads/${encodeURIComponent(threadId)}/snapshot`,
@@ -661,7 +644,6 @@ export class TextClient {
       messages: pages.flatMap((p) => p.messages),
       work: pages.flatMap((p) => p.work),
       interactions: pages.flatMap((p) => p.interactions),
-      delegations: pages.flatMap((p) => p.delegations),
     }
   }
   async events(

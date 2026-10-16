@@ -8,7 +8,7 @@ This document records the agreed architectural direction and proposed implementa
 
 ## 1. Product direction
 
-Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation.
+Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation. Agent-to-agent work follows [Decision block 11 — Kip messaging](./11-kip-messaging.md), which supersedes delegation in blocks 2, 3 and 5.
 
 Kipster is a persistent system that coordinates conversations and AI work. Interfaces connect to it through a stable protocol. Execution adapters connect it to harnesses and, eventually, Kipster-managed model API loops.
 

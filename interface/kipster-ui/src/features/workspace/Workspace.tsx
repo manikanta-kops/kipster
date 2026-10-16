@@ -85,7 +85,7 @@ import { WorkspaceContext } from '../../data/workspace-context'
 import { useOutbox } from '../chat/use-outbox'
 import type { WorkspaceData } from '../chat/model'
 import type { ConversationTarget } from '../../data/conversations'
-import type { Agent } from '../chat/model'
+import type { Agent, ContentPart } from '../chat/model'
 import {
   navigationPreferences,
   threadPreference,
@@ -124,7 +124,6 @@ import {
   type TextMessage,
   type TextWork,
   type TextInteraction,
-  type TextDelegation,
   type ThreadRemoved,
   type WireEvent,
 } from '../../data/text'
@@ -160,7 +159,7 @@ const summaryState = (state: string): LiveState =>
       queued: 'queued',
       preparing: 'preparing',
       running: 'thinking',
-      waiting: 'delegating',
+      waiting: 'question',
       'cancellation-requested': 'stopping',
       failed: 'failed',
       'recovery-needed': 'recovery',
@@ -330,9 +329,6 @@ export function Workspace({
   const [interactions, setInteractions] = useState<
     Record<string, Record<string, TextInteraction>>
   >({})
-  const [delegations, setDelegations] = useState<
-    Record<string, Record<string, TextDelegation>>
-  >({})
   const [hydrated, setHydrated] = useState<Record<string, number>>({})
   const [workOpen, setWorkOpen] = useState<Record<string, boolean>>({})
   const [hydrationErrors, setHydrationErrors] = useState<
@@ -443,7 +439,6 @@ export function Workspace({
     setMessages({})
     setWorks({})
     setInteractions({})
-    setDelegations({})
     setHydrated({})
     setHydrationErrors({})
     setAppReady(false)
@@ -1018,14 +1013,6 @@ export function Workspace({
                 (x) => x.id,
               ),
             }))
-            setDelegations((old) => ({
-              ...old,
-              [id]: mergeRevisions(
-                old[id] ?? {},
-                snap.delegations,
-                (x) => x.id,
-              ),
-            }))
             const latest = Math.max(
               hydratedRef.current[id] ?? -1,
               summary.revision,
@@ -1116,14 +1103,6 @@ export function Workspace({
                 (x) => x.id,
               ),
             }))
-            setDelegations((old) => ({
-              ...old,
-              [selected]: mergeRevisions(
-                old[selected] ?? {},
-                snap.delegations,
-                (x) => x.id,
-              ),
-            }))
             cursor = snap.cursor
           }
           setThreadConnection('')
@@ -1168,16 +1147,6 @@ export function Workspace({
                     old[selected] ?? {},
                     interaction.id,
                     interaction,
-                  ),
-                }))
-              } else if (event.type === 'delegation-changed') {
-                const delegation = event.data as TextDelegation
-                setDelegations((old) => ({
-                  ...old,
-                  [selected]: upsertRevision(
-                    old[selected] ?? {},
-                    delegation.id,
-                    delegation,
                   ),
                 }))
               } else if (event.type !== 'unsupported')
@@ -1238,7 +1207,6 @@ export function Workspace({
           agentId: summary.agentId,
           works: Object.values(works[threadId] ?? {}),
           interactions: Object.values(interactions[threadId] ?? {}),
-          delegations: Object.values(delegations[threadId] ?? {}),
           messages: messages[threadId] ?? {},
           notices,
           archived:
@@ -1379,24 +1347,27 @@ export function Workspace({
         status: message.final ? 'final' : 'draft',
         revision: message.revision,
         preparation: message.preparation,
-        parts: message.parts.map((part) =>
-          part.kind === 'text'
-            ? { type: 'text', text: part.text }
-            : part.kind === 'document'
-              ? {
-                  type: 'document',
-                  documentId: part.documentId,
-                  revision: part.revision,
-                }
-              : part.kind === 'unknown'
-                ? { type: 'unknown', originalKind: part.originalKind }
-                : part.kind === 'removed'
-                  ? { type: 'removed', artifactId: part.artifactId }
-                  : {
-                      type: 'file',
-                      artifactId: part.artifactId,
-                      purpose: part.purpose,
-                    },
+        // A kip message or answer shows its text and files; its marker has no view yet.
+        parts: message.parts.flatMap((part): ContentPart | ContentPart[] =>
+          part.kind === 'kip-message' || part.kind === 'kip-answer'
+            ? []
+            : part.kind === 'text'
+              ? { type: 'text', text: part.text }
+              : part.kind === 'document'
+                ? {
+                    type: 'document',
+                    documentId: part.documentId,
+                    revision: part.revision,
+                  }
+                : part.kind === 'unknown'
+                  ? { type: 'unknown', originalKind: part.originalKind }
+                  : part.kind === 'removed'
+                    ? { type: 'removed', artifactId: part.artifactId }
+                    : {
+                        type: 'file',
+                        artifactId: part.artifactId,
+                        purpose: part.purpose,
+                      },
         ),
       }
     }
