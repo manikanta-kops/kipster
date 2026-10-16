@@ -170,7 +170,7 @@ test('memory off adds no memory sections and no memory tools, and refuses memory
   assert.ok(!off.context.instructions.includes('Core memory') && !off.context.instructions.includes('search_memory'))
   assert.equal(off.context.memory, undefined)
   assert.doesNotMatch(off.context.prompt, /Memory search|not searchable yet/)
-  assert.match(off.context.prompt, /^Current user message \[/, 'a first message has no history section')
+  assert.match(off.context.prompt, /^Current message \[/, 'a first message has no history section')
   await assert.rejects(off.tool('search_memory', { query: 'dinner' }), /Memory is off for this kip/)
   await off.finish()
 
@@ -219,7 +219,7 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   for (const hidden of [scoutGardenChunk, scoutStudioChunk, pennyChunk, 'garden show', 'studio rent', 'bakery', gardenCard, studioCard]) assert.ok(!search.includes(hidden), hidden)
   assert.ok(!search.includes(kipChunk), 'chunk IDs are not shown; thread IDs are')
   // The memory sections come first, then the current message; a first message has no history.
-  assert.ok(kip.context.prompt.startsWith(`${search}\n\nCurrent user message [`))
+  assert.ok(kip.context.prompt.startsWith(`${search}\n\nCurrent message [`))
   await kip.finish()
 
   // Scout in the garden sees its own garden chunk and diary, installation and garden cards, within the counts.

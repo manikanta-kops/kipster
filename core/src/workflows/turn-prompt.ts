@@ -1,6 +1,33 @@
-import type { TextExecutionContext } from '../adapter-api/index.js'
+import type { MessageAuthor, TextExecutionContext } from '../adapter-api/index.js'
 
 type Message = TextExecutionContext['input'][number]
+
+const list = (names: readonly string[]): string => names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+
+/** `Factory Owner (the person)`, `John (admin kip)` or `Planner (kip in Playground)`. */
+export function authorLabel(author: MessageAuthor): string {
+  if (author.kind === 'person') return author.name ? `${author.name} (the person)` : 'The person'
+  if (author.kind === 'admin-kip') return `${author.name} (admin kip)`
+  return `${author.name} (kip${author.workspaces.length ? ` in ${list(author.workspaces)}` : ''})`
+}
+
+/** The author of a history message, and for kip messages and answers which kip it went to or came from. */
+function historyLabel(message: Message): string {
+  const author = authorLabel(message.author)
+  if (message.kipMessageTo) return `${author}, message sent with message_kip to ${authorLabel(message.kipMessageTo)}`
+  if (message.kipAnswer) return `${author}, answering a message_kip message sent to it from this thread`
+  return author
+}
+
+/** What the current message is and, for one from a kip or an answer, where the kip's reply goes. */
+function currentHeader(message: Message | undefined, trigger: 'person' | 'kip' | 'answer'): string {
+  const id = `[${message?.messageId ?? 'unknown'}]`
+  if (!message) return `Current message ${id}:`
+  const author = authorLabel(message.author)
+  if (trigger === 'kip') return `Current message ${id}, a message from ${author} sent to you with message_kip. Your final reply is your answer and goes back to ${message.author.name} automatically:`
+  if (trigger === 'answer') return `Current message ${id}, an answer from ${author} to your earlier message_kip message. Reply to the person in this thread, not to ${message.author.name}, and never send anything back on your own; to talk back, send a new message_kip. If the answer needs nothing more, end your turn with an empty reply:`
+  return `Current message ${id} from ${author}:`
+}
 
 function describe(message: Message | undefined): string {
   if (!message) return ''
@@ -34,17 +61,18 @@ export function continuationPrompt(context: Omit<TextExecutionContext, 'prompt' 
 }
 
 /**
- * Renders the turn's user input that every adapter sends: memory sections, the history of the thread, the workspace the
- * person has open when the admin kip should know it, the current message and the run's saved context.
+ * Renders the turn's user input that every adapter sends: memory sections, the history of the thread with each
+ * message's author, the workspace the person has open when the admin kip should know it, the current message with who
+ * wrote it and what started the turn (`trigger`, the person by default), and the run's saved context.
  */
-export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>, viewing?: { id: string; name: string }): string {
-  const trigger = context.input.find(message => message.messageId === context.triggerMessageId)
+export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>, { trigger = 'person', viewing }: { trigger?: 'person' | 'kip' | 'answer'; viewing?: { id: string; name: string } } = {}): string {
+  const current = context.input.find(message => message.messageId === context.triggerMessageId)
   const history = context.input.filter(message => message.messageId !== context.triggerMessageId)
   const sections = [
     ...(context.memory ?? []),
-    ...(history.length ? [`Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${describe(message)}`).join('\n')}`] : []),
+    ...(history.length ? [`Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${historyLabel(message)}: ${describe(message)}`).join('\n')}`] : []),
     ...(viewing ? [`The person has the ${viewing.name} workspace open (workspaceId ${viewing.id}).`] : []),
-    `Current user message [${trigger?.messageId ?? 'unknown'}]:\n${describe(trigger)}`,
+    `${currentHeader(current, trigger)}\n${describe(current)}`,
   ]
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.administrationReceipts?.receipts.length) sections.push(receiptsSection(context.administrationReceipts))
