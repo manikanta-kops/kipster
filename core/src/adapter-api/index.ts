@@ -31,6 +31,15 @@ export interface ToolDefinition {
  */
 export type PermissionMode = 'supervised' | 'acceptEdits' | 'auto' | 'fullAccess'
 
+/**
+ * Who wrote a message: the person, the admin kip or another kip with the names of the live workspaces it works in,
+ * sorted. Names are display names at the time of the turn.
+ */
+export type MessageAuthor =
+  | { readonly kind: 'person'; readonly id: string; readonly name: string }
+  | { readonly kind: 'admin-kip'; readonly id: string; readonly name: string }
+  | { readonly kind: 'kip'; readonly id: string; readonly name: string; readonly workspaces: readonly string[] }
+
 /** Provisional normalized text execution; provider session restoration is unspecified. */
 export interface TextExecutionContext {
   /** Missing kind is a text context; adapters must throw on unknown kinds. */
@@ -46,7 +55,8 @@ export interface TextExecutionContext {
   readonly outputDirectory?: string
   readonly instructions: string
   /**
-   * This turn's user input, rendered by Core: the canonical history, the current message and its files, saved
+   * This turn's user input, rendered by Core: the canonical history and the current message, each labelled with its
+   * author, the current message's files and what started the turn (the person, another kip's message or an answer), saved
    * interaction answers, saved administration receipts and retrieved memory. Send it as the
    * user turn. `input` carries the same messages structurally, for example to attach native image inputs.
    */
@@ -81,7 +91,12 @@ export interface TextExecutionContext {
    */
   readonly approvalGrants?: readonly string[]
   readonly triggerMessageId?: string
-  readonly input: readonly { readonly messageId: string; readonly text: string; readonly parts?: readonly ({readonly kind:'text';readonly text:string}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'available';readonly readablePath:string;readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'unavailable';readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}})[] }[]
+  /**
+   * The thread's messages in order, ending with the current one, with their text and files. `author` is who wrote
+   * each. A message a kip sent with `message_kip` names the kip it went to in `kipMessageTo`; a kip's answer to such a
+   * message, posted here under the answering kip, has `kipAnswer`.
+   */
+  readonly input: readonly { readonly messageId: string; readonly text: string; readonly author: MessageAuthor; readonly kipMessageTo?: Exclude<MessageAuthor, { kind: 'person' }>; readonly kipAnswer?: true; readonly parts?: readonly ({readonly kind:'text';readonly text:string}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'available';readonly readablePath:string;readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}}|{readonly kind:'file';readonly artifactId:string;readonly purpose:'attachment'|'voice_note';readonly name:string;readonly mimeType:string;readonly size:number;readonly availability:'unavailable';readonly transcription?: {readonly status:string;readonly provider:string;readonly text?:string;readonly reason?:string}})[] }[]
   /** Settled interactions in durable order, including all earlier attempts of this run. */
   readonly interactions?: readonly { readonly id: string; readonly kind: 'question' | 'approval'; readonly prompt: string; readonly options: readonly { readonly id: string; readonly label: string }[]; readonly freeText: boolean; readonly proposalId?: string; readonly proposal?: string; readonly response: { readonly actorId: string; readonly answer: unknown; readonly acceptedAt: string } }[]
   readonly continuation?: { readonly kind: 'question' | 'approval'; readonly prompt: string; readonly proposalId?: string; readonly proposal?: string; readonly answer: unknown }

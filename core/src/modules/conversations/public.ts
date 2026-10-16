@@ -166,21 +166,21 @@ export async function workRecord(client: SqlClient, runId: string): Promise<{ ru
 }
 
 /** Logical run order excludes later queued human turns, regardless of physical message position. */
-export async function executionHistory(db: Postgres, runId: string): Promise<{ messages: { messageId: string; text: string; parts: MessagePart[] }[] }> {
+export async function executionHistory(db: Postgres, runId: string): Promise<{ messages: { messageId: string; authorId: string; text: string; parts: MessagePart[] }[] }> {
   return db.transaction(async client => {
     await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     const run = (await client.query<{ thread_id: string; queue_position: string }>('SELECT thread_id,queue_position FROM kipster.text_runs WHERE id=$1', [runId])).rows[0]
     if (!run) throw new Error('Run not found')
-    const result = await client.query<{ id: string; parts: MessagePart[] }>(`SELECT id,parts FROM (
-      SELECT m.id,m.parts,r.queue_position AS logical_position,0 AS source_order,m.position AS message_position
+    const result = await client.query<{ id: string; author_id: string; parts: MessagePart[] }>(`SELECT id,author_id,parts FROM (
+      SELECT m.id,m.author_id,m.parts,r.queue_position AS logical_position,0 AS source_order,m.position AS message_position
       FROM kipster.text_runs r JOIN kipster.messages m ON m.id=r.input_message_id
       WHERE r.thread_id=$1 AND r.queue_position<=$2
       UNION ALL
-      SELECT m.id,m.parts,r.queue_position AS logical_position,1 AS source_order,m.position AS message_position
+      SELECT m.id,m.author_id,m.parts,r.queue_position AS logical_position,1 AS source_order,m.position AS message_position
       FROM kipster.text_runs r JOIN kipster.attempts a ON a.intent_id=r.id JOIN kipster.messages m ON m.source_attempt_id=a.id
       WHERE r.thread_id=$1 AND r.queue_position<$2 AND r.state='completed' AND m.final=true
     ) history ORDER BY logical_position,source_order,message_position`, [run.thread_id, run.queue_position])
-    return { messages: result.rows.map(row => ({ messageId: row.id, text: row.parts.flatMap(part=>part.kind==='text'?[part.text]:[]).join('\n'),parts:row.parts })) }
+    return { messages: result.rows.map(row => ({ messageId: row.id, authorId: row.author_id, text: row.parts.flatMap(part=>part.kind==='text'?[part.text]:[]).join('\n'),parts:row.parts })) }
   })
 }
 
