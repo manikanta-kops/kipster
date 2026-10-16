@@ -216,7 +216,24 @@ export function parseSummary(value: unknown): Summary {
       typeof value.agentId === 'string' &&
       typeof value.revision === 'number' &&
       typeof value.state === 'string' &&
-      typeof value.createdAt === 'string',
+      typeof value.createdAt === 'string' &&
+      (value.startedBy === undefined || typeof value.startedBy === 'string') &&
+      (value.linkedFrom === undefined ||
+        (record(value.linkedFrom) &&
+          typeof value.linkedFrom.threadId === 'string' &&
+          typeof value.linkedFrom.chatId === 'string' &&
+          typeof value.linkedFrom.agentId === 'string' &&
+          typeof value.linkedFrom.title === 'string')) &&
+      (value.links === undefined ||
+        (Array.isArray(value.links) &&
+          value.links.every(
+            (link) =>
+              record(link) &&
+              typeof link.agentId === 'string' &&
+              typeof link.threadId === 'string' &&
+              typeof link.chatId === 'string' &&
+              typeof link.waiting === 'boolean',
+          ))),
   )
   return value as Summary
 }

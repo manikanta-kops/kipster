@@ -36,6 +36,8 @@ interface Props {
   segment: string
   /** A kip's status mark in its organization chat, or its installation chat for admins. */
   markOf: (agentId: string, admin: boolean) => Mark | undefined
+  /** A kip's chat waits for other kips, as a short line such as “Waiting for Mira”. */
+  waitingOf?: (agentId: string, admin: boolean) => string | undefined
   /** Another organization has something that needs the person. */
   elsewhere: boolean
   /** What Kip, the root admin, is doing across its chat. */
@@ -71,6 +73,7 @@ export function Sidebar({
   drawer = false,
   segment,
   markOf,
+  waitingOf,
   elsewhere,
   kipState,
   kipSeveral,
@@ -141,6 +144,7 @@ export function Sidebar({
     const duplicate = duplicateName(agent)
     const label = duplicate ? `${agent.name} (${agent.id})` : agent.name
     const mark = formerMember ? undefined : markOf(agent.id, admin)
+    const waiting = formerMember ? undefined : waitingOf?.(agent.id, admin)
     return (
       <button
         key={agent.id}
@@ -166,6 +170,8 @@ export function Sidebar({
           </span>
           {formerMember ? (
             <span className="agent-line">Read only</span>
+          ) : waiting ? (
+            <span className="agent-line">{waiting}</span>
           ) : (
             !admin &&
             agent.description && (
@@ -222,6 +228,7 @@ export function Sidebar({
                   state={kipState}
                   several={kipSeveral}
                   mark={markOf(agent.id, true)}
+                  waiting={waitingOf?.(agent.id, true)}
                   selected={isSelected(agent.id, true)}
                   collapsed={collapsed}
                   onOpen={() => {

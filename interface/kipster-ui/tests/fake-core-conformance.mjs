@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { test } from 'node:test'
 import * as protocol from '@kipster/core/protocol'
 import { createFakeCore } from '../src/fake-core/index.ts'
+import { parseAppPage } from '../src/data/text.ts'
 
 const origin = 'https://demo.kipster.invalid'
 async function replay(response, endCursor) {
@@ -312,6 +313,139 @@ test('kip messaging summary fields and message parts round-trip through Core’s
       .flatMap((event) => event.data.parts)
       .filter((part) => part.kind.startsWith('kip-')),
     [sent, answer],
+  )
+})
+
+test('seeded kip messaging threads carry the new summary fields and parts', async (t) => {
+  const { json } = harness(t)
+  const { bootstrap } = await target(json)
+  const raw = await json('/v1/app/snapshot')
+  const app = protocol.appSnapshot.parse(raw)
+  // The app's own parser keeps every field it renders.
+  assert.deepEqual(
+    parseAppPage(raw).threads.map(({ startedBy, linkedFrom, links }) => ({
+      startedBy,
+      linkedFrom,
+      links,
+    })),
+    app.threads.map(({ startedBy, linkedFrom, links }) => ({
+      startedBy,
+      linkedFrom,
+      links,
+    })),
+  )
+  const byId = new Map(app.threads.map((thread) => [thread.threadId, thread]))
+  assert.ok(app.threads.every((thread) => typeof thread.startedBy === 'string'))
+  const linked = app.threads.filter((thread) => thread.linkedFrom)
+  assert.equal(linked.length, 2)
+  for (const thread of linked) {
+    const source = byId.get(thread.linkedFrom.threadId)
+    assert.ok(source, 'a linked thread names a visible source thread')
+    assert.equal(thread.linkedFrom.chatId, source.chatId)
+    assert.equal(thread.linkedFrom.agentId, source.agentId)
+    assert.equal(thread.startedBy, thread.linkedFrom.agentId)
+    assert.ok(
+      source.links.some(
+        (link) =>
+          link.threadId === thread.threadId &&
+          link.chatId === thread.chatId &&
+          link.agentId === thread.agentId,
+      ),
+    )
+    const first = (
+      await json(
+        `/v1/threads/${thread.threadId}/snapshot`,
+        protocol.threadSnapshot,
+      )
+    ).messages[0]
+    assert.equal(first.authorId, thread.linkedFrom.agentId)
+  }
+  assert.ok(
+    linked.some((thread) => thread.contextKind === 'installation'),
+    'one linked thread is in the admin kip’s installation chat',
+  )
+  assert.ok(
+    linked.some(
+      (thread) =>
+        thread.contextKind === 'organization' &&
+        thread.contextId !== bootstrap.organizationId,
+    ),
+    'one linked thread is in another workspace',
+  )
+  const sources = app.threads.filter((thread) => thread.links?.length)
+  assert.equal(sources.length, 2)
+  assert.ok(sources.every((thread) => thread.startedBy === bootstrap.callerId))
+  assert.deepEqual(
+    sources.flatMap((thread) => thread.links.map((link) => link.waiting)),
+    [false, true],
+  )
+  const parts = []
+  for (const thread of sources)
+    for (const message of (
+      await json(
+        `/v1/threads/${thread.threadId}/snapshot`,
+        protocol.threadSnapshot,
+      )
+    ).messages)
+      for (const part of message.parts)
+        if (part.kind.startsWith('kip-')) {
+          parts.push(part)
+          const linkedThread = byId.get(part.threadId)
+          assert.equal(linkedThread.chatId, part.chatId)
+          assert.equal(
+            linkedThread.agentId,
+            part.kind === 'kip-message' ? part.recipientId : part.agentId,
+          )
+          if (part.kind === 'kip-answer')
+            assert.equal(message.authorId, part.agentId)
+          else assert.equal(message.authorId, thread.agentId)
+          assert.ok(message.parts.some((p) => p.kind === 'text'))
+        }
+  assert.deepEqual(
+    parts.map((part) => part.kind),
+    ['kip-message', 'kip-answer', 'kip-message', 'kip-answer', 'kip-message'],
+  )
+})
+
+test('a linked turn’s reply returns as an answer and wakes the sender without a message', async (t) => {
+  const { json } = harness(t)
+  const app = await json('/v1/app/snapshot', protocol.appSnapshot)
+  const waiting = app.threads.find((thread) =>
+    thread.links?.some((link) => link.waiting),
+  )
+  const link = waiting.links.find((item) => item.waiting)
+  await json('/__demo/advance', undefined, 'POST', {
+    threadId: link.threadId,
+    steps: 3,
+  })
+  const source = `/v1/threads/${waiting.threadId}/snapshot`
+  const after = await json(source, protocol.threadSnapshot)
+  const answer = after.messages.at(-1)
+  assert.equal(answer.authorId, link.agentId)
+  assert.deepEqual(answer.parts.at(-1), {
+    kind: 'kip-answer',
+    agentId: link.agentId,
+    threadId: link.threadId,
+    chatId: link.chatId,
+  })
+  const summary = (
+    await json('/v1/app/snapshot', protocol.appSnapshot)
+  ).threads.find((thread) => thread.threadId === waiting.threadId)
+  assert.equal(
+    summary.links.find((item) => item.threadId === link.threadId).waiting,
+    false,
+  )
+  const woken = after.work.find((work) => work.messageId === answer.id)
+  assert.equal(woken.state, 'queued')
+  await json('/__demo/advance', undefined, 'POST', {
+    threadId: waiting.threadId,
+    steps: 2,
+  })
+  const settled = await json(source, protocol.threadSnapshot)
+  assert.equal(settled.messages.length, after.messages.length)
+  assert.equal(
+    settled.work.find((work) => work.runId === woken.runId).state,
+    'completed',
   )
 })
 

@@ -37,9 +37,17 @@ Core's cursors; a mutation between pages requires a fresh snapshot. Events have
 separate application/thread replay logs, bounded to 2,000 events per scope.
 
 Sample data includes three organizations, shared agent appearances, an
-installation administrator, every work state, questions, an approval,
-delegation, a failure with held follow-ups, publications and a synthetic audio
-sample. New submissions progress every 1.8 seconds through running, a draft,
+installation administrator, every work state, questions, an approval, a failure
+with held follow-ups, publications and a synthetic audio sample.
+Kip messaging is seeded in Rowan's Personal chat and the admin kip's chat:
+Rowan's Berlin thread sent the admin kip a message and got its answer, and the
+admin kip's “Turn every confirmed plan…” thread messaged Rowan twice through one
+linked thread, got one answer and still waits for the second. Every summary has
+`startedBy`; linked threads have `linkedFrom` and source threads `links`, with
+`kip-message` and `kip-answer` parts on the sent messages and answers. When a
+turn started by a kip's message completes, its final reply is posted back into
+the source thread as that kip's answer, the link stops waiting, and the sender
+is woken for a turn that ends without a message. New submissions progress every 1.8 seconds through running, a draft,
 and a question; answering completes the work. The synthetic transcription
 provider returns sample text and does not transcribe uploaded audio.
 Bootstrap reports `capabilities.plugins: true`; pass `plugins: false` to
@@ -67,24 +75,25 @@ and enables the following test-only routes on the demo origin. They are disabled
 by default in the handler API. Demo startup enables them; real production builds
 exclude this module. UI components do not access the test routes.
 
-| Method and route          | Body / result                                                                                                  |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| GET `/__demo/inspect`     | IDs, chats, thread records, notifications and offline state                                                    |
-| POST `/__demo/advance`    | `{ threadId?, steps? }`; advance one or all threads                                                            |
-| POST `/__demo/scenario`   | `{ threadId, scenario }`; choose `question`, `approval`, `delegation`, `failure` or `complete` for active work |
-| POST `/__demo/retention`  | `{ threadId? }`; expire replay through the current head and request resync                                     |
-| POST `/__demo/connection` | `{ offline }`; return unavailable responses and interrupt streams while offline                                |
-| POST `/__demo/operation`  | `{ operationId, waiting }`; hold or release pending lifecycle cleanup                                          |
-| POST `/__demo/release`    | `{ protocol: { current, oldest }, coreVersion? }`; change the version and protocol range bootstrap reports     |
-| GET `/__demo/updates`     | Inspect software update status, simulated app state, release catalog and accepted installs                     |
-| POST `/__demo/updates`    | Set a software update scenario; see below                                                                      |
-| GET `/__demo/plugins`     | Plugin accounts, defaults and sign-ins, including each sign-in's return address                                |
-| POST `/__demo/plugins`    | `{ enabled }`; `{ signIn, outcome: complete \| deny \| fail \| expire, account? }`; or `{ account, status }`   |
-| POST `/__demo/reset`      | `{}`; reset all sample state and interrupt existing streams                                                    |
+| Method and route          | Body / result                                                                                                |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| GET `/__demo/inspect`     | IDs, chats, thread records, notifications and offline state                                                  |
+| POST `/__demo/advance`    | `{ threadId?, steps? }`; advance one or all threads                                                          |
+| POST `/__demo/scenario`   | `{ threadId, scenario }`; choose `question`, `approval`, `failure` or `complete` for active work             |
+| POST `/__demo/retention`  | `{ threadId? }`; expire replay through the current head and request resync                                   |
+| POST `/__demo/connection` | `{ offline }`; return unavailable responses and interrupt streams while offline                              |
+| POST `/__demo/operation`  | `{ operationId, waiting }`; hold or release pending lifecycle cleanup                                        |
+| POST `/__demo/release`    | `{ protocol: { current, oldest }, coreVersion? }`; change the version and protocol range bootstrap reports   |
+| GET `/__demo/updates`     | Inspect software update status, simulated app state, release catalog and accepted installs                   |
+| POST `/__demo/updates`    | Set a software update scenario; see below                                                                    |
+| GET `/__demo/plugins`     | Plugin accounts, defaults and sign-ins, including each sign-in's return address                              |
+| POST `/__demo/plugins`    | `{ enabled }`; `{ signIn, outcome: complete \| deny \| fail \| expire, account? }`; or `{ account, status }` |
+| POST `/__demo/reset`      | `{}`; reset all sample state and interrupt existing streams                                                  |
 
 Additional test controls accept complete protocol records: `/__demo/message`
-(`threadId`, `message`), `/__demo/work` (`threadId` and optional `work`,
-`interaction`, `delegation`) and `/__demo/notification` (`notification`). They
+(`threadId`, `message`), `/__demo/work` (`threadId` and optional `work` and
+`interaction`), `/__demo/summary` (`threadId` and optional `startedBy`,
+`linkedFrom` and `links`) and `/__demo/notification` (`notification`). They
 emit versioned events; older records do not replace newer canonical state.
 `/__demo/identity` changes `installationId` and/or `callerId` and forces stream
 resynchronization for persistence-scope tests.

@@ -233,3 +233,131 @@
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
+/* Ready with a note: the name rises and a quiet line, such as who the chat waits for, sits under it. */
+.status-island.noted .island-word {
+  color: var(--label-3);
+}
+
+/* The feed's thread filter, beside the theme toggle */
+.toolbar > .thread-filter {
+  position: relative;
+  margin-left: auto;
+}
+.toolbar .thread-filter .capsule {
+  margin-left: 0;
+}
+.waiting-pill + .thread-filter,
+.thread-filter + .capsule {
+  margin-left: 0;
+}
+.thread-filter.on .icon-button {
+  color: var(--tint);
+}
+.filter-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding-right: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.filter-clear {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--label-3);
+}
+.filter-clear:hover {
+  color: var(--label);
+  background: var(--fill-2);
+}
+.filter-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 252px;
+  display: grid;
+  padding: 6px;
+  border-radius: 18px;
+}
+.filter-menu[hidden] {
+  display: none;
+}
+/* Opaque, like the island's menu, and bridged to the capsule so hover survives the gap. */
+.filter-menu.mat {
+  --m: var(--canvas);
+}
+.filter-menu::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 0;
+  right: 0;
+  height: 8px;
+}
+.filter-menu h2 {
+  margin: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--label-3);
+}
+.filter-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 550;
+  text-align: left;
+}
+.filter-menu button:hover {
+  background: var(--fill);
+}
+.filter-menu button[aria-checked='true'] {
+  background: var(--fill-2);
+}
+.filter-menu button:focus-visible {
+  outline-offset: -2px;
+}
+.filter-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  color: var(--label-2);
+}
+.filter-icon .avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+.filter-name {
+  flex: 1;
+}
+.filter-menu .reply-participants .avatar {
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+.filter-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label-3);
+  font-variant-numeric: tabular-nums;
+}
+/* A linked thread's chips may be wider than its title; they shrink before the header's buttons. */
+.pane-title:has(.kip-links) {
+  flex: 1;
+  grid-template-columns: minmax(0, 1fr);
+}
+.pane-title:has(.kip-links) > .status-island {
+  justify-self: start;
+  max-width: 100%;
+}
