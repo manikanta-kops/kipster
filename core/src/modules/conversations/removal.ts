@@ -8,7 +8,7 @@ const ids = async (client: SqlClient, sql: string, params: unknown[]): Promise<s
 /**
  * Removes threads with their messages and runs, and everything that points into them: events,
  * summaries, notifications, interactions, controls, submission receipts, attempts and the tool
- * receipts of those attempts, and their kip links. A thread that stays and had messaged a removed
+ * receipts of those attempts, and their kip links. A thread that stays and was linked to a removed
  * thread publishes its summary again without that link. Every application client is told with one
  * `thread-removed` event per thread.
  *
@@ -19,9 +19,9 @@ const ids = async (client: SqlClient, sql: string, params: unknown[]): Promise<s
 export async function removeThreads(client: SqlClient, installationId: string, threadIds: readonly string[], beforeRemove: (threadId: string, messageIds: string[]) => Promise<void>): Promise<RemovedThread[]> {
   if (!threadIds.length) return []
   // Every thread this touches is locked first, in one order, and nothing is published before that.
-  const sources = await ids(client, `SELECT DISTINCT source_thread_id AS id FROM kipster.kip_links
-    WHERE linked_thread_id = ANY($1::uuid[]) AND NOT source_thread_id = ANY($1::uuid[])`, [threadIds])
-  await client.query('SELECT 1 FROM kipster.threads WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE', [[...threadIds, ...sources]])
+  const linked = await ids(client, `SELECT source_thread_id AS id FROM kipster.kip_links WHERE linked_thread_id = ANY($1::uuid[]) AND NOT source_thread_id = ANY($1::uuid[])
+    UNION SELECT linked_thread_id FROM kipster.kip_links WHERE source_thread_id = ANY($1::uuid[]) AND NOT linked_thread_id = ANY($1::uuid[])`, [threadIds])
+  await client.query('SELECT 1 FROM kipster.threads WHERE id = ANY($1::uuid[]) ORDER BY id FOR UPDATE', [[...threadIds, ...linked]])
   const threads = (await client.query<{ id: string; chat_id: string; revision: string }>(
     'SELECT id, chat_id, revision FROM kipster.threads WHERE id = ANY($1::uuid[]) ORDER BY id', [threadIds])).rows
   const present = threads.map(thread => thread.id)
@@ -63,9 +63,9 @@ export async function removeThreads(client: SqlClient, installationId: string, t
   await client.query('DELETE FROM kipster.threads WHERE id = ANY($1::uuid[])', [present])
 
   for (const notification of notifications) await publishAppEvent(client, installationId, 'notification-removed', notification.id, Number(notification.revision) + 1, { id: notification.id, threadId: notification.thread_id })
-  for (const source of sources) {
-    const chat = (await client.query<{ id: string; caller_id: string }>('SELECT c.id, c.caller_id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE t.id=$1', [source])).rows[0]!
-    await publishThreadSummary(client, installationId, chat.caller_id, source, chat.id)
+  for (const thread of linked) {
+    const chat = (await client.query<{ id: string; caller_id: string }>('SELECT c.id, c.caller_id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE t.id=$1', [thread])).rows[0]!
+    await publishThreadSummary(client, installationId, chat.caller_id, thread, chat.id)
   }
   for (const thread of threads) {
     await notifyThread(client, thread.id)

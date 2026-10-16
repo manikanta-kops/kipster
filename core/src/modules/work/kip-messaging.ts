@@ -122,6 +122,10 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
     if (target.kind === 'organization' && !(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2 FOR KEY SHARE', [target.id, recipientId])).rows.length) throw new Error(`${name} no longer works in that workspace`)
     if (!await isLive(client, scope.installationId, 'agent', recipientId)) await refuseAgent(client, scope.installationId, recipientId, `${name} is not available`)
     if (target.kind === 'organization' && !await isLive(client, scope.installationId, 'organization', target.id)) throw new Error('That workspace is not available')
+    if (link) {
+      await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [link.linked_thread_id])
+      if ((await client.query("SELECT 1 FROM kipster.text_runs WHERE thread_id=$1 AND state='recovery-needed' AND queue_hold LIMIT 1", [link.linked_thread_id])).rows.length) throw new Error(`${name}'s thread has a turn the person must check first; tell the person`)
+    }
     // A sender removed from its workspace finishes its turn without starting new work.
     if (scope.contextKind === 'organization' && !(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2 FOR KEY SHARE', [scope.contextId, scope.agentId])).rows.length) throw new Error('You no longer work in this workspace')
     for (const id of artifactIds) {
@@ -134,8 +138,11 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
     const chatId = link?.chat_id ?? (await client.query<{ id: string }>(`INSERT INTO kipster.direct_chats(id,installation_id,caller_id,context_kind,context_id,agent_id) VALUES ($1,$2,$3,$4,$5,$6)
       ON CONFLICT (installation_id,caller_id,context_kind,context_id,agent_id) DO UPDATE SET id=kipster.direct_chats.id RETURNING id`, [randomUUID(), scope.installationId, scope.personId, target.kind, target.id, recipientId])).rows[0]!.id
     const threadId = link?.linked_thread_id ?? randomUUID()
-    if (link) await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [threadId])
-    else {
+    // A failed or stopped turn holds the thread's queue for the person. The sender was told and writes again, so the
+    // queue goes on, as Resume would.
+    const released = link ? (await client.query<{ id: string }>(`UPDATE kipster.text_runs r SET queue_hold=false,queue_generation=queue_generation+1,retry_continue_generation=NULL,revision=revision+1
+      WHERE r.thread_id=$1 AND r.queue_hold AND r.state IN ('completed','failed','cancelled') AND NOT EXISTS (SELECT 1 FROM kipster.owned_permits o WHERE o.attempt_id=r.current_attempt_id) RETURNING r.id`, [threadId])).rows.map(row => row.id) : []
+    if (!link) {
       await client.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2)', [threadId, chatId])
       await client.query('INSERT INTO kipster.kip_links(installation_id,source_thread_id,recipient_agent_id,linked_thread_id,sender_agent_id) VALUES ($1,$2,$3,$4,$5)', [scope.installationId, scope.threadId, recipientId, threadId, scope.agentId])
     }
@@ -146,6 +153,9 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
     const runId = await queueRun(client, jobs, threadId, incomingId, scope.installationId, { trigger: 'kip', chainRootId: scope.chainRootId, chainDepth: scope.chainDepth + 1, personId: scope.personId })
     const result: KipMessageResult = { status: 'sent', recipientId, threadId, chatId, messageId: sentId }
     await client.query('INSERT INTO kipster.kip_message_calls(attempt_id,call_id,sender_run_id,chain_root_id,request_hash,result) VALUES ($1,$2,$3,$4,$5,$6::jsonb)', [attemptId, callId, scope.runId, scope.chainRootId, requestHash, JSON.stringify(result)])
+    for (const id of released) { const record = await workRecord(client, id); await publishThreadChange(client, scope.installationId, scope.personId, threadId, chatId, 'work-changed', id, record.revision, record, record.state, null) }
+    // Turns already queued behind a released one may start now.
+    if (released.length) for (const { id } of (await client.query<{ id: string }>("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND state='queued' AND id<>$2", [threadId, runId])).rows) await jobs.send(client, id)
     await publishThreadChange(client, scope.installationId, scope.personId, threadId, chatId, 'message-final', incomingId, 1, await messageRecord(client, incomingId), 'queued', incomingId)
     await publishThreadChange(client, scope.installationId, scope.personId, threadId, chatId, 'work-changed', runId, 1, await workRecord(client, runId), 'queued', null)
     // Published after the recipient's run exists, so the sender's thread summary shows it waiting.
