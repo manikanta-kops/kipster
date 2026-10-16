@@ -314,6 +314,17 @@ test('kip messaging summaries and message parts parse through Core’s schemas a
     next: null,
   })
   expect(page.messages.map((m) => m.parts)).toEqual([sent.parts, answer.parts])
+  // From protocol 3 a thread snapshot may omit Core's deprecated list.
+  const snapshot = {
+    version: 1,
+    scope: { kind: 'thread', ...scope, threadId: 'source' },
+    cursor: 't:source:2',
+    messages: [{ ...sent, createdAt: '2026-09-23T00:00:00.000Z' }],
+    work: [],
+    interactions: [],
+    next: null,
+  }
+  expect(protocol.threadSnapshot.parse(snapshot)).toEqual(snapshot)
   // A marker missing its thread is dropped; the message keeps its text.
   expect(
     parseMessage({

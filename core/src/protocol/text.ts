@@ -117,10 +117,10 @@ export const threadInteraction = object({ id, version:literal(1), runId:id, atte
  */
 export const threadDelegation = object({id,parentRunId:nullable(id),childRunId:nullable(id),senderAgentId:id,recipientAgentId:id,originThreadId:id,depth:integer(),ordinal:integer(),request:string(),state:union(literal('queued'),literal('running'),literal('waiting'),literal('completed'),literal('failed'),literal('cancelled'),literal('recovery-needed')),failure:optional(string()),revision:integer()},false)
 /**
- * `delegations` stays required: released clients reject a snapshot without it, so Core sends it, empty once
- * delegation is gone, until a protocol raise removes it (decision records 5.1.7 and 11).
+ * `delegations` is deprecated and optional from protocol 3. Clients of protocols 1 and 2 require it, so
+ * Core keeps sending it while it serves them (decision records 5.1.7 and 11).
  */
-export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:array(threadDelegation), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
+export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:optional(array(threadDelegation)), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
 export type AppSnapshot = Infer<typeof appSnapshot>
 export type ThreadSnapshot = Infer<typeof threadSnapshot>
 export const controlCommand = object({version:literal(1),operationId:id,context,chatId:id,threadId:id,runId:id,attemptId:optional(nullable(id)),action:union(literal('stop'),literal('resume'),literal('retry'),literal('cancel-queued'),literal('steer'))})

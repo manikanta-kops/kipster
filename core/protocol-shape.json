@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":2,"oldest":1},
+  "protocol": {"current":3,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
@@ -2790,7 +2790,7 @@
         "messages": {"type":"array","items":{"ref":"threadMessage"}},
         "work": {"type":"array","items":{"ref":"threadWork"}},
         "interactions": {"type":"array","items":{"ref":"threadInteraction"}},
-        "delegations": {"type":"array","items":{"ref":"threadDelegation"}},
+        "delegations": {"type":"optional","of":{"type":"array","items":{"ref":"threadDelegation"}}},
         "next": {
           "type": "nullable",
           "of": {

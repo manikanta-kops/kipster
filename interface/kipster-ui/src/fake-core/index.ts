@@ -858,8 +858,6 @@ export function createFakeCore(
             workPage.some((run) => run.runId === card.runId) ||
             card.sourceAgentId,
         ),
-        // Core's thread snapshot still requires this deprecated list; it stays empty here.
-        delegations: [],
         next:
           messages.length > limit || work.length > limit
             ? {
