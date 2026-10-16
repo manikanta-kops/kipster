@@ -16,6 +16,15 @@ async function startDemo(page: Page) {
   return session
 }
 
+const olderBackend = {
+  oldest: protocolRange.current - 1,
+  current: protocolRange.current - 1,
+}
+const newerBackend = {
+  oldest: protocolRange.current + 1,
+  current: protocolRange.current + 1,
+}
+
 const updates = (page: Page) =>
   page.getByRole('dialog', { name: 'Settings', exact: true })
 async function openUpdates(page: Page) {
@@ -404,7 +413,7 @@ test('app version pinning warns about protocol, permits downgrades and persists 
   ).toHaveAttribute('disabled', '')
   await page.getByLabel('App version').selectOption('0.7.0')
   await expect(updates(page)).toContainText(
-    'This app version speaks protocol 0',
+    `This app version speaks protocol ${protocolRange.oldest - 1}`,
   )
   await page.getByRole('button', { name: 'Install and pin app' }).click()
   const confirm = page.getByRole('dialog', { name: 'Check app compatibility' })
@@ -472,7 +481,7 @@ test('compatibility recovery buttons use the update APIs', async ({ page }) => {
   await demo(page, '/updates', { state: 'available' })
   await demo(page, '/release', {
     coreVersion: '0.7.0',
-    protocol: { oldest: 0, current: 0 },
+    protocol: olderBackend,
   })
   await page.reload()
   await expect(
@@ -495,7 +504,7 @@ test('compatibility recovery buttons use the update APIs', async ({ page }) => {
   })
   await demo(page, '/release', {
     coreVersion: '0.8.0',
-    protocol: { oldest: 2, current: 2 },
+    protocol: newerBackend,
   })
   await page.reload()
   await expect(
@@ -515,7 +524,7 @@ test('an incompatible app still offers the backend-first recovery action', async
   await startDemo(page)
   await demo(page, '/release', {
     coreVersion: '0.7.0',
-    protocol: { oldest: 2, current: 2 },
+    protocol: newerBackend,
   })
   await demo(page, '/updates', {
     state: 'available',
@@ -626,7 +635,7 @@ test('an unmanaged backend compatibility screen explains how to update on its ho
   await demo(page, '/updates', { core: { state: 'installing' } })
   await demo(page, '/release', {
     coreVersion: '0.7.0',
-    protocol: { oldest: 0, current: 0 },
+    protocol: olderBackend,
   })
   await page.reload()
   await expect(
@@ -733,7 +742,7 @@ test('backend compatibility recovery displays an updater startup failure', async
   await demo(page, '/updates', { state: 'available' })
   await demo(page, '/release', {
     coreVersion: '0.7.0',
-    protocol: { oldest: 0, current: 0 },
+    protocol: olderBackend,
   })
   await page.reload()
   await expect(

@@ -1,4 +1,5 @@
 import {
+  protocolRange,
   updateCheck,
   updateInstall,
   updatePluginsInstall,
@@ -88,7 +89,7 @@ export function createFakeUpdates(options: {
       '@kipster/ui': [
         entry('@kipster/ui', '0.9.0-next.1', appProtocol + 1),
         entry('@kipster/ui', '0.8.0'),
-        entry('@kipster/ui', '0.7.0', Math.max(0, appProtocol - 1)),
+        entry('@kipster/ui', '0.7.0', protocolRange.oldest - 1),
         entry('@kipster/ui', '0.6.0', appProtocol, false),
         entry('@kipster/ui', '0.0.0'),
       ],
