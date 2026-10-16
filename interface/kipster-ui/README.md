@@ -45,9 +45,16 @@ Reconnects and reloads restore saved state without dispatching work.
   files and voice notes. Original file bytes are saved locally before upload.
   Recording is available when Core reports a ready transcription provider; Core
   preserves the original recording if transcription fails.
-- **Work:** queued cancellation, Stop, Resume, Retry, questions, approvals and
-  delegated-child activity. Answers bind to the exact interaction, run, attempt
-  and proposal. Unsupported steering is explicitly unavailable.
+- **Work:** queued cancellation, Stop, Resume, Retry, questions and approvals.
+  Answers bind to the exact interaction, run, attempt and proposal. Unsupported
+  steering is explicitly unavailable.
+- **Kip messaging:** a thread another kip started shows its sender, a Kip
+  message tag and a link to the thread it came from. Sent messages show as
+  cards, answers name the thread they came from, and a thread waiting for a kip
+  says so in the feed, the thread, the sidebar and the status island. Every
+  link opens the other thread, switching workspace or chat as needed. The
+  feed's filter shows all threads, those you started or those from other kips;
+  it is view state and is not saved.
 - **Inbox:** durable notifications linked to their original context. Marking an
   item read does not answer or resolve its interaction.
 - **Administration:** organizations, global agents, memberships and groups.

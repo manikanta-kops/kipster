@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { quickFade } from '../../app/motion'
 import { KipBody } from '../../components/Kip'
 import { Message, Avatar } from './Message'
+import { listNames } from './kip-names'
 import {
   formatTime,
   type Thread,
@@ -23,6 +24,9 @@ export function RootFeed({
   onOpen,
   rootUnavailable,
   rootNotice,
+  openThread,
+  waitingFor,
+  filtered,
 }: {
   work: WorkRecords
   chat: Chat
@@ -34,6 +38,12 @@ export function RootFeed({
   onOpen: (id: string) => void
   rootUnavailable?: (thread: Thread) => ReactNode
   rootNotice?: (thread: Thread) => ReactNode
+  /** Opens a linked thread, in whichever chat it lives. */
+  openThread?: (threadId: string) => void
+  /** The kips a thread waits for while no turn of its own runs. */
+  waitingFor?: (thread: Thread) => string[]
+  /** Shown instead of the welcome when a filter hides every thread. */
+  filtered?: ReactNode
 }) {
   const reduceMotion = useReducedMotion()
   return (
@@ -98,7 +108,12 @@ export function RootFeed({
                   className={`feed-message gloss ${threadId === item.id ? 'active-message' : ''}`}
                 >
                   {root ? (
-                    <Message message={root} data={data} />
+                    <Message
+                      message={root}
+                      data={data}
+                      placement="feed"
+                      openThread={openThread}
+                    />
                   ) : (
                     (rootUnavailable?.(item) ?? (
                       <output>Loading thread…</output>
@@ -159,13 +174,22 @@ export function RootFeed({
                         </>
                       )}
                     </button>
-                    <WorkSummary work={itemWork} />
+                    {waitingFor?.(item).length ? (
+                      <span className="work-status work-kip-waiting">
+                        <span aria-hidden="true" className="work-dot" />
+                        Waiting for {listNames(waitingFor(item))}
+                      </span>
+                    ) : (
+                      <WorkSummary work={itemWork} />
+                    )}
                   </div>
                 </motion.article>
               </Fragment>
             )
           })}
         </AnimatePresence>
+      ) : filtered ? (
+        <p className="feed-filter-empty">{filtered}</p>
       ) : (
         <div className="empty-state">
           {data.agentRoles.some((role) => role.agentId === agent.id) ? (

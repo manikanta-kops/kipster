@@ -25,6 +25,7 @@ export function KipHome({
   selected,
   collapsed,
   onOpen,
+  waiting,
 }: {
   agent: Agent
   state: LiveState
@@ -34,6 +35,8 @@ export function KipHome({
   selected: boolean
   collapsed: boolean
   onOpen: () => void
+  /** The kips Kip's chat waits for, as a short line, while nothing runs there. */
+  waiting?: string
 }) {
   const reduced = Boolean(useReducedMotion())
   const shown = useSettledState(state)
@@ -45,7 +48,7 @@ export function KipHome({
   const described = useId()
   const status = (
     <span id={described} className="sr-only">
-      {info.description}
+      {resting && waiting ? waiting : info.description}
     </span>
   )
   const common = {
@@ -61,7 +64,13 @@ export function KipHome({
       <button
         {...common}
         className={`kip-home-mini ${selected ? 'selected' : ''}`}
-        data-tip={resting ? agent.name : `${agent.name} · ${info.label}`}
+        data-tip={
+          resting
+            ? waiting
+              ? `${agent.name} · ${waiting}`
+              : agent.name
+            : `${agent.name} · ${info.label}`
+        }
       >
         <span aria-hidden="true" className="avatar kip">
           <KipHead />
@@ -86,7 +95,14 @@ export function KipHome({
         />
       </span>
       <span className="kip-line sidebar-label">
-        <span className="kip-name">{agent.name}</span>
+        <span className="kip-name">
+          {agent.name}
+          {resting && waiting && (
+            <small className="kip-wait" aria-hidden="true">
+              {waiting}
+            </small>
+          )}
+        </span>
         {resting ? null : (
           <span className="kip-state" aria-hidden="true">
             <i />

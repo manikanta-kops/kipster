@@ -1,3 +1,4 @@
+import { threadTitle } from '../data/state.ts'
 import {
   parseMessage,
   parseNotice,
@@ -40,7 +41,14 @@ export { DEMO_IDS } from './admin.ts'
 export { DEMO_ORIGIN, installFakeCoreTransport } from './transport.ts'
 
 type Chat = { id: string; context: Context; agentId: string }
-type Scenario = 'question' | 'approval' | 'failure' | 'complete' | 'document'
+type Scenario =
+  | 'question'
+  | 'approval'
+  | 'failure'
+  | 'complete'
+  | 'document'
+  // A sender woken by an answer that has nothing to add ends without a message.
+  | 'silent'
 type Thread = {
   summary: Summary
   messages: TextMessage[]
@@ -437,6 +445,7 @@ export function createFakeCore(
   function summary(thread: Thread, state?: string) {
     thread.summary.revision++
     if (state) thread.summary.state = state
+    thread.summary.startedBy ??= thread.messages[0]?.authorId
     thread.summary.lastMessageId = thread.messages.at(-1)!.id
     emit(
       'thread-summary',
@@ -694,7 +703,11 @@ export function createFakeCore(
       }
       changeWork(thread, run)
     } else if (scenario === 'document') revise(thread, run, stage)
-    else if (stage === 1) {
+    else if (scenario === 'silent') {
+      run.state = 'completed'
+      run.revision++
+      changeWork(thread, run)
+    } else if (stage === 1) {
       const message = addMessage(
         thread,
         thread.summary.agentId,
@@ -740,9 +753,43 @@ export function createFakeCore(
       run.queueHold = false
       run.revision++
       changeWork(thread, run)
-      notify(thread, run, 'completed')
+      // A kip's answer goes back to it; only the person's own turns notify.
+      if (!answerBack(thread, run)) notify(thread, run, 'completed')
     }
     thread.stages.set(run.runId, stage + 1)
+  }
+  /**
+   * A turn started by a kip's message answers that kip: its final reply goes back into the
+   * source thread under the recipient's name, settles the wait and wakes the sender.
+   */
+  function answerBack(thread: Thread, run: TextWork) {
+    const from = thread.summary.linkedFrom
+    const input = thread.messages.find((m) => m.id === run.messageId)
+    const source = from && threads.get(from.threadId)
+    if (!source || input?.authorId !== from.agentId) return false
+    const reply = thread.messages.findLast(
+      (m) => m.runId === run.runId && m.final,
+    )
+    const answer = addMessage(source, thread.summary.agentId, [
+      ...(reply?.parts.filter((p) => p.kind === 'text' || p.kind === 'file') ??
+        []),
+      {
+        kind: 'kip-answer',
+        agentId: thread.summary.agentId,
+        threadId: thread.summary.threadId,
+        chatId: thread.summary.chatId,
+      },
+    ])
+    delete answer.runId
+    source.summary.links = source.summary.links?.map((link) =>
+      link.threadId === thread.summary.threadId
+        ? { ...link, waiting: false }
+        : link,
+    )
+    changeMessage(source, answer)
+    const woken = addRun(source, answer, 'silent')
+    changeWork(source, woken)
+    return true
   }
 
   /** A kip revising a submitted doc: it reads, then publishes one revision. */
@@ -1892,6 +1939,167 @@ export function createFakeCore(
     changeMessage(voiceThread, voiceMessage)
     voiceThread.stages.set(voiceThread.work[0].runId, 0)
     await seedDocument(primary)
+    seedKipMessaging()
+  }
+  /**
+   * Kip messaging in Rowan's Personal chat and the admin kip's chat. Rowan's Berlin thread asked
+   * the admin kip, who answered. The admin kip's own thread asked Rowan twice through one linked
+   * thread; Rowan answered once and works on the second message, so that thread still waits.
+   */
+  function seedKipMessaging() {
+    const chatOf = (target: Context, agentId: string) =>
+      [...chats.values()].find(
+        (chat) =>
+          chat.agentId === agentId &&
+          chat.context.kind === target.kind &&
+          contextId(chat.context) === contextId(target),
+      )!
+    const rowanChat = chatOf(
+      { kind: 'organization', organizationId: DEMO_IDS.personal },
+      DEMO_IDS.engineer,
+    )
+    const kipChat = chatOf(
+      { kind: 'installation', installationId: scope.installationId },
+      DEMO_IDS.rootAgent,
+    )
+    const start = Date.now() - 30 * 60_000
+    const thread = (chat: Chat, minutes: number) => {
+      const made = newThread(chat, seededId())
+      made.summary.createdAt = new Date(start + minutes * 60_000).toISOString()
+      return made
+    }
+    const say = (
+      into: Thread,
+      authorId: string,
+      text: string,
+      marker?: TextMessage['parts'][number],
+    ) => {
+      const message = addMessage(
+        into,
+        authorId,
+        [{ kind: 'text', text }, ...(marker ? [marker] : [])],
+        true,
+        seededId(),
+      )
+      changeMessage(into, message)
+      return message
+    }
+    /** A turn of the thread's kip for `input`; it completes unless it is still running. */
+    const turn = (
+      into: Thread,
+      input: TextMessage,
+      replies: [string, TextMessage['parts'][number]?][],
+      running = false,
+    ) => {
+      const run = addRun(into, input, 'complete', seededId())
+      run.state = 'running'
+      run.attemptId = seededId()
+      run.revision++
+      changeWork(into, run)
+      for (const [text, marker] of replies)
+        say(into, into.summary.agentId, text, marker)
+      into.stages.set(run.runId, running ? 1 : 4)
+      if (!running) {
+        run.state = 'completed'
+        run.revision++
+        changeWork(into, run)
+      }
+    }
+    const link = (to: Thread) => ({
+      threadId: to.summary.threadId,
+      chatId: to.summary.chatId,
+    })
+    const linkedFrom = (to: Thread, source: Thread) => {
+      to.summary.startedBy = source.summary.agentId
+      to.summary.linkedFrom = {
+        ...link(source),
+        agentId: source.summary.agentId,
+        title: threadTitle(source.messages[0]),
+      }
+    }
+    const sent = (to: Thread, recipientId: string) => ({
+      kind: 'kip-message' as const,
+      recipientId,
+      ...link(to),
+    })
+    const answered = (to: Thread, agentId: string) => ({
+      kind: 'kip-answer' as const,
+      agentId,
+      ...link(to),
+    })
+
+    const berlin = thread(rowanChat, 0)
+    const kipLinked = thread(kipChat, 2)
+    const feedback =
+      'Berlin research so far: train on May 14, hotel near Hauptbahnhof, museums on day 2, back May 16. Any feedback?'
+    const hotel =
+      'Drop the hotel near Hauptbahnhof, it’s noisy. Pick one in Mitte. Everything else looks good.'
+    turn(
+      berlin,
+      say(
+        berlin,
+        scope.callerId,
+        'Research a 3-day Berlin trip in May, around the 14th.',
+      ),
+      [
+        [
+          'Draft: train on May 14, hotel near Hauptbahnhof, museums on day 2, back May 16.',
+        ],
+        [feedback, sent(kipLinked, DEMO_IDS.rootAgent)],
+      ],
+    )
+    linkedFrom(kipLinked, berlin)
+    turn(kipLinked, say(kipLinked, DEMO_IDS.engineer, feedback), [[hotel]])
+    turn(
+      berlin,
+      say(
+        berlin,
+        DEMO_IDS.rootAgent,
+        hotel,
+        answered(kipLinked, DEMO_IDS.rootAgent),
+      ),
+      [['Updated: the hotel is now in Mitte. The plan is final.']],
+    )
+    berlin.summary.links = [
+      { agentId: DEMO_IDS.rootAgent, ...link(kipLinked), waiting: false },
+    ]
+
+    const plans = thread(kipChat, 8)
+    const rowanLinked = thread(rowanChat, 9)
+    const confirmed =
+      'Which plans are confirmed? Send me the dates and status of each.'
+    const status =
+      'Only the Berlin trip, May 14 to 16. The Q4 launch is a draft.'
+    const launch = 'When will the Q4 launch plan be confirmed?'
+    turn(
+      plans,
+      say(
+        plans,
+        scope.callerId,
+        'Turn every confirmed plan into one summary for me.',
+      ),
+      [[confirmed, sent(rowanLinked, DEMO_IDS.engineer)]],
+    )
+    linkedFrom(rowanLinked, plans)
+    turn(rowanLinked, say(rowanLinked, DEMO_IDS.rootAgent, confirmed), [
+      [status],
+    ])
+    turn(
+      plans,
+      say(
+        plans,
+        DEMO_IDS.engineer,
+        status,
+        answered(rowanLinked, DEMO_IDS.engineer),
+      ),
+      [[launch, sent(rowanLinked, DEMO_IDS.engineer)]],
+    )
+    turn(rowanLinked, say(rowanLinked, DEMO_IDS.rootAgent, launch), [], true)
+    plans.summary.links = [
+      { agentId: DEMO_IDS.engineer, ...link(rowanLinked), waiting: true },
+    ]
+    for (const linked of [berlin, kipLinked, plans, rowanLinked])
+      summary(linked)
   }
   /** A thread where Atlas shared a rich doc, the owner commented, and Atlas revised it. */
   async function seedDocument(chat: Chat) {
