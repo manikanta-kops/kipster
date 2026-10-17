@@ -95,6 +95,28 @@ test('parallel 014 additions pass separately, then fail on the push after the se
   await assert.rejects(checkMigrations(f.root, 'HEAD'), /Duplicate migration number 014/)
 })
 
+test('a squash into one new 001 file passes; partial squashes and squashes into a shipped path fail', async t => {
+  const f = fixture(t)
+  const squashed = 'core/src/platform/postgres/migrations/001_kipster.sql'
+  rmSync(path.join(f.root, first))
+  rmSync(path.join(f.root, last))
+  f.write(squashed, 'CREATE SCHEMA kipster;\nCREATE TABLE kipster.identity(id int);\n')
+  f.list([squashed])
+  f.commit()
+  assert.deepEqual((await checkMigrations(f.root, f.base)).map(file => file.path), [squashed])
+  assert.equal(cli(f).status, 0)
+  f.write(next, 'SELECT 1;')
+  f.list([squashed, next])
+  f.commit()
+  await assert.rejects(checkMigrations(f.root, f.base), /deleted or moved/)
+  const g = fixture(t)
+  rmSync(path.join(g.root, last))
+  g.write(first, 'CREATE SCHEMA kipster;\nCREATE TABLE kipster.identity(id int);\n')
+  g.list([first])
+  g.commit()
+  await assert.rejects(checkMigrations(g.root, g.base), /013_identity.sql was deleted or moved/)
+})
+
 test('a missing base fails closed and the script CLI reports failures', async t => {
   const f = fixture(t)
   await assert.rejects(checkMigrations(f.root, 'missing-base'))
