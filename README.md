@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <b>Personal kips that run on your own computer.</b><br>
+  <b>Personal AI agents (kips) that run on your own computer.</b><br>
   They remember, plan and handle the busywork.
 </p>
 
