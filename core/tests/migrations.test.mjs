@@ -246,7 +246,7 @@ test('kip messaging replaces delegation: existing runs start their own chain and
   assert.deepEqual([await exists('kipster.delegations'), await exists('kipster.delegation_calls')], [null, null])
   assert.equal((await fixture.db.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='kipster' AND table_name='threads' AND column_name='internal'")).rows[0].n, 0)
   assert.equal((await fixture.db.query('SELECT count(*)::int AS n FROM kipster.threads WHERE id=$1', [hidden])).rows[0].n, 1)
-  for (const table of ['kipster.kip_links', 'kipster.kip_message_calls']) assert.equal(await exists(table), table.replace('kipster.', 'kipster.'))
+  for (const table of ['kipster.kip_links', 'kipster.kip_message_calls']) assert.equal(await exists(table), table)
 })
 
 test('a fresh database gets the Kip memory schema and none of the first engine', { skip: noDatabase }, async t => {
