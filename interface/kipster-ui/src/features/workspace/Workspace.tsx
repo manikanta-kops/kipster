@@ -40,6 +40,9 @@ import {
 import { Avatar, Message } from '../chat/Message'
 import { RootFeed } from '../chat/RootFeed'
 import { ThreadPane } from '../chat/ThreadPane'
+import { KipFace, LinkChips, LinkedBanner, WaitingLine } from '../chat/KipLinks'
+import { listNames } from '../chat/kip-names'
+import { ThreadFilter, type ThreadFilterValue } from '../chat/ThreadFilter'
 import { DocPane } from '../documents/DocPane'
 import { DocsSection } from '../documents/DocCard'
 import { DocumentStore } from '../documents/store'
@@ -85,7 +88,7 @@ import { WorkspaceContext } from '../../data/workspace-context'
 import { useOutbox } from '../chat/use-outbox'
 import type { WorkspaceData } from '../chat/model'
 import type { ConversationTarget } from '../../data/conversations'
-import type { Agent } from '../chat/model'
+import type { Agent, ContentPart } from '../chat/model'
 import {
   navigationPreferences,
   threadPreference,
@@ -124,7 +127,6 @@ import {
   type TextMessage,
   type TextWork,
   type TextInteraction,
-  type TextDelegation,
   type ThreadRemoved,
   type WireEvent,
 } from '../../data/text'
@@ -160,7 +162,7 @@ const summaryState = (state: string): LiveState =>
       queued: 'queued',
       preparing: 'preparing',
       running: 'thinking',
-      waiting: 'delegating',
+      waiting: 'question',
       'cancellation-requested': 'stopping',
       failed: 'failed',
       'recovery-needed': 'recovery',
@@ -170,6 +172,17 @@ const summaryState = (state: string): LiveState =>
     }) as Record<string, LiveState>
   )[state] ?? 'unknown'
 
+/** Live states in which a thread's own turn is under way, or its state is unknown. */
+const busy = new Set<LiveState>([
+  'queued',
+  'preparing',
+  'thinking',
+  'writing',
+  'question',
+  'approval',
+  'stopping',
+  'offline',
+])
 /** Summary states of a thread whose kip is busy with it. */
 const working = new Set([
   'preparing',
@@ -330,9 +343,6 @@ export function Workspace({
   const [interactions, setInteractions] = useState<
     Record<string, Record<string, TextInteraction>>
   >({})
-  const [delegations, setDelegations] = useState<
-    Record<string, Record<string, TextDelegation>>
-  >({})
   const [hydrated, setHydrated] = useState<Record<string, number>>({})
   const [workOpen, setWorkOpen] = useState<Record<string, boolean>>({})
   const [hydrationErrors, setHydrationErrors] = useState<
@@ -348,6 +358,11 @@ export function Workspace({
   usePointerGloss()
   const reduceMotion = useReducedMotion()
   const [expanded, setExpanded] = useState(false)
+  // The feed's thread filter is view state for one chat; another chat opens unfiltered.
+  const [filter, setFilter] = useState<{
+    key: string
+    value: ThreadFilterValue
+  }>({ key: '', value: 'all' })
   const feedScroll = useRef<HTMLDivElement>(null)
   const threadScroll = useRef<HTMLDivElement>(null)
   const historyControls = useRef<{ latest: () => void }>(null)
@@ -443,7 +458,6 @@ export function Workspace({
     setMessages({})
     setWorks({})
     setInteractions({})
-    setDelegations({})
     setHydrated({})
     setHydrationErrors({})
     setAppReady(false)
@@ -1018,14 +1032,6 @@ export function Workspace({
                 (x) => x.id,
               ),
             }))
-            setDelegations((old) => ({
-              ...old,
-              [id]: mergeRevisions(
-                old[id] ?? {},
-                snap.delegations,
-                (x) => x.id,
-              ),
-            }))
             const latest = Math.max(
               hydratedRef.current[id] ?? -1,
               summary.revision,
@@ -1116,14 +1122,6 @@ export function Workspace({
                 (x) => x.id,
               ),
             }))
-            setDelegations((old) => ({
-              ...old,
-              [selected]: mergeRevisions(
-                old[selected] ?? {},
-                snap.delegations,
-                (x) => x.id,
-              ),
-            }))
             cursor = snap.cursor
           }
           setThreadConnection('')
@@ -1168,16 +1166,6 @@ export function Workspace({
                     old[selected] ?? {},
                     interaction.id,
                     interaction,
-                  ),
-                }))
-              } else if (event.type === 'delegation-changed') {
-                const delegation = event.data as TextDelegation
-                setDelegations((old) => ({
-                  ...old,
-                  [selected]: upsertRevision(
-                    old[selected] ?? {},
-                    delegation.id,
-                    delegation,
                   ),
                 }))
               } else if (event.type !== 'unsupported')
@@ -1238,7 +1226,6 @@ export function Workspace({
           agentId: summary.agentId,
           works: Object.values(works[threadId] ?? {}),
           interactions: Object.values(interactions[threadId] ?? {}),
-          delegations: Object.values(delegations[threadId] ?? {}),
           messages: messages[threadId] ?? {},
           notices,
           archived:
@@ -1358,7 +1345,23 @@ export function Workspace({
             : agentLabel(directory, items.at(-1)!.authorId)
           : undefined,
       participantIds: [...new Set(items.map((m) => m.authorId))],
+      startedBy: summary.startedBy ?? items[0]?.authorId,
+      linkedFrom: summary.linkedFrom,
+      links: summary.links,
     }
+    // Kips a thread is linked with are named even before they write in it.
+    for (const agentId of [
+      summary.linkedFrom?.agentId,
+      ...(summary.links ?? []).map((link) => link.agentId),
+    ])
+      if (agentId && !preview.actorsById[agentId])
+        preview.actorsById[agentId] = {
+          id: agentId,
+          kind: 'agent',
+          name: agentLabel(directory, agentId),
+          description: '',
+          color: agentColor(agentId),
+        }
     for (const message of items) {
       if (!preview.actorsById[message.authorId])
         preview.actorsById[message.authorId] = {
@@ -1368,6 +1371,8 @@ export function Workspace({
           description: '',
           color: agentColor(message.authorId),
         }
+      const sent = message.parts.find((part) => part.kind === 'kip-message')
+      const answer = message.parts.find((part) => part.kind === 'kip-answer')
       preview.messagesById[message.id] = {
         id: message.id,
         threadId: message.threadId,
@@ -1379,24 +1384,41 @@ export function Workspace({
         status: message.final ? 'final' : 'draft',
         revision: message.revision,
         preparation: message.preparation,
-        parts: message.parts.map((part) =>
-          part.kind === 'text'
-            ? { type: 'text', text: part.text }
-            : part.kind === 'document'
-              ? {
-                  type: 'document',
-                  documentId: part.documentId,
-                  revision: part.revision,
-                }
-              : part.kind === 'unknown'
-                ? { type: 'unknown', originalKind: part.originalKind }
-                : part.kind === 'removed'
-                  ? { type: 'removed', artifactId: part.artifactId }
-                  : {
-                      type: 'file',
-                      artifactId: part.artifactId,
-                      purpose: part.purpose,
-                    },
+        ...(sent && {
+          kipMessage: {
+            recipientId: sent.recipientId,
+            threadId: sent.threadId,
+            chatId: sent.chatId,
+          },
+        }),
+        ...(answer && {
+          kipAnswer: {
+            agentId: answer.agentId,
+            threadId: answer.threadId,
+            chatId: answer.chatId,
+          },
+        }),
+        // A kip message or answer marks the message; its text and files show as usual.
+        parts: message.parts.flatMap((part): ContentPart | ContentPart[] =>
+          part.kind === 'kip-message' || part.kind === 'kip-answer'
+            ? []
+            : part.kind === 'text'
+              ? { type: 'text', text: part.text }
+              : part.kind === 'document'
+                ? {
+                    type: 'document',
+                    documentId: part.documentId,
+                    revision: part.revision,
+                  }
+                : part.kind === 'unknown'
+                  ? { type: 'unknown', originalKind: part.originalKind }
+                  : part.kind === 'removed'
+                    ? { type: 'removed', artifactId: part.artifactId }
+                    : {
+                        type: 'file',
+                        artifactId: part.artifactId,
+                        purpose: part.purpose,
+                      },
         ),
       }
     }
@@ -1510,6 +1532,7 @@ export function Workspace({
       data={preview}
       trail={trail}
       continued={continued}
+      openThread={openThread}
     />
   )
   // Earlier runs that ended without an answer stay marked under their message.
@@ -1674,6 +1697,52 @@ export function Workspace({
             ordered(id).some((m) => !m.final),
           )
         : summaryState(summaries[id]?.state ?? '')
+  // A thread waits for the kips it messaged until they answer, unless a turn of its own runs.
+  const waitingOn = (threadId: string) =>
+    busy.has(threadState(threadId))
+      ? []
+      : (summaries[threadId]?.links ?? [])
+          .filter((link) => link.waiting)
+          .map((link) => agentLabel(directory, link.agentId))
+  const waits: Record<string, string[]> = {}
+  for (const s of Object.values(summaries)) {
+    const names = waitingOn(s.threadId)
+    if (names.length)
+      waits[summaryKey(s)] = [
+        ...new Set([...(waits[summaryKey(s)] ?? []), ...names]),
+      ]
+  }
+  const waitingLabel = (chat: string) =>
+    waits[chat] ? `Waiting for ${listNames(waits[chat])}` : undefined
+  const waitingOf = (agentId: string, admin: boolean) =>
+    waitingLabel(
+      chatKey(
+        admin
+          ? {
+              kind: 'installation',
+              installationId: identity.installationId,
+              agentId,
+            }
+          : {
+              kind: 'organization',
+              organizationId: nav.organizationId ?? '',
+              agentId,
+            },
+      ),
+    )
+  const startedOf = (s: Summary) => preview.threadsById[s.threadId]?.startedBy
+  const byYou = current.filter((s) => startedOf(s) === identity.callerId)
+  const fromKips = current.filter((s) => {
+    const by = startedOf(s)
+    return !!by && by !== identity.callerId && by !== s.agentId
+  })
+  const threadFilter = filter.key === key ? filter.value : 'all'
+  const shownThreads =
+    threadFilter === 'you'
+      ? byYou
+      : threadFilter === 'kips'
+        ? fromKips
+        : current
   const unseenFailures = new Set(
     inbox.filter((n) => isFailure(n) && !n.read).map((n) => n.target.threadId),
   )
@@ -1856,8 +1925,17 @@ export function Workspace({
   const continues = (message: TextMessage) => {
     const index = position.get(message.id) ?? 0
     const before = threadMessages[index - 1]
+    // Kip messages, answers and a linked thread's incoming messages each carry their own label.
+    const labelled = (m: TextMessage) =>
+      m.parts.some(
+        (p) => p.kind === 'kip-message' || p.kind === 'kip-answer',
+      ) || m.authorId === summaries[m.threadId]?.linkedFrom?.agentId
     return (
-      index > 1 && before.authorId === message.authorId && !waitingRun(before)
+      index > 1 &&
+      before.authorId === message.authorId &&
+      !waitingRun(before) &&
+      !labelled(message) &&
+      !labelled(before)
     )
   }
   // Runs whose first message is not loaded still show, after the messages.
@@ -2044,6 +2122,7 @@ export function Workspace({
             drawer={narrow}
             segment={nav.segment}
             markOf={markOf}
+            waitingOf={waitingOf}
             elsewhere={elsewhere}
             kipState={kip.state}
             kipSeveral={kip.several}
@@ -2101,6 +2180,7 @@ export function Workspace({
                 several={island.several}
                 action={islandAction}
                 name={agentName}
+                note={connection ? undefined : waitingLabel(key)}
                 mark={
                   <Avatar
                     name={agentName}
@@ -2139,6 +2219,22 @@ export function Workspace({
                   <span className="waiting-label">Waiting for you</span>
                 </button>
               )}
+              {agent && chatId && appReady && (
+                <ThreadFilter
+                  value={threadFilter}
+                  counts={{
+                    all: current.length,
+                    you: byYou.length,
+                    kips: fromKips.length,
+                  }}
+                  senders={[...new Set(fromKips.map(startedOf))]
+                    .slice(0, 3)
+                    .map((id) => (
+                      <KipFace key={id} data={preview} agentId={id!} />
+                    ))}
+                  onChange={(value) => setFilter({ key, value })}
+                />
+              )}
               {!narrow && themeToggle && (
                 <div className="capsule mat thin">
                   <button
@@ -2171,10 +2267,21 @@ export function Workspace({
                   }
                   agent={agent}
                   data={preview}
-                  visible={current.map((s) => preview.threadsById[s.threadId])}
+                  visible={shownThreads.map(
+                    (s) => preview.threadsById[s.threadId],
+                  )}
                   threadId={selected}
                   triggers={threadTriggers}
                   onOpen={chooseThread}
+                  openThread={openThread}
+                  waitingFor={(thread) => waitingOn(thread.id)}
+                  filtered={
+                    threadFilter === 'kips'
+                      ? `No kip has messaged ${agentName} yet.`
+                      : threadFilter === 'you'
+                        ? `You haven’t started a thread with ${agentName} yet.`
+                        : undefined
+                  }
                   rootNotice={(thread) =>
                     hydrationErrors[thread.id] && (
                       <p className="connection-notice">
@@ -2378,6 +2485,10 @@ export function Workspace({
                         data={preview}
                         commands={workCommands}
                       />
+                      <WaitingLine
+                        waitingFor={waitingOn(selected)}
+                        kip={agent.name}
+                      />
                     </>
                   }
                   recovery={
@@ -2398,6 +2509,20 @@ export function Workspace({
                   composer={compose(selected)}
                   unread={threadFollowing.unread}
                   latest={latestThread}
+                  links={
+                    <LinkChips
+                      thread={preview.threadsById[selected]}
+                      data={preview}
+                      openThread={openThread}
+                    />
+                  }
+                  banner={
+                    <LinkedBanner
+                      thread={preview.threadsById[selected]}
+                      data={preview}
+                      recipient={agent.name}
+                    />
+                  }
                 />
               )
             )}

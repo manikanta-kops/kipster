@@ -29,6 +29,8 @@ export function ThreadPane({
   unread,
   latest,
   messages,
+  links,
+  banner,
 }: {
   thread: Thread
   agent: Agent
@@ -47,6 +49,10 @@ export function ThreadPane({
   unread: boolean
   latest: () => void
   messages: ReactNode
+  /** Under the title: the threads this one is linked with. */
+  links?: ReactNode
+  /** Before the messages: how a linked thread began. */
+  banner?: ReactNode
 }) {
   const reduceMotion = useReducedMotion()
   return (
@@ -78,6 +84,7 @@ export function ThreadPane({
             announce={false}
             mark={<Avatar name={agent.name} color={agent.color} kip={admin} />}
           />
+          {links}
         </div>
         <div className="header-actions">
           <button
@@ -99,6 +106,7 @@ export function ThreadPane({
       </header>
       <div ref={scroll} className="thread-scroll">
         {history}
+        {banner}
         {messages}
         {work}
       </div>

@@ -170,7 +170,7 @@ test('memory off adds no memory sections and no memory tools, and refuses memory
   assert.ok(!off.context.instructions.includes('Core memory') && !off.context.instructions.includes('search_memory'))
   assert.equal(off.context.memory, undefined)
   assert.doesNotMatch(off.context.prompt, /Memory search|not searchable yet/)
-  assert.match(off.context.prompt, /^Current user message \[/, 'a first message has no history section')
+  assert.match(off.context.prompt, /^Current message \[/, 'a first message has no history section')
   await assert.rejects(off.tool('search_memory', { query: 'dinner' }), /Memory is off for this kip/)
   await off.finish()
 
@@ -219,7 +219,7 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   for (const hidden of [scoutGardenChunk, scoutStudioChunk, pennyChunk, 'garden show', 'studio rent', 'bakery', gardenCard, studioCard]) assert.ok(!search.includes(hidden), hidden)
   assert.ok(!search.includes(kipChunk), 'chunk IDs are not shown; thread IDs are')
   // The memory sections come first, then the current message; a first message has no history.
-  assert.ok(kip.context.prompt.startsWith(`${search}\n\nCurrent user message [`))
+  assert.ok(kip.context.prompt.startsWith(`${search}\n\nCurrent message [`))
   await kip.finish()
 
   // Scout in the garden sees its own garden chunk and diary, installation and garden cards, within the counts.
@@ -282,9 +282,6 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   const scoutGarden = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden plans\nsecond line' }, { text: 'Sure' }, { author: 'user', text: 'Third' }], { processed: false })
   const scoutStudio = await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio plans' }], { processed: false })
   const kipThread = await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'Kip plans' }], { processed: false })
-  const internal = randomUUID()
-  await ctx.db.query('INSERT INTO kipster.threads(id, chat_id, internal) SELECT $1, chat_id, true FROM kipster.threads WHERE id=$2', [internal, scoutGarden.id])
-  await ctx.db.query('INSERT INTO kipster.messages(id, thread_id, position, author_id, parts) VALUES ($1,$2,1,$3,$4::jsonb)', [randomUUID(), internal, ctx.scout, JSON.stringify([{ kind: 'text', text: 'Delegated work' }])])
 
   const kip = await ctx.turn(ctx.kip, null, 'Catch up')
   const page = await kip.tool('read_thread', { threadId: scoutGarden.id, fromPosition: 2 })
@@ -303,7 +300,6 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   await assert.rejects(scout.tool('read_thread', { threadId: kipThread.id }), /Thread not found/)
   await assert.rejects(scout.tool('read_thread', { threadId: scoutStudio.id }), /Thread not found/, 'another organization of the same kip')
   assert.equal((await scout.tool('read_thread', { threadId: scoutGarden.id, toPosition: 1 })).messages.length, 1)
-  assert.deepEqual((await scout.tool('read_thread', { threadId: internal })).internal, true)
   assert.deepEqual((await scout.tool('list_recent_threads', {})).threads.map(item => item.threadId), [scoutGarden.id])
   for (const [name, args] of [['list_recent_threads', { agent: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only the admin kip may name an agent/)
   await scout.finish()

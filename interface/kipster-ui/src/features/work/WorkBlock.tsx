@@ -7,7 +7,6 @@ import type {
 } from '../../data/work'
 import { workLabels } from '../../data/work'
 import type { WorkspaceData } from '../chat/model'
-import { Avatar } from '../chat/Message'
 import { Icon } from '../../components/Icon'
 import { Markdown } from '../chat/Markdown'
 import { InteractionCard } from './InteractionCard'
@@ -21,27 +20,13 @@ const labels: Partial<Record<WorkAction, string>> = {
 }
 const ended = new Set<WorkState>(['completed', 'cancelled', 'failed'])
 
-function headline(
-  run: RunWork,
-  drafting: boolean,
-  name: (id: string) => string,
-) {
+function headline(run: RunWork, drafting: boolean) {
   const pending = run.interactions.find((i) => i.state === 'pending')
-  const asking = run.delegations.find(
-    (d) => d.state === 'running' || d.state === 'waiting',
-  )
-  if (run.state === 'running')
-    return asking
-      ? `Asking ${name(asking.toAgentId)}`
-      : drafting
-        ? 'Writing'
-        : workLabels.running
+  if (run.state === 'running') return drafting ? 'Writing' : workLabels.running
   if (run.state === 'waiting' && pending)
     return pending.kind === 'approval'
       ? 'Needs your approval'
       : 'Needs your answer'
-  if (run.state === 'waiting' && asking)
-    return `Waiting for ${name(asking.toAgentId)}`
   return workLabels[run.state] ?? run.state
 }
 
@@ -51,13 +36,6 @@ function tone(run: RunWork) {
   if (run.state === 'running' || run.state === 'preparing') return 'run'
   if (run.state === 'waiting') return 'wait'
   return 'quiet'
-}
-
-const delegationDone: Record<string, string> = {
-  completed: 'Asked',
-  failed: 'Couldn’t get an answer from',
-  cancelled: 'Stopped asking',
-  'recovery-needed': 'Needs a check with',
 }
 
 /**
@@ -93,11 +71,6 @@ export function WorkBlock({
     !run.interactions.some((i) => i.state === 'pending')
   const open = folding ?? !settled
   const [error, setError] = useState('')
-  const name = (id: string) => data.actorsById[id]?.name ?? 'a kip'
-  const color = (id: string) => {
-    const actor = data.actorsById[id]
-    return actor?.kind === 'agent' ? actor.color : undefined
-  }
   const unresolved = commands.entries.filter(
     (e) =>
       e.operation.target.threadId === threadId &&
@@ -107,13 +80,10 @@ export function WorkBlock({
   const controls: AvailableAction[] =
     flow?.actions.filter((a) => a.allowed && a.action in labels) ?? []
   const asks = [...run.interactions].sort((a, b) => a.id.localeCompare(b.id))
-  const steps =
-    notes.length +
-    asks.filter((i) => i.state !== 'pending').length +
-    run.delegations.length
+  const steps = notes.length + asks.filter((i) => i.state !== 'pending').length
   const why =
     (run.state === 'failed' || run.state === 'recovery-needed') && run.failure
-  const word = headline(run, drafting, name)
+  const word = headline(run, drafting)
   async function send(action: WorkAction) {
     if (!flow) return
     setError('')
@@ -197,8 +167,7 @@ export function WorkBlock({
             {a.reason}
           </span>
         ))}
-      {((open && (why || run.delegations.length > 0 || notes.length > 0)) ||
-        asks.length > 0) && (
+      {((open && (why || notes.length > 0)) || asks.length > 0) && (
         <div className="work-block-body">
           {open && why && <p className="work-explanation">{why}</p>}
           {open &&
@@ -211,36 +180,6 @@ export function WorkBlock({
                 <Markdown text={note.text} className="step-text" />
               </div>
             ))}
-          {open &&
-            run.delegations.map((d) => {
-              const running = d.state === 'running' || d.state === 'waiting'
-              return (
-                <div
-                  key={d.id}
-                  className={`work-step ${running ? 'live' : d.state === 'completed' ? 'done' : d.state === 'queued' ? 'idle' : 'failed'}`}
-                >
-                  <span className="step-mark" aria-hidden="true">
-                    {d.state === 'completed' && (
-                      <Icon name="check" size={12} weight="bold" />
-                    )}
-                  </span>
-                  <span className="step-text">
-                    <span className="handoff">
-                      <Avatar
-                        name={name(d.toAgentId)}
-                        color={color(d.toAgentId)}
-                      />
-                      {running
-                        ? `Asking ${name(d.toAgentId)}`
-                        : d.state === 'queued'
-                          ? `Will ask ${name(d.toAgentId)}`
-                          : `${delegationDone[d.state] ?? d.state} ${name(d.toAgentId)}`}
-                    </span>
-                    {d.request?.summary && <small>{d.request.summary}</small>}
-                  </span>
-                </div>
-              )
-            })}
           {asks.map((i) => (
             // One stable slot per card, so answering keeps keyboard focus.
             <div

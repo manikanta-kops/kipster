@@ -39,6 +39,7 @@ export function StatusIsland({
   action,
   maxName = 200,
   announce = true,
+  note,
 }: {
   state: LiveState
   name: string
@@ -49,6 +50,8 @@ export function StatusIsland({
   action?: IslandAction
   maxName?: number
   announce?: boolean
+  /** A quiet line under the name while ready, such as the kip a chat waits for. */
+  note?: string
 }) {
   const reduceMotion = Boolean(useReducedMotion())
   const compact = useMediaQuery('(max-width: 820px)')
@@ -58,6 +61,8 @@ export function StatusIsland({
       ? { ...liveStates[shown], label: 'Working', description: 'Working' }
       : liveStates[shown]
   const active = shown !== 'ready'
+  const noted = !active && !!note
+  const word = noted ? note : info.label
   const nameRef = useRef<HTMLHeadingElement>(null)
   const wordRef = useRef<HTMLSpanElement>(null)
   const [size, setSize] = useState({ name: 0, word: 0 })
@@ -70,7 +75,7 @@ export function StatusIsland({
     setSize((current) =>
       current.name === next.name && current.word === next.word ? current : next,
     )
-  }, [name, info.label, maxName])
+  }, [name, word, maxName])
   useEffect(() => {
     const frame = requestAnimationFrame(() => setMeasured(true))
     return () => cancelAnimationFrame(frame)
@@ -81,14 +86,15 @@ export function StatusIsland({
   const markSize = active ? 28 : 34
   const inset = (44 - markSize) / 2
   const textX = inset + markSize + (active ? 9 : 10)
-  const column = active ? Math.max(size.name * 0.87, size.word) : size.name
+  const column =
+    active || noted ? Math.max(size.name * 0.87, size.word) : size.name
   const fieldX = textX + column + 11
-  const width = active ? fieldX + fieldWidth + 12 : textX + size.name + 18
+  const width = active ? fieldX + fieldWidth + 12 : textX + column + 18
   const transition = measured && !reduceMotion ? morph : instant
 
   return (
     <div
-      className={`status-island ${active ? 'active' : ''}`}
+      className={`status-island ${active ? 'active' : ''} ${noted ? 'noted' : ''}`}
       data-tone={info.tone}
     >
       <motion.div
@@ -114,7 +120,11 @@ export function StatusIsland({
         <motion.div
           className="island-name"
           initial={false}
-          animate={{ x: textX, y: active ? 5 : 13.5, scale: active ? 0.87 : 1 }}
+          animate={{
+            x: textX,
+            y: active || noted ? 5 : 13.5,
+            scale: active || noted ? 0.87 : 1,
+          }}
           transition={transition}
         >
           <Heading ref={nameRef} title={name} style={{ maxWidth: maxName }}>
@@ -125,13 +135,17 @@ export function StatusIsland({
           className="island-word"
           aria-hidden="true"
           initial={false}
-          animate={{ x: textX, y: active ? 22.5 : 29, opacity: active ? 1 : 0 }}
+          animate={{
+            x: textX,
+            y: active || noted ? 22.5 : 29,
+            opacity: active || noted ? 1 : 0,
+          }}
           transition={transition}
         >
           <AnimatePresence initial={false}>
-            {active && (
+            {(active || noted) && (
               <motion.span
-                key={info.label}
+                key={word}
                 initial={
                   reduceMotion
                     ? { opacity: 0 }
@@ -145,7 +159,7 @@ export function StatusIsland({
                 }
                 transition={reduceMotion ? instant : { duration: 0.3 }}
               >
-                {info.label}
+                {word}
               </motion.span>
             )}
           </AnimatePresence>
@@ -178,11 +192,11 @@ export function StatusIsland({
         />
       )}
       <span className="island-measure" aria-hidden="true" ref={wordRef}>
-        {info.label}
+        {word}
       </span>
       {announce && (
         <p className="sr-only" aria-live="polite">
-          {`${name}, ${info.description}`}
+          {`${name}, ${noted ? note : info.description}`}
         </p>
       )}
     </div>

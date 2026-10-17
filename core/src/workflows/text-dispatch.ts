@@ -3,12 +3,12 @@ import { administrationReceipts } from '../modules/administration/public.js'
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { createHash, randomUUID } from 'node:crypto'
-import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle } from '../adapter-api/index.js'
+import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle, MessageAuthor, TextExecutionContext } from '../adapter-api/index.js'
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
 import { acceptsType } from '../transcription/index.js'
 import type { CoordinatorLock, Postgres, SqlClient } from '../platform/postgres/public.js'
-import { claimPreparation, issueAttempt, childDelegation, delegate, delegationActivity, delegationRecord, delegationStatus, finishDelegation, getAgent, listAgents, reconcileInterruptedDelegations, stopRun, type Attempt } from '../modules/work/public.js'
+import { answerKipRun, claimPreparation, issueAttempt, getAgent, listAgents, lockKipSource, messageKip, stopRun, type Attempt, type KipRunEnd } from '../modules/work/public.js'
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
@@ -18,7 +18,7 @@ import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
 import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
-import { publishThreadChange, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
+import { publishThreadChange, publishThreadSummary, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
 import { askInteraction, interactionRecord, type InteractionInput } from '../modules/work/public.js'
 import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
@@ -62,7 +62,7 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
 }
 const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
 // Agent and document tools keep their Core operation names.
-const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['delegate_to_kip', 'agents.delegate'], ['check_kip_task', 'agents.delegation_status']])
+const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['message_kip', 'agents.message']])
 const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
 const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
@@ -72,8 +72,8 @@ const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&
  * Who the kip is, from its current name and role, so a renamed kip knows its new name. The admin kip also learns the
  * workspace the person has open, unless the conversation is already in it.
  */
-async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; viewing?: { id: string; name: string } }> {
-  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null }>(`SELECT a.display_name AS name,
+async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; trigger: 'person' | 'kip' | 'answer'; viewing?: { id: string; name: string } }> {
+  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null; trigger: 'person' | 'kip' | 'answer' | null }>(`SELECT a.display_name AS name,t.trigger_kind AS trigger,
       EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin,
       (SELECT o.display_name FROM kipster.organizations o WHERE o.id=$3::uuid) AS workspace,
       (SELECT g.display_name FROM kipster.agents g JOIN kipster.agent_roles r ON r.agent_id=g.id AND r.role='root-admin' WHERE g.installation_id=$1 AND kipster.live_agent(g.id) ORDER BY g.id LIMIT 1) AS admin_name,
@@ -86,8 +86,23 @@ async function kipFacts(db: Postgres | SqlClient, installationId: string, agentI
       : `You are ${row.name}, the admin kip of this Kipster installation. You work outside every workspace and can act in all of them.`
     : `You are ${row.name}, a kip ${row.workspace ? `in the ${row.workspace} workspace` : 'in this Kipster installation'}.${row.admin_name ? ` ${row.admin_name} is the admin kip and manages kips, workspaces and settings.` : ''}`
   const viewing = row.admin && row.viewing_id && row.viewing_id !== organizationId ? { id: row.viewing_id, name: row.viewing_name! } : undefined
-  return { admin: row.admin, line, ...(viewing ? { viewing } : {}) }
+  return { admin: row.admin, line, trigger: row.trigger ?? 'person', ...(viewing ? { viewing } : {}) }
 }
+/** The people and kips with these IDs as message authors; a kip names its live workspaces, sorted. */
+async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map<string, MessageAuthor>> {
+  const rows = (await db.query<{ id: string; name: string; agent: boolean; admin: boolean; workspaces: string[] }>(`SELECT p.id,p.display_name AS name,false AS agent,false AS admin,'{}'::text[] AS workspaces FROM kipster.people p WHERE p.id=ANY($1::uuid[])
+    UNION ALL SELECT a.id,a.display_name,true,EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin'),
+      ARRAY(SELECT o.display_name FROM kipster.agent_memberships m JOIN kipster.organizations o ON o.id=m.organization_id WHERE m.agent_id=a.id AND kipster.live_organization(o.id) ORDER BY o.display_name,o.id)
+    FROM kipster.agents a WHERE a.id=ANY($1::uuid[])`, [[...new Set(ids)]])).rows
+  return new Map(rows.map(row => [row.id, !row.agent ? { kind: 'person', id: row.id, name: row.name } : row.admin ? { kind: 'admin-kip', id: row.id, name: row.name } : { kind: 'kip', id: row.id, name: row.name, workspaces: row.workspaces }]))
+}
+/** For a linked thread: which kip's conversation its kip messages come from, and how to read it; read_thread is offered there with memory on or off. */
+async function linkedThreadLine(db: Postgres, threadId: string): Promise<string> {
+  const row = (await db.query<{ name: string; source_thread_id: string }>(`SELECT a.display_name AS name,l.source_thread_id FROM kipster.kip_links l JOIN kipster.agents a ON a.id=l.sender_agent_id WHERE l.linked_thread_id=$1`, [threadId])).rows[0]
+  if (!row) return ''
+  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation, and your final reply to each goes back there automatically. If a message lacks a detail you need, read that conversation with read_thread. A message the person writes here is answered to the person only.`
+}
+
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
@@ -155,6 +170,13 @@ async function wakeEligible(client: SqlClient, runtime: Runtime, installationId:
     FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
     WHERE c.installation_id=$1 AND NOT (r.state IN ('completed','cancelled','failed') AND r.queue_hold=false) ORDER BY r.thread_id,r.queue_position`, [installationId])
   for (const row of rows.rows as { id: string; state?: string }[]) if (row.state === 'queued') await runtime.jobs.send(client, row.id)
+}
+
+/** How a run that ended in `state` answers the kip whose message started it; none while it may still go on. */
+function kipRunEnd(state: string, failure: string | null): KipRunEnd | null {
+  if (state === 'completed') return { kind: 'completed' }
+  if (state === 'failed' || state === 'recovery-needed') return { kind: 'failed', reason: failure }
+  return state === 'cancelled' ? { kind: 'cancelled' } : null
 }
 
 const lockRetryMs = { first: 500, max: 10000 }
@@ -315,7 +337,7 @@ export class TextDispatcher {
     return this.runtime.db.transaction(async client => {
       const chat=await authorizedChat(client,actor,input.context,input.chatId)
       const row=await runRow(client,input.runId)
-      if(!row||row.thread_id!==input.threadId||row.chat_id!==chat.id||row.installation_id!==actor.installationId||row.caller_id!==actor.personId||!!(await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND internal=true',[row.thread_id])).rows.length) throw new Error('Run target denied')
+      if(!row||row.thread_id!==input.threadId||row.chat_id!==chat.id||row.installation_id!==actor.installationId||row.caller_id!==actor.personId) throw new Error('Run target denied')
       const found=(await client.query<{receipt:ControlReceipt}>('SELECT receipt FROM kipster.work_controls WHERE installation_id=$1 AND caller_id=$2 AND operation_id=$3',[actor.installationId,actor.personId,input.operationId])).rows[0]
       return found?.receipt??{version:1 as const,operationId:input.operationId,status:'unknown' as const}
     })
@@ -328,9 +350,10 @@ export class TextDispatcher {
       await lockCapacity(client, actor.installationId)
       const chat = await authorizedChat(client, actor, input.context, input.chatId)
       const row = await runRow(client, input.runId)
-      if (!row || row.thread_id !== input.threadId || row.chat_id !== chat.id || row.installation_id !== actor.installationId || row.caller_id !== actor.personId || !!(await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND internal=true',[row.thread_id])).rows.length) throw new Error('Run target denied')
+      if (!row || row.thread_id !== input.threadId || row.chat_id !== chat.id || row.installation_id !== actor.installationId || row.caller_id !== actor.personId) throw new Error('Run target denied')
       // Retry starts new work, so the agent and organization must be live; owners are locked before the thread.
       const live = input.action !== 'retry' || await isLive(client,actor.installationId,'agent',chat.agent_id) && (chat.context_kind !== 'organization' || await isLive(client,actor.installationId,'organization',chat.context_id))
+      await lockKipSource(client, row.thread_id)
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
       const prior = (await client.query<{ receipt: ControlReceipt }>('SELECT receipt FROM kipster.work_controls WHERE installation_id=$1 AND caller_id=$2 AND operation_id=$3',[actor.installationId,actor.personId,input.operationId])).rows[0]
       if (prior) return prior.receipt
@@ -341,12 +364,13 @@ export class TextDispatcher {
         else {
           await client.query('UPDATE kipster.text_runs SET state=$2,revision=revision+1 WHERE id=$1',[row.id,'cancelled'])
           await client.query('UPDATE kipster.work_intents SET state=$2 WHERE id=$1',[row.id,'settled'])
+          await answerKipRun(client,this.runtime.jobs,row.id,{kind:'cancelled'})
         }
       } else if (input.action === 'stop') {
         if (!['queued','preparing','running','waiting','cancellation-requested'].includes(row.state)) { outcome='rejected'; reason='Work is already settled' }
         else if (row.current_attempt_id && input.attemptId !== row.current_attempt_id) { outcome='rejected'; reason='Attempt target changed' }
         else if (row.state === 'cancellation-requested') { outcome='accepted'; reason='Cancellation already requested' }
-        else cancelAttempts.push(...(await stopRun(client,row)).cancelAttempts)
+        else cancelAttempts.push(...(await stopRun(client,this.runtime.jobs,row)).cancelAttempts)
       } else if (input.action === 'resume') {
         const permit = await client.query('SELECT 1 FROM kipster.owned_permits WHERE attempt_id=$1',[row.current_attempt_id])
         if (!row.queue_hold || !['failed','cancelled','completed'].includes(row.state) || permit.rows.length) { outcome='rejected'; reason='Work is not safely held' }
@@ -359,6 +383,10 @@ export class TextDispatcher {
           await client.query('UPDATE kipster.text_runs SET state=$2,queue_hold=true,retry_continue_generation=queue_generation,failure=NULL,revision=revision+1 WHERE id=$1',[row.id,'queued'])
           await client.query('UPDATE kipster.work_intents SET state=$2 WHERE id=$1',[row.id,'queued'])
           await this.runtime.jobs.send(client,row.id)
+          // A retried run a kip's message started answers again, so the sender's thread waits for it again.
+          const source=(await client.query<{source_thread_id:string;chat_id:string;caller_id:string}>(`UPDATE kipster.text_runs r SET answered_at=NULL FROM kipster.kip_links l JOIN kipster.threads t ON t.id=l.source_thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
+            WHERE r.id=$1 AND r.trigger_kind='kip' AND l.linked_thread_id=r.thread_id RETURNING l.source_thread_id,t.chat_id,c.caller_id`,[row.id])).rows[0]
+          if(source)await publishThreadSummary(client,row.installation_id,source.caller_id,source.source_thread_id,source.chat_id)
         }
       }
       const current=await workRecord(client,row.id)
@@ -529,6 +557,7 @@ export class TextDispatcher {
         await settleInterruptedMemoryCalls(client, installationId, [...this.live], this.incarnation)
         const rows = await client.query<{ id: string; thread_id: string; state: string; current_attempt_id: string | null }>(`SELECT r.id,r.thread_id,r.state,r.current_attempt_id FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.installation_id=$1 AND r.current_attempt_id <> ALL($2::uuid[]) AND (r.state='preparing' OR (r.state IN ('running','waiting','cancellation-requested') AND EXISTS (SELECT 1 FROM kipster.attempts a WHERE a.id=r.current_attempt_id AND a.state='issued'))) ORDER BY r.thread_id,r.queue_position`, [installationId, [...this.live]])
         for (const row of rows.rows) {
+          await lockKipSource(client, row.thread_id)
           await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
           let voiceChanged=false
           if (row.state === 'preparing') {
@@ -546,7 +575,10 @@ export class TextDispatcher {
           if (current) {
             if(voiceChanged)await publishThreadChange(client,installationId,current.caller_id,row.thread_id,current.chat_id,'message-final',current.input_message_id,await this.bumpMessage(client,current.input_message_id),await messageRecord(client,current.input_message_id),'queued',null)
             await publishThreadChange(client, installationId, current.caller_id, row.thread_id, current.chat_id, 'work-changed', row.id, await workRevision(client, row.id), await workRecord(client, row.id), row.state === 'preparing' ? 'queued' : 'recovery-needed', null)
-            if (row.state !== 'preparing') await createNotification(client, installationId, current.caller_id, row.thread_id, row.id, 'recovery-needed')
+            if (row.state !== 'preparing') {
+              await createNotification(client, installationId, current.caller_id, row.thread_id, row.id, 'recovery-needed')
+              await answerKipRun(client, this.runtime.jobs, row.id, { kind: 'failed', reason: 'Provider outcome requires reconciliation' })
+            }
             // As in settle(): an uncertain attempt cannot continue, so its open question cannot accept an answer.
             const superseded = row.state === 'preparing' ? undefined : (await client.query<{ id: string }>(`UPDATE kipster.interactions SET state='superseded',revision=revision+1 WHERE id=$1 AND attempt_id=$2 AND state='pending' RETURNING id`, [current.continuation_interaction_id, row.current_attempt_id])).rows[0]
             if (superseded) {
@@ -559,7 +591,6 @@ export class TextDispatcher {
         await wakeEligible(client, this.runtime, installationId)
       }
     })
-    await reconcileInterruptedDelegations(this.runtime.db)
   }
 
   private async prepareVoice(runId:string, context:NonNullable<Awaited<ReturnType<typeof runContext>>>, attemptId:string):Promise<void> {
@@ -620,6 +651,7 @@ export class TextDispatcher {
       if (!row || row.state !== 'queued') return null
       // Work runs only for a live agent in a live organization; owners are locked before the thread.
       const live = await isLive(client, row.installation_id, 'agent', context.agentId) && (context.context.kind !== 'organization' || await isLive(client, row.installation_id, 'organization', context.context.organizationId))
+      if (!live) await lockKipSource(client, row.thread_id)
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
       if (!live) { await this.stopUnavailable(client, runId); return null }
       if (!await isHead(client, row)) return null
@@ -634,13 +666,12 @@ export class TextDispatcher {
     try { await this.prepareClaimed(runId, context, attempt) } finally { this.live.delete(attempt.id) }
   }
 
-  /** Stops queued work whose agent or organization is no longer live, as fencing does. Caller holds the capacity and thread locks. */
+  /** Stops queued work whose agent or organization is no longer live, as fencing does. Caller holds the capacity, kip source and thread locks. */
   private async stopUnavailable(client: SqlClient, runId: string): Promise<void> {
     const row = await runRow(client, runId)
     if (!row || row.state !== 'queued' || row.stop_requested) return
-    const stopped = await stopRun(client, row)
+    const stopped = await stopRun(client, this.runtime.jobs, row)
     await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'work-changed', runId, await workRevision(client, runId), await workRecord(client, runId), stopped.state, null)
-    if (await childDelegation(client, runId)) await finishDelegation(client, this.runtime.jobs, runId, 'failed', 'Agent is not available for new work')
   }
 
   /**
@@ -685,10 +716,18 @@ export class TextDispatcher {
       const unsupported = Object.keys(resolved.settings.options ?? {}).filter(key => !(route!.supportedOptions ?? []).includes(key))
       if (unsupported.length) throw new Error(`Unsupported execution option: ${unsupported.join(', ')}`)
       const history = await executionHistory(this.runtime.db, runId)
+      const recipients = (parts: readonly MessagePart[]) => parts.flatMap(part => part.kind === 'kip-message' ? [part.recipientId] : [])
+      const authors = await messageAuthors(this.runtime.db, history.messages.flatMap(message => [message.authorId, ...recipients(message.parts)]))
+      // Every message names its author, and a kip's message the kip it went to; anyone missing from the directory is the person.
+      const author = (message: (typeof history.messages)[number]): Pick<TextExecutionContext['input'][number], 'author' | 'kipMessageTo' | 'kipAnswer'> => {
+        const recipient = authors.get(recipients(message.parts)[0] ?? '')
+        return { author: authors.get(message.authorId) ?? { kind: 'person', id: message.authorId, name: '' }, ...(recipient && recipient.kind !== 'person' ? { kipMessageTo: recipient } : {}), ...(message.parts.some(part => part.kind === 'kip-answer') ? { kipAnswer: true as const } : {}) }
+      }
       // A removed file is left out; its message keeps the other parts.
-      const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,parts:(await Promise.all(message.parts.map(async (part,index)=>{
+      const input = await Promise.all(history.messages.map(async message=>({messageId:message.messageId,text:message.text,...author(message),parts:(await Promise.all(message.parts.map(async (part,index)=>{
         if(part.kind==='text')return part
-        if(part.kind==='removed')return null
+        // Kip message and answer markers add no content; the message's own text and files carry it.
+        if(part.kind==='removed'||part.kind==='kip-message'||part.kind==='kip-answer')return null
         if(part.kind==='document')return {kind:'text' as const,text:await documentInput(this.runtime.db,part.documentId,part.revision)}
         const file=await this.runtime.artifacts.inputForExecution(context.actor,part.artifactId,{installationId:context.actor.installationId,callerId:context.actor.personId,context:context.context,chatId:context.chatId,threadId:context.threadId})
         const derived=part.purpose==='voice_note'?(await this.runtime.db.query<{status:string;transcript:string|null;provider_id:string|null;failure:string|null}>(`SELECT status,transcript,provider_id,failure FROM kipster.voice_preparations WHERE message_id=$1 AND ordinal=$2`,[message.messageId,index])).rows[0]:undefined
@@ -700,8 +739,6 @@ export class TextDispatcher {
       const settledInteractions = await Promise.all(interactionRows.map(row=>interactionRecord(this.runtime.db,row.id)))
       const interactions = settledInteractions.filter(item=>item.response).map(item=>({id:item.id,kind:item.kind,prompt:item.prompt,options:item.options,freeText:item.freeText,...(item.proposalId?{proposalId:item.proposalId}:{}),...(item.proposal?{proposal:item.proposal}:{}),response:{actorId:item.response!.actorId,answer:item.response!.answer,acceptedAt:item.response!.acceptedAt}}))
       const latest = interactions.at(-1)
-      const delegationRows=(await this.runtime.db.query<{id:string;recipient_agent_id:string;request:string;state:string;result:string|null;failure:string|null}>(`SELECT id,recipient_agent_id,request,state,result,failure FROM kipster.delegations WHERE parent_run_id=$1 AND state IN ('completed','failed','cancelled','recovery-needed') ORDER BY ordinal`,[runId])).rows
-      const delegationResults=delegationRows.map(row=>({id:row.id,recipientAgentId:row.recipient_agent_id,request:row.request,state:row.state,...(row.result!==null?{result:row.result}:{}),...(row.failure!==null?{failure:row.failure}:{})}))
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
       // Memory: core cards in the stable instructions, then search results and the unprocessed-threads line before the history.
@@ -710,18 +747,19 @@ export class TextDispatcher {
       const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
       const kip = await kipFacts(this.runtime.db, context.actor.installationId, context.agentId, organizationId, runId)
       const plugins = await this.runtime.pluginTools?.connected()
-      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length })
+      const linked = await linkedThreadLine(this.runtime.db, context.threadId)
+      const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length, linked: !!linked })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), memory ? memoryGuidance : '', plugins ? pluginGuidance(plugins) : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
-      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, delegationResults, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
+      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), linked, memory ? memoryGuidance : '', plugins ? pluginGuidance(plugins) : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
       const previous = (await this.runtime.db.query<{ provider_metadata: { threadId?: unknown; providerStateScope?: unknown } }>(`SELECT a.provider_metadata FROM kipster.attempts a
         WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
-          AND (EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled') OR EXISTS (SELECT 1 FROM kipster.delegations d WHERE d.parent_attempt_id=a.id))`, [runId, attempt.id])).rows[0]?.provider_metadata
+          AND EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled')`, [runId, attempt.id])).rows[0]?.provider_metadata
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
-      execution = { ...prepared, prompt: turnPrompt(prepared, kip.viewing), ...(resume ? { resume } : {}) }
+      execution = { ...prepared, prompt: turnPrompt(prepared, { trigger: kip.trigger, ...(kip.viewing ? { viewing: kip.viewing } : {}) }), ...(resume ? { resume } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -760,14 +798,6 @@ export class TextDispatcher {
   }
 
   private async driveIssued(runId: string, attempt: Attempt, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, route: { adapter: TextExecutionAdapter; release(attemptId: string): void }, execution: ExecutionContext): Promise<void> {
-    await this.runtime.db.transaction(async client=>{
-      const child=await childDelegation(client,runId)
-      if(!child)return
-      await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[child.originThreadId])
-      const changed=await client.query<{id:string}>("UPDATE kipster.delegations SET state='running',revision=revision+1 WHERE id=$1 AND state='queued' RETURNING id",[child.id])
-      const origin=(await client.query<{chat_id:string}>('SELECT chat_id FROM kipster.threads WHERE id=$1',[child.originThreadId])).rows[0]!
-      if(changed.rows.length){const record=await delegationRecord(client,child.id);await publishThreadChange(client,context.actor.installationId,context.actor.personId,child.originThreadId,origin.chat_id,'delegation-changed',child.id,record.revision,delegationActivity(record),'running',null)}
-    })
     await this.hooks.afterIssue?.(attempt.id)
     try {
       const handle = await route.adapter.execute(execution)
@@ -887,22 +917,19 @@ export class TextDispatcher {
       if(Object.keys(args).length!==1||typeof args.agentId!=='string')throw new Error('Invalid agent lookup arguments')
       return {agent:await getAgent(this.runtime.db,attemptId,this.incarnation,args.agentId)}
     }
-    if(name==='agents.delegation_status'){
-      if(Object.keys(args).length!==1||typeof args.delegationId!=='string')throw new Error('Invalid delegation status arguments')
-      return delegationStatus(this.runtime.db,attemptId,this.incarnation,args.delegationId)
-    }
-    if(name==='agents.delegate'){
-      if(Object.keys(args).some(key=>!['recipientId','request','artifactIds','files','workspaceId'].includes(key))||typeof args.recipientId!=='string'||typeof args.request!=='string'||!strings(args.artifactIds)||!strings(args.files)||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid delegation arguments')
+    if(name==='agents.message'){
+      if(Object.keys(args).some(key=>!['recipientId','text','artifactIds','files','workspaceId'].includes(key))||typeof args.recipientId!=='string'||typeof args.text!=='string'||!strings(args.artifactIds)||!strings(args.files)||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid message_kip arguments')
       const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[],workspaceId=args.workspaceId as string|undefined
-      const requestHash=files.length?fileRequestHash(['delegate_to_kip',args.recipientId,args.request,artifactIds,files,workspaceId??null]):null
-      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.delegations WHERE parent_attempt_id=$1 AND call_id=$2 UNION ALL SELECT 1 FROM kipster.delegation_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('File attachment replay conflict')
-      if(!requestHash)return delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,undefined,workspaceId)
+      const requestHash=fileRequestHash(['message_kip',args.recipientId,args.text,artifactIds,files,workspaceId??null])
+      const input={recipientId:args.recipientId,text:args.text,artifactIds,...(workspaceId!==undefined?{workspaceId}:{}),requestHash}
+      if(!files.length)return messageKip(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,input)
+      if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.kip_message_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('This call ID already sent a different message')
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
       const row=(await this.runtime.db.query<{intent_id:string}>('SELECT intent_id FROM kipster.attempts WHERE id=$1',[attemptId])).rows[0]
       const context=row?await runContext(this.runtime.db,row.intent_id):null
-      if(!context)throw new Error('Attempt no longer owns delegation')
+      if(!context)throw new Error('Attempt no longer owns kip tools')
       const attachment=await this.attachFiles(attemptId,callId,context.agentId,files,artifactIds,requestHash)
-      try{return {...await delegate(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,args.recipientId,args.request,artifactIds,attachment,workspaceId),files:attachment.files}}
+      try{return {...await messageKip(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,input,attachment),files:attachment.files}}
       finally{await attachment.abandon()}
     }
     throw new Error('Unsupported agent tool')
@@ -1033,8 +1060,7 @@ export class TextDispatcher {
     if (!context) return
     await this.runtime.db.transaction(async client => {
       await lockCapacity(client, context.actor.installationId)
-      const child=await childDelegation(client,attempt.intentId)
-      if(child)await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE',[child.originThreadId])
+      await lockKipSource(client, context.threadId)
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [context.threadId])
       const row = await runRow(client, attempt.intentId)
       const expected = preparation ? 'preparing' : 'running'
@@ -1045,10 +1071,7 @@ export class TextDispatcher {
       const uncertain = state === 'recovery-needed'
       const interaction = row.continuation_interaction_id ? (await client.query<{ state: string; attempt_id: string }>('SELECT state,attempt_id FROM kipster.interactions WHERE id=$1', [row.continuation_interaction_id])).rows[0] : undefined
       const yieldingInteraction = interaction?.attempt_id === attempt.id
-      const children=(await client.query<{state:string}>('SELECT state FROM kipster.delegations WHERE parent_attempt_id=$1 ORDER BY created_at,id',[attempt.id])).rows
-      const awaitingChildren=children.length>0
-      const childrenFinished=children.every(item=>['completed','failed','cancelled','recovery-needed'].includes(item.state))
-      const nextState = row.stop_requested && !uncertain ? 'cancelled' : state === 'completed' && awaitingChildren ? childrenFinished?'queued':'waiting' : state === 'completed' && yieldingInteraction ? interaction.state === 'settled' ? 'queued' : 'waiting' : state
+      const nextState = row.stop_requested && !uncertain ? 'cancelled' : state === 'completed' && yieldingInteraction ? interaction.state === 'settled' ? 'queued' : 'waiting' : state
       await sealAttemptMessages(client, attempt.id, nextState)
       await client.query('UPDATE kipster.attempts SET state=$2 WHERE id=$1', [attempt.id, uncertain ? 'uncertain' : 'settled'])
       await client.query('UPDATE kipster.work_intents SET state=$2 WHERE id=$1', [attempt.intentId, uncertain ? 'uncertain' : nextState === 'queued' ? 'queued' : 'settled'])
@@ -1063,12 +1086,16 @@ export class TextDispatcher {
       await client.query('UPDATE kipster.text_runs SET state=$2,queue_hold=$3,failure=$4,retry_continue_generation=$5,cancel_delivery=CASE WHEN stop_requested THEN $6 ELSE cancel_delivery END,revision=revision+1 WHERE id=$1', [attempt.intentId, nextState, releaseRetryHold ? false : row.queue_hold || !['completed','queued','waiting'].includes(nextState), failure, releaseRetryHold || ['failed','cancelled','recovery-needed'].includes(nextState) ? null : row.retry_continue_generation,uncertain?'uncertain':'confirmed-ended'])
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])
       await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, 'work-changed', attempt.intentId, await workRevision(client, attempt.intentId), await workRecord(client, attempt.intentId), nextState, null)
-      if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState)) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
+      // A kip's finished turn is its answer, which notifies nobody, and so does a turn an answer woke that ends without a
+      // message in its thread; their failures notify as any other.
+      const silent = (await client.query<{ silent: boolean }>(`SELECT r.trigger_kind='kip' OR (r.trigger_kind='answer' AND NOT EXISTS (SELECT 1 FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id WHERE a.intent_id=r.id)) AS silent
+        FROM kipster.text_runs r WHERE r.id=$1`, [attempt.intentId])).rows[0]!.silent
+      if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState) && !(silent && nextState === 'completed')) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
       if (nextState === 'queued') await this.runtime.jobs.send(client, attempt.intentId)
-      if(child&&!uncertain)await finishDelegation(client,this.runtime.jobs,attempt.intentId,nextState,failure)
+      const end = kipRunEnd(nextState, failure)
+      if (end) await answerKipRun(client, this.runtime.jobs, attempt.intentId, end)
       if (!uncertain) await wakeEligible(client, this.runtime, context.actor.installationId)
     })
-    if(state==='recovery-needed')await reconcileInterruptedDelegations(this.runtime.db)
     await finishRunDocuments(this.runtime.db, attempt.intentId).catch(() => undefined)
   }
 
@@ -1081,6 +1108,7 @@ export class TextDispatcher {
           JOIN kipster.attempts a ON a.id=r.current_attempt_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
           WHERE c.installation_id=$1 AND a.incarnation=$2 AND r.state IN ('preparing','running','waiting','cancellation-requested') AND a.state IN ('preparing','issued') ORDER BY r.thread_id,r.queue_position`, [installationId, this.incarnation])
         for (const row of rows.rows) {
+          await lockKipSource(client, row.thread_id)
           await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [row.thread_id])
           let voiceChanged=false
           if (row.state === 'preparing') {
@@ -1099,12 +1127,12 @@ export class TextDispatcher {
             if(voiceChanged)await publishThreadChange(client,installationId,current.caller_id,row.thread_id,current.chat_id,'message-final',current.input_message_id,await this.bumpMessage(client,current.input_message_id),await messageRecord(client,current.input_message_id),'queued',null)
             await publishThreadChange(client, installationId, current.caller_id, row.thread_id, current.chat_id, 'work-changed', row.id, await workRevision(client, row.id), await workRecord(client, row.id), row.state === 'preparing' ? 'queued' : 'recovery-needed', null)
             if (row.state === 'running') await createNotification(client, installationId, current.caller_id, row.thread_id, row.id, 'recovery-needed')
+            if (row.state !== 'preparing') await answerKipRun(client, this.runtime.jobs, row.id, { kind: 'failed', reason: 'Provider outcome requires reconciliation' })
           }
         }
         await wakeEligible(client, this.runtime, installationId)
       }
     })
-    await reconcileInterruptedDelegations(this.runtime.db)
   }
 
   private async bounded(operation: Promise<unknown>, milliseconds: number): Promise<void> {

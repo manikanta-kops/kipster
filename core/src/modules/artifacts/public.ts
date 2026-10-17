@@ -48,7 +48,7 @@ async function storedBytes(client: SqlClient|Postgres, artifactIds: readonly str
   if (!artifactIds.length) return 0
   return Number((await client.query<{total:string}>('SELECT coalesce(sum(size_bytes),0)::text AS total FROM kipster.artifacts WHERE id=ANY($1::uuid[])',[artifactIds])).rows[0]!.total)
 }
-/** Refuses an execution's message or delegation whose files, already authorized, together exceed the per-message limit. Exactly the limit is accepted. */
+/** Refuses an execution's message or kip message whose files, already authorized, together exceed the per-message limit. Exactly the limit is accepted. */
 export async function requireMessageFileLimit(client: SqlClient, artifactIds: readonly string[]): Promise<void> {
   if (await storedBytes(client, artifactIds) > MAX_MESSAGE_FILE_BYTES) throw new Error(messageTooLarge)
 }
@@ -134,8 +134,8 @@ export class ArtifactService {
   private async liveAttempt(client:SqlClient,attemptId:string,incarnation:string,waiting=false):Promise<LiveAttempt>{
     if(!uuid.test(attemptId)||!uuid.test(incarnation))throw new Error('Invalid attempt identity')
     const states=waiting?"('running','waiting')":"('running')"
-    const sql=`SELECT COALESCE(d.recipient_agent_id,c.agent_id) AS agent_id,r.thread_id,c.installation_id,c.caller_id,CASE WHEN c.context_kind='organization' THEN c.context_id ELSE NULL END AS organization_id
-      FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id LEFT JOIN kipster.delegations d ON d.child_run_id=r.id
+    const sql=`SELECT c.agent_id,r.thread_id,c.installation_id,c.caller_id,CASE WHEN c.context_kind='organization' THEN c.context_id ELSE NULL END AS organization_id
+      FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
       WHERE a.id=$1 AND a.incarnation=$2 AND a.state='issued' AND r.current_attempt_id=a.id AND r.state IN ${states} AND r.stop_requested=false`
     const owners=(await client.query<LiveAttempt>(sql,[attemptId,incarnation])).rows[0]
     if(!owners)throw new Error('Attempt is not live')
@@ -146,7 +146,7 @@ export class ArtifactService {
   }
   /**
    * Snapshots files an execution names by path into managed storage as staging agent-owned artifacts for one
-   * message or delegation. Relative paths resolve against `base`. The caller makes them ready with `settle` in
+   * message or kip message. Relative paths resolve against `base`. The caller makes them ready with `settle` in
    * the transaction that attaches them, then calls `abandon`, which fails whatever is still staging. A replay of
    * the call returns the same artifacts, and different arguments under its call ID are a replay conflict.
    */
@@ -331,10 +331,10 @@ export class ArtifactService {
   async initialize(): Promise<void> { await directory(this.objects,this.home.root);await directory(this.staging,this.home.root);await this.recover() }
   startRecovery():void {if(this.recoveryTimer)return;this.recoveryTimer=setInterval(()=>{if(!this.recovering)this.recovering=this.recoverExpiredUploads().catch(()=>undefined).finally(()=>{this.recovering=null})},30000);this.recoveryTimer.unref()}
   async stopRecovery():Promise<void>{if(this.recoveryTimer){clearInterval(this.recoveryTimer);this.recoveryTimer=null}await this.recovering}
-  private async authorize(client: SqlClient, actor: TrustedActor, target: ArtifactTarget, internal=false): Promise<void> {
+  private async authorize(client: SqlClient, actor: TrustedActor, target: ArtifactTarget): Promise<void> {
     if(target.installationId!==actor.installationId||target.callerId!==actor.personId)throw new Error('Caller scope mismatch')
     await authorizedChat(client,actor,target.context,target.chatId)
-    if(target.threadId){const found=await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2 AND (internal=false OR $3=true)',[target.threadId,target.chatId,internal]);if(!found.rows.length)throw new Error('Thread not found in chat')}
+    if(target.threadId){const found=await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2',[target.threadId,target.chatId]);if(!found.rows.length)throw new Error('Thread not found in chat')}
   }
   async authorizeTarget(client: SqlClient, actor: TrustedActor, target: ArtifactTarget): Promise<void> { await this.authorize(client,actor,target) }
   /** An upload into an organization needs the organization live until the upload row commits. */
@@ -407,14 +407,14 @@ export class ArtifactService {
     if(receipt.status==='accepted')await this.verifyReady(receipt.artifact)
     return receipt
   }
-  private async scopedRecord(client:SqlClient,actor:TrustedActor,id:string,target:ArtifactTarget,internal=false):Promise<ArtifactRow>{
-    await this.authorize(client,actor,target,internal)
+  private async scopedRecord(client:SqlClient,actor:TrustedActor,id:string,target:ArtifactTarget):Promise<ArtifactRow>{
+    await this.authorize(client,actor,target)
     const row=await this.row(client,id)
     if(row.installation_id!==actor.installationId)throw new Error('Artifact access denied')
-    // A run reads every file of its own thread, such as one the admin kip handed over from outside the workspace.
-    if(internal&&target.threadId&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.id=$2 AND t.chat_id=$3 LIMIT 1',[id,target.threadId,target.chatId])).rows.length)return row
+    // Every file of a message in the thread is readable there, such as one a kip sent or answered with from another chat.
+    if(target.threadId&&(await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.id=$2 AND t.chat_id=$3 LIMIT 1',[id,target.threadId,target.chatId])).rows.length)return row
     if(row.owner_kind==='agent'){
-      const associated=await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.chat_id=$2 AND ($3::uuid IS NULL OR t.id=$3) AND (t.internal=false OR $4=true) LIMIT 1`,[id,target.chatId,target.threadId??null,internal])
+      const associated=await client.query(`SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id JOIN kipster.threads t ON t.id=m.thread_id WHERE ma.artifact_id=$1 AND t.chat_id=$2 AND ($3::uuid IS NULL OR t.id=$3) LIMIT 1`,[id,target.chatId,target.threadId??null])
       if(!associated.rows.length)throw new Error('Artifact access denied')
     }else if(row.owner_kind==='organization'&&(target.context.kind!=='organization'||target.context.organizationId!==row.owner_id))throw new Error('Artifact access denied')
     else if(row.owner_kind==='installation'&&(target.context.kind!=='installation'||target.context.installationId!==row.owner_id))throw new Error('Artifact access denied')
@@ -446,7 +446,7 @@ export class ArtifactService {
     return {metadata:record,bytes}
   }
   async inputForExecution(actor:TrustedActor,id:string,target:ArtifactTarget):Promise<{artifactId:string;name:string;mimeType:string;size:number;availability:'available';readablePath:string}|{artifactId:string;name:string;mimeType:string;size:number;availability:'unavailable'}> {
-    const row=await this.db.transaction(client=>this.scopedRecord(client,actor,id,target,true))
+    const row=await this.db.transaction(client=>this.scopedRecord(client,actor,id,target))
     const file=metadata(row),details={artifactId:id,name:file.name,mimeType:file.mimeType,size:file.size}
     if(row.state!=='ready')return {...details,availability:'unavailable'}
     try{await this.verifyReady(file)}catch(error){if(error instanceof ArtifactContentUnavailableError)return {...details,availability:'unavailable'};throw error}
@@ -467,7 +467,7 @@ export class ArtifactService {
     const failedIds=new Set(failed.map(row=>row.id))
     for(const row of failed)await rm(this.object(row.id),{force:true})
     for(const name of await readdir(this.staging))if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[0-9a-f-]+$/.test(name)&&failedIds.has(name.slice(0,36)))await rm(join(this.staging,name),{force:true})
-    const failedOutputs=(await this.db.query<{id:string;attempt_id:string;agent_id:string;thread_id:string}>("SELECT w.id,w.attempt_id,COALESCE(d.recipient_agent_id,c.agent_id) AS agent_id,r.thread_id FROM kipster.artifact_output_writes w JOIN kipster.attempts a ON a.id=w.attempt_id JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id LEFT JOIN kipster.delegations d ON d.child_run_id=r.id WHERE w.state='failed'")).rows
+    const failedOutputs=(await this.db.query<{id:string;attempt_id:string;agent_id:string;thread_id:string}>("SELECT w.id,w.attempt_id,c.agent_id,r.thread_id FROM kipster.artifact_output_writes w JOIN kipster.attempts a ON a.id=w.attempt_id JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE w.state='failed'")).rows
     for(const output of failedOutputs){const path=this.output(output.agent_id,output.thread_id,output.attempt_id,output.id);await rm(path,{force:true});await rm(path+'.tmp',{force:true})}
   }
   async recover():Promise<void> {

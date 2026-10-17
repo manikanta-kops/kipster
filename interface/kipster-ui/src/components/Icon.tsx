@@ -9,6 +9,7 @@ import { IdentificationCardIcon } from '@phosphor-icons/react/dist/csr/Identific
 import { SidebarSimpleIcon } from '@phosphor-icons/react/dist/csr/SidebarSimple'
 import { PlusIcon } from '@phosphor-icons/react/dist/csr/Plus'
 import { ArrowUpIcon } from '@phosphor-icons/react/dist/csr/ArrowUp'
+import { ArrowRightIcon } from '@phosphor-icons/react/dist/csr/ArrowRight'
 import { SunIcon } from '@phosphor-icons/react/dist/csr/Sun'
 import { MoonIcon } from '@phosphor-icons/react/dist/csr/Moon'
 import { FolderSimpleIcon } from '@phosphor-icons/react/dist/csr/FolderSimple'
@@ -77,6 +78,7 @@ const icons = {
   panel: SidebarSimpleIcon,
   plus: PlusIcon,
   arrow: ArrowUpIcon,
+  arrowRight: ArrowRightIcon,
   sun: SunIcon,
   moon: MoonIcon,
   folder: FolderSimpleIcon,

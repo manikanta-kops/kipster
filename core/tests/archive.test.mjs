@@ -112,14 +112,15 @@ async function setup(t, { learning = false } = {}) {
   return ctx
 }
 
-test('archiving stops the agent\'s work, fails a waiting parent\'s delegation and refuses new work while its chats stay readable', { skip: noDatabase, timeout: 90000 }, async t => {
+test('archiving stops the agent\'s work, tells a kip waiting on it that it was removed and refuses new work while its chats stay readable', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
-  // A parent waiting on work it delegated to Scout.
+  // A kip that messaged Scout and waits for its answer.
   const parent = await ctx.running(ctx.root, 'Ask Scout')
-  const delegated = await parent.call('delegate_to_kip', { recipientId: ctx.scout, request: 'Check the numbers' })
+  const sent = await parent.call('message_kip', { recipientId: ctx.scout, text: 'Check the numbers' })
   parent.release({ kind: 'ended', confirmed: true })
-  const child = await ctx.execution(delegated.childRunId)
-  await ctx.settled(parent.runId, 'waiting')
+  const childRunId = (await row(ctx.db, "SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).id
+  const child = await ctx.execution(childRunId)
+  await ctx.settled(parent.runId, 'completed')
   // Scout's own work: running, queued behind it, and waiting on a question.
   const running = await ctx.running()
   const queued = await ctx.submit(running.chatId, 'After that', { mode: 'reply', threadId: running.threadId })
@@ -146,18 +147,18 @@ test('archiving stops the agent\'s work, fails a waiting parent\'s delegation an
   child.handle.release({ kind: 'text', attemptId: child.context.attemptId, messageId: 'late-child', text: 'Late child output', final: true })
   child.handle.release({ kind: 'ended', attemptId: child.context.attemptId, confirmed: true })
   await ctx.settled(running.runId, 'cancelled')
-  await ctx.settled(delegated.childRunId, 'cancelled')
+  await ctx.settled(childRunId, 'cancelled')
   for (const text of ['Late output', 'Late child output']) assert.equal(await count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.messages WHERE parts @> $1::jsonb', [JSON.stringify([{ kind: 'text', text }])]), 0, text)
 
-  // The waiting parent continues with the child's failure and cannot reach Scout.
-  assert.deepEqual({ ...await row(ctx.db, 'SELECT state, failure FROM kipster.delegations WHERE id=$1', [delegated.id]) }, { state: 'failed', failure: 'Agent was archived' })
-  const resumed = await ctx.execution(parent.runId, after)
-  assert.deepEqual(resumed.context.delegationResults.map(item => [item.recipientAgentId, item.state, item.failure]), [[ctx.scout, 'failed', 'Agent was archived']])
+  // The kip that messaged Scout is told and woken, and cannot reach Scout.
+  const answer = await row(ctx.db, "SELECT r.id AS run_id, m.author_id, m.parts FROM kipster.text_runs r JOIN kipster.messages m ON m.id=r.input_message_id WHERE r.thread_id=$1 AND r.trigger_kind='answer'", [parent.threadId])
+  assert.deepEqual([answer.author_id, answer.parts[0].text], [ctx.scout, 'Scout was removed before answering.'])
+  const resumed = await ctx.execution(answer.run_id, after)
   const tool = (name, args) => resumed.handle.callTool(randomUUID(), name, args)
   assert.equal((await tool('list_kips', {})).agents.some(agent => agent.id === ctx.scout), false)
-  await assert.rejects(tool('delegate_to_kip', { recipientId: ctx.scout, request: 'Try again' }), /Agent is archived/)
+  await assert.rejects(tool('message_kip', { recipientId: ctx.scout, text: 'Try again' }), /Agent is archived/)
   ctx.finish({ found: resumed }, 'Scout is unavailable')
-  await ctx.settled(parent.runId, 'completed')
+  await ctx.settled(answer.run_id, 'completed')
 
   // Submissions and new chats are refused with the stable code; an existing chat still opens.
   const helper = (await ctx.ok('POST', '/v1/agents', { version: 1, operationId: randomUUID(), name: 'Helper', organizationId: ctx.organizationId })).agent.id

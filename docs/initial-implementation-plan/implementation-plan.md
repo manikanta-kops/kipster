@@ -8,7 +8,7 @@ This document records the agreed architectural direction and proposed implementa
 
 ## 1. Product direction
 
-Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation.
+Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation. Agent-to-agent work follows [Decision block 11 — Kip messaging](./11-kip-messaging.md), which supersedes delegation in blocks 2, 3 and 5.
 
 Kipster is a persistent system that coordinates conversations and AI work. Interfaces connect to it through a stable protocol. Execution adapters connect it to harnesses and, eventually, Kipster-managed model API loops.
 
@@ -22,8 +22,8 @@ Development of this version does not require operating or migrating an existing 
 - Text, links, images, documents, video attachments, and explicitly distinguished voice notes versus ordinary audio attachments.
 - Automatic voice-note transcription using configured Spokenly CLI; expose the same service as an agent tool and hand failed transcription to the agent with the original audio and an explicit failure marker.
 - Threads started by root messages, with replies queued inside a thread.
-- Concurrent work across threads, including the same agent, with a configurable installation-wide ceiling of 20 active AI executions initially; delegated work counts toward this limit.
-- Durable agent-to-agent requests, results, and continuation, displayed initially through concise activity-timeline entries.
+- Concurrent work across threads, including the same agent, with a configurable installation-wide ceiling of 20 active AI executions initially; work kips do for each other counts toward this limit.
+- Kip messaging: kips message each other in visible linked threads, and each answer comes back and wakes the sender (decision block 11).
 - Live answer streaming, model-authored progress, multiple intermediate messages, and final messages.
 - Approvals and questions that survive client disconnection and backend restarts.
 - Codex as the first execution integration, following the existing 2.0 approach.
@@ -39,7 +39,7 @@ Development of this version does not require operating or migrating an existing 
 - Seamless transfer of live execution between providers.
 - Multi-user login, human invitation flows, and full authorization policy. Organization memberships and visual-group management are in scope; see decision block 5.
 - Remote execution workers and isolation between mutually untrusted users.
-- Detailed physical organization/agent schemas, long-term memory algorithms, advanced scheduling, and future group-chat or detailed collaboration UI. Basic asynchronous delegation is in scope; identity and ownership follow decision block 1.
+- Detailed physical organization/agent schemas, long-term memory algorithms, advanced scheduling, and future group-chat or detailed collaboration UI. Basic kip messaging is in scope (decision block 11); identity and ownership follow decision block 1.
 - Per-message execution-setting overrides, while reserving a place for them in configuration resolution.
 
 ## 2. Architectural boundaries and names
@@ -83,7 +83,7 @@ Kipster owns its conversation IDs and history. External interface and provider s
 | Group | Organization-wide visual collection of agent memberships; multiple groups may reference the same agent. |
 | Chat | Participant-based conversation space in an organization or installation context; direct chats initially, group and dedicated agent chats later. |
 | Thread | Independent conversation started by a root message within a chat; ordinary follow-ups queue while its primary workflow is active. |
-| Delegation | Correlated agent-to-agent request, execution, result, and continuation relationship. |
+| Delegation | Correlated agent-to-agent request, execution, result, and continuation relationship. Superseded by kip messaging in decision block 11. |
 | Message | Authored content with ordered parts, such as text and file references. |
 | Command | Request to submit, stop, steer, retry, approve, deny, or answer. |
 | Run | Durable logical unit of work, independent of a UI connection. |
@@ -164,13 +164,13 @@ Decision block 1 clarifies that data scope identifies ownership and context; it 
 ### Queue policy
 
 - A root message creates a new independent thread in the current chat and its initial work.
-- Different threads, including work by the same agent, may run concurrently within a configurable installation-wide active AI execution limit, initially 20. Delegated executions count toward that ceiling; excess work stays queued.
-- Within one thread, one primary user workflow is active at a time; ordinary replies queue in the backend immediately on submission. Delegated children have separate execution contexts and must not wait behind the parent that needs their result.
-- A workflow waiting for a human or child remains logically open, and Core schedules continuation when its dependency resolves. Status lookup remains available; model guidance neither encourages nor discourages polling. Suspension/continuation and capacity scheduling must let dependencies progress without exceeding the configured active-execution ceiling. Concrete provider mechanics belong to the execution block.
-- Interaction responses and delegated results use correlated continuation paths rather than the ordinary follow-up queue. Provider sessions must not be shared between concurrently executing independent threads.
+- Different threads, including work by the same agent, may run concurrently within a configurable installation-wide active AI execution limit, initially 20. Executions started by kip messages count toward that ceiling; excess work stays queued.
+- Within one thread, one primary user workflow is active at a time; ordinary replies queue in the backend immediately on submission. A kip's message runs in a linked thread of the recipient's chat, so it never waits behind the sender's thread.
+- A workflow waiting for a human remains logically open, and Core schedules continuation when its dependency resolves. Status lookup remains available; model guidance neither encourages nor discourages polling. Suspension/continuation and capacity scheduling must let dependencies progress without exceeding the configured active-execution ceiling. Concrete provider mechanics belong to the execution block.
+- Interaction responses use correlated continuation paths rather than the ordinary follow-up queue. A kip's answer instead wakes the sender with a new turn, queued behind any running turn in its thread (decision block 11). Provider sessions must not be shared between concurrently executing independent threads.
 - Pending interactions, queued messages, and current work remain visible across devices.
 
-Decision block 5 adds FIFO ordering without manual reordering, cancellation of queued execution while retaining its message, and explicit Stop holding ordinary queued follow-ups until Resume. Resume does not resurrect the cancelled workflow. Interaction responses and delegated results retain their separate continuation paths.
+Decision block 5 adds FIFO ordering without manual reordering, cancellation of queued execution while retaining its message, and explicit Stop holding ordinary queued follow-ups until Resume. Resume does not resurrect the cancelled workflow. Interaction responses retain their separate continuation path.
 
 ### Steering
 
@@ -251,7 +251,7 @@ Give each run a designated output directory in the execution context and instruc
 <kipster-home>/agents/<agent-id>/outputs/<thread-id>/<attempt-id>/
 ```
 
-The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path with `files` on `conversation_publish` or `agents_delegate`, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
+The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path with `files` on `post_chat_message`, or on `message_kip` when sending it to another kip, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
 
 Filesystem directories and HTTP routes are separate namespaces. A public route might be `/v1/files/<artifact-id>/content`, regardless of where bytes are stored. Use IDs rather than thread titles or provider names as storage identity. Store stable artifact IDs in messages; clients resolve them against the currently configured backend URL.
 
@@ -309,9 +309,9 @@ Acceptance: duplicate submission creates one intended unit of work; same-thread 
 
 ### Phase 3 — Codex execution and model-facing services
 
-Implement adapter package registration/refresh and the first harness adapter, scoped tool injection, activity and message publication, native output normalization, artifacts, automatic and tool-invoked transcription, structured/vector data services, questions, approvals, cancellation, supported steering, and asynchronous agent delegation/continuation. Supply workspace/output context and resolved settings.
+Implement adapter package registration/refresh and the first harness adapter, scoped tool injection, activity and message publication, native output normalization, artifacts, automatic and tool-invoked transcription, structured/vector data services, questions, approvals, cancellation, supported steering, and asynchronous agent delegation/continuation (superseded by kip messaging, decision block 11). Supply workspace/output context and resolved settings.
 
-Acceptance: a real run emits progress, multiple messages, and an attachment without duplicates; permitted data reads/writes work; protected Core state cannot be changed through ordinary data tools; invalid settings are rejected. Failed transcription preserves and dispatches original input. Delegated work progresses without parent/child queue deadlocks and returns correlated results. Record real harness behavior across long waits and restart. Do not claim an untested continuation guarantee.
+Acceptance: a real run emits progress, multiple messages, and an attachment without duplicates; permitted data reads/writes work; protected Core state cannot be changed through ordinary data tools; invalid settings are rejected. Failed transcription preserves and dispatches original input. Delegated work progresses without parent/child queue deadlocks and returns correlated results (superseded by decision block 11). Record real harness behavior across long waits and restart. Do not claim an untested continuation guarantee.
 
 ### Phase 4 — Kipster UI and private connectivity
 
@@ -333,7 +333,7 @@ Acceptance: restart retains messages, pending interactions, and accessible artif
 - Model catalog discovery versus configured catalogs for each integration.
 - Event/artifact retention, size limits, and embedding configuration.
 - Concrete adapter-loader mechanics and harness-specific instruction refresh, yielding, and recovery, following the behavior agreed in decision block 3.
-- Detailed memory, scheduling, future group-chat routing and collaboration displays, and any required 2.0 feature migration. Basic delegation and continuation semantics follow decision block 2; exact tool contracts remain execution-block work.
+- Detailed memory, scheduling, future group-chat routing and collaboration displays, and any required 2.0 feature migration. Kip messaging follows decision block 11.
 
 These items should be resolved in the relevant design or implementation phase, not filled in silently with assumptions about 2.0 feature parity.
 

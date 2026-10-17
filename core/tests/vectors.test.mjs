@@ -136,7 +136,10 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     assert.equal((await oldLease).stale,1)
     await call('lease-delete',{operation:'delete_collection',collectionId:leaseCollection.collectionId,expectedRevision:(await call('lease-describe',{operation:'describe',collectionId:leaseCollection.collectionId})).revision})
     assert.equal((await call('cross-agent',{operation:'discover',target:{kind:'agent',ownerId:otherAgent}})).collections.length,0)
-    await assert.rejects(call('bad-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/outside active context/)
+    // The admin kip may use another workspace's collections, but not a removed one.
+    assert.equal((await call('admin-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}})).collections.length,0)
+    await runtime.db.query('UPDATE kipster.organizations SET provisioned=false WHERE id=$1',[otherOrg])
+    await assert.rejects(call('removed-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/Vector owner unavailable/)
     const org=await call('org-create',{operation:'create',target:{kind:'organization',ownerId:ids.organizationId},name:'shared'})
     assert.equal(org.owner.kind,'organization')
     await runtime.db.query("CREATE FUNCTION kipster.reject_vector_rebuild() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'vector rebuild rejected'; END $$")
@@ -226,13 +229,13 @@ test('vector collection lifecycle, shared generations, retained sources and stal
     await post('/v1/text/submissions',{version:1,submissionId:randomUUID(),scope,target:{context,chatId:chat},mode:'root',parts:[{kind:'text',text:'Ask the other agent to write a vector'}]})
     await until(()=>adapter.contexts.length,n=>n>=2)
     const parentAttempt=adapter.contexts[1].attemptId
-    await dispatcher.agentTool(parentAttempt,'delegate-vector','agents.delegate',{recipientId:otherAgent,request:'Write one vector collection'})
+    await dispatcher.agentTool(parentAttempt,'message-vector','agents.message',{recipientId:otherAgent,text:'Write one vector collection'})
     adapter.handles[1].emit({kind:'ended',attemptId:parentAttempt,confirmed:true})
     const childContext=await until(()=>adapter.contexts.find(item=>item.agentId===otherAgent),Boolean)
     const childAttempt=childContext.attemptId
-    const delegated=await host.invokeTool({attemptId:childAttempt,callId:'delegated-vector',name:'manage_vector_collections',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'delegated'}})
-    assert.equal(delegated.actorId,otherAgent)
-    assert.equal(delegated.owner.ownerId,ids.rootAgentId)
+    const written=await host.invokeTool({attemptId:childAttempt,callId:'kip-vector',name:'manage_vector_collections',arguments:{operation:'create',target:{kind:'agent',ownerId:ids.rootAgentId},name:'fromkip'}})
+    assert.equal(written.actorId,otherAgent)
+    assert.equal(written.owner.ownerId,ids.rootAgentId)
     adapter.handles[adapter.contexts.indexOf(childContext)].emit({kind:'ended',attemptId:childAttempt,confirmed:true})
     const queryAfterStop=call('query-stop',{operation:'search',collectionId:restartCollection.collectionId,query:'QUERY_STOP'}).then(()=>null,error=>error)
     await stopQueryBarrier

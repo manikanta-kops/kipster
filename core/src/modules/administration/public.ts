@@ -109,7 +109,7 @@ export type Lifecycle = 'active' | 'archived' | 'deleting' | 'deleted'
  * the same transaction. Returns the previous lifecycle and the attempts whose adapter should cancel,
  * or null for an unknown row.
  */
-export async function changeLifecycle(client: SqlClient, jobs: Jobs, installationId: string, kind: 'agent' | 'organization', id: string, lifecycle: Lifecycle, failure: string): Promise<{ previous: Lifecycle; cancelAttempts: string[] } | null> {
+export async function changeLifecycle(client: SqlClient, jobs: Jobs, installationId: string, kind: 'agent' | 'organization', id: string, lifecycle: Lifecycle): Promise<{ previous: Lifecycle; cancelAttempts: string[] } | null> {
   if (!uuid.test(id)) return null
   await lockInstallation(client, installationId)
   const row = (await client.query<{ lifecycle: Lifecycle }>(`SELECT lifecycle FROM kipster.${tables[kind]} WHERE id=$1 AND installation_id=$2 FOR UPDATE`, [id, installationId])).rows[0]
@@ -117,7 +117,7 @@ export async function changeLifecycle(client: SqlClient, jobs: Jobs, installatio
   if (row.lifecycle !== lifecycle) {
     await client.query(`UPDATE kipster.${tables[kind]} SET lifecycle=$2, revision=revision+1, deleted_at=CASE WHEN $2='deleted' THEN now() END WHERE id=$1`, [id, lifecycle])
   }
-  const fenced = lifecycle === 'active' ? { cancelAttempts: [] } : await fenceAffectedWork(client, jobs, installationId, kind === 'agent' ? { agentId: id } : { organizationId: id }, failure)
+  const fenced = lifecycle === 'active' ? { cancelAttempts: [] } : await fenceAffectedWork(client, jobs, installationId, kind === 'agent' ? { agentId: id } : { organizationId: id })
   if (row.lifecycle !== lifecycle) await publishDirectoryChange(client, installationId, kind, id)
   return { previous: row.lifecycle, cancelAttempts: fenced.cancelAttempts }
 }
@@ -359,7 +359,7 @@ async function changeAgentLifecycle(db: Pick<Postgres, 'transaction'>, jobs: Job
        FROM kipster.agents a WHERE a.id=$1 AND a.installation_id=$2 FOR UPDATE`, [agentId, actor.installationId])).rows[0]
     if (!row?.provisioned || (row.lifecycle !== 'active' && row.lifecycle !== 'archived')) throw new Error('Agent not found')
     if (lifecycle === 'archived' && row.admin) throw new Error('Archive of the admin agent denied')
-    await changeLifecycle(client, jobs, actor.installationId, 'agent', agentId, lifecycle, 'Agent was archived')
+    await changeLifecycle(client, jobs, actor.installationId, 'agent', agentId, lifecycle)
     return { agent: (await agents(client, actor.installationId, agentId))[0]! }
   })
 }
@@ -398,7 +398,7 @@ export async function deleteAgent(db: Pick<Postgres, 'transaction'>, jobs: Jobs,
     const row = (await client.query<{ lifecycle: Lifecycle; provisioned: boolean }>('SELECT lifecycle, provisioned FROM kipster.agents WHERE id=$1 AND installation_id=$2 FOR UPDATE', [agentId, actor.installationId])).rows[0]
     if (!row?.provisioned) throw new Error('Agent not found')
     if (row.lifecycle !== 'archived' || (await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'", [agentId])).rows.length) throw new AgentNotArchivedError()
-    await changeLifecycle(client, jobs, actor.installationId, 'agent', agentId, 'deleting', 'Agent was deleted')
+    await changeLifecycle(client, jobs, actor.installationId, 'agent', agentId, 'deleting')
     await jobs.send(client, operation.id, 0, 'administration')
     return { agent: (await agents(client, actor.installationId, agentId))[0]!, alreadyApplied: false }
   })
@@ -417,7 +417,7 @@ export async function deleteOrganization(db: Pick<Postgres, 'transaction'>, jobs
     }
     await lockInstallation(client, actor.installationId)
     await requireLive(client, 'organization', actor.installationId, organizationId, 'FOR UPDATE')
-    await changeLifecycle(client, jobs, actor.installationId, 'organization', organizationId, 'deleting', 'Organization was deleted')
+    await changeLifecycle(client, jobs, actor.installationId, 'organization', organizationId, 'deleting')
     const organization = (await organizations(client, actor.installationId, organizationId))[0]!
     await client.query('UPDATE kipster.admin_operations SET result=$2::jsonb WHERE id=$1', [operation.id, JSON.stringify(organization)])
     await jobs.send(client, operation.id, 0, 'administration')
@@ -433,7 +433,7 @@ export async function tombstoneOrganization(client: SqlClient, jobs: Jobs, insta
   await client.query('DELETE FROM kipster.human_memberships WHERE organization_id=$1', [organizationId])
   await publishDirectoryRemoval(client, installationId, 'organization', organizationId)
   await client.query("UPDATE kipster.organizations SET settings='{}'::jsonb, description='', settings_revision=settings_revision+1 WHERE id=$1", [organizationId])
-  await changeLifecycle(client, jobs, installationId, 'organization', organizationId, 'deleted', 'Organization was deleted')
+  await changeLifecycle(client, jobs, installationId, 'organization', organizationId, 'deleted')
 }
 
 /**
@@ -452,7 +452,7 @@ export async function tombstoneAgent(client: SqlClient, jobs: Jobs, installation
   }
   await client.query('DELETE FROM kipster.agent_roles WHERE agent_id=$1', [agentId])
   await client.query(`UPDATE kipster.agents SET settings='{}'::jsonb, description='', sleep_time=NULL, settings_revision=settings_revision+1 WHERE id=$1`, [agentId])
-  await changeLifecycle(client, jobs, installationId, 'agent', agentId, 'deleted', 'Agent was deleted')
+  await changeLifecycle(client, jobs, installationId, 'agent', agentId, 'deleted')
 }
 
 /** An operation the caller recorded under its own operation ID: its state and, once finished, its result. */
@@ -608,7 +608,7 @@ export async function removeMembership(db: Postgres, actor: AdminCaller, operati
     const found = (await client.query<{ organization_id: string }>('SELECT organization_id FROM kipster.agent_memberships WHERE id=$1', [membershipId])).rows[0]
     if (!found) throw new Error('Membership not found')
     await requireLive(client, 'organization', actor.installationId, found.organization_id, 'FOR SHARE')
-    // Waits for acceptances and delegations that hold the membership with FOR KEY SHARE.
+    // Waits for acceptances and kip messages that hold the membership with FOR KEY SHARE.
     const row = (await client.query<{ agent_id: string }>('SELECT agent_id FROM kipster.agent_memberships WHERE id=$1 FOR UPDATE', [membershipId])).rows[0]
     if (!row) throw new Error('Membership not found')
     const affected = (await client.query<{ id: string }>('SELECT g.id FROM kipster.groups g JOIN kipster.group_appearances x ON x.group_id=g.id WHERE x.membership_id=$1 ORDER BY g.id FOR UPDATE OF g', [membershipId])).rows

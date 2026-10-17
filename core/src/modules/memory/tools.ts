@@ -8,21 +8,19 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** Most cards `forget_memory` deletes for one query, and candidates it returns instead when more match. */
 export const FORGET_LIMITS = { matches: 20, candidates: 50, query: 200 } as const
 
-/** The run a memory tool call belongs to: its agent, context, thread and trigger message. */
-interface MemoryRun { installationId: string; agentId: string; organizationId: string | null; threadId: string; triggerMessageId: string; admin: boolean }
+/** The run a memory tool call belongs to: its agent, context, thread and trigger message, and whether its agent has memory on. */
+interface MemoryRun { installationId: string; agentId: string; organizationId: string | null; threadId: string; triggerMessageId: string; admin: boolean; memory: boolean }
 
-/** The current, issued attempt of a running run, not stopping, whose agent has memory on. */
+/** The current, issued attempt of a running run, not stopping. */
 async function boundRun(client: Postgres | SqlClient, attemptId: string, incarnation: string): Promise<MemoryRun> {
   const row = uuid.test(attemptId) ? (await client.query<{ installation_id: string; agent_id: string; context_kind: string; context_id: string; thread_id: string; input_message_id: string; attempt_state: string; run_state: string; stop_requested: boolean; current_attempt_id: string }>(
-    `SELECT c.installation_id, COALESCE(d.recipient_agent_id, c.agent_id) AS agent_id, c.context_kind, c.context_id, r.thread_id, r.input_message_id,
+    `SELECT c.installation_id, c.agent_id, c.context_kind, c.context_id, r.thread_id, r.input_message_id,
        a.state AS attempt_state, r.state AS run_state, r.stop_requested, r.current_attempt_id
      FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
-     LEFT JOIN kipster.delegations d ON d.child_run_id=r.id
      WHERE a.id=$1 AND a.incarnation=$2`, [attemptId, incarnation])).rows[0] : undefined
   if (!row || row.attempt_state !== 'issued' || row.current_attempt_id !== attemptId || !['running', 'waiting'].includes(row.run_state) || row.stop_requested) throw new Error('Attempt no longer owns memory tools')
   const access = await memoryAccess(client, row.agent_id)
-  if (!access.enabled) throw new Error('Memory is off for this kip')
-  return { installationId: row.installation_id, agentId: row.agent_id, organizationId: row.context_kind === 'organization' ? row.context_id : null, threadId: row.thread_id, triggerMessageId: row.input_message_id, admin: access.admin }
+  return { installationId: row.installation_id, agentId: row.agent_id, organizationId: row.context_kind === 'organization' ? row.context_id : null, threadId: row.thread_id, triggerMessageId: row.input_message_id, admin: access.admin, memory: access.enabled }
 }
 
 function fields(input: Record<string, unknown>, allowed: readonly string[], tool: string): void {
@@ -70,10 +68,11 @@ const cardScope = (run: MemoryRun): CardScope => run.admin ? 'all' : { organizat
 /**
  * The memory tools of an execution (decision record 10, section 6), bound to its current attempt: `search_memory`,
  * `list_recent_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has
- * memory off.
+ * memory off, except `read_thread` of the source thread of a linked thread (decision record 11, rule 7).
  */
 export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | undefined, attemptId: string, incarnation: string, name: string, input: Record<string, unknown>): Promise<unknown> {
   const run = await boundRun(db, attemptId, incarnation)
+  if (!run.memory && name !== 'read_thread') throw new Error('Memory is off for this kip')
   if (name === 'search_memory') {
     fields(input, ['query', 'from', 'to', 'agent'], name)
     const query = text(input, 'query', name, MEMORY_READ.queryChars)!
@@ -92,7 +91,10 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const threadId = text(input, 'threadId', name, 36)!
     const from = position(input, 'fromPosition', name) ?? 1, to = position(input, 'toPosition', name) ?? null
     if (to !== null && to < from) throw new Error(`Invalid ${name} arguments: toPosition must not be before fromPosition`)
-    const page = uuid.test(threadId) ? await readThread(db, run.installationId, threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
+    // A kip may also read the thread the messages of its linked thread come from, and only that one; with memory off,
+    // that is the only thread it may read.
+    const source = (!run.admin || !run.memory) && uuid.test(threadId) && (await db.query('SELECT 1 FROM kipster.kip_links WHERE linked_thread_id=$1 AND source_thread_id=$2', [run.threadId, threadId])).rows.length > 0
+    const page = uuid.test(threadId) && (source || run.memory) ? await readThread(db, run.installationId, source ? { agents: null, organizations: 'all' } : threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
     if (!page) throw new Error('Thread not found')
     return page
   }

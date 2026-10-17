@@ -20,7 +20,6 @@ import {
   type Notice,
   type Scope,
   type Summary,
-  type TextDelegation,
   type TextInteraction,
   type TextMessage,
   type TextWork,
@@ -69,7 +68,6 @@ export function threadWork(input: {
   archived?: boolean
   works: TextWork[]
   interactions: TextInteraction[]
-  delegations: TextDelegation[]
   messages: Record<string, TextMessage>
   notices: Record<string, Notice>
 }): WorkRecords {
@@ -131,21 +129,6 @@ export function threadWork(input: {
         },
       ],
     }))
-  records.delegations = [...input.delegations]
-    .sort((a, b) => a.depth - b.depth || a.ordinal - b.ordinal)
-    .map((d) => ({
-      id: d.id,
-      revision: d.revision,
-      target,
-      runId: d.parentRunId ?? '',
-      attemptId: '',
-      fromAgentId: d.senderAgentId,
-      toAgentId: d.recipientAgentId,
-      childRunId: d.childRunId ?? '',
-      request: { originMessageId: '', summary: d.request },
-      state: d.state,
-      createdAt: '',
-    }))
   records.interactions = input.interactions
     .map((x) => {
       const state = interactionState(x, input.notices)
@@ -157,10 +140,7 @@ export function threadWork(input: {
         kind: x.kind,
         runId: x.runId,
         attemptId: x.attemptId,
-        // A delegated child's question names the child agent.
         sourceAgentId: x.sourceAgentId ?? input.agentId,
-        delegationId: input.delegations.find((d) => d.childRunId === x.runId)
-          ?.id,
         ...(x.proposalId ? { proposalId: x.proposalId } : {}),
         ...(x.proposal ? { proposal: x.proposal } : {}),
         prompt: x.prompt,

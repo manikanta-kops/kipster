@@ -176,6 +176,7 @@ try {
       textPublicationHost(dispatcher).invokeTool(request),
   })
   const failed = new Set()
+  const slowMilliseconds = 8000
   dispatcher = new TextDispatcher(runtime, {
     ...inner,
     async execute(context) {
@@ -219,6 +220,43 @@ try {
           return
         }
         if (text.startsWith('__hold__')) return
+        // A slow turn: the kip works for a few seconds, so its answer comes
+        // later and the person can watch the sender wait or keep chatting.
+        if (text.startsWith('__slow__'))
+          await new Promise((done) => setTimeout(done, slowMilliseconds))
+        const message = /^__message_kip__ (.+?): (.+)$/s.exec(text)
+        if (message) {
+          const [, name, body] = message
+          const { agents } = await handle.callTool(
+            'fixture-list-kips',
+            'list_kips',
+            {},
+          )
+          const recipient = agents.find((agent) => agent.name === name)
+          if (!recipient) throw Error(`No kip named ${name}`)
+          await handle.callTool('fixture-message-kip', 'message_kip', {
+            recipientId: recipient.id,
+            text: body,
+          })
+          reply(`Fixture sent a message to ${name}`)
+          return
+        }
+        // A kip's answer to `__silent__` repeats the marker; the sender it
+        // wakes has nothing to add and ends with an empty reply.
+        if (text.startsWith('__silent__')) {
+          const response = await fetch(
+            `${coreOrigin}/v1/threads/${context.threadId}/snapshot`,
+          )
+          if (!response.ok)
+            throw Error(`Thread snapshot failed: ${response.status}`)
+          const woken = (await response.json()).messages.some(
+            (item) =>
+              item.id === context.triggerMessageId &&
+              item.parts.some((part) => part.kind === 'kip-answer'),
+          )
+          reply(woken ? '' : text)
+          return
+        }
         if (text.startsWith('__files__')) {
           // Writes one real file of each common type into the working directory,
           // then attaches them by alternating absolute and relative paths.
@@ -247,11 +285,10 @@ try {
               paths.slice(filesPerMessage),
             ],
           ]) {
-            const result = await handle.callTool(
-              callId,
-              'post_chat_message',
-              { text: message, files },
-            )
+            const result = await handle.callTool(callId, 'post_chat_message', {
+              text: message,
+              files,
+            })
             if (result.status !== 'completed') throw Error(result.reason)
           }
           reply(`Fixture sent files: ${text}`)

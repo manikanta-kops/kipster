@@ -227,6 +227,28 @@ test(
   },
 )
 
+test('kip messaging replaces delegation: existing runs start their own chain and hidden threads become visible', { skip: noDatabase }, async t => {
+  const fixture = await database(t)
+  const migrations = await loadMigrations()
+  await fixture.db.migrate(migrations.filter(item => item.version < '033'))
+  const { ids } = await seed(fixture.db, false)
+  const helper = randomUUID(), hidden = randomUUID()
+  await fixture.db.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'settled')", [ids.runId, ids.installationId])
+  await fixture.db.query("INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position) VALUES ($1,$2,$3,'completed',1)", [ids.runId, ids.threadId, ids.messageId])
+  await fixture.db.query('INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)', [helper, ids.installationId, 'Helper'])
+  await fixture.db.query('INSERT INTO kipster.threads(id,chat_id,internal) VALUES ($1,$2,true)', [hidden, ids.chatId])
+  await fixture.db.query(`INSERT INTO kipster.delegations(id,installation_id,origin_thread_id,root_run_id,parent_run_id,ordinal,call_id,sender_agent_id,recipient_agent_id,context_kind,context_id,responsible_human_id,depth,request,state)
+    VALUES ($1,$2,$3,$4,$4,1,'call',$5,$6,'organization',$7,$8,1,'Check','completed')`, [randomUUID(), ids.installationId, ids.threadId, ids.runId, ids.rootAgentId, helper, ids.organizationId, ids.ownerId])
+  await fixture.db.migrate(migrations)
+  const run = (await fixture.db.query('SELECT trigger_kind,chain_root_id,chain_depth,responsible_person_id,answered_at FROM kipster.text_runs WHERE id=$1', [ids.runId])).rows[0]
+  assert.deepEqual(run, { trigger_kind: 'person', chain_root_id: ids.runId, chain_depth: 0, responsible_person_id: ids.ownerId, answered_at: null })
+  const exists = async name => (await fixture.db.query('SELECT to_regclass($1) AS name', [name])).rows[0].name
+  assert.deepEqual([await exists('kipster.delegations'), await exists('kipster.delegation_calls')], [null, null])
+  assert.equal((await fixture.db.query("SELECT count(*)::int AS n FROM information_schema.columns WHERE table_schema='kipster' AND table_name='threads' AND column_name='internal'")).rows[0].n, 0)
+  assert.equal((await fixture.db.query('SELECT count(*)::int AS n FROM kipster.threads WHERE id=$1', [hidden])).rows[0].n, 1)
+  for (const table of ['kipster.kip_links', 'kipster.kip_message_calls']) assert.equal(await exists(table), table)
+})
+
 test('a fresh database gets the Kip memory schema and none of the first engine', { skip: noDatabase }, async t => {
   const fixture = await database(t)
   await fixture.db.migrate(await loadMigrations())

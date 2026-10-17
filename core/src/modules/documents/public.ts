@@ -328,8 +328,8 @@ interface RunScope { runId: string; installationId: string; agentId: string; con
 /** The live run of an issued attempt. With `lock`, the run row is share-locked, so the run cannot end until the caller commits. */
 async function boundRun(client: SqlClient, attemptId: string, incarnation: string, lock: boolean): Promise<RunScope> {
   const row = uuid.test(attemptId) ? (await client.query<{ run_id: string; installation_id: string; agent_id: string; context_kind: 'installation' | 'organization'; context_id: string; attempt_state: string; run_state: string; stop_requested: boolean; current_attempt_id: string }>(
-    `SELECT r.id AS run_id,c.installation_id,COALESCE(d.recipient_agent_id,c.agent_id) AS agent_id,c.context_kind,c.context_id,a.state AS attempt_state,r.state AS run_state,r.stop_requested,r.current_attempt_id
-     FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id LEFT JOIN kipster.delegations d ON d.child_run_id=r.id
+    `SELECT r.id AS run_id,c.installation_id,c.agent_id,c.context_kind,c.context_id,a.state AS attempt_state,r.state AS run_state,r.stop_requested,r.current_attempt_id
+     FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
      WHERE a.id=$1 AND a.incarnation=$2${lock ? ' FOR SHARE OF r' : ''}`, [attemptId, incarnation])).rows[0] : undefined
   if (!row || row.attempt_state !== 'issued' || row.current_attempt_id !== attemptId || !['running', 'waiting'].includes(row.run_state) || row.stop_requested) throw new Error('Attempt no longer owns document tools')
   const rootAdmin = (await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'", [row.agent_id])).rows.length > 0

@@ -1014,3 +1014,168 @@
 .feed-message .reply-link:focus-visible {
   outline: none;
 }
+
+/* Kip messaging: linked threads, sent cards, answers and waiting */
+.role-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+.kip-tag {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--label-2);
+  background: var(--fill-2);
+}
+.kip-via {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 5px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--label-3);
+  text-align: left;
+  transition: color 0.15s;
+}
+.kip-via:hover {
+  color: var(--tint);
+}
+.kip-via svg {
+  flex: none;
+}
+.kip-sent {
+  display: grid;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  background: color-mix(in oklab, var(--tint) 8%, var(--fill));
+  box-shadow: inset 0 0 0 0.5px var(--sep);
+}
+.kip-sent .message-text {
+  margin-top: 0;
+}
+.kip-sent-top {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--label-2);
+}
+.kip-sent-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 8px;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--label-3);
+}
+.kip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--tint);
+}
+.kip-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.kip-link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  height: 26px;
+  padding: 0 10px 0 4px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--label);
+  background: var(--fill-2);
+  transition: background-color 0.15s;
+}
+.kip-link-chip:hover {
+  background: color-mix(in oklab, var(--tint) 20%, var(--fill-2));
+}
+.kip-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kip-link-chip svg {
+  flex: none;
+  opacity: 0.7;
+}
+.kip-link-chip .avatar,
+.kip-banner .avatar {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 9px;
+}
+.kip-banner {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  margin: 14px 0 6px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--label-2);
+  background: var(--fill);
+}
+.kip-banner .avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+.kip-banner strong {
+  font-weight: 650;
+  color: var(--label);
+}
+.kip-waiting {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 6px 0 4px 40px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label-3);
+}
+.kip-waiting > i {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.work-status.work-kip-waiting .work-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px currentColor;
+}
+.feed-filter-empty {
+  justify-self: center;
+  padding: 40px 20px;
+  font-size: 13.5px;
+  color: var(--label-3);
+  text-align: center;
+}

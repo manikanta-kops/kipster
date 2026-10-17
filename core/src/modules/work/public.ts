@@ -300,5 +300,5 @@ export function nextReady(queue: readonly QueueEntry[], work: WorkState): QueueE
 export { acceptIntent, type IntentReceipt } from './receipt.js'
 export { claimPreparation, issueAttempt, markUncertain, type Attempt } from './attempt.js'
 export { askInteraction, answerInteraction, interactionReceipt, interactionRecord, lockInstallation, type InteractionInput, type InteractionAnswer, type InteractionRecord } from './interactions.js'
-export { cancelDelegationTree, childDelegation, delegate, delegationActivity, delegationRecord, delegationStatus, finishDelegation, getAgent, listAgents, reconcileInterruptedDelegations, type DelegationRecord } from './delegation.js'
+export { answerKipRun, getAgent, listAgents, lockKipSource, messageKip, type AvailableAgent, type KipMessageFiles, type KipMessageResult, type KipRunEnd } from './kip-messaging.js'
 export { fenceAffectedWork, stopRun, type AffectedWork, type StopTarget } from './fence.js'

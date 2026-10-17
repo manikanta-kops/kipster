@@ -5,6 +5,7 @@ import { ArtifactCard } from '../media/ArtifactCard'
 import type { Message as MessageModel, WorkspaceData } from './model'
 import { formatSize, formatTime } from './model'
 import { Markdown } from './Markdown'
+import { kipName } from './kip-names'
 import { MessageActions } from './MessageActions'
 import { FileBadge } from '../media/FileBadge'
 import { DocCard } from '../documents/DocCard'
@@ -38,6 +39,8 @@ export function Message({
   data,
   trail,
   continued = false,
+  placement = 'thread',
+  openThread,
 }: {
   message: MessageModel
   data: WorkspaceData
@@ -45,109 +48,176 @@ export function Message({
   trail?: ReactNode
   /** Follows the same author's message, so the name is not repeated. */
   continued?: boolean
+  /** A root in the feed or a message in its thread; kip messages label each differently. */
+  placement?: 'feed' | 'thread'
+  /** Opens a linked thread, in whichever chat it lives. */
+  openThread?: (threadId: string) => void
 }) {
   const thread = data.threadsById[message.threadId]
   const chat = thread && data.chatsById[thread.chatId]
   const author = data.actorsById[message.authorId]
   const isSelf = message.authorId === data.currentHumanId
   const name = isSelf ? 'You' : (author?.name ?? 'Deleted participant')
+  const admin = data.agentRoles.some(
+    (role) => role.agentId === message.authorId,
+  )
+  const sent = message.kipMessage
+  // The message that opened or continues a linked thread comes from the sending kip.
+  const from =
+    thread?.linkedFrom &&
+    !sent &&
+    message.authorId === thread.linkedFrom.agentId
+      ? thread.linkedFrom
+      : undefined
+  // A sent card stands on its own, under the message before it.
+  const bare = continued || !!sent
   const lastTextPart = message.parts.findLastIndex(
     (part) => part.type === 'text',
   )
+  const content = message.parts.map((part, index) => {
+    if (part.type === 'text')
+      return (
+        <Markdown
+          key={index}
+          text={part.text}
+          streaming={message.status === 'draft' && index === lastTextPart}
+        />
+      )
+    if (part.type === 'removed')
+      return (
+        <p className="removed-part" key={index}>
+          <Icon name="file" size={14} /> File removed
+        </p>
+      )
+    if (part.type === 'document')
+      return (
+        <DocCard
+          key={index}
+          documentId={part.documentId}
+          revision={part.revision}
+        />
+      )
+    if (part.type === 'unknown')
+      return (
+        <p key={index} className="unsupported-part">
+          Unsupported content: {part.originalKind}
+        </p>
+      )
+    if (part.type === 'file' && chat)
+      return (
+        <ArtifactCard
+          key={index}
+          artifactId={part.artifactId}
+          fallback={data.artifactsById[part.artifactId]}
+          voice={part.purpose === 'voice_note'}
+          target={{
+            installationId: data.installationId,
+            callerId: data.currentHumanId,
+            context: chat.context,
+            chatId: chat.id,
+            threadId: message.threadId,
+          }}
+        />
+      )
+    const file =
+      part.type === 'local-file'
+        ? part.file
+        : data.artifactsById[part.artifactId]
+    const local =
+      part.type === 'local-file' ||
+      (file && 'availability' in file && file.availability === 'local-preview')
+    return (
+      <div className="file-row" key={index}>
+        <FileBadge name={file?.name ?? ''} />
+        <span>
+          {file?.name ?? 'Unavailable file'}
+          <small>
+            {file
+              ? `${formatSize(file.size)}${local ? ' · Not uploaded' : ''}`
+              : 'File unavailable'}
+          </small>
+        </span>
+      </div>
+    )
+  })
   return (
-    <div className={`message-content${continued ? ' continued' : ''}`}>
-      {continued ? (
+    <div className={`message-content${bare ? ' continued' : ''}`}>
+      {bare ? (
         <span aria-hidden="true" />
       ) : (
         <Avatar
           name={name}
           color={author?.kind === 'agent' ? author.color : undefined}
           isSelf={isSelf}
-          kip={data.agentRoles.some(
-            (role) => role.agentId === message.authorId,
-          )}
+          kip={admin}
         />
       )}
       <div className="message-body">
-        <div className={continued ? 'sr-only' : 'message-meta'}>
+        <div className={bare ? 'sr-only' : 'message-meta'}>
           <strong>{name}</strong>
+          {admin && placement === 'thread' && (
+            <span className="role-label">admin kip</span>
+          )}
           {message.timestampKnown !== false && (
             <time dateTime={message.createdAt}>
               {formatTime(message.createdAt)}
             </time>
           )}
+          {from && placement === 'feed' && (
+            <span className="kip-tag">
+              <Icon name="link" size={11} />
+              Kip message
+            </span>
+          )}
           {message.status === 'draft' && !trail && (
             <span className="message-state">Writing</span>
           )}
         </div>
-        {message.parts.map((part, index) => {
-          if (part.type === 'text')
-            return (
-              <Markdown
-                key={index}
-                text={part.text}
-                streaming={message.status === 'draft' && index === lastTextPart}
-              />
-            )
-          if (part.type === 'removed')
-            return (
-              <p className="removed-part" key={index}>
-                <Icon name="file" size={14} /> File removed
-              </p>
-            )
-          if (part.type === 'document')
-            return (
-              <DocCard
-                key={index}
-                documentId={part.documentId}
-                revision={part.revision}
-              />
-            )
-          if (part.type === 'unknown')
-            return (
-              <p key={index} className="unsupported-part">
-                Unsupported content: {part.originalKind}
-              </p>
-            )
-          if (part.type === 'file' && chat)
-            return (
-              <ArtifactCard
-                key={index}
-                artifactId={part.artifactId}
-                fallback={data.artifactsById[part.artifactId]}
-                voice={part.purpose === 'voice_note'}
-                target={{
-                  installationId: data.installationId,
-                  callerId: data.currentHumanId,
-                  context: chat.context,
-                  chatId: chat.id,
-                  threadId: message.threadId,
-                }}
-              />
-            )
-          const file =
-            part.type === 'local-file'
-              ? part.file
-              : data.artifactsById[part.artifactId]
-          const local =
-            part.type === 'local-file' ||
-            (file &&
-              'availability' in file &&
-              file.availability === 'local-preview')
-          return (
-            <div className="file-row" key={index}>
-              <FileBadge name={file?.name ?? ''} />
+        {sent ? (
+          <section
+            className="kip-sent"
+            aria-label={`Sent to ${kipName(data, sent.recipientId)}`}
+          >
+            <p className="kip-sent-top">
+              <Icon name="arrowRight" size={14} />
+              Sent to {kipName(data, sent.recipientId)}
+            </p>
+            {content}
+            <div className="kip-sent-foot">
               <span>
-                {file?.name ?? 'Unavailable file'}
-                <small>
-                  {file
-                    ? `${formatSize(file.size)}${local ? ' · Not uploaded' : ''}`
-                    : 'File unavailable'}
-                </small>
+                {kipName(data, sent.recipientId)}’s answer comes back here
               </span>
+              <button
+                className="kip-open"
+                onClick={() => openThread?.(sent.threadId)}
+              >
+                Open in {kipName(data, sent.recipientId)}’s chat
+                <Icon name="arrowRight" size={12} />
+              </button>
             </div>
-          )
-        })}
+          </section>
+        ) : (
+          content
+        )}
+        {from && (
+          <button
+            className="kip-via"
+            onClick={() => openThread?.(from.threadId)}
+          >
+            <Icon name="link" size={12} />
+            {placement === 'feed' ? 'From' : 'Sent from'} “{from.title}” in{' '}
+            {kipName(data, from.agentId)}’s chat
+          </button>
+        )}
+        {message.kipAnswer && (
+          <button
+            className="kip-via"
+            onClick={() => openThread?.(message.kipAnswer!.threadId)}
+          >
+            <Icon name="undo" size={12} />
+            Answer from {kipName(data, message.kipAnswer.agentId)}’s thread
+          </button>
+        )}
         {message.preparation?.map((p) => (
           <section
             key={p.id}

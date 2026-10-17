@@ -120,7 +120,7 @@ export async function acceptTextIn(client: SqlClient, jobs: Jobs, artifacts: Art
       if (submission.mode === 'root') {
         await c.query('INSERT INTO kipster.threads(id,chat_id) VALUES ($1,$2)', [threadId, submission.target.chatId])
       } else {
-        const found = await c.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2 AND internal=false', [threadId, submission.target.chatId])
+        const found = await c.query('SELECT 1 FROM kipster.threads WHERE id=$1 AND chat_id=$2', [threadId, submission.target.chatId])
         if (!found.rows.length) throw new Error('Thread not found in chat')
       }
       // Row lock serializes canonical positions and all later thread event positions.
@@ -136,7 +136,8 @@ export async function acceptTextIn(client: SqlClient, jobs: Jobs, artifacts: Art
       }
       // A workspace that is gone or not this installation's is dropped rather than refusing the message.
       const viewing = submission.viewingOrganizationId && await isLive(c, actor.installationId, 'organization', submission.viewingOrganizationId, false) ? submission.viewingOrganizationId : null
-      await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position,viewing_organization_id) VALUES ($1,$2,$3,$4,$5,$6)', [intentId, threadId, messageId, 'queued', queuePosition, viewing])
+      // A person's message starts a chain of kip messages of its own.
+      await c.query('INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position,viewing_organization_id,chain_root_id,responsible_person_id) VALUES ($1,$2,$3,$4,$5,$6,$1,$7)', [intentId, threadId, messageId, 'queued', queuePosition, viewing, actor.personId])
       await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'message-final', messageId, 1, await messageRecord(c, messageId), 'queued', messageId)
       await publishThreadChange(c, actor.installationId, actor.personId, threadId, submission.target.chatId, 'work-changed', intentId, 1, await workRecord(c, intentId), 'queued', null)
       return { version: 1, status: 'accepted', chatId: submission.target.chatId, threadId, messageId, runId: intentId }
@@ -145,8 +146,8 @@ export async function acceptTextIn(client: SqlClient, jobs: Jobs, artifacts: Art
 }
 
 export async function runContext(db: Postgres, runId: string): Promise<{ actor: TrustedActor; context: Context; agentId: string; threadId: string; chatId: string; inputMessageId: string } | null> {
-  const row = (await db.query<{ installation_id: string; caller_id: string; context_kind: 'installation'|'organization'; context_id: string; agent_id: string; thread_id: string; chat_id: string; input_message_id: string }>(`SELECT c.installation_id,c.caller_id,c.context_kind,c.context_id,COALESCE(d.recipient_agent_id,c.agent_id) AS agent_id,r.thread_id,t.chat_id,r.input_message_id
-    FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id LEFT JOIN kipster.delegations d ON d.child_run_id=r.id WHERE r.id=$1`, [runId])).rows[0]
+  const row = (await db.query<{ installation_id: string; caller_id: string; context_kind: 'installation'|'organization'; context_id: string; agent_id: string; thread_id: string; chat_id: string; input_message_id: string }>(`SELECT c.installation_id,c.caller_id,c.context_kind,c.context_id,c.agent_id,r.thread_id,t.chat_id,r.input_message_id
+    FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE r.id=$1`, [runId])).rows[0]
   if (!row) return null
   return { actor: { installationId: row.installation_id, personId: row.caller_id }, context: row.context_kind === 'installation' ? { kind: 'installation', installationId: row.context_id } : { kind: 'organization', organizationId: row.context_id }, agentId: row.agent_id, threadId: row.thread_id, chatId: row.chat_id, inputMessageId: row.input_message_id }
 }
@@ -165,21 +166,21 @@ export async function workRecord(client: SqlClient, runId: string): Promise<{ ru
 }
 
 /** Logical run order excludes later queued human turns, regardless of physical message position. */
-export async function executionHistory(db: Postgres, runId: string): Promise<{ messages: { messageId: string; text: string; parts: MessagePart[] }[] }> {
+export async function executionHistory(db: Postgres, runId: string): Promise<{ messages: { messageId: string; authorId: string; text: string; parts: MessagePart[] }[] }> {
   return db.transaction(async client => {
     await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
     const run = (await client.query<{ thread_id: string; queue_position: string }>('SELECT thread_id,queue_position FROM kipster.text_runs WHERE id=$1', [runId])).rows[0]
     if (!run) throw new Error('Run not found')
-    const result = await client.query<{ id: string; parts: MessagePart[] }>(`SELECT id,parts FROM (
-      SELECT m.id,m.parts,r.queue_position AS logical_position,0 AS source_order,m.position AS message_position
+    const result = await client.query<{ id: string; author_id: string; parts: MessagePart[] }>(`SELECT id,author_id,parts FROM (
+      SELECT m.id,m.author_id,m.parts,r.queue_position AS logical_position,0 AS source_order,m.position AS message_position
       FROM kipster.text_runs r JOIN kipster.messages m ON m.id=r.input_message_id
       WHERE r.thread_id=$1 AND r.queue_position<=$2
       UNION ALL
-      SELECT m.id,m.parts,r.queue_position AS logical_position,1 AS source_order,m.position AS message_position
+      SELECT m.id,m.author_id,m.parts,r.queue_position AS logical_position,1 AS source_order,m.position AS message_position
       FROM kipster.text_runs r JOIN kipster.attempts a ON a.intent_id=r.id JOIN kipster.messages m ON m.source_attempt_id=a.id
       WHERE r.thread_id=$1 AND r.queue_position<$2 AND r.state='completed' AND m.final=true
     ) history ORDER BY logical_position,source_order,message_position`, [run.thread_id, run.queue_position])
-    return { messages: result.rows.map(row => ({ messageId: row.id, text: row.parts.flatMap(part=>part.kind==='text'?[part.text]:[]).join('\n'),parts:row.parts })) }
+    return { messages: result.rows.map(row => ({ messageId: row.id, authorId: row.author_id, text: row.parts.flatMap(part=>part.kind==='text'?[part.text]:[]).join('\n'),parts:row.parts })) }
   })
 }
 

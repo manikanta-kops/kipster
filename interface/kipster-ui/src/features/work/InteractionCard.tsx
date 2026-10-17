@@ -82,7 +82,6 @@ export function InteractionCard({
           : item.kind === 'question'
             ? 'Question'
             : item.kind}
-        {item.delegationId ? ' · Consulting kip' : ''}
       </p>
       <h3 id={heading}>{title}</h3>
       {detail.some((line) => line.trim()) && (

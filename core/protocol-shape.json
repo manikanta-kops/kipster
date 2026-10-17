@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":2,"oldest":1},
+  "protocol": {"current":3,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
@@ -721,7 +721,10 @@
         "revision": {"type":"integer","min":0},
         "state": {"type":"string"},
         "lastMessageId": {"type":"string","min":1},
-        "createdAt": {"type":"string","format":"utc-timestamp"}
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "startedBy": {"type":"optional","of":{"type":"string","min":1}},
+        "linkedFrom": {"type":"optional","of":{"ref":"threadLinkedFrom"}},
+        "links": {"type":"optional","of":{"type":"array","items":{"ref":"threadLink"}}}
       }
     },
     "approvalGrant": {
@@ -1542,6 +1545,26 @@
         "dockBadge": {"type":"nullable","of":{"type":"boolean"}}
       }
     },
+    "kipAnswerPart": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "kind": {"type":"literal","value":"kip-answer"},
+        "agentId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1}
+      }
+    },
+    "kipMessagePart": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "kind": {"type":"literal","value":"kip-message"},
+        "recipientId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1}
+      }
+    },
     "learningChange": {
       "type": "object",
       "exact": false,
@@ -1693,7 +1716,14 @@
           "type": "array",
           "items": {
             "type": "union",
-            "of": [{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"},{"ref":"documentPart"}]
+            "of": [
+              {"ref":"textPart"},
+              {"ref":"filePart"},
+              {"ref":"removedPart"},
+              {"ref":"documentPart"},
+              {"ref":"kipMessagePart"},
+              {"ref":"kipAnswerPart"}
+            ]
           }
         },
         "revision": {"type":"integer","min":0}
@@ -2685,6 +2715,26 @@
         }
       }
     },
+    "threadLink": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "agentId": {"type":"string","min":1},
+        "threadId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "waiting": {"type":"boolean"}
+      }
+    },
+    "threadLinkedFrom": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "threadId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1},
+        "title": {"type":"string"}
+      }
+    },
     "threadMessage": {
       "type": "object",
       "exact": false,
@@ -2701,7 +2751,14 @@
           "type": "array",
           "items": {
             "type": "union",
-            "of": [{"ref":"textPart"},{"ref":"filePart"},{"ref":"removedPart"},{"ref":"documentPart"}]
+            "of": [
+              {"ref":"textPart"},
+              {"ref":"filePart"},
+              {"ref":"removedPart"},
+              {"ref":"documentPart"},
+              {"ref":"kipMessagePart"},
+              {"ref":"kipAnswerPart"}
+            ]
           }
         },
         "final": {"type":"boolean"},
@@ -2733,7 +2790,7 @@
         "messages": {"type":"array","items":{"ref":"threadMessage"}},
         "work": {"type":"array","items":{"ref":"threadWork"}},
         "interactions": {"type":"array","items":{"ref":"threadInteraction"}},
-        "delegations": {"type":"array","items":{"ref":"threadDelegation"}},
+        "delegations": {"type":"optional","of":{"type":"array","items":{"ref":"threadDelegation"}}},
         "next": {
           "type": "nullable",
           "of": {

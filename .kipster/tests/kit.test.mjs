@@ -210,3 +210,16 @@ test('the __files__ fixture attaches every committed file of each common type', 
   assert.match(drive, /host === 'mhjfbmdgcfjbbpaeojofohoefgiehjai'/)
   assert.match(drive, /protocol === 'chrome:' && host === 'resources'/)
 })
+test('the kip messaging fixture sends through Core tools and recognises turns woken by answers', async () => {
+  assert.ok(scenarios.includes('kip-messaging'))
+  const start = await readFile(resolve(kitRoot, 'verify/start.mjs'), 'utf8')
+  assert.match(start, /\/\^__message_kip__ \(\.\+\?\): \(\.\+\)\$\/s/)
+  assert.match(start, /'fixture-list-kips',\s+'list_kips'/)
+  assert.match(start, /'fixture-message-kip', 'message_kip'/)
+  assert.match(start, /text\.startsWith\('__slow__'\)/)
+  assert.match(start, /text\.startsWith\('__silent__'\)/)
+  // A turn is an answer's when its trigger message carries a kip-answer part.
+  assert.match(start, /item\.id === context\.triggerMessageId/)
+  assert.match(start, /part\.kind === 'kip-answer'/)
+  assert.match(start, /reply\(woken \? '' : text\)/)
+})

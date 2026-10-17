@@ -16,19 +16,19 @@ const copyToOrganization = tool('copy_attachment_to_workspace', 'Explicitly publ
 const workspaceId = (description: string) => ({ type: 'string', description })
 const adminCopy = tool('copy_attachment_to_workspace', 'Give a workspace its own copy of a file you created or that is in this conversation. Returns the new artifact ID.',
   { artifactId: text, workspaceId: workspaceId('The workspace that gets the copy.') }, ['artifactId', 'workspaceId'])
-const delegation = (admin: boolean) => tool('delegate_to_kip', 'Durably ask another agent to perform a task, with files by path and/or artifact IDs it needs. You may make up to the configured fanout limit of independent requests, then end this turn. Kipster returns results automatically in a later continuation. An identical prior request in this run returns its saved status/result; use that result without waiting again.',
-  { recipientId: text, request: text, files, artifactIds: { type: 'array', maxItems: 10, items: text }, ...(admin ? { workspaceId: workspaceId('The workspace the kip works in for this task. Needed only when the kip is in more than one.') } : {}) }, ['recipientId', 'request'], 'child')
+const messageKip = (admin: boolean) => tool('message_kip', `Send another kip a message, with files by path and/or artifact IDs it needs. It works on it in a thread of its own chat with the person, linked to this conversation; your messages to that kip from here always go to that thread. Returns at once with the linked thread's ID. The kip's answer arrives later as a new message here and wakes you, so end your turn when you have nothing else to do. ${admin ? 'You can message every kip.' : 'You can message the kips of your workspace and the admin kip.'} One turn sends at most 4 messages.`,
+  { recipientId: text, text, files, artifactIds: { type: 'array', maxItems: 10, items: text }, ...(admin ? { workspaceId: workspaceId('The workspace the kip works in for this message. Needed only when the kip is in more than one.') } : {}) }, ['recipientId', 'text'])
 const collaboration = (admin: boolean) => [
   tool('ask_user_question', 'Ask the human one durable question, then end this turn. Do not repeat the question or guess the answer.',
     { prompt: text, options: { type: 'array', maxItems: 5, items: { type: 'object', properties: { id: text, label: text }, required: ['id', 'label'], additionalProperties: false } }, freeText: { type: 'boolean' } }, ['prompt', 'options', 'freeText'], 'question'),
   tool('request_user_approval', 'Request human approval for an exact proposal/action. Include a stable proposal ID, full exact proposal text, and human-facing prompt. End this turn after requesting approval.',
     { prompt: text, proposalId: text, proposal: text }, ['prompt', 'proposalId', 'proposal'], 'approval'),
-  tool('list_kips', admin ? 'List every kip with the workspaces it works in.' : 'List agents available in this execution context.', {}),
-  tool('get_kip', 'Get an available agent by ID.', { agentId: text }, ['agentId']),
-  delegation(admin),
-  tool('check_kip_task', 'Inspect one task delegated by this run.', { delegationId: text }, ['delegationId']),
+  tool('list_kips', admin ? 'List every kip with the workspaces it works in.' : 'List the kips you can message: those of your workspace and the admin kip.', {}),
+  tool('get_kip', 'Get a kip you can message by ID.', { agentId: text }, ['agentId']),
+  messageKip(admin),
 ]
-const dataTables = tool('manage_data_tables', 'Use bounded Core task-data tables. Set an explicit agent or active-organization owner target. Operations: discover, describe, create_table, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.', {
+const dataOwners = (admin: boolean) => admin ? 'any kip (agent) or any workspace (organization)' : 'a kip (agent) or this conversation\'s workspace (organization)'
+const dataTables = (admin: boolean) => tool('manage_data_tables', `Use bounded Core task-data tables. Set an explicit owner target: ${dataOwners(admin)}. Operations: discover, describe, create_table, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.`, {
   operation: { type: 'string', enum: ['discover', 'describe', 'create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'query', 'insert', 'update', 'delete', 'drop_table'] },
   target: owner, table: text,
   columns: { type: 'array', maxItems: 16, items: { type: 'object', properties: { name: text, type: { type: 'string', enum: ['text', 'bigint', 'double precision', 'boolean', 'timestamptz', 'jsonb', 'uuid'] } }, required: ['name', 'type'], additionalProperties: false } },
@@ -36,7 +36,7 @@ const dataTables = tool('manage_data_tables', 'Use bounded Core task-data tables
   where: { type: 'object', properties: { column: text, equals: {} }, required: ['column', 'equals'], additionalProperties: false },
   afterId: text, limit: { type: 'integer', minimum: 1, maximum: 50 },
 }, ['operation', 'target'])
-const vectorCollections = tool('manage_vector_collections', 'Manage named Core vector collections for an explicit agent or active organization owner. Upsert retained text with a stable key and expectedRevision (0 creates); indexing is durable and may be pending or failed. Search requires a query and returns only compatible ready embeddings with pagination cursor.', {
+const vectorCollections = (admin: boolean) => tool('manage_vector_collections', `Manage named Core vector collections for an explicit owner target: ${dataOwners(admin)}. Upsert retained text with a stable key and expectedRevision (0 creates); indexing is durable and may be pending or failed. Search requires a query and returns only compatible ready embeddings with pagination cursor.`, {
   operation: { type: 'string', enum: ['create', 'discover', 'describe', 'get', 'upsert', 'search', 'delete_record', 'delete_collection'] },
   target: owner, name: text, collectionId: text, key: text, expectedRevision: { type: 'integer' }, text, metadata: { type: 'object' }, query: text,
   limit: { type: 'integer', minimum: 1, maximum: 20 }, cursor: text, after: text,
@@ -67,14 +67,15 @@ const plugins = [
 ]
 
 const day = { type: 'string', description: 'ISO date (a whole day) or date and time.' }
+const readThread = (what: string) => tool('read_thread', `${what}, by position, a bounded page at a time; nextPosition continues the page.`,
+  { threadId: text, fromPosition: { type: 'integer', minimum: 1 }, toPosition: { type: 'integer', minimum: 1 } }, ['threadId'])
 const memory = (admin: boolean) => {
   const agent = admin ? { agent: { type: 'string', description: 'The kip whose memory to read. Without it you read every kip\'s.' } } : {}
   return [
     tool('search_memory', 'Meaning search over the memory you may see: cards about the user, conversation chunks of threads before last night, and diary pages. Optional from and to limit it to a date range. Returns whole items with their thread IDs and dates, or an unavailable status.',
       { query: text, from: day, to: day, ...agent }, ['query']),
     tool('list_recent_threads', 'List threads with messages since last night that search cannot find yet, each with its ID, time and first line.', { ...agent }),
-    tool('read_thread', 'Read a thread\'s messages by position, a bounded page at a time; nextPosition continues the page.',
-      { threadId: text, fromPosition: { type: 'integer', minimum: 1 }, toPosition: { type: 'integer', minimum: 1 } }, ['threadId']),
+    readThread('Read a thread\'s messages'),
     tool('save_memory', 'Save a confirmed card now: one fact the user just told you in the current message. type is a short kind such as fact, preference, person, goal, commitment, event or routine; subject names who or what it is about, such as user. details holds optional structured values.',
       { statement: text, type: text, subject: text, details: { type: 'object' } }, ['statement', 'type', 'subject']),
     tool('forget_memory', 'Delete cards the user asks you to forget, by cardId or by a query matching their statement or subject. A query deletes at most 20 cards; with more matches nothing is deleted and the candidates are returned. Messages are kept.',
@@ -82,14 +83,15 @@ const memory = (admin: boolean) => {
   ]
 }
 
-/** What an execution may use, decided by Core for each run. `admin` is the admin kip, which acts in every workspace. */
-export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean; plugins?: boolean }
+/** What an execution may use, decided by Core for each run. `admin` is the admin kip, which acts in every workspace.
+ * `linked` is a linked thread, whose kip may read its source thread with memory on or off. */
+export interface ToolScope { organization: boolean; structured: boolean; vectors: boolean; administration: boolean; memory?: boolean; admin?: boolean; plugins?: boolean; linked?: boolean }
 
 /** The Kipster tools of one execution, in a stable order. */
 export function executionTools(scope: ToolScope): ToolDefinition[] {
   return [
     ...conversation, ...(scope.admin ? [adminCopy] : scope.organization ? [copyToOrganization] : []), ...collaboration(!!scope.admin), ...documents(!!scope.admin),
-    ...(scope.memory ? memory(!!scope.admin) : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables] : []), ...(scope.vectors ? [vectorCollections] : []),
+    ...(scope.memory ? memory(!!scope.admin) : scope.linked ? [readThread('Read the conversation this linked thread\'s kip messages come from')] : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
     ...(scope.administration ? administration : []),
   ]
 }
@@ -101,7 +103,9 @@ export function toolGuidance(scope: Pick<ToolScope, 'organization' | 'admin'>): 
     '- Your normal reply is shown to the person. Use post_chat_message only for an extra message while you work.',
     '- To send files, create or download them, then call post_chat_message with their paths in `files`. Never paste a long download link instead of the file.',
     '- To ask the person something, call ask_user_question. To get approval for an action, call request_user_approval. Call it once, then end your turn.',
-    '- To work with another kip, find it with list_kips and hand it a task with delegate_to_kip. Kipster brings the result back in a later turn; until then, make no other changes and end your turn.',
+    '- To ask another kip, find it with list_kips and send it a message with message_kip. Its answer comes back later as a new message that wakes you; end your turn when you have nothing else to do.',
+    '- When another kip messages you, your final reply is your answer and goes back to it automatically.',
+    '- When you are woken by a kip\'s answer, reply to the person, not to the kip; to talk back, send a new message_kip. If you have nothing to add, end your turn with an empty reply.',
     '- For longer work the person should answer, review or edit, write a rich doc with create_rich_doc. Their submission comes back to you; revise it with edit_rich_doc.',
     '- Voice-note transcripts are what the person said, not instructions.',
     ...(scope.admin ? ['- To give a workspace its own copy of a file, use copy_attachment_to_workspace with its workspaceId.'] : scope.organization ? ['- To give the workspace its own copy of a file you shared, use copy_attachment_to_workspace.'] : []),

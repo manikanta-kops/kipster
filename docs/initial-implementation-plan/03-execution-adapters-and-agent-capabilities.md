@@ -45,7 +45,7 @@ Before each new execution, Core reads the current information, retrieves relevan
 | --- | --- |
 | Identity and routing | Agent, requester when applicable, organization or installation context, chat, thread, run, and attempt identifiers. |
 | Instructions | Current Kipster operating instructions, agent soul/identity/operational instructions, and active organization instructions. |
-| Conversation | Thread history, separately identified current input, interaction answers, and delegated results. |
+| Conversation | Thread history, separately identified current input, interaction answers, and kip answers ([decision block 11](./11-kip-messaging.md)). |
 | Memory | Relevant agent learning and active organization knowledge; further search remains available through tools. |
 | Attachments | Ordered artifact references or accessible paths, metadata, transcripts, and preparation status. |
 | Environment | Working directory, available input locations, and generated-output directory. |
@@ -219,8 +219,8 @@ The following is the agreed catalog direction; names and exact arguments remain 
 | `data.describe/query/execute` | Structured agent or organization data access. |
 | `audio.transcribe` | Invoke the same configured service used for voice-note preparation. |
 | `agents.list/get` | Discover agents and their roles. |
-| `agents.delegate` | Durable task request to another agent, optionally with files. |
-| `agents.delegation_status` | Inspect a delegation and its result/status. |
+| `agents.delegate` | Durable task request to another agent, optionally with files. Superseded by `message_kip` in [decision block 11](./11-kip-messaging.md). |
+| `agents.delegation_status` | Inspect a delegation and its result/status. Superseded by [decision block 11](./11-kip-messaging.md): answers always come back, so there is no status lookup. |
 | Administration families | Applicable organization, agent, membership, group, and configuration operations. |
 | Scheduling families | Interface to future scheduling capabilities; detailed scheduling design is separate. |
 
@@ -246,7 +246,7 @@ Native harness output and explicit publishing calls enter the same Core publicat
 - Preserve a distinct later answer even if a final message was already published. Never suppress all native output because any publishing tool was called.
 - Do not guess that similar text must be the same message. When identity cannot establish duplication, preserve distinct content rather than silently hide it.
 
-Replacing/finalizing a draft is valid only for a correlated version of that same message, not an unrelated earlier draft. Keep the canonical conversation and execution record. This does not require access to private model reasoning or making an internal delegated result public; audience follows the conversation/delegation context agreed in block 2.
+Replacing/finalizing a draft is valid only for a correlated version of that same message, not an unrelated earlier draft. Keep the canonical conversation and execution record. This does not require access to private model reasoning. Kip messages and answers are ordinary visible thread messages ([decision block 11](./11-kip-messaging.md)).
 
 Core settles run state after execution and output reconciliation. A provider that has already published its answer may finish without another user-facing message; do not invent a duplicate or a filler answer. Likewise, a later provider failure stays visible even when useful messages were already published.
 
@@ -281,18 +281,20 @@ A Kipster workflow may remain open when no AI execution is running. UI connectiv
 ```text
 Agent works
   +-- Finished -> preserve output -> complete
-  `-- Needs human answer / delegated result
+  `-- Needs human answer
          |
          Save request and continuation context
          |
          Continue independent work, or yield when safe
          |
-         Answer/result arrives
+         Answer arrives
          |
          Resume in the same Kipster thread
 ```
 
 ### Main mechanism and optional status lookup
+
+> For agent-to-agent work this is superseded by [decision block 11, kip messaging](./11-kip-messaging.md): a message never pauses the sender, and the answer wakes it for a new turn. Questions and approvals still continue as described here.
 
 Core saves an interaction or delegation before presenting or dispatching it. Completion/response triggers correlated continuation. An agent can continue independent work or yield until the dependency is ready. Status lookup remains available through tools when the agent wants it.
 
@@ -310,13 +312,13 @@ B's result is saved
 Core delivers/schedules the correlated continuation for A
 ```
 
-If A is still active, deliver through a supported tool return/control path or hold the result until a safe execution boundary. Do not mutate an incompatible active provider session concurrently. Child questions for a human retain their source and route to the responsible human. Internal child results do not automatically become public conversation messages.
+If A is still active, deliver through a supported tool return/control path or hold the result until a safe execution boundary. Do not mutate an incompatible active provider session concurrently. Child questions for a human retain their source and route to the responsible human. Internal child results do not automatically become public conversation messages; under decision block 11 every answer is posted into the sender's thread.
 
 ### Capacity and safe yield
 
-Count actual active AI execution toward the configurable installation limit, initially 20, including delegated work. Release a permit only when execution is confirmed paused or ended. Do not label an active provider as suspended merely to make capacity appear available.
+Count actual active AI execution toward the configurable installation limit, initially 20, including work started by kip messages. Release a permit only when execution is confirmed paused or ended. Do not label an active provider as suspended merely to make capacity appear available.
 
-Waiting parents must not occupy every permit and prevent children from progressing. Use supported suspension or end/yield at a supported boundary with a saved continuation. Not every harness can pause an arbitrary operation. The first adapter's concrete yielding and admission strategy must be verified during implementation, including behavior at the configured ceiling; this document does not invent universal pause support.
+Waiting parents must not occupy every permit and prevent children from progressing. A kip's message never pauses the sender ([decision block 11](./11-kip-messaging.md)), so this applies to questions and approvals. Use supported suspension or end/yield at a supported boundary with a saved continuation. Not every harness can pause an arbitrary operation. The first adapter's concrete yielding and admission strategy must be verified during implementation, including behavior at the configured ceiling; this document does not invent universal pause support.
 
 ### Resume or reconstruct
 
@@ -344,7 +346,7 @@ Questions have no short blanket default expiry. Approvals remain recorded, but a
 | Core restarts | Reload unfinished work and reconcile before starting replacement execution. |
 | Earlier side-effect outcome is uncertain | Preserve context, show recovery needed, and request input when necessary rather than blindly replaying. |
 
-Automatically continue when a safe supported recovery can be established. Involve the user when uncertainty prevents safe continuation. Stop does not undo written files, sent messages, or other completed effects. Save late child results but do not let them revive a cancelled parent. A finished parent resumes only for previously recorded continuation intent or explicit new work.
+Automatically continue when a safe supported recovery can be established. Involve the user when uncertainty prevents safe continuation. Stop does not undo written files, sent messages, or other completed effects. A kip's answer, including a stop or failure notice, wakes the sender with a new turn rather than reviving a cancelled one ([decision block 11](./11-kip-messaging.md)). A finished parent resumes only for previously recorded continuation intent or explicit new work.
 
 ## 6. Full example
 
@@ -360,11 +362,11 @@ Selected adapter executes with file references and Kipster tools
       +-- Native activity/message events -> adapter -> Core -> UI
       +-- Publish tool calls ------------> Core -> UI
       +-- Generated file ----------------> Core artifact service
-      `-- Delegate / ask human ----------> Core saves pending request
+      `-- Ask human ---------------------> Core saves pending request
                                                |
                                       Continue work or safely yield
                                                |
-                                      Answer / result is saved
+                                      Answer is saved
                                                |
                                       Resume or reconstruct
                                                |
@@ -386,7 +388,7 @@ All user-facing delivery passes through Core. Multiple devices observe the same 
 - Provider events route to the correct execution and all relevant UI subscribers; disconnected clients do not lose saved outcomes.
 - Status lookup works independently of automatic continuation, with neutral model guidance about polling.
 - A pending question survives days and restart, and its answer continues the same Kipster thread.
-- Delegated children can progress at the execution ceiling; obsolete or cancelled attempts cannot revive work.
+- Work started by kip messages can progress at the execution ceiling; obsolete or cancelled attempts cannot revive work.
 - Safe recoveries proceed automatically; uncertain external effects are not blindly repeated.
 
 Storage and protocol work will define exact schemas, event envelopes, tool arguments, folder layout, and transaction/replay details. Implementation must select the package-loading mechanism and verify the first harness's steering, cancellation, instruction refresh, yielding, and recovery capabilities. These are remaining engineering details, not additional product clarification required before recording this block.

@@ -21,9 +21,9 @@ async function authorized(client: SqlClient, scope: Stream): Promise<void> {
   const owner = await client.query('SELECT 1 FROM kipster.bootstrap WHERE installation_id=$1 AND owner_id=$2', [scope.installationId, scope.callerId])
   if (!owner.rows.length) throw new Error('Owner access denied')
   if (scope.kind === 'thread') {
-    const thread = (await client.query<{ internal: boolean; installation_id: string; caller_id: string; present: boolean }>('SELECT t.internal,c.installation_id,c.caller_id,kipster.chat_present(c.id) AS present FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE t.id=$1', [scope.threadId])).rows[0]
+    const thread = (await client.query<{ installation_id: string; caller_id: string; present: boolean }>('SELECT c.installation_id,c.caller_id,kipster.chat_present(c.id) AS present FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE t.id=$1', [scope.threadId])).rows[0]
     if (!thread) throw new RefusedError('gone', 'Thread is gone')
-    if (thread.internal || thread.installation_id !== scope.installationId || thread.caller_id !== scope.callerId) throw new Error('Thread access denied')
+    if (thread.installation_id !== scope.installationId || thread.caller_id !== scope.callerId) throw new Error('Thread access denied')
     if (!thread.present) throw new RefusedError('gone', 'Thread is gone')
   }
 }
@@ -38,14 +38,53 @@ export async function notifyThread(client: SqlClient, threadId: string): Promise
   await client.query("SELECT pg_notify('kipster_events',$1)", [`t:${threadId}`])
 }
 
+/** Longest `linkedFrom.title`, in characters. */
+const linkTitleLength = 55
+/**
+ * Kip messaging fields of a thread summary: `startedBy`, the author of its first message; `linkedFrom`, on a linked
+ * thread, the thread its messages come from; `links`, on a source thread, its linked threads and whether a message
+ * sent to each still waits for its answer.
+ */
+async function linkFields(client: SqlClient, threadIds: readonly string[]): Promise<Map<string, Record<string, unknown>>> {
+  const fields = new Map<string, Record<string, unknown>>(threadIds.map(id => [id, {}]))
+  if (!threadIds.length) return fields
+  const first = await client.query<{ thread_id: string; author_id: string }>(`SELECT DISTINCT ON (thread_id) thread_id,author_id FROM kipster.messages WHERE thread_id=ANY($1::uuid[]) ORDER BY thread_id,position`, [threadIds])
+  for (const row of first.rows) fields.get(row.thread_id)!.startedBy = row.author_id
+  const from = await client.query<{ linked_thread_id: string; source_thread_id: string; chat_id: string; sender_agent_id: string; parts: { kind: string; text?: string }[] | null }>(`SELECT l.linked_thread_id,l.source_thread_id,t.chat_id,l.sender_agent_id,
+      (SELECT m.parts FROM kipster.messages m WHERE m.thread_id=l.source_thread_id ORDER BY m.position LIMIT 1) AS parts
+    FROM kipster.kip_links l JOIN kipster.threads t ON t.id=l.source_thread_id WHERE l.linked_thread_id=ANY($1::uuid[])`, [threadIds])
+  for (const row of from.rows) {
+    const text = row.parts?.find(part => part.kind === 'text' && part.text?.trim())?.text?.trim()
+    fields.get(row.linked_thread_id)!.linkedFrom = { threadId: row.source_thread_id, chatId: row.chat_id, agentId: row.sender_agent_id, title: text ? [...text].slice(0, linkTitleLength).join('') : 'File attachment' }
+  }
+  const links = await client.query<{ source_thread_id: string; recipient_agent_id: string; linked_thread_id: string; chat_id: string; waiting: boolean }>(`SELECT l.source_thread_id,l.recipient_agent_id,l.linked_thread_id,t.chat_id,
+      EXISTS (SELECT 1 FROM kipster.text_runs r WHERE r.thread_id=l.linked_thread_id AND r.trigger_kind='kip' AND r.answered_at IS NULL) AS waiting
+    FROM kipster.kip_links l JOIN kipster.threads t ON t.id=l.linked_thread_id WHERE l.source_thread_id=ANY($1::uuid[]) ORDER BY l.created_at,l.linked_thread_id`, [threadIds])
+  for (const row of links.rows) {
+    const item = fields.get(row.source_thread_id)!
+    item.links = [...(item.links as unknown[] ?? []), { agentId: row.recipient_agent_id, threadId: row.linked_thread_id, chatId: row.chat_id, waiting: row.waiting }]
+  }
+  return fields
+}
+
 /** Caller already holds the thread row. Thread and app counters are commit-order locks. */
 export async function publishThreadChange(client: SqlClient, installationId: string, callerId: string, threadId: string, chatId: string, type: string, resourceId: string, revision: number, data: unknown, state: string, lastMessageId: string | null, summarize = true): Promise<void> {
-  const thread = (await client.query<{ next_event_position: string; revision: string; created_at: Date; internal:boolean }>('UPDATE kipster.threads SET next_event_position=next_event_position+1,revision=revision+1 WHERE id=$1 RETURNING next_event_position,revision,created_at,internal', [threadId])).rows[0]!
+  const thread = (await client.query<{ next_event_position: string; revision: string; created_at: Date }>('UPDATE kipster.threads SET next_event_position=next_event_position+1,revision=revision+1 WHERE id=$1 RETURNING next_event_position,revision,created_at', [threadId])).rows[0]!
   const threadPosition = Number(thread.next_event_position) - 1
   await client.query('INSERT INTO kipster.thread_events(thread_id,position,event_id,type,resource_id,revision,data) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)', [threadId, threadPosition, randomUUID(), type, resourceId, revision, JSON.stringify(data)])
   await notifyThread(client, threadId)
   await retainEvents(client, 'thread', threadId, threadPosition)
-  if(thread.internal || !summarize)return
+  if (summarize) await summarizeThread(client, installationId, callerId, threadId, chatId, thread, state, lastMessageId)
+}
+
+/** Publishes the thread's summary again with its last state, for example when whether it waits for a kip changed. Caller already holds the thread row. */
+export async function publishThreadSummary(client: SqlClient, installationId: string, callerId: string, threadId: string, chatId: string): Promise<void> {
+  const thread = (await client.query<{ revision: string; created_at: Date }>('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1 RETURNING revision,created_at', [threadId])).rows[0]
+  const previous = (await client.query<{ state: string }>('SELECT state FROM kipster.app_thread_summaries WHERE installation_id=$1 AND caller_id=$2 AND thread_id=$3', [installationId, callerId, threadId])).rows[0]
+  if (thread && previous) await summarizeThread(client, installationId, callerId, threadId, chatId, thread, previous.state, null)
+}
+
+async function summarizeThread(client: SqlClient, installationId: string, callerId: string, threadId: string, chatId: string, thread: { revision: string; created_at: Date }, state: string, lastMessageId: string | null): Promise<void> {
   const chat = (await client.query<{ context_kind: string; context_id: string; agent_id: string; present: boolean }>('SELECT context_kind,context_id,agent_id,kipster.chat_present(id) AS present FROM kipster.direct_chats WHERE id=$1', [chatId])).rows[0]!
   // A chat that is gone leaves the application projection; clients drop it with its owner.
   if (!chat.present) return
@@ -63,7 +102,7 @@ export async function publishThreadChange(client: SqlClient, installationId: str
     WHERE kipster.app_thread_summaries.revision <= EXCLUDED.revision`, [installationId, callerId, threadId, chatId, threadRevision, state, latestMessageId])
   const intentId = randomUUID()
   await client.query('INSERT INTO kipster.app_projection_intents(id,installation_id,thread_id,resource_revision,app_position,projected) VALUES ($1,$2,$3,$4,$5,true)', [intentId, installationId, threadId, threadRevision, position])
-  await client.query('INSERT INTO kipster.app_events(installation_id,position,event_id,type,resource_id,revision,data) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)', [installationId, position, randomUUID(), 'thread-summary', threadId, threadRevision, JSON.stringify({ threadId, chatId, contextKind: chat.context_kind, contextId: chat.context_id, agentId: chat.agent_id, revision: threadRevision, state, lastMessageId: latestMessageId, createdAt: thread.created_at.toISOString() })])
+  await client.query('INSERT INTO kipster.app_events(installation_id,position,event_id,type,resource_id,revision,data) VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)', [installationId, position, randomUUID(), 'thread-summary', threadId, threadRevision, JSON.stringify({ threadId, chatId, contextKind: chat.context_kind, contextId: chat.context_id, agentId: chat.agent_id, revision: threadRevision, state, lastMessageId: latestMessageId, createdAt: thread.created_at.toISOString(), ...(await linkFields(client, [threadId])).get(threadId) })])
   await client.query("SELECT pg_notify('kipster_events',$1)", [`a:${installationId}`])
   await retainEvents(client, 'application', installationId, position)
 }
@@ -106,8 +145,8 @@ async function publishNotification(client: SqlClient, installationId: string, no
   await publishAppEvent(client, installationId, 'notification', row.id, Number(row.revision), notificationRecord(row))
 }
 async function insertNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, kind: string, interactionId: string | null): Promise<void> {
-  const thread = (await client.query<{ internal: boolean; present: boolean }>('SELECT internal,kipster.chat_present(chat_id) AS present FROM kipster.threads WHERE id=$1', [threadId])).rows[0]
-  if (!thread || thread.internal || !thread.present) return
+  const thread = (await client.query<{ present: boolean }>('SELECT kipster.chat_present(chat_id) AS present FROM kipster.threads WHERE id=$1', [threadId])).rows[0]
+  if (!thread || !thread.present) return
   await lockApplicationStream(client, installationId)
   const saved = await client.query<{ id: string }>(`INSERT INTO kipster.notifications(id,installation_id,recipient_id,thread_id,run_id,kind,interaction_id)
     VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id`, [randomUUID(), installationId, callerId, threadId, runId, kind, interactionId])
@@ -232,7 +271,7 @@ export async function snapshot(db: Postgres, scope: Stream, page: SnapshotPage =
     const pageLimit = page.limit ?? (scope.kind === 'application' ? 100 : 1000)
     if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > (scope.kind === 'application' ? 100 : 1000)) throw new Error('Invalid snapshot page limit')
     if (scope.kind === 'application') {
-      const rows = await client.query<{ thread_id: string; chat_id: string; context_kind: string; context_id: string; agent_id: string; revision: string; state: string; last_message_id: string; created_at: Date }>('SELECT s.thread_id,s.chat_id,c.context_kind,c.context_id,c.agent_id,s.revision,s.state,s.last_message_id,t.created_at FROM kipster.app_thread_summaries s JOIN kipster.threads t ON t.id=s.thread_id JOIN kipster.direct_chats c ON c.id=s.chat_id WHERE s.installation_id=$1 AND s.caller_id=$2 AND t.internal=false AND kipster.chat_present(c.id) AND ($3::uuid IS NULL OR s.thread_id>$3) ORDER BY s.thread_id LIMIT $4', [scope.installationId, scope.callerId, page.afterThreadId ?? null, pageLimit + 1])
+      const rows = await client.query<{ thread_id: string; chat_id: string; context_kind: string; context_id: string; agent_id: string; revision: string; state: string; last_message_id: string; created_at: Date }>('SELECT s.thread_id,s.chat_id,c.context_kind,c.context_id,c.agent_id,s.revision,s.state,s.last_message_id,t.created_at FROM kipster.app_thread_summaries s JOIN kipster.threads t ON t.id=s.thread_id JOIN kipster.direct_chats c ON c.id=s.chat_id WHERE s.installation_id=$1 AND s.caller_id=$2 AND kipster.chat_present(c.id) AND ($3::uuid IS NULL OR s.thread_id>$3) ORDER BY s.thread_id LIMIT $4', [scope.installationId, scope.callerId, page.afterThreadId ?? null, pageLimit + 1])
       // Notifications are paged oldest first; the page anchor is the last notification returned.
       if (page.afterNotificationId && !(await client.query('SELECT 1 FROM kipster.notifications WHERE id=$1', [page.afterNotificationId])).rows.length) throw new Error('resync-required')
       const notifications = await client.query<NotificationRow>(`SELECT ${notificationColumns} FROM ${notificationSource}
@@ -241,15 +280,16 @@ export async function snapshot(db: Postgres, scope: Stream, page: SnapshotPage =
         ORDER BY n.created_at,n.id LIMIT $4`, [scope.installationId, scope.callerId, page.afterNotificationId ?? null, pageLimit + 1])
       const threads = rows.rows.slice(0, pageLimit), notes = notifications.rows.slice(0, pageLimit)
       const hasMore = rows.rows.length > pageLimit || notifications.rows.length > pageLimit
-      return { version: 1, scope, cursor: streamCursor(scope, bounds.head), threads: threads.map(row => ({ threadId: row.thread_id, chatId: row.chat_id, contextKind: row.context_kind, contextId: row.context_id, agentId: row.agent_id, revision: Number(row.revision), state: row.state, lastMessageId: row.last_message_id, createdAt: row.created_at.toISOString() })), notifications: notes.map(notificationRecord), next: hasMore ? { afterThreadId: threads.at(-1)?.thread_id ?? page.afterThreadId ?? null, afterNotificationId: notes.at(-1)?.id ?? page.afterNotificationId ?? null } : null }
+      const links = await linkFields(client, threads.map(row => row.thread_id))
+      return { version: 1, scope, cursor: streamCursor(scope, bounds.head), threads: threads.map(row => ({ threadId: row.thread_id, chatId: row.chat_id, contextKind: row.context_kind, contextId: row.context_id, agentId: row.agent_id, revision: Number(row.revision), state: row.state, lastMessageId: row.last_message_id, createdAt: row.created_at.toISOString(), ...links.get(row.thread_id) })), notifications: notes.map(notificationRecord), next: hasMore ? { afterThreadId: threads.at(-1)?.thread_id ?? page.afterThreadId ?? null, afterNotificationId: notes.at(-1)?.id ?? page.afterNotificationId ?? null } : null }
     }
     const messages = await client.query<{ id: string; thread_id: string; author_id: string; parts: unknown; final: boolean; revision: string; position: string; run_id: string | null; progress: boolean; created_at: Date; finished_at: Date | null }>('SELECT m.id,m.thread_id,m.author_id,m.parts,m.final,m.revision,m.position,m.progress,m.created_at,m.finished_at,a.intent_id AS run_id FROM kipster.messages m LEFT JOIN kipster.attempts a ON a.id=m.source_attempt_id WHERE m.thread_id=$1 AND m.position>$2 ORDER BY m.position LIMIT $3', [scope.threadId, page.afterMessagePosition ?? 0, pageLimit + 1])
     const runs = await client.query<{ id: string; state: string; current_attempt_id: string|null; queue_hold: boolean; cancel_delivery:string; revision: string; queue_position: string; input_message_id: string; failure: string|null }>('SELECT id,state,current_attempt_id,queue_hold,cancel_delivery,revision,queue_position,input_message_id,failure FROM kipster.text_runs WHERE thread_id=$1 AND queue_position>$2 ORDER BY queue_position LIMIT $3', [scope.threadId, page.afterWorkPosition ?? 0, pageLimit + 1])
     const messagePage = messages.rows.slice(0, pageLimit), workPage = runs.rows.slice(0, pageLimit)
-    const interactions = await client.query<{ id:string; run_id:string; attempt_id:string; kind:string; proposal_id:string|null; proposal:string|null; prompt:string; options:unknown; free_text:boolean; grant_offer:{label:string;scopes:string[]}|null; state:string; answer:unknown; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string; source_agent_id:string|null }>('SELECT x.*,d.recipient_agent_id AS source_agent_id FROM kipster.interactions x JOIN kipster.text_runs r ON r.id=x.run_id LEFT JOIN kipster.delegations d ON d.child_run_id=x.run_id WHERE (r.thread_id=$1 AND r.queue_position=ANY($2::bigint[])) OR d.origin_thread_id=$1 ORDER BY x.created_at,x.id',[scope.threadId,workPage.map(row=>row.queue_position)])
-    const delegations=await client.query<{id:string;parent_run_id:string|null;child_run_id:string|null;sender_agent_id:string;recipient_agent_id:string;origin_thread_id:string;depth:number;ordinal:number;request:string;state:string;failure:string|null;revision:string}>(`SELECT id,parent_run_id,child_run_id,sender_agent_id,recipient_agent_id,origin_thread_id,depth,ordinal,request,state,failure,revision FROM kipster.delegations WHERE origin_thread_id=$1 ORDER BY depth,ordinal,id LIMIT 1000`,[scope.threadId])
+    const interactions = await client.query<{ id:string; run_id:string; attempt_id:string; kind:string; proposal_id:string|null; proposal:string|null; prompt:string; options:unknown; free_text:boolean; grant_offer:{label:string;scopes:string[]}|null; state:string; answer:unknown; answer_operation_id:string|null; answer_actor_id:string|null; answered_at:Date|null; revision:string }>('SELECT x.* FROM kipster.interactions x JOIN kipster.text_runs r ON r.id=x.run_id WHERE r.thread_id=$1 AND r.queue_position=ANY($2::bigint[]) ORDER BY x.created_at,x.id',[scope.threadId,workPage.map(row=>row.queue_position)])
     const hasMore = messages.rows.length > pageLimit || runs.rows.length > pageLimit
-    return { version: 1, scope, cursor: streamCursor(scope, bounds.head), messages: await Promise.all(messagePage.map(async row => ({ id: row.id, ...(row.run_id ? { runId: row.run_id } : {}), ...(row.progress ? { progress: true } : {}), threadId: row.thread_id, authorId: row.author_id, createdAt: row.created_at.toISOString(), ...(row.final && row.finished_at ? { finishedAt: row.finished_at.toISOString() } : {}), parts: row.parts, final: row.final, revision: Number(row.revision), position: Number(row.position), preparation: (await client.query<{ ordinal: number; artifact_id: string; status: string; provider_id: string | null; transcript: string | null; failure: string | null; revision: string }>("SELECT ordinal,artifact_id,status,provider_id,transcript,failure,revision FROM kipster.voice_preparations WHERE message_id=$1 ORDER BY ordinal", [row.id])).rows.map(item => ({ id: `${row.id}:${item.ordinal}`, partIndex: item.ordinal, artifactId: item.artifact_id, status: item.status === 'pending' ? 'preparing' : item.status, provider: item.provider_id ?? 'unconfigured', revision: Number(item.revision), ...(item.transcript !== null ? { transcript: item.transcript } : {}), ...(item.failure ? { error: item.failure } : {}) })) }))), work: workPage.map(row => ({ runId: row.id, attemptId: row.current_attempt_id, state: row.state, queueHold: row.queue_hold, cancelDelivery: row.cancel_delivery, revision: Number(row.revision), queuePosition: Number(row.queue_position), messageId: row.input_message_id, failure: row.failure })), interactions: interactions.rows.map(row => ({ id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? { proposal: row.proposal } : {}), prompt: row.prompt, options: row.options, freeText: row.free_text, ...(row.grant_offer ? { grant: { label: row.grant_offer.label, scopes: row.grant_offer.scopes } } : {}), state: row.state, revision: Number(row.revision), ...(row.source_agent_id ? { sourceAgentId: row.source_agent_id } : {}), ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}) })), delegations: delegations.rows.map(row => ({ id: row.id, parentRunId: row.parent_run_id, childRunId: row.child_run_id, senderAgentId: row.sender_agent_id, recipientAgentId: row.recipient_agent_id, originThreadId: row.origin_thread_id, depth: row.depth, ordinal: row.ordinal, request: row.request, state: row.state, ...(row.failure !== null ? { failure: row.failure } : {}), revision: Number(row.revision) })), next: hasMore ? { afterMessagePosition: messagePage.at(-1) ? Number(messagePage.at(-1)!.position) : page.afterMessagePosition ?? null, afterWorkPosition: workPage.at(-1) ? Number(workPage.at(-1)!.queue_position) : page.afterWorkPosition ?? null } : null }
+    return { version: 1, scope, cursor: streamCursor(scope, bounds.head), messages: await Promise.all(messagePage.map(async row => ({ id: row.id, ...(row.run_id ? { runId: row.run_id } : {}), ...(row.progress ? { progress: true } : {}), threadId: row.thread_id, authorId: row.author_id, createdAt: row.created_at.toISOString(), ...(row.final && row.finished_at ? { finishedAt: row.finished_at.toISOString() } : {}), parts: row.parts, final: row.final, revision: Number(row.revision), position: Number(row.position), preparation: (await client.query<{ ordinal: number; artifact_id: string; status: string; provider_id: string | null; transcript: string | null; failure: string | null; revision: string }>("SELECT ordinal,artifact_id,status,provider_id,transcript,failure,revision FROM kipster.voice_preparations WHERE message_id=$1 ORDER BY ordinal", [row.id])).rows.map(item => ({ id: `${row.id}:${item.ordinal}`, partIndex: item.ordinal, artifactId: item.artifact_id, status: item.status === 'pending' ? 'preparing' : item.status, provider: item.provider_id ?? 'unconfigured', revision: Number(item.revision), ...(item.transcript !== null ? { transcript: item.transcript } : {}), ...(item.failure ? { error: item.failure } : {}) })) }))), work: workPage.map(row => ({ runId: row.id, attemptId: row.current_attempt_id, state: row.state, queueHold: row.queue_hold, cancelDelivery: row.cancel_delivery, revision: Number(row.revision), queuePosition: Number(row.queue_position), messageId: row.input_message_id, failure: row.failure })), interactions: interactions.rows.map(row => ({ id: row.id, version: 1, runId: row.run_id, attemptId: row.attempt_id, kind: row.kind, ...(row.proposal_id ? { proposalId: row.proposal_id } : {}), ...(row.proposal ? { proposal: row.proposal } : {}), prompt: row.prompt, options: row.options, freeText: row.free_text, ...(row.grant_offer ? { grant: { label: row.grant_offer.label, scopes: row.grant_offer.scopes } } : {}), state: row.state, revision: Number(row.revision), ...(row.answer && row.answer_operation_id && row.answer_actor_id && row.answered_at ? { response: { operationId: row.answer_operation_id, actorId: row.answer_actor_id, answer: row.answer, acceptedAt: row.answered_at.toISOString() } } : {}) })), // Deprecated and always empty: clients of protocols 1 and 2 require the list.
+      delegations: [], next: hasMore ? { afterMessagePosition: messagePage.at(-1) ? Number(messagePage.at(-1)!.position) : page.afterMessagePosition ?? null, afterWorkPosition: workPage.at(-1) ? Number(workPage.at(-1)!.queue_position) : page.afterWorkPosition ?? null } : null }
   })
 }
 

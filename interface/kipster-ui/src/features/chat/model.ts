@@ -55,6 +55,22 @@ export interface Thread {
   title: string
   /** Ordered references. Message bodies have one home in messagesById. */
   messageIds: string[]
+  /** The author of the first message, the person or a kip; absent from older Cores. */
+  startedBy?: string
+  /** A linked thread: the kip that messages it and the thread its messages come from. */
+  linkedFrom?: {
+    threadId: string
+    chatId: string
+    agentId: string
+    title: string
+  }
+  /** The kips this thread has messaged, with their linked threads. */
+  links?: {
+    agentId: string
+    threadId: string
+    chatId: string
+    waiting: boolean
+  }[]
 }
 /** Local composer metadata, not an uploaded artifact receipt. */
 export interface Attachment {
@@ -99,6 +115,10 @@ export interface Message {
   /** When Core finalized the message; absent until final or from older Cores. */
   finishedAt?: string
   parts: ContentPart[]
+  /** A message a kip sent from this thread to another kip's linked thread. */
+  kipMessage?: { recipientId: string; threadId: string; chatId: string }
+  /** A kip's answer, posted back here from its linked thread. */
+  kipAnswer?: { agentId: string; threadId: string; chatId: string }
 }
 export interface WorkspaceData {
   installationId: string

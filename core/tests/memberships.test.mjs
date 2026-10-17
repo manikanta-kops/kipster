@@ -140,7 +140,7 @@ function hold(ctx, db, work) {
 /** Waits until `n` sessions of the test database wait on a row lock. */
 const lockWaiters = (db, n) => until(async () => count(db, `SELECT count(*) AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock' AND wait_event IN ('transactionid','tuple')`), value => value >= n, `${n} lock waiters`)
 
-test('work accepted before a removal finishes: queued, running, waiting on a question or a child, Resume and Retry', { skip: noDatabase, timeout: 60000 }, async t => {
+test('work accepted before a removal finishes: queued, running, waiting on a question, a kip\'s message, Resume and Retry', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const org = await ctx.organization('Northwind')
   const scout = await ctx.agent('Scout', org.id), helper = await ctx.agent('Helper', org.id)
@@ -160,12 +160,13 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   const askingExecution = await ctx.execution(asking.runId)
   const question = await askingExecution.handle.callTool('ask', 'ask_user_question', { prompt: 'Which market?', options: [{ id: 'eu', label: 'Europe' }], freeText: false })
   askingExecution.handle.release({ kind: 'ended', attemptId: askingExecution.context.attemptId, confirmed: true })
-  // Waiting on a child delegated to another member.
+  // A message to another member, whose answer is still to come.
   const parent = await accept('Ask Helper to check the numbers')
   const parentExecution = await ctx.execution(parent.runId)
-  const delegation = await parentExecution.handle.callTool('delegate', 'delegate_to_kip', { recipientId: helper.agent.id, request: 'Check the numbers' })
+  const sent = await parentExecution.handle.callTool('message', 'message_kip', { recipientId: helper.agent.id, text: 'Check the numbers' })
   parentExecution.handle.release({ kind: 'ended', attemptId: parentExecution.context.attemptId, confirmed: true })
-  const childExecution = await ctx.execution(delegation.childRunId)
+  const childRunId = (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).rows[0].id
+  const childExecution = await ctx.execution(childRunId)
   // Failed work held with a reply behind it, for Resume, and failed work for Retry.
   const held = await accept('Try the first approach')
   const heldExecution = await ctx.execution(held.runId)
@@ -177,7 +178,7 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   await ctx.settled(asking.runId, 'waiting')
   await ctx.settled(held.runId, 'failed')
   await ctx.settled(failing.runId, 'failed')
-  assert.equal(await ctx.state(parent.runId), 'waiting')
+  assert.equal(await ctx.state(parent.runId), 'completed')
   assert.equal(await ctx.state(queued.runId), 'queued')
 
   await ctx.remove(scout.membership.id)
@@ -207,13 +208,14 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   ctx.finish(continued, 'Europe it is')
   await ctx.settled(asking.runId, 'completed')
 
-  // The child finishes and its parent continues with the result.
+  // The recipient answers, and its answer wakes the sender.
   ctx.finish(childExecution, 'The numbers add up')
-  await ctx.settled(delegation.childRunId, 'completed')
-  const resumedParent = await ctx.execution(parent.runId, 1)
-  assert.deepEqual(resumedParent.context.delegationResults.map(r => r.result), ['The numbers add up'])
-  ctx.finish(resumedParent, 'Helper confirmed the numbers')
-  await ctx.settled(parent.runId, 'completed')
+  await ctx.settled(childRunId, 'completed')
+  const answerRunId = await until(async () => (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='answer'", [parent.threadId])).rows[0]?.id, Boolean, 'answer')
+  const woken = await ctx.execution(answerRunId)
+  assert.match(woken.context.prompt, /The numbers add up/)
+  ctx.finish(woken, 'Helper confirmed the numbers')
+  await ctx.settled(answerRunId, 'completed')
 
   // Resume releases the held reply; Retry runs the failed work again.
   assert.equal((await ctx.control(org.id, chatId, held, 'resume', heldExecution.context.attemptId)).data.outcome, 'accepted')
@@ -291,7 +293,7 @@ test('a removal and an acceptance in the same chat serialize: exactly one outcom
   }
 })
 
-test('a delegation and the removal of its recipient serialize: exactly one outcome', { skip: noDatabase, timeout: 60000 }, async t => {
+test('a kip message and the removal of its recipient serialize: exactly one outcome', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const locks = new Postgres(ctx.url)
   ctx.closers.push(() => locks.close())
@@ -300,42 +302,44 @@ test('a delegation and the removal of its recipient serialize: exactly one outco
   const { chatId } = (await ctx.chat(org.id, scout.agent.id)).data
   const parent = (await ctx.say(org.id, chatId, 'Ask Helper')).data
   const parentExecution = await ctx.execution(parent.runId)
-  const delegate = (callId, request) => parentExecution.handle.callTool(callId, 'delegate_to_kip', { recipientId: helper.agent.id, request })
+  const send = (callId, text) => parentExecution.handle.callTool(callId, 'message_kip', { recipientId: helper.agent.id, text })
+  const sentCount = () => count(ctx.db, 'SELECT count(*) AS n FROM kipster.kip_message_calls WHERE sender_run_id=$1', [parent.runId])
 
-  // The delegation holds the recipient's membership first: the removal waits, the child still runs.
+  // The message holds the recipient's membership first: the removal waits, the recipient still runs.
   const run = hold(ctx, locks, c => c.query('SELECT 1 FROM kipster.text_runs WHERE id=$1 FOR UPDATE', [parent.runId]))
   await run.holding
-  const delegating = delegate('first', 'Check the numbers')
+  const sending = send('first', 'Check the numbers')
   await lockWaiters(ctx.db, 1)
   const removing = ctx.call('DELETE', `/v1/memberships/${helper.membership.id}`, { version: 1, operationId: randomUUID() })
   await lockWaiters(ctx.db, 2)
   run.release()
   await run.done
-  const [delegation, removed] = await Promise.all([delegating, removing])
+  const [sent, removed] = await Promise.all([sending, removing])
   assert.equal(removed.status, 200)
-  ctx.finish(await ctx.execution(delegation.childRunId), 'Numbers checked')
-  await ctx.settled(delegation.childRunId, 'completed')
+  const childRunId = (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).rows[0].id
+  ctx.finish(await ctx.execution(childRunId), 'Numbers checked')
+  await ctx.settled(childRunId, 'completed')
 
-  // The removal holds the membership first: the delegation waits and is refused.
+  // The removal holds the membership first: the message waits and is refused.
   const again = await ctx.add(org.id, helper.agent.id)
   const team = await ctx.group(org.id, 'Team', [again.id])
   const group = hold(ctx, locks, c => c.query('SELECT 1 FROM kipster.groups WHERE id=$1 FOR UPDATE', [team.id]))
   await group.holding
   const removing2 = ctx.call('DELETE', `/v1/memberships/${again.id}`, { version: 1, operationId: randomUUID() })
   await lockWaiters(ctx.db, 1)
-  const refused = delegate('second', 'Check them again').then(() => null, error => error)
+  const refused = send('second', 'Check them again').then(() => null, error => error)
   await lockWaiters(ctx.db, 2)
   group.release()
   await group.done
   assert.equal((await removing2).status, 200)
-  assert.match((await refused)?.message ?? '', /Recipient agent unavailable/)
-  assert.equal(await count(ctx.db, 'SELECT count(*) AS n FROM kipster.delegations WHERE parent_run_id=$1', [parent.runId]), 1)
+  assert.match((await refused)?.message ?? '', /Helper no longer works in that workspace/)
+  assert.equal(await sentCount(), 1)
 
-  // A removed sender's run finishes without delegating to a current member.
+  // A removed sender's run finishes without messaging a current member.
   await ctx.add(org.id, helper.agent.id)
   await ctx.remove(scout.membership.id)
-  await assert.rejects(delegate('third', 'One more check'), /Delegating agent is not an organization member/)
-  assert.equal(await count(ctx.db, 'SELECT count(*) AS n FROM kipster.delegations WHERE parent_run_id=$1', [parent.runId]), 1)
+  await assert.rejects(send('third', 'One more check'), /You no longer work in this workspace/)
+  assert.equal(await sentCount(), 1)
 })
 
 test('adding a membership locks the agent before the organization, as the task-data guard does', { skip: noDatabase }, async t => {

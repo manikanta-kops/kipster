@@ -140,15 +140,15 @@ export async function recentThreads(client: Postgres | SqlClient, installationId
 }
 
 export interface ThreadMessage { position: number; messageId: string; author: 'user' | 'kip' | 'other'; authorName: string; at: string; text: string }
-export interface ThreadPage { threadId: string; agentId: string; organizationId: string | null; internal: boolean; messages: ThreadMessage[]; nextPosition: number | null }
+export interface ThreadPage { threadId: string; agentId: string; organizationId: string | null; messages: ThreadMessage[]; nextPosition: number | null }
 
 /**
  * A page of a thread's final messages from `fromPosition` up to `toPosition`, both inclusive, bounded by
- * `MEMORY_READ`. `nextPosition` continues the page. A thread outside `scope` is not found; an internal (delegated)
- * thread belongs to the agent whose chat holds it, as every thread does.
+ * `MEMORY_READ`. `nextPosition` continues the page. A thread outside `scope` is not found; a thread belongs to the
+ * agent whose chat holds it.
  */
 export async function readThread(client: Postgres | SqlClient, installationId: string, scope: ThreadScope, threadId: string, fromPosition = 1, toPosition: number | null = null): Promise<ThreadPage | null> {
-  const thread = (await client.query<{ agent_id: string; context_kind: string; context_id: string; internal: boolean }>(`SELECT c.agent_id, c.context_kind, c.context_id, t.internal
+  const thread = (await client.query<{ agent_id: string; context_kind: string; context_id: string }>(`SELECT c.agent_id, c.context_kind, c.context_id
     FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id
     WHERE t.id=$1 AND c.installation_id=$2 AND ($3::uuid[] IS NULL OR c.agent_id = ANY($3::uuid[]))
       AND ($4::text = 'all' OR c.context_kind='installation' OR c.context_id::text = $4::text)`, [threadId, installationId, ...threadScopeValues(scope).slice(0, 2)])).rows[0]
@@ -167,7 +167,7 @@ export async function readThread(client: Postgres | SqlClient, installationId: s
     chars += text.length
     messages.push({ position: Number(row.position), messageId: row.id, author: row.person !== null ? 'user' : row.agent !== null ? 'kip' : 'other', authorName: row.person ?? row.agent ?? 'Unknown', at: row.created_at.toISOString(), text })
   }
-  return { threadId, agentId: thread.agent_id, organizationId: thread.context_kind === 'organization' ? thread.context_id : null, internal: thread.internal, messages, nextPosition }
+  return { threadId, agentId: thread.agent_id, organizationId: thread.context_kind === 'organization' ? thread.context_id : null, messages, nextPosition }
 }
 
 function partsText(parts: unknown[], transcripts: Record<string, string> = {}): string {

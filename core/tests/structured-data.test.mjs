@@ -131,8 +131,9 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await dispatcher.structuredTool(attempt,'org-create',{operation:'create_table',target:orgTarget,table:'shared',columns:[{name:'note',type:'text'}]})
     assert.deepEqual((await dispatcher.structuredTool(attempt,'org-discover',{operation:'discover',target:orgTarget})).tables,['shared'])
     const otherOrg=randomUUID()
-    await runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[otherOrg,installationId,'Other org'])
-    await assert.rejects(dispatcher.structuredTool(attempt,'wrong-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/Organization target unavailable/)
+    // The admin kip may use another workspace's task data, but not a removed one.
+    await runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,false)',[otherOrg,installationId,'Other org'])
+    await assert.rejects(dispatcher.structuredTool(attempt,'removed-org',{operation:'discover',target:{kind:'organization',ownerId:otherOrg}}),/Task-data organization unavailable/)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM task_data.namespaces WHERE owner_id=$1',[otherOrg])).rows[0].n,0)
     const stopOwner=randomUUID()
     await runtime.db.query('INSERT INTO kipster.agents(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[stopOwner,installationId,'Stop owner'])
@@ -169,13 +170,13 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await call('drop',{operation:'drop_table',table:'projects'})
     const restrictedDb=new Postgres(restricted.href)
     try {
-      await assert.rejects(restrictedDb.query('UPDATE kipster.threads SET internal=true'),/permission denied/)
+      await assert.rejects(restrictedDb.query('UPDATE kipster.threads SET revision=0'),/permission denied/)
       await assert.rejects(restrictedDb.query('SET ROLE pg_read_all_data'),/permission denied/)
       await assert.rejects(restrictedDb.query('CREATE TEMP TABLE escape (id int)'),/permission denied/)
       await assert.rejects(restrictedDb.query('CREATE SCHEMA escape'),/permission denied/)
       await assert.rejects(restrictedDb.query('CREATE EXTENSION hstore'),/permission denied/)
       await assert.rejects(restrictedDb.query("SELECT pg_catalog.pg_read_file('/etc/hosts')"),/permission denied/)
-      await restrictedDb.query(`CREATE FUNCTION "${namespace}".escape() RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN UPDATE kipster.threads SET internal=true; END $$`)
+      await restrictedDb.query(`CREATE FUNCTION "${namespace}".escape() RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN UPDATE kipster.threads SET revision=0; END $$`)
       await assert.rejects(restrictedDb.query(`SELECT "${namespace}".escape()`),/permission denied/)
       await restrictedDb.query(`DROP FUNCTION "${namespace}".escape()`)
       await restrictedDb.query('RESET ROLE')
@@ -190,7 +191,7 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await assert.rejects(call('obsolete',{operation:'discover'}),/Attempt no longer owns task data/)
     assert.deepEqual(await call('insert',request),inserted,'committed receipt survives stale attempt')
     await runtime.db.query("UPDATE kipster.attempts SET state='issued' WHERE id=$1",[attempt])
-    await dispatcher.agentTool(attempt,'delegate','agents.delegate',{recipientId:b,request:'Record task data'})
+    await dispatcher.agentTool(attempt,'message','agents.message',{recipientId:b,text:'Record task data'})
     adapter.handles[0].emit({kind:'ended',attemptId:attempt,confirmed:true})
     await until(()=>adapter.contexts.length,n=>n===2)
     const child=adapter.contexts[1]
@@ -199,6 +200,9 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await dispatcher.structuredTool(child.attemptId,'child-collab',{operation:'create_table',target,table:'collab_tasks',columns:[{name:'note',type:'text'}]})
     const identity=(await runtime.db.query('SELECT actor_id,owner_id FROM task_data.receipts WHERE attempt_id=$1 AND call_id=$2',[child.attemptId,'child-collab'])).rows[0]
     assert.deepEqual(identity,{actor_id:b,owner_id:rootAgentId})
+    const elsewhere=randomUUID()
+    await runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,true)',[elsewhere,installationId,'Elsewhere'])
+    await assert.rejects(dispatcher.structuredTool(child.attemptId,'child-elsewhere',{operation:'discover',target:{kind:'organization',ownerId:elsewhere}}),/Organization target unavailable/)
     await adapter.close()
     await dispatcher.close();dispatcher=null;await server.close();server=null;await runtime.close();runtime=null
     runtime=await openRuntime({connectionString:url.href,taskDataConnectionString:restricted.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Agent A'}})
