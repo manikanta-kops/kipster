@@ -637,11 +637,16 @@ called after the supervisor gave up starts the server again. `status` and
 
 ## Database migrations
 
-Migrations are forward-only. A file merged into `next` is shipped: never edit,
-delete, move or renumber it, including the existing 001–013 files. Every schema
-change or fix adds `NNN_name.sql` in the owning module's migrations directory,
-with a unique three-digit number above the highest on the base branch, and adds
-its path to `loadMigrations()` in `src/runtime.ts` in number order.
+Migrations are forward-only. `001_kipster.sql` in `src/platform/postgres/migrations`
+holds the whole schema as of the last squash. A file merged into `next` is
+shipped: never edit, delete, move or renumber it. Every schema change or fix adds
+`NNN_name.sql` in the owning module's migrations directory, with a unique
+three-digit number above the highest on the base branch, and adds its path to
+`loadMigrations()` in `src/runtime.ts` in number order.
+
+A squash replaces every migration with one new `001` file, so the check accepts it
+against its base. Databases created before a squash do not start with the newer
+Core; recreate them.
 
 Run `npm run check:migrations -- --base origin/next` from `core` before merging.
 CI checks PRs against their base and pushes to `next` against the previous commit;

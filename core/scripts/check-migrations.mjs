@@ -76,6 +76,9 @@ export async function checkMigrations(directory, baseRef) {
   const base = git(directory, ['rev-parse', '--verify', '--end-of-options', `${baseRef}^{commit}`]).toString('utf8').trim()
   const before = await migrationFiles(directory, base)
   const current = await migrationFiles(directory)
+  // A squash replaces every shipped migration with one new 001 file; databases created before it must be recreated.
+  const rebaseline = before.length > 0 && current.length === 1 && current[0].number === 1 && !before.some(file => file.path === current[0].path)
+  if (rebaseline) return orderedManifest(directory, undefined, current)
   const byPath = new Map(current.map(file => [file.path, file]))
   for (const file of before) {
     const next = byPath.get(file.path)
