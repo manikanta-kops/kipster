@@ -50,7 +50,9 @@ test('approval grants cover the conversation or every kip, reach executions and 
     await until(() => adapter.contexts.length, n => n === 1, 'first execution')
     assert.deepEqual(adapter.contexts[0].approvalGrants, [])
     const attempt = adapter.contexts[0].attemptId
-    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'tool-1', name: 'request_user_approval', arguments: card('test:arc') }), /Invalid interaction fields/, 'a kip cannot offer itself a grant')
+    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'tool-1', name: 'request_user_approval', arguments: card('test:arc') }), /Unsupported Kipster tool/, 'a kip cannot offer itself a grant')
+    const { grant, ...element } = card('test:arc')
+    await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'tool-2', name: 'message_user', arguments: { priority: 'normal', element: { type: 'approval', ...element, grant } } }), /unknown field grant/, 'nor through an approval element')
     await assert.rejects(host.invokeTool({ attemptId: attempt, callId: 'native:bad', name: 'request_user_approval', arguments: card('test:arc', ['forever']) }), /Invalid approval grant/)
     const arguments_ = card('test:arc', ['conversation'])
     const asked = { ...await host.invokeTool({ attemptId: attempt, callId: 'native:1', name: 'request_user_approval', arguments: arguments_ }), proposalId: arguments_.proposalId }

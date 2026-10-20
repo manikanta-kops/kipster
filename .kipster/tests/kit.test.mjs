@@ -204,7 +204,7 @@ test('the __files__ fixture attaches every committed file of each common type', 
   assert.match(start, /text\.startsWith\('__files__'\)/)
   assert.match(start, /'fixture-files-publish'/)
   assert.match(start, /'fixture-files-publish-more'/)
-  assert.match(start, /'post_chat_message'/)
+  assert.match(start, /'message_user'/)
   // The driver admits only Chrome's own PDF viewer beyond the allowed origins.
   const drive = await readFile(resolve(kitRoot, 'verify/drive.mjs'), 'utf8')
   assert.match(drive, /host === 'mhjfbmdgcfjbbpaeojofohoefgiehjai'/)
@@ -216,6 +216,8 @@ test('the kip messaging fixture sends through Core tools and recognises turns wo
   assert.match(start, /\/\^__message_kip__ \(\.\+\?\): \(\.\+\)\$\/s/)
   assert.match(start, /'fixture-list-kips',\s+'list_kips'/)
   assert.match(start, /'fixture-message-kip', 'message_kip'/)
+  // A kip's message is answered with message_kip to its sender.
+  assert.match(start, /`fixture-answer-\$\{randomUUID\(\)\}`,\s+'message_kip'/)
   assert.match(start, /text\.startsWith\('__slow__'\)/)
   assert.match(start, /text\.startsWith\('__silent__'\)/)
   // A turn is an answer's when its trigger message carries a kip-answer part.

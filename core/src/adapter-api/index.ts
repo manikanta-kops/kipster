@@ -17,9 +17,9 @@ export interface ToolDefinition {
   readonly description: string
   readonly inputSchema: Readonly<Record<string, unknown>>
   /**
-   * Set when a successful call leaves the run waiting on a person's answer (`question`, `approval`), whose result has
-   * `status: 'pending'` and an `interactionId`. A provider turn may make one question or approval call. Core no longer
-   * offers `child` tools; the value stays so released adapters keep compiling.
+   * Core no longer sets it; the values stay so released adapters keep compiling. A call whose result has
+   * `status: 'pending'` and an `interactionId`, such as `message_user` with an element, leaves the run waiting on the
+   * person's answer once the provider turn ends. A provider turn may leave one interaction pending.
    */
   readonly waits?: 'question' | 'approval' | 'child'
 }
@@ -210,11 +210,10 @@ export interface AdapterReadiness {
 }
 export type ExecutionEvent =
   | { readonly kind: 'provider'; readonly attemptId: string; readonly threadId: string; readonly turnId?: string; readonly processId: number; readonly providerStateScope: string; readonly workingDirectory: string; readonly modelId: string; readonly effort?: string }
-  /** Full accumulated text for a stable messageId. Core may coalesce drafts: only the
-   * latest matters. Send nothing for this ID after final=true; distinct messages use
-   * distinct IDs. Final content is authoritative, not an appended fragment. `phase` on the
-   * final event says whether the text is a progress note written while working or the
-   * answer; leave it out when the provider does not say. */
+  /** Full accumulated text for a stable messageId. Send nothing for this ID after final=true;
+   * distinct messages use distinct IDs. `phase` on the final event says whether the text is a
+   * progress note or the answer. Text executions do not show it: a kip reaches the person with
+   * `message_user`. Maintenance executions return their answer this way. */
   | { readonly kind: 'text'; readonly attemptId: string; readonly messageId: string; readonly text: string; readonly final: boolean; readonly phase?: 'progress' | 'answer' }
   | { readonly kind: 'waiting'; readonly attemptId: string; readonly for: 'question' | 'approval' | 'child'; readonly interactionId: string }
   | { readonly kind: 'ended'; readonly attemptId: string; readonly confirmed: true }

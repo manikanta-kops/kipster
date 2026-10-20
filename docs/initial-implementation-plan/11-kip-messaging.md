@@ -6,6 +6,8 @@ and the delegation tools, statuses and continuation described in blocks 3 and 5.
 Hidden, paused delegation (`delegate_to_kip`, `check_kip_task`,
 `kipster.delegations`, `kipster.delegation_calls` and internal threads) is
 replaced; only the protocol keeps its deprecated delegation fields (section 4).
+[Decision block 12](./12-messaging-the-person.md) refines rules 2, 3 and 5: the
+recipient answers with `message_kip` instead of its final reply.
 
 Kips (code: agents) message each other with one tool. Every message opens or
 continues a visible _linked thread_ in the recipient's chat, and every answer

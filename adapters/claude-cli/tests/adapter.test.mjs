@@ -83,7 +83,8 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   const records = await f.records()
   const launch = records.findLast(record => record.launch).launch
   assert.equal(launch.cwd.endsWith('/agent'), true)
-  for (const [flag, value] of [['--model', 'opus'], ['--effort', 'high'], ['--permission-mode', 'default'], ['--permission-prompt-tool', 'mcp__kipster_permission__prompt'], ['--disallowedTools', 'mcp__kipster_permission__prompt'], ['--allowedTools', `Read(/${attachment})`]]) assert.equal(launch.argv[launch.argv.indexOf(flag) + 1], value, flag)
+  for (const [flag, value] of [['--model', 'opus'], ['--effort', 'high'], ['--permission-mode', 'default'], ['--permission-prompt-tool', 'mcp__kipster_permission__prompt'], ['--disallowedTools', 'mcp__kipster_permission__prompt'], ['--allowedTools', 'mcp__kipster']]) assert.equal(launch.argv[launch.argv.indexOf(flag) + 1], value, flag)
+  assert.equal(launch.argv[launch.argv.indexOf('--allowedTools') + 2], `Read(/${attachment})`, 'Kipster tools and readable inputs are allowed up front')
   for (const flag of ['--include-partial-messages', '--chrome']) assert.ok(launch.argv.includes(flag), flag)
   assert.equal(launch.argv.includes('--no-session-persistence'), false, 'conversations keep their session so a continuation can reopen it')
   assert.match(launch.instructions, /^You are Kip\.\n\nKipster tools are available to you as MCP tools named mcp__kipster__/)

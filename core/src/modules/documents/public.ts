@@ -372,17 +372,26 @@ export function documentCreation(value: Record<string, unknown>): DocumentCreati
 }
 
 /**
- * Creates a document as revision 1 by the agent, on the user's turn, in the run's context or, for the
- * admin agent, an organization it names. Runs in the transaction that publishes the returned
- * document card in the run's thread. One call ID creates one document.
+ * `documents.create`: a document at revision 1 by the attempt's agent, on the user's turn, in the run's thread and
+ * context or, for the admin agent, an organization it names. The agent shows it by attaching it to a message. One
+ * call ID creates one document.
  */
-export async function createDocumentIn(client: SqlClient, run: { installationId: string; attemptId: string; agentId: string; chatId: string; threadId: string; context: Context }, callId: string, input: DocumentCreation): Promise<MessagePart[]> {
-  const prior = (await client.query<{ id: string }>('SELECT id FROM kipster.documents WHERE created_attempt_id=$1 AND created_call_id=$2', [run.attemptId, callId])).rows[0]
-  if (prior) return [{ kind: 'document', documentId: prior.id, revision: 1 }]
+export async function createDocument(db: Postgres, attemptId: string, incarnation: string, callId: string, input: DocumentCreation): Promise<{ documentId: string; revision: 1 }> {
+  if (!callId || callId.length > 200) throw new Error('Invalid call ID')
+  return db.transaction(async client => {
+    const scope = await boundRun(client, attemptId, incarnation, true)
+    const prior = (await client.query<{ id: string }>('SELECT id FROM kipster.documents WHERE created_attempt_id=$1 AND created_call_id=$2', [attemptId, callId])).rows[0]
+    if (prior) return { documentId: prior.id, revision: 1 as const }
+    const thread = (await client.query<{ thread_id: string; chat_id: string }>('SELECT r.thread_id,t.chat_id FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id WHERE r.id=$1', [scope.runId])).rows[0]!
+    const context: Context = scope.contextKind === 'installation' ? { kind: 'installation', installationId: scope.contextId } : { kind: 'organization', organizationId: scope.contextId }
+    return { documentId: await insertDocument(client, { installationId: scope.installationId, attemptId, agentId: scope.agentId, chatId: thread.chat_id, threadId: thread.thread_id, context, rootAdmin: scope.rootAdmin }, callId, input), revision: 1 as const }
+  })
+}
+
+async function insertDocument(client: SqlClient, run: { installationId: string; attemptId: string; agentId: string; chatId: string; threadId: string; context: Context; rootAdmin: boolean }, callId: string, input: DocumentCreation): Promise<string> {
   let context = run.context
   if (input.workspaceId !== undefined && !(context.kind === 'organization' && context.organizationId === input.workspaceId)) {
-    const root = (await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'", [run.agentId])).rows.length > 0
-    if (!root) throw new Error('Only the admin kip can create a doc in another workspace')
+    if (!run.rootAdmin) throw new Error('Only the admin kip can create a doc in another workspace')
     if (!await isLive(client, run.installationId, 'organization', input.workspaceId, false)) throw new Error('Workspace not found')
     context = { kind: 'organization', organizationId: input.workspaceId }
   }
@@ -395,13 +404,13 @@ export async function createDocumentIn(client: SqlClient, run: { installationId:
   await addRevision(client, document.id, 1, { kind: 'agent', id: run.agentId }, input.title, blocks, '', [])
   const row = (await client.query<DocumentRow>('SELECT * FROM kipster.documents WHERE id=$1', [document.id])).rows[0]!
   await publishAppEvent(client, row.installation_id, 'document-changed', row.id, Number(row.revision), await summary(client, row))
-  return [{ kind: 'document', documentId: row.id, revision: 1 }]
+  return row.id
 }
 
-export async function createdDocument(db: Postgres, attemptId: string, callId: string): Promise<{ documentId: string; revision: number }> {
-  const row = (await db.query<{ id: string }>('SELECT id FROM kipster.documents WHERE created_attempt_id=$1 AND created_call_id=$2', [attemptId, callId])).rows[0]
-  if (!row) throw new Error('Document not found')
-  return { documentId: row.id, revision: 1 }
+/** The card of a document the attempt's agent may see, at its current revision, for a message the agent sends. */
+export async function documentCard(client: SqlClient, attemptId: string, incarnation: string, documentId: string): Promise<MessagePart> {
+  const row = await visibleDocument(client, await boundRun(client, attemptId, incarnation, false), documentId)
+  return { kind: 'document', documentId: row.id, revision: Number(row.current_revision) }
 }
 
 /** `documents.list`, `documents.read`, `documents.edit` and `documents.delete` for the agent of a live attempt. */

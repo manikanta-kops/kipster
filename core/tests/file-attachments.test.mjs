@@ -69,12 +69,12 @@ async function environment(t) {
   return { runtime, fixture, dispatcher, execution, call, a, b, org, actor, root, target, workspace, outside, count }
 }
 
-test('post_chat_message attaches files of any type by absolute and relative path as agent-owned snapshots', { skip: noDatabase, timeout: 60000 }, async t => {
+test('message_user attaches files of any type by absolute and relative path as agent-owned snapshots', { skip: noDatabase, timeout: 60000 }, async t => {
   const e = await environment(t)
   const tools = e.execution.tools.map(tool => tool.name)
   assert.equal(tools.includes('artifacts_write') || tools.includes('artifacts_publish'), false)
-  assert.ok(e.execution.tools.find(tool => tool.name === 'post_chat_message').inputSchema.properties.files)
-  assert.match(e.execution.instructions, /call post_chat_message with their paths in `files`/)
+  assert.ok(e.execution.tools.find(tool => tool.name === 'message_user').inputSchema.properties.attachments.items.properties.path)
+  assert.match(e.execution.instructions, /Attach files you create or download by path/)
   await mkdir(join(e.workspace, 'out'), { recursive: true })
   const names = Object.keys(samples), relative = new Set(['notes.md', 'table.csv', 'bundle.zip'])
   const paths = []
@@ -82,8 +82,9 @@ test('post_chat_message attaches files of any type by absolute and relative path
     if (relative.has(name)) { await writeFile(join(e.workspace, 'out', name), samples[name]); paths.push(`out/${name}`) }
     else { await writeFile(join(e.outside, name), samples[name]); paths.push(join(e.outside, name)) }
   }
-  const published = await e.call('post_chat_message', { text: 'Here are your files', files: paths }, 'publish-files')
-  assert.equal(published.status, 'completed')
+  const attach = list => list.map(path => ({ path }))
+  const published = await e.call('message_user', { text: 'Here are your files', priority: 'normal', attachments: attach(paths) }, 'publish-files')
+  assert.equal(published.status, 'sent')
   assert.deepEqual(published.files.map(file => [file.name, file.mimeType, file.size]), names.map(name => [name, types[name], samples[name].length]))
   const rows = (await e.runtime.db.query('SELECT id,name,mime_type,size_bytes,sha256,owner_kind,owner_id,author_id,provenance,state FROM kipster.artifacts WHERE id=ANY($1::uuid[])', [published.files.map(file => file.artifactId)])).rows
   for (const file of published.files) {
@@ -103,26 +104,24 @@ test('post_chat_message attaches files of any type by absolute and relative path
 
   // The same call again returns the same message and files; other arguments under its call ID are refused.
   const artifacts = await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), messages = await e.count('SELECT count(*)::int AS n FROM kipster.messages')
-  assert.deepEqual(await e.call('post_chat_message', { text: 'Here are your files', files: paths }, 'publish-files'), published)
-  const conflict = await e.call('post_chat_message', { text: 'Here are your files', files: paths.slice(1) }, 'publish-files')
-  assert.equal(conflict.status, 'failed')
-  assert.match(conflict.reason, /replay conflict/)
+  assert.deepEqual(await e.call('message_user', { text: 'Here are your files', priority: 'normal', attachments: attach(paths) }, 'publish-files'), published)
+  const different = /This call ID already sent a different message/
+  await assert.rejects(e.call('message_user', { text: 'Here are your files', priority: 'normal', attachments: attach(paths.slice(1)) }, 'publish-files'), different)
   // Naming the attached files by artifact ID instead is a different request too, and so is adding files to a call that had none.
-  const swapped = await e.call('post_chat_message', { text: 'Here are your files', artifactIds: published.files.map(file => file.artifactId) }, 'publish-files')
-  assert.deepEqual([swapped.status, swapped.reason], ['failed', 'File attachment replay conflict'])
-  const plain = await e.call('post_chat_message', { text: 'Just text' }, 'publish-plain')
-  assert.equal(plain.status, 'completed')
-  const added = await e.call('post_chat_message', { text: 'Just text', files: paths.slice(0, 1) }, 'publish-plain')
-  assert.deepEqual([added.status, added.reason], ['failed', 'File attachment replay conflict'])
-  assert.deepEqual(await e.call('post_chat_message', { text: 'Just text' }, 'publish-plain'), plain)
+  await assert.rejects(e.call('message_user', { text: 'Here are your files', priority: 'normal', attachments: published.files.map(file => ({ artifactId: file.artifactId })) }, 'publish-files'), different)
+  const plain = await e.call('message_user', { text: 'Just text', priority: 'normal' }, 'publish-plain')
+  assert.equal(plain.status, 'sent')
+  await assert.rejects(e.call('message_user', { text: 'Just text', priority: 'normal', attachments: attach(paths.slice(0, 1)) }, 'publish-plain'), different)
+  assert.deepEqual(await e.call('message_user', { text: 'Just text', priority: 'normal' }, 'publish-plain'), plain)
   assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.messages')], [artifacts, messages + 1])
 
-  // Files by path follow artifact IDs and count with them; an unknown extension is a generic file.
+  // Files by path and by artifact ID keep their order and count together; an unknown extension is a generic file.
   await writeFile(join(e.workspace, 'data.unknownext'), 'raw')
-  const mixed = await e.call('post_chat_message', { artifactIds: [published.files[0].artifactId], files: ['data.unknownext'] })
-  assert.equal(mixed.status, 'completed')
+  const mixed = await e.call('message_user', { priority: 'silent', attachments: [{ path: 'data.unknownext' }, { artifactId: published.files[0].artifactId }] })
+  assert.equal(mixed.status, 'sent')
   assert.deepEqual(mixed.files.map(file => file.mimeType), ['application/octet-stream'])
-  assert.deepEqual((await e.runtime.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [mixed.messageId])).rows[0].parts.map(part => part.artifactId), [published.files[0].artifactId, mixed.files[0].artifactId])
+  assert.deepEqual((await e.runtime.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [mixed.messageId])).rows[0].parts.map(part => part.artifactId), [mixed.files[0].artifactId, published.files[0].artifactId])
+  assert.deepEqual((await e.runtime.db.query('SELECT ordinal,artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [mixed.messageId])).rows, [{ ordinal: 0, artifact_id: mixed.files[0].artifactId }, { ordinal: 1, artifact_id: published.files[0].artifactId }])
   assert.equal(mimeTypeFor('Photo.JPEG'), 'image/jpeg')
 
   // An organization copy of an attached file is independent of it.
@@ -150,12 +149,10 @@ test('a file that cannot be attached is named with its reason and nothing is pub
     [[join(e.outside, 'fine.txt'), join(e.outside, 'fine.txt')], /listed more than once/],
   ]
   for (const [files, reason] of cases) {
-    const result = await e.call('post_chat_message', { text: 'Attached', files })
-    assert.equal(result.status, 'failed')
-    assert.match(result.reason, reason)
+    await assert.rejects(e.call('message_user', { text: 'Attached', priority: 'normal', attachments: files.map(path => ({ path })) }), reason)
     assert.deepEqual(await before(), empty, 'nothing is stored or published')
   }
-  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Check this', files: ['missing.csv'] }), /Cannot attach missing.csv: the file does not exist/)
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Check this', attachments: [{ path: 'missing.csv' }] }), /Cannot attach missing.csv: the file does not exist/)
   assert.deepEqual(await before(), empty)
   assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.kip_message_calls'), 0)
 })
@@ -163,7 +160,7 @@ test('a file that cannot be attached is named with its reason and nothing is pub
 test('message_kip passes files by path to the recipient and replays without new files', { skip: noDatabase, timeout: 60000 }, async t => {
   const e = await environment(t)
   await writeFile(join(e.workspace, 'brief.pdf'), samples['report.pdf'])
-  const args = { recipientId: e.b, text: 'Review the brief', files: ['brief.pdf'] }
+  const args = { recipientId: e.b, text: 'Review the brief', attachments: [{ path: 'brief.pdf' }] }
   const sent = await e.call('message_kip', args, 'message-files')
   assert.deepEqual(sent.files.map(file => [file.name, file.mimeType, file.size]), [['brief.pdf', 'application/pdf', samples['report.pdf'].length]])
   const artifactId = sent.files[0].artifactId
@@ -179,10 +176,10 @@ test('message_kip passes files by path to the recipient and replays without new 
   assert.deepEqual([replay.messageId, replay.files], [sent.messageId, sent.files])
   assert.equal(await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), artifacts)
   await assert.rejects(e.call('message_kip', { ...args, text: 'Something else' }, 'message-files'), /already sent a different message/)
-  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review the brief', artifactIds: [artifactId] }, 'message-files'), /already sent a different message/)
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review the brief', attachments: [{ artifactId }] }, 'message-files'), /already sent a different message/)
   const plain = { recipientId: e.b, text: 'No files here' }
   const first = await e.call('message_kip', plain, 'message-plain')
-  await assert.rejects(e.call('message_kip', { ...plain, files: ['brief.pdf'] }, 'message-plain'), /already sent a different message/)
+  await assert.rejects(e.call('message_kip', { ...plain, attachments: [{ path: 'brief.pdf' }] }, 'message-plain'), /already sent a different message/)
   assert.equal((await e.call('message_kip', plain, 'message-plain')).messageId, first.messageId)
   assert.deepEqual([await e.count('SELECT count(*)::int AS n FROM kipster.artifacts'), await e.count('SELECT count(*)::int AS n FROM kipster.kip_message_calls')], [artifacts, 2])
   const child = await until(() => e.fixture.contexts.find(context => context.runId === incoming.run_id), Boolean, 'recipient execution')
@@ -195,13 +192,14 @@ test('message_kip passes files by path to the recipient and replays without new 
 test('files reused by artifact ID count toward the 50 MB per-message limit, and recorded calls still replay', { skip: noDatabase, timeout: 60000 }, async t => {
   const e = await environment(t)
   for (const name of ['one.bin', 'two.bin', 'three.bin', 'tiny.txt']) await writeFile(join(e.workspace, name), name)
-  const seeded = await e.call('post_chat_message', { files: ['one.bin', 'two.bin', 'three.bin'] })
-  assert.equal(seeded.status, 'completed')
+  const byPath = names => names.map(path => ({ path })), byId = ids => ids.map(artifactId => ({ artifactId }))
+  const seeded = await e.call('message_user', { priority: 'silent', attachments: byPath(['one.bin', 'two.bin', 'three.bin']) })
+  assert.equal(seeded.status, 'sent')
   const [one, two, three] = seeded.files.map(file => file.artifactId)
   // Calls recorded while the files were small, before they count as two 25 MB files and a 1 MB file.
-  const earlier = await e.call('post_chat_message', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before')
-  assert.equal(earlier.status, 'completed')
-  const sentEarlier = await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', artifactIds: [one, two, three] }, 'message-before')
+  const earlier = await e.call('message_user', { text: 'Earlier', priority: 'normal', attachments: byId([one, two, three]) }, 'publish-before')
+  assert.equal(earlier.status, 'sent')
+  const sentEarlier = await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', attachments: byId([one, two, three]) }, 'message-before')
   const megabyte = 1024 * 1024
   await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=ANY($1::uuid[])', [[one, two], 25 * megabyte])
   await e.runtime.db.query('UPDATE kipster.artifacts SET size_bytes=$2 WHERE id=$1', [three, megabyte])
@@ -209,22 +207,22 @@ test('files reused by artifact ID count toward the 50 MB per-message limit, and 
   const stored = async () => Promise.all(['messages', 'message_artifacts', 'kip_message_calls', 'kip_links', 'work_intents', 'artifacts'].map(table => e.count(`SELECT count(*)::int AS n FROM kipster.${table}`)))
   const before = await stored()
   const tooLarge = 'Cannot attach these files: together they exceed the 50 MB limit per message'
-  assert.deepEqual(await e.call('post_chat_message', { text: 'Reuse these files', artifactIds: [one, two, three] }, 'reuse-51mb'), { status: 'failed', reason: tooLarge })
-  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review these files', artifactIds: [one, two, three] }, 'message-51mb'), { message: tooLarge })
+  await assert.rejects(e.call('message_user', { text: 'Reuse these files', priority: 'normal', attachments: byId([one, two, three]) }, 'reuse-51mb'), { message: tooLarge })
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'Review these files', attachments: byId([one, two, three]) }, 'message-51mb'), { message: tooLarge })
   // With files by path, the shared and new bytes are counted together before any file is read.
-  assert.deepEqual(await e.call('post_chat_message', { artifactIds: [one, two], files: ['tiny.txt'] }), { status: 'failed', reason: tooLarge })
-  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'With a note', artifactIds: [one, two], files: ['tiny.txt'] }), { message: tooLarge })
+  await assert.rejects(e.call('message_user', { priority: 'normal', attachments: [...byId([one, two]), ...byPath(['tiny.txt'])] }), { message: tooLarge })
+  await assert.rejects(e.call('message_kip', { recipientId: e.b, text: 'With a note', attachments: [...byId([one, two]), ...byPath(['tiny.txt'])] }), { message: tooLarge })
   assert.deepEqual(await stored(), before, 'nothing is stored for a refused call')
 
   // Recorded calls are answered with their results, whatever the files count now.
-  assert.deepEqual(await e.call('post_chat_message', { text: 'Earlier', artifactIds: [one, two, three] }, 'publish-before'), earlier)
-  assert.deepEqual(await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', artifactIds: [one, two, three] }, 'message-before'), sentEarlier)
+  assert.deepEqual(await e.call('message_user', { text: 'Earlier', priority: 'normal', attachments: byId([one, two, three]) }, 'publish-before'), earlier)
+  assert.deepEqual(await e.call('message_kip', { recipientId: e.b, text: 'Earlier review', attachments: byId([one, two, three]) }, 'message-before'), sentEarlier)
   assert.deepEqual(await stored(), before)
 
   // Exactly 50 MB is accepted.
-  const atLimit = await e.call('post_chat_message', { text: 'Exactly the limit', artifactIds: [one, two] }, 'publish-50mb')
-  assert.equal(atLimit.status, 'completed')
+  const atLimit = await e.call('message_user', { text: 'Exactly the limit', priority: 'normal', attachments: byId([one, two]) }, 'publish-50mb')
+  assert.equal(atLimit.status, 'sent')
   assert.deepEqual((await e.runtime.db.query('SELECT artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [atLimit.messageId])).rows.map(row => row.artifact_id), [one, two])
-  const sent = await e.call('message_kip', { recipientId: e.b, text: 'Review exactly the limit', artifactIds: [one, two] }, 'message-50mb')
+  const sent = await e.call('message_kip', { recipientId: e.b, text: 'Review exactly the limit', attachments: byId([one, two]) }, 'message-50mb')
   assert.deepEqual((await e.runtime.db.query('SELECT artifact_id FROM kipster.message_artifacts WHERE message_id=$1 ORDER BY ordinal', [sent.messageId])).rows.map(row => row.artifact_id), [one, two])
 })

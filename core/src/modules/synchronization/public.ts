@@ -118,21 +118,19 @@ export async function publishAppEvent(client: SqlClient, installationId: string,
 }
 
 const previewLength = 200
-interface NotificationRow { id: string; thread_id: string; run_id: string; kind: string; interaction_id: string | null; interaction_state: string | null; read_at: Date | null; revision: string; created_at: Date; preview: string | null }
-// The preview source: the interaction prompt, the run's last final reply text, or its failure.
-const notificationColumns = `n.id,n.thread_id,n.run_id,n.kind,n.interaction_id,x.state AS interaction_state,n.read_at,n.revision,n.created_at,
-  left(btrim(regexp_replace(CASE n.kind WHEN 'interaction' THEN x.prompt WHEN 'completed' THEN reply.text ELSE r.failure END,'\\s+',' ','g')),${previewLength + 1}) AS preview`
+interface NotificationRow { id: string; thread_id: string; run_id: string; kind: string; interaction_id: string | null; interaction_state: string | null; message_id: string | null; read_at: Date | null; revision: string; created_at: Date; preview: string | null }
+// The preview source: the interaction prompt, the message's text, or the run's failure.
+const notificationColumns = `n.id,n.thread_id,n.run_id,n.kind,n.interaction_id,x.state AS interaction_state,n.message_id,n.read_at,n.revision,n.created_at,
+  left(btrim(regexp_replace(CASE n.kind WHEN 'interaction' THEN x.prompt WHEN 'message' THEN (SELECT string_agg(p->>'text',' ' ORDER BY o) FROM jsonb_array_elements(m.parts) WITH ORDINALITY e(p,o) WHERE p->>'kind'='text') WHEN 'completed' THEN NULL ELSE r.failure END,'\\s+',' ','g')),${previewLength + 1}) AS preview`
 const notificationSource = `kipster.notifications n JOIN kipster.threads t ON t.id=n.thread_id LEFT JOIN kipster.interactions x ON x.id=n.interaction_id LEFT JOIN kipster.text_runs r ON r.id=n.run_id
-  LEFT JOIN LATERAL (SELECT (SELECT string_agg(p->>'text',' ' ORDER BY o) FROM jsonb_array_elements(m.parts) WITH ORDINALITY e(p,o) WHERE p->>'kind'='text') AS text
-    FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id
-    WHERE n.kind='completed' AND a.intent_id=n.run_id AND m.final AND m.parts @> '[{"kind":"text"}]' ORDER BY m.position DESC LIMIT 1) reply ON true`
+  LEFT JOIN kipster.messages m ON m.id=n.message_id`
 function preview(text: string | null): string | undefined {
   const chars = [...text ?? '']
   return !chars.length ? undefined : chars.length > previewLength ? `${chars.slice(0, previewLength - 1).join('').trimEnd()}…` : text!
 }
 function notificationRecord(row: NotificationRow): Record<string, unknown> {
   const excerpt = preview(row.preview)
-  return { id: row.id, threadId: row.thread_id, runId: row.run_id, kind: row.kind, ...(row.interaction_id ? { interactionId: row.interaction_id, interactionState: row.interaction_state } : {}), read: row.read_at !== null, revision: Number(row.revision), createdAt: row.created_at.toISOString(), ...(excerpt ? { preview: excerpt } : {}) }
+  return { id: row.id, threadId: row.thread_id, runId: row.run_id, kind: row.kind, ...(row.interaction_id ? { interactionId: row.interaction_id, interactionState: row.interaction_state } : {}), ...(row.message_id ? { messageId: row.message_id } : {}), read: row.read_at !== null, revision: Number(row.revision), createdAt: row.created_at.toISOString(), ...(excerpt ? { preview: excerpt } : {}) }
 }
 
 /** Locks the application stream counter. Notification writers take it before the notification row. */
@@ -144,18 +142,23 @@ async function publishNotification(client: SqlClient, installationId: string, no
   const row = (await client.query<NotificationRow>(`SELECT ${notificationColumns} FROM ${notificationSource} WHERE n.id=$1`, [notificationId])).rows[0]!
   await publishAppEvent(client, installationId, 'notification', row.id, Number(row.revision), notificationRecord(row))
 }
-async function insertNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, kind: string, interactionId: string | null): Promise<void> {
+async function insertNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, kind: string, interactionId: string | null, messageId: string | null = null): Promise<void> {
   const thread = (await client.query<{ present: boolean }>('SELECT kipster.chat_present(chat_id) AS present FROM kipster.threads WHERE id=$1', [threadId])).rows[0]
   if (!thread || !thread.present) return
   await lockApplicationStream(client, installationId)
-  const saved = await client.query<{ id: string }>(`INSERT INTO kipster.notifications(id,installation_id,recipient_id,thread_id,run_id,kind,interaction_id)
-    VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id`, [randomUUID(), installationId, callerId, threadId, runId, kind, interactionId])
+  const saved = await client.query<{ id: string }>(`INSERT INTO kipster.notifications(id,installation_id,recipient_id,thread_id,run_id,kind,interaction_id,message_id)
+    VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING RETURNING id`, [randomUUID(), installationId, callerId, threadId, runId, kind, interactionId, messageId])
   if (saved.rows[0]) await publishNotification(client, installationId, saved.rows[0].id)
 }
 
 /** Stable attention identity and read state are independent of replay retention. */
-export async function createNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, kind: 'completed'|'failed'|'recovery-needed'): Promise<void> {
+export async function createNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, kind: 'failed'|'recovery-needed'): Promise<void> {
   await insertNotification(client, installationId, callerId, threadId, runId, kind, null)
+}
+
+/** A kip's message the person should see now. */
+export async function createMessageNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, messageId: string): Promise<void> {
+  await insertNotification(client, installationId, callerId, threadId, runId, 'message', null, messageId)
 }
 
 export async function createInteractionNotification(client: SqlClient, installationId: string, callerId: string, threadId: string, runId: string, interactionId: string): Promise<void> {

@@ -131,9 +131,10 @@ try {
     await writeFile(join(reports, name), 'Retained garden report')
   const attach = async (text, name) => {
     const [attached] = (
-      await tool('post_chat_message', {
+      await tool('message_user', {
         text,
-        files: [join(reports, name)],
+        priority: 'normal',
+        attachments: [{ path: join(reports, name) }],
       })
     ).files
     return { id: attached.artifactId }
@@ -432,13 +433,12 @@ try {
     B.getByText('New thread · Not accepted', { exact: true }),
   ).toBeVisible()
 
-  execution.handle.release({
-    kind: 'text',
-    attemptId: execution.context.attemptId,
-    messageId: 'late-archive-output',
-    text: 'FORBIDDEN LATE OUTPUT',
-    final: true,
-  })
+  await execution.handle
+    .callTool('late-archive-output', 'message_user', {
+      text: 'FORBIDDEN LATE OUTPUT',
+      priority: 'normal',
+    })
+    .catch(() => undefined)
   await new Promise((resolve) => setTimeout(resolve, 200))
   await expect(
     B.getByText('FORBIDDEN LATE OUTPUT', { exact: true }),
@@ -923,12 +923,9 @@ try {
         e.context.attemptId !== running.context.attemptId,
     ),
   )
-  retried.handle.release({
-    kind: 'text',
-    attemptId: retried.context.attemptId,
-    messageId: 'retry-result',
+  await retried.handle.callTool('retry-result', 'message_user', {
     text: 'Retry completed',
-    final: true,
+    priority: 'normal',
   })
   retried.handle.release({
     kind: 'ended',

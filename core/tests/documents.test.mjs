@@ -93,8 +93,11 @@ test('a kip writes a doc, the user answers, edits, comments and submits, and the
   assert.equal(created.revision, 1)
   assert.deepEqual(await writer.tool('create-1', 'create_rich_doc', { title: 'Trip plan', markdown: tripMarkdown }), created, 'one call ID creates one doc')
   const id = created.documentId
-  const card = (await ctx.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [created.messageId])).rows[0]
-  assert.deepEqual(card.parts, [{ kind: 'document', documentId: id, revision: 1 }])
+  assert.deepEqual(created, { documentId: id, revision: 1 })
+  assert.equal(Number((await ctx.db.query('SELECT count(*) AS n FROM kipster.messages WHERE author_id=$1', [ctx.rootAgentId])).rows[0].n), 0, 'creating a doc posts nothing')
+  const shown = await writer.tool('show-1', 'message_user', { text: 'Here is the plan', priority: 'normal', attachments: [{ documentId: id }] })
+  const card = (await ctx.db.query('SELECT parts FROM kipster.messages WHERE id=$1', [shown.messageId])).rows[0]
+  assert.deepEqual(card.parts, [{ kind: 'text', text: 'Here is the plan' }, { kind: 'document', documentId: id, revision: 1 }])
   writer.end()
 
   const first = await ctx.detail(id)
@@ -271,6 +274,7 @@ test('kips see their workspace, owners delete docs, and doc files are read throu
   const member = await ctx.start(scout, organization, 'Hello')
   assert.deepEqual((await member.tool('l1', 'list_rich_docs', {})).documents.map(entry => entry.documentId), [teamDoc])
   await assert.rejects(member.tool('r1', 'read_rich_doc', { documentId: rootDoc }), /Document not found/)
+  await assert.rejects(member.tool('m1', 'message_user', { priority: 'normal', attachments: [{ documentId: rootDoc }] }), /Document not found/)
   await assert.rejects(member.tool('c1', 'create_rich_doc', { title: 'Elsewhere', markdown: '', workspaceId: randomUUID() }), /Only the admin kip/)
   const own = await member.tool('c2', 'create_rich_doc', { title: 'Scout notes', markdown: 'Mine' })
   assert.deepEqual((await ctx.detail(own.documentId)).document.context, organization)

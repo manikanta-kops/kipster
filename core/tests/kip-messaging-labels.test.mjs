@@ -75,7 +75,10 @@ async function environment() {
     return {
       context, current: context.input.find(message => message.messageId === context.triggerMessageId),
       send: (recipientId, text) => e.host.invokeTool({ attemptId: context.attemptId, callId: randomUUID(), name: 'message_kip', arguments: { recipientId, text } }),
-      end: text => { if (text !== undefined) handle.emit({ kind: 'text', messageId: `reply-${randomUUID()}`, text, final: true }); handle.emit({ kind: 'ended', confirmed: true }) },
+      end: async text => {
+        if (text !== undefined) await e.host.invokeTool({ attemptId: context.attemptId, callId: randomUUID(), name: 'message_user', arguments: { text, priority: 'normal' } })
+        handle.emit({ kind: 'ended', confirmed: true })
+      },
     }
   }
   e.runs = async (threadId, trigger) => (await e.db.query('SELECT id,input_message_id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind=$2 ORDER BY queue_position', [threadId, trigger])).rows
@@ -97,14 +100,15 @@ scenario('the recipient\'s prompt names the sending kip and that the answer goes
   assert.match(john.context.prompt, new RegExp(`^Current message \\[${asked.messageId}\\] from Factory Owner \\(the person\\):\\nAsk Planner`, 'm'))
   const sent = await john.send(e.planner, 'Which launch date did the team agree on?')
   assert.equal(sent.status, 'sent')
-  john.end()
+  await john.end()
   await e.settled(asked.runId)
 
   const kipRun = await e.nextRun(sent.threadId, 'kip')
   const planner = await e.run(kipRun.id)
   assert.deepEqual(planner.current.author, { kind: 'admin-kip', id: e.john, name: 'John' })
-  assert.ok(planner.context.prompt.endsWith(`Current message [${kipRun.input_message_id}], a message from John (admin kip) sent to you with message_kip. Your final reply is your answer and goes back to John automatically:\nWhich launch date did the team agree on?`), planner.context.prompt)
-  planner.end('The team agreed on March 3.')
+  assert.ok(planner.context.prompt.endsWith(`Current message [${kipRun.input_message_id}], a message from John (admin kip) sent to you with message_kip. Answer it with message_kip to John (recipientId ${e.john}); the answer goes back into its conversation:\nWhich launch date did the team agree on?`), planner.context.prompt)
+  assert.equal((await planner.send(e.john, 'The team agreed on March 3.')).threadId, asked.threadId)
+  await planner.end()
   await e.settled(kipRun.id)
 
   const answerRun = await e.nextRun(asked.threadId, 'answer')
@@ -118,14 +122,14 @@ scenario('the recipient\'s prompt names the sending kip and that the answer goes
   const prompt = woken.context.prompt
   assert.match(prompt, new RegExp(`^\\[${asked.messageId}\\] Factory Owner \\(the person\\): Ask Planner which launch date the team agreed on\\.$`, 'm'))
   assert.match(prompt, new RegExp(`^\\[${sent.messageId}\\] John \\(admin kip\\), message sent with message_kip to Planner \\(kip in Playground\\): Which launch date did the team agree on\\?$`, 'm'))
-  assert.match(prompt, new RegExp(`^${escape(`Current message [${answerRun.input_message_id}], an answer from Planner (kip in Playground) to your earlier message_kip message. Reply to the person in this thread, not to Planner, and never send anything back on your own; to talk back, send a new message_kip. If the answer needs nothing more, end your turn with an empty reply:`)}\\nThe team agreed on March 3\\.$`, 'm'))
-  woken.end()
+  assert.match(prompt, new RegExp(`^${escape(`Current message [${answerRun.input_message_id}], an answer from Planner (kip in Playground) to your earlier message_kip message. Tell the person with message_user if they need to know, or end your turn without a message. Message Planner (recipientId ${e.planner}) again only when you need more from it:`)}\\nThe team agreed on March 3\\.$`, 'm'))
+  await woken.end()
   await e.settled(answerRun.id)
   // A later turn's history says which kip the answer came from.
   const later = await e.say(e.john, 'Thanks.', { threadId: asked.threadId, chatId: asked.chatId })
   const after = await e.run(later.runId)
   assert.match(after.context.prompt, new RegExp(`^\\[${answerRun.input_message_id}\\] Planner \\(kip in Playground\\), answering a message_kip message sent to it from this thread: The team agreed on March 3\\.$`, 'm'))
-  after.end('You are welcome.')
+  await after.end('You are welcome.')
   await e.settled(later.runId)
 
   // The person writing in the linked thread is the person; the kip's earlier exchange keeps its authors.
@@ -134,8 +138,8 @@ scenario('the recipient\'s prompt names the sending kip and that the answer goes
   assert.deepEqual(personTurn.current.author, owner)
   assert.ok(personTurn.context.prompt.endsWith(`Current message [${stepIn.messageId}] from Factory Owner (the person):\nAlso check the venue.`))
   assert.match(personTurn.context.prompt, new RegExp(`^\\[${kipRun.input_message_id}\\] John \\(admin kip\\): Which launch date`, 'm'))
-  assert.match(personTurn.context.prompt, /^\[[^\]]+\] Planner \(kip in Playground\): The team agreed on March 3\.$/m)
-  personTurn.end('Checking.')
+  assert.match(personTurn.context.prompt, /^\[[^\]]+\] Planner \(kip in Playground\), message sent with message_kip to John \(admin kip\): The team agreed on March 3\.$/m)
+  await personTurn.end('Checking.')
   await e.settled(stepIn.runId)
 })
 
@@ -144,21 +148,22 @@ scenario('a workspace kip messages a kip of two workspaces, and each prompt name
   const planner = await e.run(asked.runId)
   const sent = await planner.send(e.writer, 'A tagline for the launch, please.')
   assert.equal(sent.status, 'sent')
-  planner.end()
+  await planner.end()
   await e.settled(asked.runId)
 
   const kipRun = await e.nextRun(sent.threadId, 'kip')
   const writer = await e.run(kipRun.id)
   assert.deepEqual(writer.current.author, { kind: 'kip', id: e.planner, name: 'Planner', workspaces: ['Playground'] })
-  assert.match(writer.context.prompt, /a message from Planner \(kip in Playground\) sent to you with message_kip\. Your final reply is your answer and goes back to Planner automatically:\nA tagline for the launch, please\.$/)
-  writer.end('Launch day, every day.')
+  assert.match(writer.context.prompt, /a message from Planner \(kip in Playground\) sent to you with message_kip\. Answer it with message_kip to Planner \(recipientId [0-9a-f-]{36}\); the answer goes back into its conversation:\nA tagline for the launch, please\.$/)
+  await writer.send(e.planner, 'Launch day, every day.')
+  await writer.end()
   await e.settled(kipRun.id)
 
   const answerRun = await e.nextRun(asked.threadId, 'answer')
   const woken = await e.run(answerRun.id)
   assert.deepEqual(woken.current.author, { kind: 'kip', id: e.writer, name: 'Writer', workspaces: ['Playground', 'Studio'] })
   assert.match(woken.context.prompt, new RegExp(`^\\[${sent.messageId}\\] Planner \\(kip in Playground\\), message sent with message_kip to Writer \\(kip in Playground and Studio\\): A tagline`, 'm'))
-  assert.match(woken.context.prompt, /an answer from Writer \(kip in Playground and Studio\) to your earlier message_kip message\. Reply to the person in this thread, not to Writer,[^\n]*\nLaunch day, every day\.$/)
-  woken.end()
+  assert.match(woken.context.prompt, /an answer from Writer \(kip in Playground and Studio\) to your earlier message_kip message\. Tell the person with message_user[^\n]*Message Writer \(recipientId [0-9a-f-]{36}\) again only when you need more from it:\nLaunch day, every day\.$/)
+  await woken.end()
   await e.settled(answerRun.id)
 })

@@ -19,13 +19,14 @@ function historyLabel(message: Message): string {
   return author
 }
 
-/** What the current message is and, for one from a kip or an answer, where the kip's reply goes. */
+/** What the current message is and, for one from a kip or an answer, how to reply. */
 function currentHeader(message: Message | undefined, trigger: 'person' | 'kip' | 'answer'): string {
   const id = `[${message?.messageId ?? 'unknown'}]`
   if (!message) return `Current message ${id}:`
   const author = authorLabel(message.author)
-  if (trigger === 'kip') return `Current message ${id}, a message from ${author} sent to you with message_kip. Your final reply is your answer and goes back to ${message.author.name} automatically:`
-  if (trigger === 'answer') return `Current message ${id}, an answer from ${author} to your earlier message_kip message. Reply to the person in this thread, not to ${message.author.name}, and never send anything back on your own; to talk back, send a new message_kip. If the answer needs nothing more, end your turn with an empty reply:`
+  const sender = `${message.author.name} (recipientId ${message.author.id})`
+  if (trigger === 'kip') return `Current message ${id}, a message from ${author} sent to you with message_kip. Answer it with message_kip to ${sender}; the answer goes back into its conversation:`
+  if (trigger === 'answer') return `Current message ${id}, an answer from ${author} to your earlier message_kip message. Tell the person with message_user if they need to know, or end your turn without a message. Message ${sender} again only when you need more from it:`
   return `Current message ${id} from ${author}:`
 }
 

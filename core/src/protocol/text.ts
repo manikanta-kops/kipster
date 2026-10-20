@@ -81,9 +81,10 @@ export type AppThreadSummary = Infer<typeof appThreadSummary>
 export const interactionState = union(literal('pending'), literal('settled'), literal('cancelled'), literal('superseded'))
 /**
  * An interaction notification carries its interaction's current state; each change takes the next revision.
- * `preview` is a short single-line excerpt: the reply, the failure reason or the interaction prompt.
+ * `preview` is a short single-line excerpt: the message's text, the failure reason or the interaction prompt. A
+ * `message` notification names the kip's message in `messageId`; `completed` is no longer sent.
  */
-export const notification = object({ id, threadId: id, runId: id, kind: union(literal('completed'), literal('failed'), literal('recovery-needed'),literal('interaction')), interactionId: optional(id), interactionState: optional(interactionState), read: boolean(), revision: integer(), createdAt: utcTimestamp(), preview: optional(string()) }, false)
+export const notification = object({ id, threadId: id, runId: id, kind: union(literal('completed'), literal('failed'), literal('recovery-needed'),literal('interaction'),literal('message')), interactionId: optional(id), interactionState: optional(interactionState), messageId: optional(id), read: boolean(), revision: integer(), createdAt: utcTimestamp(), preview: optional(string()) }, false)
 /** Reads or clears up to 200 distinct notifications of the caller. */
 export const notificationBatch = object({ version: optional(literal(1)), notificationIds: array(id) })
 export type NotificationBatch = Infer<typeof notificationBatch>

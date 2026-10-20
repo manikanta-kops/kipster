@@ -59,11 +59,16 @@ const docMarkdown = [
   '```',
 ].join('\n')
 async function writeDoc(handle) {
-  await handle.callTool('fixture-doc-create', 'create_rich_doc', {
-    title: 'Trip plan',
-    markdown: docMarkdown,
+  const { documentId } = await handle.callTool(
+    'fixture-doc-create',
+    'create_rich_doc',
+    { title: 'Trip plan', markdown: docMarkdown },
+  )
+  await handle.callTool('fixture-doc-show', 'message_user', {
+    text: 'Fixture wrote a rich doc.',
+    priority: 'normal',
+    attachments: [{ documentId }],
   })
-  return 'Fixture wrote a rich doc.'
 }
 async function reviseDoc(handle, documentId, gate) {
   const doc = await handle.callTool('fixture-doc-read', 'read_rich_doc', {
@@ -149,14 +154,12 @@ if (!process.env.KIPSTER_TEST_DATABASE_URL) {
             .map((p) => p.text)
             .join('')
           const voice = parts.find((p) => p.purpose === 'voice_note')
-          const reply = (message) => {
-            handle.release({
-              kind: 'text',
-              attemptId: context.attemptId,
-              messageId: randomUUID(),
-              text: message,
-              final: true,
-            })
+          const reply = async (message) => {
+            if (message)
+              await handle.callTool(randomUUID(), 'message_user', {
+                text: message,
+                priority: 'normal',
+              })
             handle.release({
               kind: 'ended',
               attemptId: context.attemptId,

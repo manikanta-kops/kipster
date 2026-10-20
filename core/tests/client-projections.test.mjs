@@ -81,14 +81,14 @@ async function setup(t) {
     flip: (kind, id, lifecycle) => db.transaction(client => changeLifecycle(client, runtime.jobs, installationId, kind, id, lifecycle)),
   }
   ctx.settled = async (runId, state) => until(() => ctx.state(runId), value => value === state, `${runId} ${state}`)
-  ctx.finish = ({ context, handle }, text = 'Done') => {
-    handle.release({ kind: 'text', attemptId: context.attemptId, messageId: randomUUID(), text, final: true })
+  ctx.finish = async ({ context, handle }, text = 'Done') => {
+    await handle.callTool(randomUUID(), 'message_user', { text, priority: 'normal' })
     handle.release({ kind: 'ended', attemptId: context.attemptId, confirmed: true })
   }
   /** Runs one root message to completion and returns its receipt. */
   ctx.complete = async (organizationId, chatId, text) => {
     const receipt = (await ctx.say(organizationId, chatId, text)).data
-    ctx.finish(await ctx.execution(receipt.runId))
+    await ctx.finish(await ctx.execution(receipt.runId))
     await ctx.settled(receipt.runId, 'completed')
     return receipt
   }
@@ -228,7 +228,7 @@ test('notification pages are chronological and stable', { skip: noDatabase, time
   const runs = []
   for (let n = 0; n < 5; n++) runs.push((await ctx.complete(org.id, chatId, `Task ${n}`)).runId)
   const full = await ctx.app()
-  assert.deepEqual(full.notifications.map(n => [n.runId, n.kind]), runs.map(runId => [runId, 'completed']), 'oldest first, in the order they happened')
+  assert.deepEqual(full.notifications.map(n => [n.runId, n.kind]), runs.map(runId => [runId, 'message']), 'oldest first, in the order they happened')
   const times = full.notifications.map(n => Date.parse(n.createdAt))
   assert.deepEqual(times, [...times].sort((a, b) => a - b))
 
@@ -257,7 +257,7 @@ test('notification pages are chronological and stable', { skip: noDatabase, time
   await ctx.complete(org.id, chatId, 'Task 5')
   const query = new URLSearchParams({ at: first.cursor, limit: '2', afterThreadId: first.next.afterThreadId, afterNotificationId: first.next.afterNotificationId })
   refused(await ctx.call('GET', `/v1/app/snapshot?${query}`), 409, 'resync-required')
-  assert.equal((await ctx.app()).notifications.at(-1).kind, 'completed')
+  assert.equal((await ctx.app()).notifications.at(-1).kind, 'message')
   assert.equal((await ctx.app()).notifications.length, 6)
 })
 
@@ -338,7 +338,7 @@ test('removed targets are refused with stable codes, and gone chats leave the ap
   assert.ok(rootChat)
 })
 
-test('notifications preview the reply, the failure or the question', { skip: noDatabase, timeout: 90000 }, async t => {
+test('notifications preview the message, the failure or the question', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
   const org = await ctx.organization('Acme')
   const { agent } = await ctx.agent('Scout', org.id)
@@ -346,29 +346,39 @@ test('notifications preview the reply, the failure or the question', { skip: noD
   const start = await ctx.cursor()
   const preview = async runId => (await ctx.app()).notifications.find(n => n.runId === runId && n.kind !== 'interaction').preview
 
-  // The last final reply of the run, text parts only, on one line.
+  // The message's text parts, on one line; a provider's own text is not a message.
   const replied = (await ctx.say(org.id, chatId, 'Hello')).data
   const execution = await ctx.execution(replied.runId)
   execution.handle.release({ kind: 'text', attemptId: execution.context.attemptId, messageId: randomUUID(), text: 'Looking into it.', final: true })
-  ctx.finish(execution, '  The report is\n\n ready.\tThree files changed.  ')
+  await ctx.finish(execution, '  The report is\n\n ready.\tThree files changed.  ')
   await ctx.settled(replied.runId, 'completed')
   assert.equal(await preview(replied.runId), 'The report is ready. Three files changed.')
   const event = (await ctx.events(start)).find(e => e.type === 'notification' && e.data.runId === replied.runId)
   assert.equal(event.data.preview, 'The report is ready. Three files changed.')
 
   const longer = (await ctx.say(org.id, chatId, 'Longer')).data
-  ctx.finish(await ctx.execution(longer.runId), `${'é'.repeat(150)} ${'x'.repeat(100)}`)
+  await ctx.finish(await ctx.execution(longer.runId), `${'é'.repeat(150)} ${'x'.repeat(100)}`)
   await ctx.settled(longer.runId, 'completed')
   const cut = await preview(longer.runId)
   assert.equal([...cut].length, 200)
   assert.equal(cut, `${'é'.repeat(150)} ${'x'.repeat(48)}…`)
 
-  // A run that published nothing has no preview.
+  // A message without text has no preview; a silent message and a finished turn notify nobody.
+  const shown = (await ctx.say(org.id, chatId, 'Show the doc')).data
+  const doc = await ctx.execution(shown.runId)
+  const { documentId } = await doc.handle.callTool('doc', 'create_rich_doc', { title: 'Plan', markdown: 'Steps' })
+  await doc.handle.callTool('show', 'message_user', { priority: 'normal', attachments: [{ documentId }] })
+  doc.handle.release({ kind: 'ended', attemptId: doc.context.attemptId, confirmed: true })
+  await ctx.settled(shown.runId, 'completed')
+  const docNotice = (await ctx.app()).notifications.find(n => n.runId === shown.runId)
+  assert.equal(docNotice.kind, 'message')
+  assert.equal(Object.hasOwn(docNotice, 'preview'), false)
   const silent = (await ctx.say(org.id, chatId, 'Quiet')).data
   const quiet = await ctx.execution(silent.runId)
+  await quiet.handle.callTool('quiet', 'message_user', { text: 'Noted.', priority: 'silent' })
   quiet.handle.release({ kind: 'ended', attemptId: quiet.context.attemptId, confirmed: true })
   await ctx.settled(silent.runId, 'completed')
-  assert.equal(Object.hasOwn((await ctx.app()).notifications.find(n => n.runId === silent.runId), 'preview'), false)
+  assert.equal((await ctx.app()).notifications.some(n => n.runId === silent.runId), false)
 
   const failing = (await ctx.say(org.id, chatId, 'Fail')).data
   const failure = await ctx.execution(failing.runId)

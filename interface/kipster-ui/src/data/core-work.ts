@@ -378,7 +378,7 @@ export function inboxItems(input: {
     const kind =
       n.kind === 'interaction'
         ? (interaction?.kind ?? 'question')
-        : n.kind === 'completed'
+        : n.kind === 'completed' || n.kind === 'message'
           ? 'completion'
           : n.kind === 'failed'
             ? 'failure'

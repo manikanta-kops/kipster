@@ -97,15 +97,15 @@ test('Core says which kip a sent message went to and which kip an answer came fr
   assert.match(prompt, /^\[answer\] Planner \(kip in Playground\), answering a message_kip message sent to it from this thread: March 3\.$/m)
 })
 
-test('the current message says who wrote it and, from a kip, where the reply goes', () => {
+test('the current message says who wrote it and, from a kip, how to answer', () => {
   const sections = (trigger, author) => turnPrompt({ ...base, triggerMessageId: 'now', input: [text('now', author, 'Body')] }, trigger ? { trigger } : {}).split('\n')
   assert.deepEqual(sections(undefined, owner), ['Current message [now] from Factory Owner (the person):', 'Body'], 'a person started the turn by default')
   assert.deepEqual(sections('person', john), ['Current message [now] from John (admin kip):', 'Body'])
   assert.deepEqual(sections('person', planner), ['Current message [now] from Planner (kip in Playground):', 'Body'])
-  assert.deepEqual(sections('kip', john), ['Current message [now], a message from John (admin kip) sent to you with message_kip. Your final reply is your answer and goes back to John automatically:', 'Body'])
-  assert.deepEqual(sections('kip', planner), ['Current message [now], a message from Planner (kip in Playground) sent to you with message_kip. Your final reply is your answer and goes back to Planner automatically:', 'Body'])
-  assert.deepEqual(sections('answer', planner), ['Current message [now], an answer from Planner (kip in Playground) to your earlier message_kip message. Reply to the person in this thread, not to Planner, and never send anything back on your own; to talk back, send a new message_kip. If the answer needs nothing more, end your turn with an empty reply:', 'Body'])
-  assert.match(sections('answer', john)[0], /^Current message \[now\], an answer from John \(admin kip\) to your earlier message_kip message\. Reply to the person in this thread, not to John,/)
+  assert.deepEqual(sections('kip', john), ['Current message [now], a message from John (admin kip) sent to you with message_kip. Answer it with message_kip to John (recipientId john); the answer goes back into its conversation:', 'Body'])
+  assert.deepEqual(sections('kip', planner), ['Current message [now], a message from Planner (kip in Playground) sent to you with message_kip. Answer it with message_kip to Planner (recipientId planner); the answer goes back into its conversation:', 'Body'])
+  assert.deepEqual(sections('answer', planner), ['Current message [now], an answer from Planner (kip in Playground) to your earlier message_kip message. Tell the person with message_user if they need to know, or end your turn without a message. Message Planner (recipientId planner) again only when you need more from it:', 'Body'])
+  assert.match(sections('answer', john)[0], /^Current message \[now\], an answer from John \(admin kip\) to your earlier message_kip message\. Tell the person with message_user/)
 })
 
 test('the current message keeps the person\'s label in a linked thread', () => {

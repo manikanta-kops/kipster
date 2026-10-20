@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { Postgres } from '../dist/platform/postgres/public.js'
-import { openRuntime, startTextServer, TextDispatcher } from '../dist/runtime.js'
+import { openRuntime, startTextServer, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
 import { retainLast, readEvents } from '../dist/modules/synchronization/public.js'
 import { runContext } from '../dist/modules/conversations/public.js'
 import { textEvent } from '../dist/protocol/text.js'
@@ -60,6 +60,7 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [runtime.bootstrap.rootAgentId, JSON.stringify({ adapterId: 'test-adapter', modelId: 'test-model' })])
     adapter = fixture()
     dispatcher = new TextDispatcher(runtime, adapter)
+    const say = (handle, callId, text, priority = 'normal') => textPublicationHost(dispatcher).invokeTool({ attemptId: handle.context.attemptId, callId, name: 'message_user', arguments: { text, priority } })
     const uiOrigin = 'http://127.0.0.1:4197'
     server = await startTextServer(runtime, actor, { host: '127.0.0.1', port: 0, allowedOrigins: [uiOrigin, 'tauri://localhost'] })
     const defaultOriginServer = await startTextServer(runtime, actor, { host: '127.0.0.1', port: 0 })
@@ -157,23 +158,24 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     await waitFor(() => get(`/v1/threads/${second.threadId}/snapshot`).then(x => x.data.work[0].state), state => state === 'queued', 'capacity deferral')
     assert.equal(adapter.handles.length, 1)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM kipster.owned_permits')).rows[0].n, 1)
+    // A provider's own text is not shown; the kip's message_user is.
     firstHandle.release({ kind: 'text', attemptId: firstHandle.context.attemptId, messageId: 'native-1', text: 'draft', final: false })
-    await waitFor(() => get(`/v1/threads/${first.threadId}/snapshot`).then(x => x.data), snap => snap.messages.some(x => x.parts[0].text === 'draft'), 'saved draft')
-    await sseUntil(threadReader, 'event: message-draft')
+    firstHandle.release({ kind: 'text', attemptId: firstHandle.context.attemptId, messageId: 'native-1', text: 'native answer', final: true })
+    const tool = await say(firstHandle, 'reply-1', 'answer')
+    assert.equal(tool.status, 'sent')
+    await waitFor(() => get(`/v1/threads/${first.threadId}/snapshot`).then(x => x.data), snap => snap.messages.some(x => x.parts[0].text === 'answer'), 'saved reply')
+    await sseUntil(threadReader, 'event: message-final')
     await sseUntil(appReader, 'event: thread-summary')
     await threadReader.cancel(); await appReader.cancel()
-    firstHandle.release({ kind: 'text', attemptId: firstHandle.context.attemptId, messageId: 'native-1', text: 'answer', final: true })
-    const tool = await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'answer')
-    assert.equal(tool.status, 'completed')
     const toolMessage = (await runtime.db.query("SELECT created_at,finished_at FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source='tool'", [firstHandle.context.attemptId])).rows[0]
     assert.deepEqual(toolMessage.finished_at, toolMessage.created_at)
-    assert.deepEqual(await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'answer'), tool)
-    assert.equal((await dispatcher.publishToolText(firstHandle.context.attemptId, 'native-1', 'changed')).status, 'failed')
+    assert.deepEqual(await say(firstHandle, 'reply-1', 'answer'), tool)
+    await assert.rejects(say(firstHandle, 'reply-1', 'changed'), /already sent a different message/)
     firstHandle.release({ kind: 'ended', attemptId: firstHandle.context.attemptId, confirmed: true })
     await waitFor(() => Promise.resolve(adapter.handles.length), n => n === 2, 'next execution')
     assert.ok([second.runId, follow.runId].includes(adapter.handles[1].context.runId))
     const secondHandle = adapter.handles[1]
-    secondHandle.release({ kind: 'text', attemptId: secondHandle.context.attemptId, messageId: 'native-2', text: 'second answer', final: true })
+    await say(secondHandle, 'reply-2', 'second answer')
     secondHandle.release({ kind: 'ended', attemptId: secondHandle.context.attemptId, confirmed: true })
     await waitFor(() => Promise.resolve(adapter.handles.length), n => n === 3, 'remaining execution')
     const thirdHandle = adapter.handles[2]
@@ -186,7 +188,8 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     assert.ok(followContext.input.some(x => x.text === 'answer'))
     assert.ok(followContext.input.some(x => x.text === 'follow up'))
     const history = (await get(`/v1/threads/${first.threadId}/snapshot`)).data
-    assert.equal(history.messages.filter(x => x.parts[0].text === 'answer').length, 2)
+    assert.equal(history.messages.filter(x => x.parts[0].text === 'answer').length, 1)
+    assert.ok(!history.messages.some(x => ['draft', 'native answer'].includes(x.parts[0].text)))
     const appliedMessages = new Map(before.messages.map(message => [message.id, message]))
     const appliedWork = new Map(before.work.map(work => [work.runId, work]))
     const threadScope = { kind: 'thread', installationId: actor.installationId, callerId: actor.personId, threadId: first.threadId }
@@ -209,7 +212,8 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
       textEvent.parse(event)
       assert.equal(event.data.createdAt, app.threads.find(x => x.threadId === event.data.threadId).createdAt)
     }
-    assert.equal(app.notifications.filter(x => x.kind === 'completed').length, 3)
+    // Each normal message notifies once; finished turns notify nobody.
+    assert.deepEqual(app.notifications.map(x => [x.kind, x.preview]), [['message', 'answer'], ['message', 'second answer']])
     const appFirstPage = (await get('/v1/app/snapshot?limit=1')).data
     assert.ok(appFirstPage.next)
     const appPageQuery = `at=${encodeURIComponent(appFirstPage.cursor)}&limit=1&afterThreadId=${appFirstPage.next.afterThreadId}&afterNotificationId=${appFirstPage.next.afterNotificationId}`
@@ -225,14 +229,15 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     assert.ok(replay.rows[0].n >= 7)
     const stale = await runContext(runtime.db, first.runId)
     const countBefore = history.messages.length
-    await dispatcher.publishText({ id: firstHandle.context.attemptId, intentId: first.runId, generation: 1, incarnation: randomUUID(), state: 'issued' }, { kind: 'text', attemptId: firstHandle.context.attemptId, messageId: 'late', text: 'late', final: true }, stale)
+    await dispatcher.publishText({ id: firstHandle.context.attemptId, intentId: first.runId, generation: 1, incarnation: randomUUID(), state: 'issued' }, { messageId: 'late', text: 'late' }, stale)
+    await assert.rejects(say(firstHandle, 'late-reply', 'late'), /no longer owns publication/)
     assert.equal((await get(`/v1/threads/${first.threadId}/snapshot`)).data.messages.length, countBefore)
     await retainLast(runtime.db, threadScope, 2)
     assert.equal((await get(`/v1/threads/${first.threadId}/events?after=${encodeURIComponent(before.cursor)}`)).status, 409)
     const appScope = { kind: 'application', installationId: actor.installationId, callerId: actor.personId }
     await retainLast(runtime.db, appScope, 2)
     assert.equal((await get(`/v1/app/events?after=${encodeURIComponent(appBefore.cursor)}`)).status, 409)
-    assert.equal((await get('/v1/app/snapshot')).data.notifications.length, 3)
+    assert.equal((await get('/v1/app/snapshot')).data.notifications.length, 2)
     assert.equal((await get(`/v1/threads/${first.threadId}/snapshot`)).data.messages.length, countBefore)
     assert.equal((await get(`/v1/threads/${first.threadId}/events?after=${encodeURIComponent('t:' + second.threadId + ':0')}`)).status, 400)
     const failing = (await submit(randomUUID(), 'root', 'failing run')).data
@@ -255,7 +260,7 @@ test('durable HTTP text, FIFO/capacity, SSE replay and retained state', { skip: 
     assert.equal(largeStream.status, 200)
     const largeReader = largeStream.body.getReader()
     const largeText = 'L'.repeat(300000)
-    largeHandle.release({ kind: 'text', attemptId: largeHandle.context.attemptId, messageId: 'native-large', text: largeText, final: true })
+    await say(largeHandle, 'reply-large', largeText)
     largeHandle.release({ kind: 'ended', attemptId: largeHandle.context.attemptId, confirmed: true })
     await sseUntil(largeReader, 'event: resync-required')
     await largeReader.cancel()
@@ -324,7 +329,7 @@ test('prequeued replies stay out of earlier execution context', { skip: noDataba
       const handle = adapter.handles[index]
       assert.equal(handle.context.runId, expected[index][0])
       assert.deepEqual(handle.context.input.map(x => x.text), expected[index][1])
-      if (index < 2) handle.release({ kind: 'text', attemptId: handle.context.attemptId, messageId: `answer-${index}`, text: index === 0 ? 'root answer' : 'A answer', final: true })
+      if (index < 2) await textPublicationHost(dispatcher).invokeTool({ attemptId: handle.context.attemptId, callId: `answer-${index}`, name: 'message_user', arguments: { text: index === 0 ? 'root answer' : 'A answer', priority: 'normal' } })
       handle.release({ kind: 'ended', attemptId: handle.context.attemptId, confirmed: true })
     }
     await waitFor(() => runtime.db.query('SELECT count(*)::int AS n FROM kipster.text_runs WHERE state=$1', ['completed']).then(x => x.rows[0].n), n => n === 4, 'all queued replies')
@@ -341,7 +346,7 @@ test('prequeued replies stay out of earlier execution context', { skip: noDataba
   }
 })
 
-test('a kip segment with no content publishes no message, progress notes are marked, and replies name their run', { skip: noDatabase }, async () => {
+test('a provider\'s own text publishes nothing, and a kip\'s messages name their run', { skip: noDatabase }, async () => {
   const database = `kipster_textempty_${randomUUID().replaceAll('-', '')}`
   const admin = new Postgres(adminUrl)
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -367,18 +372,18 @@ test('a kip segment with no content publishes no message, progress notes are mar
     handle.release({ kind: 'text', attemptId, messageId: 'opening', text: 'Opening the booking page.', final: true, phase: 'progress' })
     handle.release({ kind: 'text', attemptId, messageId: 'found', text: 'I found the restaurant.', final: true, phase: 'answer' })
     handle.release({ kind: 'text', attemptId, messageId: 'silent', text: '', final: true })
+    await textPublicationHost(dispatcher).invokeTool({ attemptId, callId: 'booked', name: 'message_user', arguments: { text: 'Your table is booked.', priority: 'normal' } })
     handle.release({ kind: 'ended', attemptId, confirmed: true })
     await waitFor(() => runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [root.runId]).then(x => x.rows[0].state), state => state === 'completed', 'run completed')
     const snapshot = await get(`/v1/threads/${root.threadId}/snapshot`)
     assert.deepEqual(snapshot.messages.map(m => [m.authorId, m.runId, m.progress, m.parts]), [
       [ids.ownerId, undefined, undefined, [{ kind: 'text', text: 'book a table' }]],
-      [ids.rootAgentId, root.runId, true, [{ kind: 'text', text: 'Opening the booking page.' }]],
-      [ids.rootAgentId, root.runId, undefined, [{ kind: 'text', text: 'I found the restaurant.' }]],
+      [ids.rootAgentId, root.runId, undefined, [{ kind: 'text', text: 'Your table is booked.' }]],
     ])
     const { events } = await readEvents(runtime.db, { kind: 'thread', installationId: ids.installationId, callerId: ids.ownerId, threadId: root.threadId }, before.cursor)
     const published = events.filter(e => e.type === 'message-final' && e.data.authorId === ids.rootAgentId)
-    assert.deepEqual(published.map(e => [e.data.runId, e.data.progress]), [[root.runId, true], [root.runId, undefined]])
-    assert.equal(textEvent.parse(published[0]).data.progress, true)
+    assert.deepEqual(published.map(e => [e.data.runId, e.data.progress]), [[root.runId, undefined]])
+    assert.equal(textEvent.parse(published[0]).data.runId, root.runId)
     for (const entry of snapshot.messages) assert.equal(entry.finishedAt, entry.createdAt)
     for (const event of published) assert.equal(event.data.finishedAt, event.data.createdAt)
   } finally {

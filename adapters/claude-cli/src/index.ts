@@ -20,7 +20,7 @@ const recoveryScope = 'claude-cli-process'
 const sessionIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const streamJson = ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
 const maintenanceInstructions = 'You are a Kipster memory maintenance step. Follow the task in the user message and answer with a single JSON object that matches the output schema. No other tools are available.'
-const toolNote = 'Kipster tools are available to you as MCP tools named mcp__kipster__<tool name>, for example mcp__kipster__conversation_publish.'
+const toolNote = 'Kipster tools are available to you as MCP tools named mcp__kipster__<tool name>, for example mcp__kipster__message_user.'
 const capabilities = (maintenance: boolean) => ({ text: true as const, publication: true, cancellation: true, steering: false as const, nativeResume: true, maintenance })
 
 class Queue implements AsyncIterable<ExecutionEvent> {
@@ -209,7 +209,8 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       const args = [...streamJson, '--include-partial-messages', '--chrome', ...(resume ? ['--resume', resume.threadId] : []), '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
         '--mcp-config', join(directory, 'mcp.json'), '--permission-prompt-tool', `mcp__kipster_permission__${permissionTool}`, '--disallowedTools', `mcp__kipster_permission__${permissionTool}`,
         '--append-system-prompt-file', join(directory, 'instructions.md'), '--permission-mode', claudePermissionMode(context.permissionMode),
-        ...(readable.length ? ['--allowedTools', ...readable.map(path => `Read(/${path})`)] : [])]
+        // Allowed up front: Claude Code's auto mode otherwise asks its classifier, which can refuse a kip's own messages.
+        '--allowedTools', 'mcp__kipster', ...readable.map(path => `Read(/${path})`)]
       child = this.spawn(args, workingDirectory)
       const process = child
       const blocksByIndex = new Map<number, { id: string; text: string }>()
