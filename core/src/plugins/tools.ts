@@ -223,7 +223,7 @@ export class PluginToolService {
           proposal: `${tool.pluginName}: ${title}\nAccount: ${account.label}\n${shown.length > 7000 ? `${shown.slice(0, 7000)}…` : shown}`,
           grant: { key, label: `${tool.pluginName}: ${title}`, scopes: ['conversation', 'always'] },
         }, (client, interactionId) => bindPluginApproval(client, interactionId, caller.runId, callKey))
-        return { status: 'pending', interactionId: card.id, message: 'The person now sees an approval card for this call. End your turn without a reply; Kipster continues this task when they answer. Once approved, call run_plugin_tool again with the same tool, account and arguments.' }
+        return { status: 'pending', interactionId: card.id, message: 'The person now sees an approval card for this call. End your turn; Kipster continues this task when they answer. Once approved, call run_plugin_tool again with the same tool, account and arguments.' }
       } catch (error) {
         return { error: error instanceof Error && error.message === 'An interaction is already pending' ? 'Another approval is already waiting. End your turn and continue after the person answers.' : `The approval could not be requested: ${error instanceof Error ? error.message : String(error)}` }
       }
@@ -268,7 +268,7 @@ export class PluginToolService {
       ...(result.isError ? { isError: true } : {}),
       ...(text ? { text } : {}),
       ...(result.structuredContent !== undefined && JSON.stringify(result.structuredContent).length <= maxResultText ? { structuredContent: result.structuredContent } : {}),
-      ...(files.length ? { files, note: 'Files are saved at these paths. Send them to the person with post_chat_message.' } : {}),
+      ...(files.length ? { files, note: 'Files are saved at these paths. Send them to the person by attaching them to message_user.' } : {}),
       ...(links.length ? { links } : {}),
     }
   }

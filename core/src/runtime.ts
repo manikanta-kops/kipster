@@ -22,6 +22,7 @@ export { AdapterRegistry } from './workflows/adapter-registry.js'
 export async function loadMigrations(): Promise<{ version: string; sql: string }[]> {
   const paths = [
     './platform/postgres/migrations/001_kipster.sql',
+    './platform/postgres/migrations/002_message_user.sql',
   ]
   return Promise.all(paths.map(async path => ({ version: path.slice(path.lastIndexOf('/') + 1), sql: await readFile(new URL(path, import.meta.url), 'utf8') })))
 }

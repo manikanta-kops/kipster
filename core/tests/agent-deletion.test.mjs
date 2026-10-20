@@ -101,8 +101,10 @@ async function setup(t, { forget = false } = {}) {
     const attemptId = found.context.attemptId
     return { ...run, found, attemptId, release: event => found.handle.release({ attemptId, ...event }), call: (name, args) => found.handle.callTool(randomUUID(), name, args) }
   }
-  ctx.finish = (run, text = 'Done') => {
-    run.release({ kind: 'text', messageId: `answer-${randomUUID()}`, text, final: true })
+  /** Ends a run after it messages the person, or answers the kip whose message started it. */
+  ctx.finish = async (run, text = 'Done', kip) => {
+    if (kip) await run.call('message_kip', { recipientId: kip, text })
+    else await run.call('message_user', { text, priority: 'normal' })
     run.release({ kind: 'ended', confirmed: true })
   }
   ctx.settled = (runId, state) => until(async () => (await ctx.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [runId])).rows[0]?.state, value => value === state, `run ${runId} ${state}`)
@@ -136,14 +138,14 @@ async function populate(ctx) {
   const workspace = ctx.runtime.home.agent(ctx.scout)
   await mkdir(workspace, { recursive: true })
   await writeFile(join(workspace, 'report.txt'), 'Quarterly numbers')
-  const [shown] = (await own.call('post_chat_message', { text: 'Here is the report', files: ['report.txt'] })).files.map(file => ({ id: file.artifactId }))
+  const [shown] = (await own.call('message_user', { text: 'Here is the report', priority: 'normal', attachments: [{ path: 'report.txt' }] })).files.map(file => ({ id: file.artifactId }))
   const publication = (await own.call('copy_attachment_to_workspace', { artifactId: shown.id })).artifact
   const unshown = await retiredPublication(ctx, own, 'draft.txt', 'Draft only')
   const target = { kind: 'agent', ownerId: ctx.scout }
   const collection = await own.call('manage_vector_collections', { target, operation: 'create', name: 'notes' })
   await own.call('manage_vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
   await own.call('manage_data_tables', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
-  ctx.finish(own)
+  await ctx.finish(own)
   await ctx.settled(own.runId, 'completed')
 
   const identity = await ctx.runtime.home.identity.write(ctx.scout, 'identity.md', '# Identity\nScout checks numbers.\n', sha256('# Identity\n'), 'owner')
@@ -159,17 +161,18 @@ async function populate(ctx) {
   const child = ctx.bind({ runId: childRunId }, await ctx.execution(childRunId))
   ctx.provider(child, 'codex-scout-child')
   await writeFile(join(workspace, 'checked.txt'), 'Checked numbers')
-  const [childFile] = (await child.call('post_chat_message', { text: 'Checked', files: ['checked.txt'] })).files.map(file => ({ id: file.artifactId }))
-  const further = await child.call('message_kip', { recipientId: ctx.helper, text: 'Double-check this file', artifactIds: [childFile.id] })
+  const [childFile] = (await child.call('message_user', { text: 'Checked', priority: 'normal', attachments: [{ path: 'checked.txt' }] })).files.map(file => ({ id: file.artifactId }))
+  const further = await child.call('message_kip', { recipientId: ctx.helper, text: 'Double-check this file', attachments: [{ artifactId: childFile.id }] })
   further.childRunId = await kipRun(further.threadId)
-  ctx.finish(child, 'The numbers are fine')
+  await child.call('message_kip', { recipientId: ctx.root, text: 'The numbers are fine', attachments: [{ artifactId: childFile.id }] })
+  child.release({ kind: 'ended', confirmed: true })
   await ctx.settled(childRunId, 'completed')
-  ctx.finish(ctx.bind({}, await ctx.execution(further.childRunId)), 'Looks right')
+  await ctx.finish(ctx.bind({}, await ctx.execution(further.childRunId)), 'Looks right', ctx.scout)
   await ctx.settled(further.childRunId, 'completed')
   // Each answer wakes its sender: Root in its thread, Scout in the linked thread.
   for (const threadId of [parent.threadId, sent.threadId]) {
     const runId = await until(() => kipRun(threadId, 'answer'), Boolean, `answer in ${threadId}`)
-    ctx.finish(ctx.bind({}, await ctx.execution(runId)), threadId === parent.threadId ? 'Scout says fine' : 'Helper agrees')
+    await ctx.finish(ctx.bind({}, await ctx.execution(runId)), threadId === parent.threadId ? 'Scout says fine' : 'Helper agrees')
     await ctx.settled(runId, 'completed')
   }
 
@@ -279,7 +282,7 @@ async function assertRemoved(ctx, data, events, { copies }) {
   const rootThread = threadSnapshot.parse(await ctx.ok('GET', `/v1/threads/${data.parent.threadId}/snapshot`))
   const answer = rootThread.messages.find(message => message.parts.some(part => part.kind === 'kip-answer'))
   assert.equal(answer.authorId, scout)
-  assert.deepEqual(answer.parts.filter(part => part.kind === 'text').map(part => part.text), ['Checked', 'The numbers are fine'])
+  assert.deepEqual(answer.parts.filter(part => part.kind === 'text').map(part => part.text), ['The numbers are fine'])
   assert.equal((await ctx.db.query('SELECT count(*)::int AS n FROM kipster.kip_links')).rows[0].n, 0)
   const summaries = events.filter(event => event.type === 'thread-summary' && event.resourceId === data.parent.threadId)
   assert.ok(summaries.length, 'Root\'s thread is told it lost the link')
@@ -362,8 +365,8 @@ test('copying files keeps each file shown in an organization\'s chats in that or
   const secondContext = { kind: 'organization', organizationId: second }
   const there = await ctx.running(ctx.scout, 'Summarize', secondContext)
   await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'summary.txt'), 'Summary')
-  await there.call('post_chat_message', { text: 'Summary attached', files: ['summary.txt'] })
-  ctx.finish(there)
+  await there.call('message_user', { text: 'Summary attached', priority: 'normal', attachments: [{ path: 'summary.txt' }] })
+  await ctx.finish(there)
   await ctx.settled(there.runId, 'completed')
 
   const { operation, events } = await deleteScout(ctx, { copyFilesToOrganizations: true })
@@ -443,7 +446,7 @@ test('a restart in the middle of the cleanup finishes it once', { skip: noDataba
   // More threads than one batch removes.
   for (let i = 0; i < 6; i++) {
     const run = await ctx.running(ctx.scout, `Task ${i}`)
-    ctx.finish(run)
+    await ctx.finish(run)
     await ctx.settled(run.runId, 'completed')
   }
   const threads = (await ctx.db.query('SELECT t.id FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE c.agent_id=$1 ORDER BY t.id', [ctx.scout])).rows.map(row => row.id)
@@ -511,7 +514,7 @@ test('organization deletion fences work, removes owned resources and preserves g
   const waiting = await until(() => ctx.ok('GET', `/v1/operations/${operationId}`), r => r.state === 'waiting', 'organization waits')
   assert.equal(waiting.step, 'wait-for-work')
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.owned_permits WHERE attempt_id=$1', [running.attemptId])).rows[0].n, 1)
-  running.release({ kind: 'text', messageId: 'late', text: 'Must not survive', final: true })
+  await assert.rejects(running.call('message_user', { text: 'Must not survive', priority: 'normal' }), /no longer owns/)
   running.release({ kind: 'ended', confirmed: true })
   assert.equal((await ctx.operation(operationId)).state, 'succeeded')
   assert.equal((await ctx.call('DELETE', `/v1/organizations/${ctx.organizationId}`, body)).data.alreadyApplied, true)
@@ -533,14 +536,14 @@ test('organization deletion fences work, removes owned resources and preserves g
   assert.equal(await exists(join(ctx.home, 'agents', ctx.scout)), true)
   assert.equal((await ctx.db.query("SELECT count(*)::int n FROM kipster.artifacts WHERE owner_kind='organization' AND owner_id=$1", [ctx.organizationId])).rows[0].n, 0)
   assert.ok((await ctx.db.query("SELECT count(*)::int n FROM kipster.artifacts WHERE owner_kind='agent' AND owner_id=$1", [ctx.scout])).rows[0].n > 0)
-  ctx.finish(other)
+  await ctx.finish(other)
   await ctx.settled(other.runId, 'completed')
 })
 
 test('organization cleanup survives SIGKILL at destructive boundaries without recreating bootstrap organization', { skip: noDatabase, timeout: 180000 }, async t => {
   const ctx = await setup(t)
   await populate(ctx)
-  for (let i = 0; i < 6; i++) { const run = await ctx.running(); ctx.finish(run); await ctx.settled(run.runId, 'completed') }
+  for (let i = 0; i < 6; i++) { const run = await ctx.running(); await ctx.finish(run); await ctx.settled(run.runId, 'completed') }
   await ctx.dispatcher.close()
   const operationId = randomUUID()
   await ctx.ok('DELETE', `/v1/organizations/${ctx.organizationId}`, { version: 1, operationId })

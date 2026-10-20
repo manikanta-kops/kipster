@@ -210,11 +210,11 @@ The following is the agreed catalog direction; names and exact arguments remain 
 | Operation/family | Purpose |
 | --- | --- |
 | `activity.report` | Short public activity-timeline update. |
-| `conversation.publish` | Intermediate or final user-facing message with ordered content, optional artifact IDs and files attached by path. |
+| `conversation.publish` | Intermediate or final user-facing message with ordered content, optional artifact IDs and files attached by path. Became `message_user` in [decision block 12](./12-messaging-the-person.md). |
 | `conversation.react` | Reaction attached to a specific message. |
 | `conversation.read` | Retrieve source messages or additional history. |
-| `interactions.ask` | Durable question, initially using the choice-card behavior in block 2. |
-| `interactions.request_approval` | Approval for a specific proposed action and context. |
+| `interactions.ask` | Durable question, initially using the choice-card behavior in block 2. A `message_user` element since [decision block 12](./12-messaging-the-person.md). |
+| `interactions.request_approval` | Approval for a specific proposed action and context. A `message_user` element since [decision block 12](./12-messaging-the-person.md). |
 | `memory.search/get/save/link` | Retrieve learning, record it, and relate memories. |
 | `data.describe/query/execute` | Structured agent or organization data access. |
 | `audio.transcribe` | Invoke the same configured service used for voice-note preparation. |
@@ -233,6 +233,8 @@ Core binds the tool connection to actor and execution context. The model supplie
 Skills are instructions/workflows and references; tools are callable operations. Supply both without treating them as identical.
 
 ### Multiple messages without hidden output
+
+Superseded by [decision block 12](./12-messaging-the-person.md): a kip reaches the person only with `message_user`, and native harness output is not shown.
 
 `conversation.publish` distinguishes intermediate and final purpose. An intermediate message does not complete the run. A final designation does not suppress every later message or override an execution failure.
 
@@ -267,7 +269,7 @@ Provider outcome arrives -> Core settles execution state
 ```text
 Create report.pdf with the harness's own tools
       |
-conversation.publish(text + files: [path])
+message_user(text + attachments: [{ path }])
       |
 Core snapshots the file as an artifact and saves the message -> UI downloads file through Kipster
 ```

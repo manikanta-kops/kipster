@@ -196,15 +196,34 @@ try {
           confirmed: true,
         })
       }
-      const reply = (text) => {
+      // A kip's message is answered with message_kip; anything else goes to the
+      // person with message_user. An empty reply ends the turn silently.
+      const reply = async (text) => {
         if (settled) return
-        handle.release({
-          kind: 'text',
-          attemptId: context.attemptId,
-          messageId: randomUUID(),
-          text,
-          final: true,
-        })
+        if (text) {
+          const current =
+            context.input.find(
+              (message) => message.messageId === context.triggerMessageId,
+            ) ?? context.input.at(-1)
+          if (current.author.kind !== 'person' && !current.kipAnswer)
+            await handle.callTool(
+              `fixture-answer-${randomUUID()}`,
+              'message_kip',
+              {
+                recipientId: current.author.id,
+                text,
+              },
+            )
+          else
+            await handle.callTool(
+              `fixture-reply-${randomUUID()}`,
+              'message_user',
+              {
+                text,
+                priority: 'normal',
+              },
+            )
+        }
         ended()
       }
       // Confirm owned fixture cancellation; no CLI processes exist to terminate.
@@ -214,7 +233,7 @@ try {
       }
       const task = async () => {
         if (context.continuation) {
-          reply(
+          await reply(
             `Fixture resumed: ${JSON.stringify(context.continuation.answer ?? context.continuation)}`,
           )
           return
@@ -238,7 +257,7 @@ try {
             recipientId: recipient.id,
             text: body,
           })
-          reply(`Fixture sent a message to ${name}`)
+          await reply(`Fixture sent a message to ${name}`)
           return
         }
         // A kip's answer to `__silent__` repeats the marker; the sender it
@@ -254,7 +273,7 @@ try {
               item.id === context.triggerMessageId &&
               item.parts.some((part) => part.kind === 'kip-answer'),
           )
-          reply(woken ? '' : text)
+          await reply(woken ? '' : text)
           return
         }
         if (text.startsWith('__files__')) {
@@ -285,13 +304,13 @@ try {
               paths.slice(filesPerMessage),
             ],
           ]) {
-            const result = await handle.callTool(callId, 'post_chat_message', {
+            await handle.callTool(callId, 'message_user', {
               text: message,
-              files,
+              priority: 'normal',
+              attachments: files.map((path) => ({ path })),
             })
-            if (result.status !== 'completed') throw Error(result.reason)
           }
-          reply(`Fixture sent files: ${text}`)
+          await reply(`Fixture sent files: ${text}`)
           return
         }
         if (
@@ -299,12 +318,11 @@ try {
           text.startsWith('__approval__')
         ) {
           const question = text.startsWith('__question__')
-          await dispatcher.askToolInteraction(
-            context.attemptId,
-            'fixture-interaction',
-            question
+          await handle.callTool('fixture-interaction', 'message_user', {
+            priority: 'normal',
+            element: question
               ? {
-                  kind: 'question',
+                  type: 'choice',
                   prompt: 'Choose a color',
                   options: [
                     { id: 'blue', label: 'Blue' },
@@ -313,13 +331,13 @@ try {
                   freeText: false,
                 }
               : {
-                  kind: 'approval',
+                  type: 'approval',
                   prompt: 'Approve fixture action?',
                   proposalId: 'fixture-color-blue',
                   proposal:
                     'Set the fixture color to blue; no external action.',
                 },
-          )
+          })
           ended()
           return
         }
@@ -362,22 +380,31 @@ try {
               })),
             ],
           })
-          reply('Fixture revised the doc.')
+          await reply('Fixture revised the doc.')
           return
         }
         if (text.includes('write a rich doc')) {
-          await handle.callTool('fixture-doc-create', 'create_rich_doc', {
-            title: 'Trip plan',
-            markdown:
-              '# Trip plan\n\nWe fly out in May.\n\n- [ ] Book flights\n- [ ] Reserve a hotel\n\n```question\nprompt: Where should we go?\nother: true\noptions:\n- Oslo | Fjords and design\n- Lisbon | Sun and tiles\n```\n\n```scale\nprompt: How flexible are the dates?\nmin: 1\nmax: 5\nstep: 1\nminLabel: Fixed\nmaxLabel: Open\n```',
+          const created = await handle.callTool(
+            'fixture-doc-create',
+            'create_rich_doc',
+            {
+              title: 'Trip plan',
+              markdown:
+                '# Trip plan\n\nWe fly out in May.\n\n- [ ] Book flights\n- [ ] Reserve a hotel\n\n```question\nprompt: Where should we go?\nother: true\noptions:\n- Oslo | Fjords and design\n- Lisbon | Sun and tiles\n```\n\n```scale\nprompt: How flexible are the dates?\nmin: 1\nmax: 5\nstep: 1\nminLabel: Fixed\nmaxLabel: Open\n```',
+            },
+          )
+          await handle.callTool('fixture-doc-show', 'message_user', {
+            text: 'Fixture wrote a rich doc.',
+            priority: 'normal',
+            attachments: [{ documentId: created.documentId }],
           })
-          reply('Fixture wrote a rich doc.')
+          ended()
           return
         }
         const voice = context.input
           .at(-1)
           .parts.find((part) => part.purpose === 'voice_note')
-        reply(
+        await reply(
           voice
             ? `Fixture received voice_note; original ${voice.availability}; transcription ${voice.transcription.status}; caption ${text}`
             : `Fixture reply: ${text}`,

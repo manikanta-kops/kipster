@@ -8,7 +8,7 @@ This document records the agreed architectural direction and proposed implementa
 
 ## 1. Product direction
 
-Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation. Agent-to-agent work follows [Decision block 11 — Kip messaging](./11-kip-messaging.md), which supersedes delegation in blocks 2, 3 and 5.
+Protocol decisions are now recorded in [Decision block 5 — Kipster Protocol](./05-kipster-protocol.md). It takes precedence over earlier tentative protocol details here and contains the operation-family map, accepted simplifications, end-to-end acceptance scenarios, and remaining schema/platform work. Read it with blocks 1–4 before implementation. Agent-to-agent work follows [Decision block 11 — Kip messaging](./11-kip-messaging.md), which supersedes delegation in blocks 2, 3 and 5. Kips reach the person only with `message_user` ([Decision block 12 — Messaging the person](./12-messaging-the-person.md)).
 
 Kipster is a persistent system that coordinates conversations and AI work. Interfaces connect to it through a stable protocol. Execution adapters connect it to harnesses and, eventually, Kipster-managed model API loops.
 
@@ -24,6 +24,7 @@ Development of this version does not require operating or migrating an existing 
 - Threads started by root messages, with replies queued inside a thread.
 - Concurrent work across threads, including the same agent, with a configurable installation-wide ceiling of 20 active AI executions initially; work kips do for each other counts toward this limit.
 - Kip messaging: kips message each other in visible linked threads, and each answer comes back and wakes the sender (decision block 11).
+- Messaging the person: one `message_user` tool with a priority, ordered attachments and an optional element that waits for an answer (decision block 12).
 - Live answer streaming, model-authored progress, multiple intermediate messages, and final messages.
 - Approvals and questions that survive client disconnection and backend restarts.
 - Codex as the first execution integration, following the existing 2.0 approach.
@@ -251,7 +252,7 @@ Give each run a designated output directory in the execution context and instruc
 <kipster-home>/agents/<agent-id>/outputs/<thread-id>/<attempt-id>/
 ```
 
-The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path with `files` on `post_chat_message`, or on `message_kip` when sending it to another kip, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
+The agent home is its persistent default working directory; the output path organizes generated results without creating worktrees or workspace locks. The harness can create shareable files there; when a file is ready, the agent attaches it by path in `attachments` on `message_user`, or on `message_kip` when sending it to another kip, and the Core snapshots it into managed artifact storage. Merely creating a file does not publish a partial or temporary file to the user.
 
 Filesystem directories and HTTP routes are separate namespaces. A public route might be `/v1/files/<artifact-id>/content`, regardless of where bytes are stored. Use IDs rather than thread titles or provider names as storage identity. Store stable artifact IDs in messages; clients resolve them against the currently configured backend URL.
 

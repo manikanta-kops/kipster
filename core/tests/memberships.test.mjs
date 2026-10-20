@@ -94,8 +94,8 @@ async function setup(t, { run = true } = {}) {
     events: async cursor => (await readEvents(db, { kind: 'application', installationId, callerId: ownerId }, cursor)).events.map(event => textEvent.parse(event)),
   }
   ctx.settled = async (runId, state) => until(() => ctx.state(runId), value => value === state, `${runId} ${state}`)
-  ctx.finish = ({ context, handle }, text) => {
-    handle.release({ kind: 'text', attemptId: context.attemptId, messageId: randomUUID(), text, final: true })
+  ctx.finish = async ({ context, handle }, text, recipientId) => {
+    await handle.callTool(randomUUID(), recipientId ? 'message_kip' : 'message_user', recipientId ? { recipientId, text } : { text, priority: 'normal' })
     handle.release({ kind: 'ended', attemptId: context.attemptId, confirmed: true })
   }
   return ctx
@@ -158,7 +158,7 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   // Waiting on a question.
   const asking = await accept('Ask me which market')
   const askingExecution = await ctx.execution(asking.runId)
-  const question = await askingExecution.handle.callTool('ask', 'ask_user_question', { prompt: 'Which market?', options: [{ id: 'eu', label: 'Europe' }], freeText: false })
+  const question = await askingExecution.handle.callTool('ask', 'message_user', { priority: 'normal', element: { type: 'choice', prompt: 'Which market?', options: [{ id: 'eu', label: 'Europe' }], freeText: false } })
   askingExecution.handle.release({ kind: 'ended', attemptId: askingExecution.context.attemptId, confirmed: true })
   // A message to another member, whose answer is still to come.
   const parent = await accept('Ask Helper to check the numbers')
@@ -193,11 +193,11 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   threadSnapshot.parse(read.data)
 
   // The running run publishes and ends, and the queued reply runs with the organization's defaults.
-  ctx.finish(runningExecution, 'Plan drafted')
+  await ctx.finish(runningExecution, 'Plan drafted')
   await ctx.settled(running.runId, 'completed')
   const queuedExecution = await ctx.execution(queued.runId)
   assert.deepEqual([queuedExecution.context.organizationId, queuedExecution.context.agentId, queuedExecution.context.settings.adapterId], [org.id, scout.agent.id, 'deterministic-fixture'])
-  ctx.finish(queuedExecution, 'Summary')
+  await ctx.finish(queuedExecution, 'Summary')
   await ctx.settled(queued.runId, 'completed')
 
   // The question is answered and the run continues.
@@ -205,24 +205,24 @@ test('work accepted before a removal finishes: queued, running, waiting on a que
   assert.equal(answer.data.outcome, 'accepted')
   const continued = await ctx.execution(asking.runId, 1)
   assert.equal(continued.context.continuation.answer.optionId, 'eu')
-  ctx.finish(continued, 'Europe it is')
+  await ctx.finish(continued, 'Europe it is')
   await ctx.settled(asking.runId, 'completed')
 
-  // The recipient answers, and its answer wakes the sender.
-  ctx.finish(childExecution, 'The numbers add up')
+  // The recipient answers though it was removed, and its answer wakes the sender.
+  await ctx.finish(childExecution, 'The numbers add up', scout.agent.id)
   await ctx.settled(childRunId, 'completed')
   const answerRunId = await until(async () => (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='answer'", [parent.threadId])).rows[0]?.id, Boolean, 'answer')
   const woken = await ctx.execution(answerRunId)
   assert.match(woken.context.prompt, /The numbers add up/)
-  ctx.finish(woken, 'Helper confirmed the numbers')
+  await ctx.finish(woken, 'Helper confirmed the numbers')
   await ctx.settled(answerRunId, 'completed')
 
   // Resume releases the held reply; Retry runs the failed work again.
   assert.equal((await ctx.control(org.id, chatId, held, 'resume', heldExecution.context.attemptId)).data.outcome, 'accepted')
-  ctx.finish(await ctx.execution(behind.runId), 'Second approach done')
+  await ctx.finish(await ctx.execution(behind.runId), 'Second approach done')
   await ctx.settled(behind.runId, 'completed')
   assert.equal((await ctx.control(org.id, chatId, failing, 'retry', failingExecution.context.attemptId)).data.outcome, 'accepted')
-  ctx.finish(await ctx.execution(failing.runId, 1), 'Worked this time')
+  await ctx.finish(await ctx.execution(failing.runId, 1), 'Worked this time')
   await ctx.settled(failing.runId, 'completed')
 
   const history = threadSnapshot.parse((await ctx.call('GET', `/v1/threads/${running.threadId}/snapshot`)).data)
@@ -317,7 +317,7 @@ test('a kip message and the removal of its recipient serialize: exactly one outc
   const [sent, removed] = await Promise.all([sending, removing])
   assert.equal(removed.status, 200)
   const childRunId = (await ctx.db.query("SELECT id FROM kipster.text_runs WHERE thread_id=$1 AND trigger_kind='kip'", [sent.threadId])).rows[0].id
-  ctx.finish(await ctx.execution(childRunId), 'Numbers checked')
+  await ctx.finish(await ctx.execution(childRunId), 'Numbers checked', scout.agent.id)
   await ctx.settled(childRunId, 'completed')
 
   // The removal holds the membership first: the message waits and is refused.
@@ -377,7 +377,7 @@ test('re-adding an agent opens the same chat with its history; group placement i
   const sales = await ctx.group(org.id, 'Sales', [scout.membership.id])
   const { chatId } = (await ctx.chat(org.id, scout.agent.id)).data
   const first = (await ctx.say(org.id, chatId, 'Find three leads')).data
-  ctx.finish(await ctx.execution(first.runId), 'Here are three leads')
+  await ctx.finish(await ctx.execution(first.runId), 'Here are three leads')
   await ctx.settled(first.runId, 'completed')
   const before = await readDirectory(ctx.db, ctx.actor)
 
@@ -400,7 +400,7 @@ test('re-adding an agent opens the same chat with its history; group placement i
   assert.deepEqual(history.messages.flatMap(m => m.parts.map(p => p.text)), ['Find three leads', 'Here are three leads'])
   const next = await ctx.say(org.id, chatId, 'Two more', first.threadId)
   assert.equal(next.status, 202)
-  ctx.finish(await ctx.execution(next.data.runId), 'Two more leads')
+  await ctx.finish(await ctx.execution(next.data.runId), 'Two more leads')
   await ctx.settled(next.data.runId, 'completed')
   const directory = await readDirectory(ctx.db, ctx.actor)
   assert.deepEqual(directory.groups.map(g => g.appearances), [[], []])

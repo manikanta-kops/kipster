@@ -137,9 +137,7 @@ const writers = {
   'text publication': {
     barrier: threadLock,
     write: async (ctx, run, key, prepared, callId) => {
-      const published = await ctx.dispatcher.publishToolText(run.attemptId, callId, `Published ${key}`)
-      if (published.status !== 'completed') throw new Error(published.reason)
-      return published
+      return ctx.dispatcher.messageUserTool(run.attemptId, callId, { text: `Published ${key}`, priority: 'normal', attachments: [] })
     },
     landed: (ctx, key) => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.messages WHERE parts @> $1::jsonb`, [JSON.stringify([{ kind: 'text', text: `Published ${key}` }])]),
   },
@@ -189,11 +187,11 @@ test('artifacts: files attached before the change are fenced before they are pub
   t.after(() => rm(folder, { recursive: true, force: true }))
   const attached = async (key, callId = randomUUID()) => {
     await writeFile(join(folder, `${key}.txt`), key)
-    return outcome(run.call('post_chat_message', { text: key, files: [join(folder, `${key}.txt`)] }, callId))
+    return outcome(run.call('message_user', { text: key, priority: 'normal', attachments: [{ path: join(folder, `${key}.txt`) }] }, callId))
   }
   const claims = state => count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifact_file_attachments WHERE state=$1`, [state])
   const ready = await attached('earlier')
-  assert.equal(ready.value.status, 'completed', 'a file published before the change stays')
+  assert.equal(ready.value.status, 'sent', 'a file published before the change stays')
   const [sql, params] = runLock(run)
   const barrier = await ctx.hold(sql, params)
   const writing = attached('racing')
@@ -203,13 +201,13 @@ test('artifacts: files attached before the change are fenced before they are pub
   await barrier.release()
   const raced = await writing
   await flipping
-  assert.equal(raced.value.status, 'failed', 'the claim committed before the change; the file is never published')
+  assert.ok(raced.error, 'the claim committed before the change; the file is never published')
   assert.deepEqual([await claims('ready'), await claims('failed')], [1, 1])
   assert.equal(await count(ctx.db, `SELECT count(*)::int AS n FROM kipster.artifacts WHERE owner_kind='agent' AND state='ready'`), 1)
   assert.equal(await count(ctx.db, 'SELECT count(*)::int AS n FROM kipster.messages WHERE parts @> $1::jsonb', [JSON.stringify([{ kind: 'text', text: 'racing' }])]), 0)
   assert.equal((await ctx.state(run.runId)).stop_requested, true)
   const after = await attached('after')
-  assert.match(after.value.reason, /not live/)
+  assert.match(after.error.message, /not live/)
   assert.equal(await claims('staging'), 0)
 })
 
@@ -284,7 +282,7 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
   const running = await ctx.running()
   const queued = await ctx.submit(running.chatId, 'After that', { mode: 'reply', threadId: running.threadId })
   const asking = await ctx.running(ctx.scout, 'Ask me something')
-  const question = await asking.call('ask_user_question', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
+  const question = await asking.call('message_user', { priority: 'normal', element: { type: 'choice', prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] } })
   asking.found.handle.release({ kind: 'ended', attemptId: asking.attemptId, confirmed: true })
   await until(async () => (await ctx.state(asking.runId)).state, state => state === 'waiting', 'question wait')
   const other = await ctx.running(ctx.root, 'Unaffected work')
@@ -306,7 +304,7 @@ test('fenceAffectedWork stops queued, running and waiting work as Stop does', { 
   await ctx.dispatcher.deliverCancellations()
   await until(async () => (await ctx.state(running.runId)).cancel_delivery, value => value === 'acknowledged', 'cancellation delivered')
   assert.deepEqual(ctx.cancels, [running.attemptId])
-  running.found.handle.release({ kind: 'text', attemptId: running.attemptId, messageId: 'late', text: 'Late output', final: true })
+  await assert.rejects(running.call('message_user', { text: 'Late output', priority: 'normal' }), /no longer owns publication/)
   running.found.handle.release({ kind: 'ended', attemptId: running.attemptId, confirmed: true })
   await until(async () => (await ctx.state(running.runId)).state, state => state === 'cancelled', 'run cancelled')
   assert.equal(await count(ctx.db, `SELECT count(*)::int AS n FROM kipster.messages WHERE parts @> $1::jsonb`, [JSON.stringify([{ kind: 'text', text: 'Late output' }])]), 0)
@@ -336,7 +334,7 @@ test('fenceAffectedWork of an organization stops every run in its chats, linked 
 test('new work is refused for an agent that is not live, and its chats stay readable', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const run = await ctx.running()
-  run.found.handle.release({ kind: 'text', attemptId: run.attemptId, messageId: 'answer', text: 'Done', final: true })
+  await run.call('message_user', { text: 'Done', priority: 'normal' })
   run.found.handle.release({ kind: 'failed', attemptId: run.attemptId, confirmedEnded: true, message: 'provider failed' })
   await until(async () => (await ctx.state(run.runId)).state, state => state === 'failed', 'run failed')
   await ctx.flip()

@@ -688,6 +688,13 @@ test('inbox entries say who did what, with the excerpt and where', () => {
     notices: [
       { ...question, read: true, revision: 2 },
       { ...done, preview: 'Here is the summary.' },
+      {
+        ...done,
+        id: 'message',
+        kind: 'message',
+        messageId: 'reply',
+        preview: 'The report is attached.',
+      },
       { ...done, id: 'failed', kind: 'failed', preview: 'Provider stopped.' },
       { ...done, id: 'interrupted', kind: 'recovery-needed' },
       { ...done, id: 'future', kind: 'digest' },
@@ -711,6 +718,7 @@ test('inbox entries say who did what, with the excerpt and where', () => {
   expect(items.map((n) => [n.title, n.body])).toEqual([
     ['Ledger needs your answer', 'Blue or red?'],
     ['Scout replied', 'Here is the summary.'],
+    ['Scout replied', 'The report is attached.'],
     ['Scout couldn’t finish', 'Provider stopped.'],
     ['Scout’s work was interrupted', ''],
     ['Scout has an update', ''],
@@ -732,7 +740,7 @@ test('inbox entries say who did what, with the excerpt and where', () => {
   const sections = inboxSections(items)
   expect(sections.needs).toHaveLength(3)
   expect(sections.updates).toHaveLength(1)
-  expect(sections.updates[0].ids.sort()).toEqual(['done', 'future'])
+  expect(sections.updates[0].ids.sort()).toEqual(['done', 'future', 'message'])
   const marks = chatMarks(items, [], () => 'chat')
   expect(marks).toEqual({ chat: 'needs' })
   expect(

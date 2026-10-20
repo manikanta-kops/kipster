@@ -45,9 +45,9 @@ export async function getAgent(db: Postgres, attemptId: string, incarnation: str
   return (await listAgents(db, attemptId, incarnation)).find(x => x.id === agentId) ?? null
 }
 
-/** Files the sender attached by path: already stored, and made ready by `settle` in the message's transaction. They follow `artifactIds`. */
+/** Files the sender attached by path, in path order: already stored, and made ready by `settle` in the message's transaction. */
 export interface KipMessageFiles { files: readonly { artifactId: string }[]; settle(client: SqlClient): Promise<void> }
-export interface KipMessageInput { recipientId: string; text: string; artifactIds: readonly string[]; workspaceId?: string; requestHash: string }
+export interface KipMessageInput { recipientId: string; text: string; attachments: readonly ({ path: string } | { artifactId: string })[]; workspaceId?: string; requestHash: string }
 export interface KipMessageResult { status: 'sent'; recipientId: string; threadId: string; chatId: string; messageId: string }
 type Target = { kind: 'installation' | 'organization'; id: string }
 
@@ -78,20 +78,24 @@ async function messageTarget(client: SqlClient, scope: Scope, recipientId: strin
 }
 
 /**
- * Sends a kip's message to another kip (decision record 11). The message is posted in the sender's thread with a
- * `kip-message` part and, as an ordinary message from the sender, in the linked thread, which is created in the
- * recipient's chat with the responsible person when needed. The recipient's turn is queued there; the sender's turn
- * goes on. The same attempt and call ID returns the first result.
+ * Sends a kip's message to another kip (decision records 11 and 12). The message is posted in the sender's thread
+ * with a `kip-message` part and, as an ordinary message from the sender, in the linked thread, which is created in
+ * the recipient's chat with the responsible person when needed. The recipient's turn is queued there; the sender's
+ * turn goes on. From a linked thread, a message to the kip whose messages it holds is an answer: it goes back into
+ * that kip's thread instead. The same attempt and call ID returns the first result.
  */
 export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, incarnation: string, callId: string, input: KipMessageInput, attached?: KipMessageFiles): Promise<KipMessageResult> {
-  const { recipientId, text, artifactIds, workspaceId, requestHash } = input
-  const allIds = [...artifactIds, ...attached?.files.map(file => file.artifactId) ?? []]
-  if (!callId || callId.length > 200 || !uuid.test(recipientId) || !text.trim() || text.length > 16000 || allIds.length > MAX_FILES_PER_MESSAGE || new Set(artifactIds).size !== artifactIds.length || artifactIds.some(id => !uuid.test(id)) || workspaceId !== undefined && !uuid.test(workspaceId)) {
+  const { recipientId, text, attachments, workspaceId, requestHash } = input
+  let next = 0
+  const allIds = attachments.map(item => 'artifactId' in item ? item.artifactId : attached?.files[next++]?.artifactId ?? '')
+  const artifactIds = attachments.flatMap(item => 'artifactId' in item ? [item.artifactId] : [])
+  if (!callId || callId.length > 200 || !uuid.test(recipientId) || !text.trim() || text.length > 16000 || allIds.length > MAX_FILES_PER_MESSAGE || allIds.some(id => !uuid.test(id)) || new Set(allIds).size !== allIds.length || workspaceId !== undefined && !uuid.test(workspaceId)) {
     throw new Error(allIds.length > MAX_FILES_PER_MESSAGE ? `Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message` : 'Invalid message_kip arguments')
   }
   const first = await boundScope(db, attemptId, incarnation)
   return db.transaction(async client => {
     await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR UPDATE', [first.installationId])
+    await lockKipSource(client, first.threadId)
     await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [first.threadId])
     const scope = await boundScope(client, attemptId, incarnation)
     const prior = (await client.query<{ request_hash: string; result: KipMessageResult }>('SELECT request_hash,result FROM kipster.kip_message_calls WHERE attempt_id=$1 AND call_id=$2', [attemptId, callId])).rows[0]
@@ -103,11 +107,34 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
     const name = (await client.query<{ display_name: string }>('SELECT display_name FROM kipster.agents WHERE id=$1 AND installation_id=$2', [recipientId, scope.installationId])).rows[0]?.display_name
     if (name === undefined) throw new Error('No kip has that ID; find kips with list_kips')
     const limits = (await client.query<{ delegation_depth_limit: number; delegation_root_budget: number; delegation_fanout_limit: number }>('SELECT delegation_depth_limit,delegation_root_budget,delegation_fanout_limit FROM kipster.execution_permits WHERE installation_id=$1', [scope.installationId])).rows[0]!
-    if (scope.chainDepth + 1 > limits.delegation_depth_limit) throw new Error(`Cannot message another kip: this message would pass through more than ${limits.delegation_depth_limit} kips. Answer with what you have.`)
-    const sent = Number((await client.query<{ n: string }>(`SELECT (SELECT count(*) FROM kipster.kip_message_calls WHERE chain_root_id=$1) + (SELECT count(*) FROM kipster.text_runs WHERE chain_root_id=$1 AND trigger_kind='answer') AS n`, [scope.chainRootId])).rows[0]!.n)
-    if (sent >= limits.delegation_root_budget) throw new Error(`Cannot message another kip: this conversation already passed ${limits.delegation_root_budget} kip messages and answers. Answer with what you have.`)
     const turn = Number((await client.query<{ n: string }>('SELECT count(*) AS n FROM kipster.kip_message_calls WHERE sender_run_id=$1', [scope.runId])).rows[0]!.n)
     if (turn >= limits.delegation_fanout_limit) throw new Error(`Cannot message another kip: one turn sends at most ${limits.delegation_fanout_limit} kip messages`)
+    for (const id of artifactIds) {
+      const file = (await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id WHERE ma.artifact_id=$1 AND m.thread_id=$2 LIMIT 1', [id, scope.threadId])).rows[0]
+      if (!file) throw new Error('Attach only files from this conversation, or attach your own files by path')
+    }
+    const back = (await client.query<{ source_thread_id: string; chat_id: string; caller_id: string; context_kind: string; context_id: string }>(`SELECT l.source_thread_id,t.chat_id,c.caller_id,c.context_kind,c.context_id FROM kipster.kip_links l
+      JOIN kipster.threads t ON t.id=l.source_thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE l.linked_thread_id=$1 AND l.sender_agent_id=$2`, [scope.threadId, recipientId])).rows[0]
+    if (back) {
+      // Answers are never refused for depth, the chain's budget or a removal: the asking kip is waiting for them.
+      if (!await chatPresent(client, back.chat_id) || !await isLive(client, scope.installationId, 'agent', recipientId)
+        || back.context_kind === 'organization' && !await isLive(client, scope.installationId, 'organization', back.context_id)) throw new Error(`${name} is not available`)
+      await requireMessageFileLimit(client, allIds)
+      await attached?.settle(client)
+      const files = allIds.map(artifactId => ({ kind: 'file' as const, artifactId, purpose: 'attachment' as const }))
+      const sentId = await insertMessage(client, scope.threadId, scope.agentId, [{ kind: 'text', text }, ...files, { kind: 'kip-message', recipientId, threadId: back.source_thread_id, chatId: back.chat_id }], allIds, { attemptId, publicationId: `kip:${callId}` })
+      await client.query("UPDATE kipster.text_runs SET answered_at=now() WHERE id=$1 AND trigger_kind='kip' AND answered_at IS NULL", [scope.runId])
+      await postAnswer(client, jobs, { callerId: back.caller_id, threadId: back.source_thread_id, chatId: back.chat_id }, scope, [{ kind: 'text', text }, ...files], allIds)
+      const result: KipMessageResult = { status: 'sent', recipientId, threadId: back.source_thread_id, chatId: back.chat_id, messageId: sentId }
+      await client.query('INSERT INTO kipster.kip_message_calls(attempt_id,call_id,sender_run_id,chain_root_id,request_hash,result) VALUES ($1,$2,$3,$4,$5,$6::jsonb)', [attemptId, callId, scope.runId, scope.chainRootId, requestHash, JSON.stringify(result)])
+      await publishThreadChange(client, scope.installationId, scope.personId, scope.threadId, scope.chatId, 'message-final', sentId, 1, await messageRecord(client, sentId), 'running', sentId)
+      return result
+    }
+    // A sender removed from its workspace finishes its turn without starting new work.
+    if (scope.contextKind === 'organization' && !(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2 FOR KEY SHARE', [scope.contextId, scope.agentId])).rows.length) throw new Error('You no longer work in this workspace')
+    if (scope.chainDepth + 1 > limits.delegation_depth_limit) throw new Error(`Cannot message another kip: this message would pass through more than ${limits.delegation_depth_limit} kips. Answer with what you have.`)
+    const sent = Number((await client.query<{ n: string }>("SELECT count(*) AS n FROM kipster.text_runs WHERE chain_root_id=$1 AND trigger_kind IN ('kip','answer')", [scope.chainRootId])).rows[0]!.n)
+    if (sent >= limits.delegation_root_budget) throw new Error(`Cannot message another kip: this conversation already passed ${limits.delegation_root_budget} kip messages and answers. Answer with what you have.`)
 
     // The same source thread and recipient always use the same linked thread.
     const link = (await client.query<{ linked_thread_id: string; chat_id: string; context_kind: 'installation' | 'organization'; context_id: string }>(`SELECT l.linked_thread_id,t.chat_id,c.context_kind,c.context_id FROM kipster.kip_links l
@@ -125,12 +152,6 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
     if (link) {
       await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [link.linked_thread_id])
       if ((await client.query("SELECT 1 FROM kipster.text_runs WHERE thread_id=$1 AND state='recovery-needed' AND queue_hold LIMIT 1", [link.linked_thread_id])).rows.length) throw new Error(`${name}'s thread has a turn the person must check first; tell the person`)
-    }
-    // A sender removed from its workspace finishes its turn without starting new work.
-    if (scope.contextKind === 'organization' && !(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2 FOR KEY SHARE', [scope.contextId, scope.agentId])).rows.length) throw new Error('You no longer work in this workspace')
-    for (const id of artifactIds) {
-      const file = (await client.query('SELECT 1 FROM kipster.message_artifacts ma JOIN kipster.messages m ON m.id=ma.message_id WHERE ma.artifact_id=$1 AND m.thread_id=$2 LIMIT 1', [id, scope.threadId])).rows[0]
-      if (!file) throw new Error('Attach only files from this conversation, or attach your own files by path')
     }
     await requireMessageFileLimit(client, allIds)
     await attached?.settle(client)
@@ -191,20 +212,33 @@ export async function lockKipSource(client: SqlClient, threadId: string): Promis
   await client.query('SELECT 1 FROM kipster.threads WHERE id=(SELECT source_thread_id FROM kipster.kip_links WHERE linked_thread_id=$1) FOR UPDATE', [threadId])
 }
 
-/** How a kip-started run ended: with its final reply, a failure, or stopped. A stopped run whose kip or workspace is gone was removed. */
+/** How a kip-started run ended: it finished, failed, or stopped. A stopped run whose kip or workspace is gone was removed. */
 export type KipRunEnd = { kind: 'completed' } | { kind: 'failed'; reason: string | null } | { kind: 'cancelled' }
 
 /**
- * Sends the answer of a run a kip's message started back into the thread the message came from, authored by the
- * recipient with a `kip-answer` part, and queues the sender's turn on it. A run started by a person or by an answer
- * sends nothing back, and an answer goes back once. The answer is dropped when its thread, or the sender, is gone.
- * Caller holds the capacity lock; lock the source thread (`lockKipSource`) before the run's thread.
+ * An answer from `from`, the recipient of a kip's message, into the thread the message came from: authored by the
+ * recipient with a `kip-answer` part. It queues the sender's turn behind any running one; the woken sender keeps its
+ * depth in the chain. Caller holds the source thread's lock.
+ */
+async function postAnswer(client: SqlClient, jobs: Jobs, source: { callerId: string; threadId: string; chatId: string }, from: { installationId: string; agentId: string; threadId: string; chatId: string; chainRootId: string; chainDepth: number; personId: string }, parts: Part[], artifactIds: readonly string[]): Promise<void> {
+  const messageId = await insertMessage(client, source.threadId, from.agentId, [...parts, { kind: 'kip-answer', agentId: from.agentId, threadId: from.threadId, chatId: from.chatId }], artifactIds)
+  const runId = await queueRun(client, jobs, source.threadId, messageId, from.installationId, { trigger: 'answer', chainRootId: from.chainRootId, chainDepth: Math.max(from.chainDepth - 1, 0), personId: from.personId })
+  await publishThreadChange(client, from.installationId, source.callerId, source.threadId, source.chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
+  await publishThreadChange(client, from.installationId, source.callerId, source.threadId, source.chatId, 'work-changed', runId, 1, await workRecord(client, runId), 'queued', null)
+}
+
+/**
+ * Tells the sender how a run its message started ended, unless the run finished after answering with `message_kip`:
+ * "<Name> finished without a reply.", "<Name> couldn't finish: …", "<Name> stopped before answering." or "<Name> was
+ * removed before answering." A run started by a person or by an answer sends nothing. The note is dropped when its
+ * thread, or the sender, is gone. Caller holds the capacity lock; lock the source thread (`lockKipSource`) before the
+ * run's thread.
  */
 export async function answerKipRun(client: SqlClient, jobs: Jobs, runId: string, end: KipRunEnd): Promise<void> {
   const run = (await client.query<{ thread_id: string; chat_id: string; trigger_kind: string; answered_at: Date | null; chain_root_id: string; chain_depth: number; responsible_person_id: string; agent_id: string; context_kind: string; context_id: string; installation_id: string }>(
     `SELECT r.thread_id,t.chat_id,r.trigger_kind,r.answered_at,r.chain_root_id,r.chain_depth,r.responsible_person_id,c.agent_id,c.context_kind,c.context_id,c.installation_id
      FROM kipster.text_runs r JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id WHERE r.id=$1`, [runId])).rows[0]
-  if (!run || run.trigger_kind !== 'kip' || run.answered_at) return
+  if (!run || run.trigger_kind !== 'kip' || end.kind === 'completed' && run.answered_at) return
   await client.query('UPDATE kipster.text_runs SET answered_at=now() WHERE id=$1', [runId])
   const source = (await client.query<{ source_thread_id: string; sender_agent_id: string; chat_id: string; caller_id: string; context_kind: string; context_id: string }>(
     `SELECT l.source_thread_id,l.sender_agent_id,t.chat_id,c.caller_id,c.context_kind,c.context_id FROM kipster.kip_links l
@@ -213,23 +247,14 @@ export async function answerKipRun(client: SqlClient, jobs: Jobs, runId: string,
     || source.context_kind === 'organization' && !await isLive(client, run.installation_id, 'organization', source.context_id)) return
   await client.query('SELECT 1 FROM kipster.threads WHERE id=$1 FOR UPDATE', [source.source_thread_id])
   const name = await agentName(client, run.agent_id)
-  let parts: Part[] = [], artifactIds: string[] = []
-  if (end.kind === 'completed') {
-    const replies = (await client.query<{ parts: Part[] }>(`SELECT m.parts FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id
-      WHERE a.intent_id=$1 AND m.final AND NOT m.progress AND NOT m.parts @> '[{"kind":"kip-message"}]' ORDER BY m.position`, [runId])).rows
-    const texts = replies.flatMap(row => row.parts.filter(part => part.kind === 'text' && typeof part.text === 'string' && part.text))
-    artifactIds = [...new Set(replies.flatMap(row => row.parts.flatMap(part => part.kind === 'file' && typeof part.artifactId === 'string' ? [part.artifactId] : [])))].slice(0, MAX_FILES_PER_MESSAGE)
-    parts = [...texts.map(part => ({ kind: 'text', text: part.text })), ...artifactIds.map(artifactId => ({ kind: 'file', artifactId, purpose: 'attachment' }))]
-    if (!parts.length) parts = [{ kind: 'text', text: `${name} finished without a reply.` }]
-  } else if (end.kind === 'failed') parts = [{ kind: 'text', text: `${name} couldn't finish: ${end.reason || 'the turn failed'}` }]
+  let text: string
+  if (end.kind === 'completed') text = `${name} finished without a reply.`
+  else if (end.kind === 'failed') text = `${name} couldn't finish: ${end.reason || 'the turn failed'}`
   else {
     const removed = !await isLive(client, run.installation_id, 'agent', run.agent_id) || run.context_kind === 'organization' && (!await isLive(client, run.installation_id, 'organization', run.context_id)
       || !(await client.query('SELECT 1 FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2', [run.context_id, run.agent_id])).rows.length)
-    parts = [{ kind: 'text', text: removed ? `${name} was removed before answering.` : `${name} stopped before answering.` }]
+    text = removed ? `${name} was removed before answering.` : `${name} stopped before answering.`
   }
-  const messageId = await insertMessage(client, source.source_thread_id, run.agent_id, [...parts, { kind: 'kip-answer', agentId: run.agent_id, threadId: run.thread_id, chatId: run.chat_id }], artifactIds)
-  // The woken sender keeps its depth in the chain.
-  const answerRunId = await queueRun(client, jobs, source.source_thread_id, messageId, run.installation_id, { trigger: 'answer', chainRootId: run.chain_root_id, chainDepth: Math.max(run.chain_depth - 1, 0), personId: run.responsible_person_id })
-  await publishThreadChange(client, run.installation_id, source.caller_id, source.source_thread_id, source.chat_id, 'message-final', messageId, 1, await messageRecord(client, messageId), 'queued', messageId)
-  await publishThreadChange(client, run.installation_id, source.caller_id, source.source_thread_id, source.chat_id, 'work-changed', answerRunId, 1, await workRecord(client, answerRunId), 'queued', null)
+  await postAnswer(client, jobs, { callerId: source.caller_id, threadId: source.source_thread_id, chatId: source.chat_id },
+    { installationId: run.installation_id, agentId: run.agent_id, threadId: run.thread_id, chatId: run.chat_id, chainRootId: run.chain_root_id, chainDepth: run.chain_depth, personId: run.responsible_person_id }, [{ kind: 'text', text }], [])
 }

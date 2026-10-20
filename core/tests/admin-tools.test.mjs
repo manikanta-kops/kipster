@@ -380,9 +380,9 @@ test('a run waiting on a person, or a turn another kip\'s message started, canno
   const operations = await ctx.operations()
 
   // After an approval request or a question the attempt still runs, but its run waits on the owner.
-  for (const [name, args] of [['request_user_approval', { prompt: 'Create Alpha?', proposalId: 'alpha', proposal: 'Create the organization Alpha' }], ['ask_user_question', { prompt: 'Which name?', options: [{ id: 'a', label: 'Alpha' }], freeText: false }]]) {
+  for (const element of [{ type: 'approval', prompt: 'Create Alpha?', proposalId: 'alpha', proposal: 'Create the organization Alpha' }, { type: 'choice', prompt: 'Which name?', options: [{ id: 'a', label: 'Alpha' }], freeText: false }]) {
     const run = await ctx.start()
-    await run.tool('ask', name, args)
+    await run.tool('ask', 'message_user', { priority: 'normal', element })
     assert.equal((await ctx.db.query('SELECT r.state, a.state AS attempt FROM kipster.text_runs r JOIN kipster.attempts a ON a.id=r.current_attempt_id WHERE r.id=$1', [run.runId])).rows[0].state, 'waiting')
     for (const tool of toolNames) await assert.rejects(run.tool(`waiting-${tool}`, tool, {}), /Attempt no longer owns administration tools/, tool)
     await assert.rejects(run.tool('create', 'admin.organizations.create', { name: 'Alpha' }), /no longer owns/)

@@ -13,7 +13,7 @@ if (mode !== 'index') {
    if (message.action === 'confirm-end') handle.release({ kind: 'failed', attemptId: context.attemptId, confirmedEnded: true, message: 'Fixture confirmed interruption' })
   })
   handle.release({ kind: 'provider', attemptId: context.attemptId, threadId: 'owned-fixture', processId: process.pid, providerStateScope: 'shared-codex-home', workingDirectory: home, modelId: 'fixture-model' })
-  handle.release({ kind: 'text', attemptId: context.attemptId, messageId: 'stream', text: 'Persisted partial output', final: false })
+  await handle.callTool('stream', 'message_user', { text: 'Persisted partial output', priority: 'silent' })
   if (mode === 'waiting' || mode === 'asking') setTimeout(async () => {
    try {
     const card = await dispatcher.askToolInteraction(context.attemptId, 'question', { kind: 'question', prompt: 'Continue?', options: [{ id: 'yes', label: 'Yes' }], freeText: false })

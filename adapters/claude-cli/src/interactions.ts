@@ -73,7 +73,7 @@ function questions(context: TextExecutionContext, input: ObjectValue): Decision 
   for (const row of asked) {
     const text = typeof row.question === 'string' ? row.question : ''
     const labels = (Array.isArray(row.options) ? row.options : []).map(option => String(object(option).label ?? '')).filter(Boolean)
-    if (!text || labels.length > 5) return { kind: 'answered', behavior: 'deny', message: 'Ask with at most five options per question, or use the Kipster ask_user_question tool.' }
+    if (!text || labels.length > 5) return { kind: 'answered', behavior: 'deny', message: 'Ask with at most five options per question, or use the Kipster message_user tool with a choice element.' }
     const options = labels.map((label, index) => ({ id: `option-${index + 1}`, label }))
     const prompt = `${text}${row.multiSelect === true ? '\n(Choose one, or type several answers.)' : ''}`
     const saved = context.interactions?.findLast(item => item.kind === 'question' && item.prompt === prompt && canonical(item.options) === canonical(options) && item.freeText)

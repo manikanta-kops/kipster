@@ -97,10 +97,10 @@ async function setup(t, { learning = false } = {}) {
     const attemptId = found.context.attemptId
     return { ...saved.data, chatId, chat: chatContext, found, attemptId, release: event => found.handle.release({ attemptId, ...event }), call: (name, args, callId = randomUUID()) => found.handle.callTool(callId, name, args) }
   }
-  /** Ends an execution with a final answer. */
-  ctx.finish = ({ found }, text = 'Done') => {
+  /** Ends an execution after it messages the person. */
+  ctx.finish = async ({ found }, text = 'Done') => {
     const attemptId = found.context.attemptId
-    found.handle.release({ kind: 'text', attemptId, messageId: `answer-${randomUUID()}`, text, final: true })
+    await found.handle.callTool(`answer-${randomUUID()}`, 'message_user', { text, priority: 'normal' })
     found.handle.release({ kind: 'ended', attemptId, confirmed: true })
   }
   ctx.state = async runId => ({ ...await row(ctx.db, 'SELECT state, stop_requested FROM kipster.text_runs WHERE id=$1', [runId]) })
@@ -125,7 +125,7 @@ test('archiving stops the agent\'s work, tells a kip waiting on it that it was r
   const running = await ctx.running()
   const queued = await ctx.submit(running.chatId, 'After that', { mode: 'reply', threadId: running.threadId })
   const asking = await ctx.running(ctx.scout, 'Ask me something')
-  const question = await asking.call('ask_user_question', { prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] })
+  const question = await asking.call('message_user', { priority: 'normal', element: { type: 'choice', prompt: 'Which region?', options: [{ id: 'eu', label: 'Europe' }] } })
   asking.release({ kind: 'ended', confirmed: true })
   await ctx.settled(asking.runId, 'waiting')
   const cursor = await ctx.cursor()
@@ -141,10 +141,10 @@ test('archiving stops the agent\'s work, tells a kip waiting on it that it was r
   assert.deepEqual(await ctx.state(queued.data.runId), { state: 'cancelled', stop_requested: true })
   assert.deepEqual(await ctx.state(asking.runId), { state: 'cancelled', stop_requested: true })
   assert.equal((await row(ctx.db, 'SELECT state FROM kipster.interactions WHERE id=$1', [question.interactionId])).state, 'cancelled')
-  // Output the provider sends afterwards never lands.
-  running.release({ kind: 'text', messageId: 'late', text: 'Late output', final: true })
+  // Messages the provider sends afterwards never land.
+  await assert.rejects(running.call('message_user', { text: 'Late output', priority: 'normal' }), /no longer owns/)
   running.release({ kind: 'ended', confirmed: true })
-  child.handle.release({ kind: 'text', attemptId: child.context.attemptId, messageId: 'late-child', text: 'Late child output', final: true })
+  await assert.rejects(child.handle.callTool('late-child', 'message_user', { text: 'Late child output', priority: 'normal' }), /no longer owns/)
   child.handle.release({ kind: 'ended', attemptId: child.context.attemptId, confirmed: true })
   await ctx.settled(running.runId, 'cancelled')
   await ctx.settled(childRunId, 'cancelled')
@@ -157,7 +157,7 @@ test('archiving stops the agent\'s work, tells a kip waiting on it that it was r
   const tool = (name, args) => resumed.handle.callTool(randomUUID(), name, args)
   assert.equal((await tool('list_kips', {})).agents.some(agent => agent.id === ctx.scout), false)
   await assert.rejects(tool('message_kip', { recipientId: ctx.scout, text: 'Try again' }), /Agent is archived/)
-  ctx.finish({ found: resumed }, 'Scout is unavailable')
+  await ctx.finish({ found: resumed }, 'Scout is unavailable')
   await ctx.settled(answer.run_id, 'completed')
 
   // Submissions and new chats are refused with the stable code; an existing chat still opens.
@@ -211,8 +211,8 @@ test('restoring brings the agent back unchanged: stopped work stays stopped, Ret
   const writer = await ctx.running(ctx.scout, 'Write the notes')
   await mkdir(ctx.runtime.home.agent(ctx.scout), { recursive: true })
   await writeFile(join(ctx.runtime.home.agent(ctx.scout), 'notes.txt'), 'Quarterly notes')
-  const [published] = (await writer.call('post_chat_message', { text: 'Here are the notes', files: ['notes.txt'] })).files
-  ctx.finish(writer)
+  const [published] = (await writer.call('message_user', { text: 'Here are the notes', priority: 'normal', attachments: [{ path: 'notes.txt' }] })).files
+  await ctx.finish(writer)
   await ctx.settled(writer.runId, 'completed')
   const file = { id: published.artifactId, target: { installationId: ctx.installationId, callerId: ctx.ownerId, context: ctx.context, chatId: writer.chatId, threadId: writer.threadId } }
   const failed = await ctx.running(ctx.scout, 'This one fails')
@@ -240,9 +240,9 @@ test('restoring brings the agent back unchanged: stopped work stays stopped, Ret
   const from = ctx.executions.length
   const retried = await ctx.control(failed, 'retry')
   assert.equal(retried.outcome, 'accepted', JSON.stringify(retried))
-  ctx.finish({ found: await ctx.execution(failed.runId, from) }, 'Retried')
+  await ctx.finish({ found: await ctx.execution(failed.runId, from) }, 'Retried')
   const fresh = await ctx.running(ctx.scout, 'Back to work')
-  ctx.finish(fresh, 'Working again')
+  await ctx.finish(fresh, 'Working again')
   await ctx.settled(fresh.runId, 'completed')
   await ctx.settled(failed.runId, 'completed')
   assert.equal((await ctx.state(stopped.runId)).state, 'cancelled')
@@ -297,7 +297,7 @@ test('the admin agent cannot be archived; operation IDs are receipts; only the o
   const noop = await ctx.lifecycle('restore')
   assert.deepEqual([noop.status, noop.data.agent.revision], [200, restored.agent.revision])
   assert.deepEqual((await ctx.agentEvents(cursor)).map(event => event.data.lifecycle), ['archived', 'active'])
-  ctx.finish(adminRun)
+  await ctx.finish(adminRun)
 })
 
 test('memory is not in effect for an archived agent and resumes after a restore', { skip: noDatabase, timeout: 120000 }, async t => {

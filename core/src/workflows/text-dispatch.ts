@@ -1,5 +1,5 @@
-import { coalesceDrafts } from './draft-events.js'
 import { administrationReceipts } from '../modules/administration/public.js'
+import { attachmentsInput, messageUserInput, type Attachment, type MessageUserInput } from './message-input.js'
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { createHash, randomUUID } from 'node:crypto'
@@ -8,7 +8,7 @@ import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validRea
 import type { Runtime } from '../runtime.js'
 import { acceptsType } from '../transcription/index.js'
 import type { CoordinatorLock, Postgres, SqlClient } from '../platform/postgres/public.js'
-import { answerKipRun, claimPreparation, issueAttempt, getAgent, listAgents, lockKipSource, messageKip, stopRun, type Attempt, type KipRunEnd } from '../modules/work/public.js'
+import { answerKipRun, claimPreparation, issueAttempt, getAgent, listAgents, lockKipSource, messageKip, stopRun, type Attempt, type KipMessageInput, type KipRunEnd } from '../modules/work/public.js'
 import { sealAttemptMessages, runContext, executionHistory, messageRecord, workRecord, authorizedChat } from '../modules/conversations/public.js'
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
@@ -18,11 +18,11 @@ import { adminSkill, skillsSection } from './skills.js'
 import type { Context } from '../protocol/text.js'
 import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
-import { publishThreadChange, publishThreadSummary, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
+import { publishThreadChange, publishThreadSummary, createMessageNotification, createNotification, interactionNotificationChanged } from '../modules/synchronization/public.js'
 import { askInteraction, interactionRecord, type InteractionInput } from '../modules/work/public.js'
 import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
-import { createDocumentIn, createdDocument, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
+import { createDocument, documentCard, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
 import { MAX_FILES_PER_MESSAGE, requireMessageFileLimit, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
@@ -60,13 +60,13 @@ export function abortableResult<T>(signal:AbortSignal,operation:()=>Promise<T>,i
     try{operation().then(finish,fail)}catch(error){fail(error)}
   })
 }
-const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId,row.purpose]:row.kind==='document'?['document',row.documentId,row.revision]:['invalid']}))
+/** What a publication sent: its text, files and docs in order. A doc's revision may change after it was sent. */
+const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(parts.map(part=>{const row=part&&typeof part==='object'&&!Array.isArray(part)?part as Record<string,unknown>:{};return row.kind==='text'?['text',row.text]:row.kind==='file'?['file',row.artifactId]:row.kind==='document'?['document',row.documentId]:['invalid']}))
 // Agent and document tools keep their Core operation names.
 const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['message_kip', 'agents.message']])
 const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
 const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
-const strings=(value:unknown):boolean=>value===undefined||Array.isArray(value)&&value.every(item=>typeof item==='string')
 
 /**
  * Who the kip is, from its current name and role, so a renamed kip knows its new name. The admin kip also learns the
@@ -98,21 +98,18 @@ async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map
 }
 /** For a linked thread: which kip's conversation its kip messages come from, and how to read it; read_thread is offered there with memory on or off. */
 async function linkedThreadLine(db: Postgres, threadId: string): Promise<string> {
-  const row = (await db.query<{ name: string; source_thread_id: string }>(`SELECT a.display_name AS name,l.source_thread_id FROM kipster.kip_links l JOIN kipster.agents a ON a.id=l.sender_agent_id WHERE l.linked_thread_id=$1`, [threadId])).rows[0]
+  const row = (await db.query<{ name: string; sender_agent_id: string; source_thread_id: string }>(`SELECT a.display_name AS name,l.sender_agent_id,l.source_thread_id FROM kipster.kip_links l JOIN kipster.agents a ON a.id=l.sender_agent_id WHERE l.linked_thread_id=$1`, [threadId])).rows[0]
   if (!row) return ''
-  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation, and your final reply to each goes back there automatically. If a message lacks a detail you need, read that conversation with read_thread. A message the person writes here is answered to the person only.`
+  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation; answer them with message_kip to ${row.name} (recipientId ${row.sender_agent_id}), and the answer goes back there. If a message lacks a detail you need, read that conversation with read_thread. Answer a message the person writes here to the person, with message_user.`
 }
 
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToolText' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
-      if (request.name === 'post_chat_message') {
-        if (Object.keys(args).some(key=>!['text','artifactIds','files'].includes(key)) || (args.text!==undefined&&typeof args.text!=='string') || !strings(args.artifactIds) || !strings(args.files)) throw new Error('Invalid publication arguments')
-        return dispatcher.publishToolText(request.attemptId, request.callId, typeof args.text==='string'?args.text:'', args.artifactIds as string[]|undefined, args.files as string[]|undefined)
-      }
+      if (request.name === 'message_user') return dispatcher.messageUserTool(request.attemptId, request.callId, messageUserInput(args))
       if(request.name==='transcribe_voice_note'){
         if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid transcription arguments')
         return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
@@ -121,10 +118,9 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'publishToo
         if(Object.keys(args).some(key=>!['artifactId','workspaceId'].includes(key))||typeof args.artifactId!=='string'||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid organization publication arguments')
         return dispatcher.copyArtifactTool(request.attemptId,request.callId,args.artifactId,args.workspaceId as string|undefined)
       }
-      if (request.name === 'ask_user_question' || request.name === 'request_user_approval') {
+      // Kips ask with message_user; these names carry a provider's own question or approval from its adapter.
+      if ((request.name === 'ask_user_question' || request.name === 'request_user_approval') && request.callId.startsWith('native:')) {
         const kind = request.name === 'ask_user_question' ? 'question' : 'approval'
-        // A grant outlives its card, so only an adapter translating a provider's own approval may offer one.
-        if (args.grant !== undefined && !request.callId.startsWith('native:')) throw new Error('Invalid interaction fields')
         return dispatcher.askToolInteraction(request.attemptId, request.callId, { ...args, kind } as unknown as InteractionInput)
       }
       const agentOperation = agentOperations.get(request.name)
@@ -794,22 +790,21 @@ export class TextDispatcher {
       if ((paused || updatePaused) && !this.stopped) await this.passWakeup(runId, updatePaused ? 5 : 0)
       return
     }
-    await this.driveIssued(runId, attempt, context, route, execution)
+    await this.driveIssued(runId, attempt, route, execution)
   }
 
-  private async driveIssued(runId: string, attempt: Attempt, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, route: { adapter: TextExecutionAdapter; release(attemptId: string): void }, execution: ExecutionContext): Promise<void> {
+  private async driveIssued(runId: string, attempt: Attempt, route: { adapter: TextExecutionAdapter; release(attemptId: string): void }, execution: ExecutionContext): Promise<void> {
     await this.hooks.afterIssue?.(attempt.id)
     try {
       const handle = await route.adapter.execute(execution)
       this.handles.set(attempt.id, handle)
       const stoppedDuringDispatch = (await this.runtime.db.query<{ stop_requested:boolean }>('SELECT stop_requested FROM kipster.text_runs WHERE id=$1 AND current_attempt_id=$2',[runId,attempt.id])).rows[0]
       if (stoppedDuringDispatch?.stop_requested) this.requestCancel(attempt.id)
-      for await (const event of coalesceDrafts(handle.events)) {
+      // Text events are not shown: a kip reaches the person with message_user.
+      for await (const event of handle.events) {
         if (event.attemptId !== attempt.id) continue
         if (event.kind === 'provider') {
           await this.recordProvider(attempt, event)
-        } else if (event.kind === 'text') {
-          if (event.text || event.final) await this.publishText(attempt, event, context, 'native')
         } else if (event.kind === 'ended') {
           await this.settle(attempt, 'completed', null, false)
           this.handles.delete(attempt.id)
@@ -839,22 +834,34 @@ export class TextDispatcher {
       JSON.stringify({ threadId: event.threadId, ...(event.turnId ? { turnId: event.turnId } : {}), processId: event.processId, providerStateScope: event.providerStateScope, workingDirectory: event.workingDirectory, modelId: event.modelId, ...(event.effort ? { effort: event.effort } : {}) })])
   }
 
-  /** Explicit tool publications use the call ID as the publication identity. Files named by path are attached after `artifactIds`. */
-  async publishToolText(attemptId: string, callId: string, text: string, artifactIds: readonly string[] = [], files: readonly string[] = []): Promise<{ status: 'completed'; messageId: string; files?: AttachedFile[] } | { status: 'failed'; reason: string }> {
-    if (!callId || callId.length > 200 || (!text&&!artifactIds.length&&!files.length) || Buffer.byteLength(text) > 64 * 1024 || artifactIds.length+files.length>MAX_FILES_PER_MESSAGE || new Set(artifactIds).size!==artifactIds.length) return { status: 'failed', reason: artifactIds.length+files.length>MAX_FILES_PER_MESSAGE ? `Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message` : 'Invalid publication' }
+  /**
+   * `message_user`: one message in the run's thread with its attachments in order, then the element, which leaves the
+   * run waiting for the person's answer. The call ID identifies both. Normal priority notifies the person once: of the
+   * element when there is one, else of the message.
+   */
+  async messageUserTool(attemptId: string, callId: string, input: MessageUserInput): Promise<{ status: 'sent' | 'pending'; messageId?: string; interactionId?: string; files?: AttachedFile[] }> {
+    if (!callId || callId.length > 200) throw new Error('Invalid call ID')
     const row = (await this.runtime.db.query<{ intent_id: string; generation: string; incarnation: string }>('SELECT intent_id,generation,incarnation FROM kipster.attempts WHERE id=$1', [attemptId])).rows[0]
-    if (!row) return { status: 'failed', reason: 'Unknown attempt' }
-    const context = await runContext(this.runtime.db, row.intent_id)
-    if (!context) return { status: 'failed', reason: 'Unknown run' }
-    const requestHash = files.length ? fileRequestHash(['post_chat_message', text, artifactIds, files]) : null
-    if (await this.fileReplayConflict(attemptId, callId, requestHash, 'SELECT 1 FROM kipster.messages WHERE source_attempt_id=$1 AND publication_id=$2 AND publication_source=\'tool\'')) return { status: 'failed', reason: 'File attachment replay conflict' }
-    let attachment: FileAttachment | undefined
+    const context = row ? await runContext(this.runtime.db, row.intent_id) : null
+    if (!row || !context) throw new Error('Attempt no longer owns publication')
+    const attempt: Attempt = { id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }
+    const paths = input.attachments.flatMap(item => 'path' in item ? [item.path] : [])
+    const shared = input.attachments.flatMap(item => 'artifactId' in item ? [item.artifactId] : [])
+    const requestHash = paths.length ? fileRequestHash(['message_user', input.text, input.attachments]) : null
+    if (await this.fileReplayConflict(attemptId, callId, requestHash, 'SELECT 1 FROM kipster.messages WHERE source_attempt_id=$1 AND publication_id=$2 AND publication_source=\'tool\'')) throw new Error('This call ID already sent a different message')
+    const attachment = requestHash ? await this.attachFiles(attemptId, callId, context.agentId, paths, shared, requestHash) : undefined
     try {
-      if (requestHash) attachment = await this.attachFiles(attemptId, callId, context.agentId, files, artifactIds, requestHash)
-      const messageId = await this.publishText({ id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }, { kind: 'text', attemptId, messageId: callId, text, final: true }, context, 'tool', [...artifactIds, ...attachment?.files.map(file => file.artifactId) ?? []], undefined, attachment?.settle)
-      return messageId ? { status: 'completed', messageId, ...(attachment ? { files: attachment.files } : {}) } : { status: 'failed', reason: 'Attempt no longer owns publication' }
-    } catch (error) {
-      return { status: 'failed', reason: error instanceof Error ? error.message : 'Publication failed' }
+      let next = 0
+      const attachments = input.attachments.map(item => 'path' in item ? { artifactId: attachment!.files[next++]!.artifactId } : item)
+      const files = attachment ? { files: attachment.files } : {}
+      let messageId: string | undefined
+      if (input.text || attachments.length) {
+        messageId = await this.publishText(attempt, { messageId: callId, text: input.text }, context, attachments, { ...(attachment ? { attach: attachment.settle } : {}), notify: input.priority === 'normal' && !input.element }) ?? undefined
+        if (!messageId) throw new Error('Attempt no longer owns publication')
+      }
+      if (!input.element) return { status: 'sent', ...(messageId ? { messageId } : {}), ...files }
+      const card = await askInteraction(this.runtime.db, attemptId, callId, input.element, undefined, input.priority === 'silent')
+      return { status: 'pending', interactionId: card.id, ...(messageId ? { messageId } : {}), ...files }
     } finally {
       await attachment?.abandon()
     }
@@ -900,7 +907,7 @@ export class TextDispatcher {
     return service.run({
       installationId: context.actor.installationId, runId: row.intent_id, threadId: context.threadId, attemptId, callId,
       outputDirectory: await this.runtime.artifacts.outputDirectory(context.agentId, context.threadId, attemptId),
-      onRun: async note => { await this.publishText(attempt, { kind: 'text', attemptId, messageId: `plugin:${callId}`, text: note, final: true, phase: 'progress' }, context, 'tool') },
+      onRun: async note => { await this.publishText(attempt, { messageId: `plugin:${callId}`, text: note, progress: true }, context) },
     }, args)
   }
   async vectorTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
@@ -918,10 +925,11 @@ export class TextDispatcher {
       return {agent:await getAgent(this.runtime.db,attemptId,this.incarnation,args.agentId)}
     }
     if(name==='agents.message'){
-      if(Object.keys(args).some(key=>!['recipientId','text','artifactIds','files','workspaceId'].includes(key))||typeof args.recipientId!=='string'||typeof args.text!=='string'||!strings(args.artifactIds)||!strings(args.files)||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid message_kip arguments')
-      const artifactIds=(args.artifactIds??[]) as string[],files=(args.files??[]) as string[],workspaceId=args.workspaceId as string|undefined
-      const requestHash=fileRequestHash(['message_kip',args.recipientId,args.text,artifactIds,files,workspaceId??null])
-      const input={recipientId:args.recipientId,text:args.text,artifactIds,...(workspaceId!==undefined?{workspaceId}:{}),requestHash}
+      if(Object.keys(args).some(key=>!['recipientId','text','attachments','workspaceId'].includes(key))||typeof args.recipientId!=='string'||typeof args.text!=='string'||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid message_kip arguments')
+      const attachments=attachmentsInput(args.attachments,false),workspaceId=args.workspaceId as string|undefined
+      const files=attachments.flatMap(item=>'path' in item?[item.path]:[]),artifactIds=attachments.flatMap(item=>'artifactId' in item?[item.artifactId]:[])
+      const requestHash=fileRequestHash(['message_kip',args.recipientId,args.text,attachments,workspaceId??null])
+      const input={recipientId:args.recipientId,text:args.text,attachments:attachments as KipMessageInput['attachments'],...(workspaceId!==undefined?{workspaceId}:{}),requestHash}
       if(!files.length)return messageKip(this.runtime.db,this.runtime.jobs,attemptId,this.incarnation,callId,input)
       if(await this.fileReplayConflict(attemptId,callId,requestHash,'SELECT 1 FROM kipster.kip_message_calls WHERE attempt_id=$1 AND call_id=$2'))throw new Error('This call ID already sent a different message')
       if(artifactIds.length+files.length>MAX_FILES_PER_MESSAGE)throw new Error(`Cannot attach more than ${MAX_FILES_PER_MESSAGE} files to one message`)
@@ -941,19 +949,8 @@ export class TextDispatcher {
     return administrationTool(host, { installationId: this.runtime.bootstrap.installationId, attemptId, incarnation: this.incarnation }, callId, name, args)
   }
 
-  /** Document tools. `documents.create` publishes the new document's card in the run's thread, with the call ID as its publication identity. */
   async documentTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
-    if (name !== 'documents.create') return documentTool(this.runtime.db, attemptId, this.incarnation, name, args)
-    const input = documentCreation(args)
-    if (!callId || callId.length > 200) throw new Error('Invalid call ID')
-    const row = (await this.runtime.db.query<{ intent_id: string; generation: string; incarnation: string }>('SELECT intent_id,generation,incarnation FROM kipster.attempts WHERE id=$1 AND incarnation=$2', [attemptId, this.incarnation])).rows[0]
-    const context = row ? await runContext(this.runtime.db, row.intent_id) : null
-    if (!row || !context) throw new Error('Attempt no longer owns document tools')
-    const attempt: Attempt = { id: attemptId, intentId: row.intent_id, generation: Number(row.generation), incarnation: row.incarnation, state: 'issued' }
-    const run = { installationId: context.actor.installationId, attemptId, agentId: context.agentId, chatId: context.chatId, threadId: context.threadId, context: context.context }
-    const messageId = await this.publishText(attempt, { kind: 'text', attemptId, messageId: callId, text: '', final: true }, context, 'tool', [], client => createDocumentIn(client, run, callId, input))
-    if (!messageId) throw new Error('Attempt no longer owns document tools')
-    return { ...await createdDocument(this.runtime.db, attemptId, callId), messageId }
+    return name === 'documents.create' ? createDocument(this.runtime.db, attemptId, this.incarnation, callId, documentCreation(args)) : documentTool(this.runtime.db, attemptId, this.incarnation, name, args)
   }
 
   async transcribeTool(attemptId:string,callId:string,artifactId:string):Promise<unknown>{
@@ -1012,8 +1009,12 @@ export class TextDispatcher {
 
   async copyArtifactTool(attemptId:string,callId:string,artifactId:string,workspaceId?:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId,workspaceId)}
 
-  /** `coreParts`, when given, runs in the publication's transaction and returns parts Core appends, such as a document card; the call ID alone then identifies the publication. `attach` makes files attached by path ready in that transaction. */
-  private async publishText(attempt: Attempt, event: Extract<ExecutionEvent, { kind: 'text' }>, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, source: 'native'|'tool' = 'native', artifactIds: readonly string[] = [], coreParts?: (client: SqlClient) => Promise<MessagePart[]>, attach?: (client: SqlClient) => Promise<void>): Promise<string | null> {
+  /**
+   * Publishes one finished message of the run, identified by the attempt and `messageId`; a repeat returns the first.
+   * Attachments follow the text in order. `attach` makes files attached by path ready in the same transaction, and
+   * `notify` notifies the person of the message.
+   */
+  private async publishText(attempt: Attempt, message: { messageId: string; text: string; progress?: boolean }, context: NonNullable<Awaited<ReturnType<typeof runContext>>>, attachments: readonly Exclude<Attachment, { path: string }>[] = [], options: { attach?: (client: SqlClient) => Promise<void>; notify?: boolean } = {}): Promise<string | null> {
     const saved = await this.runtime.db.transaction(async client => {
       // Publications share this guard, so different threads can write concurrently.
       // Controls/recovery take it exclusively before locking multiple threads: dropping
@@ -1023,35 +1024,32 @@ export class TextDispatcher {
       const owner = await client.query(`SELECT 1 FROM kipster.text_runs r JOIN kipster.work_intents i ON i.id=r.id JOIN kipster.attempts a ON a.id=r.current_attempt_id
         WHERE r.id=$1 AND r.state IN ('running','waiting') AND r.stop_requested=false AND r.current_attempt_id=$2 AND i.state='issued' AND i.generation=$3 AND a.incarnation=$4 AND a.state='issued'`, [attempt.intentId, attempt.id, attempt.generation, attempt.incarnation])
       if (!owner.rows.length) return null
-      const parts: MessagePart[]=[...(event.text?[{kind:'text' as const,text:event.text}]:[]),...artifactIds.map(artifactId=>({kind:'file' as const,artifactId,purpose:'attachment' as const}))]
-      const prior = (await client.query<{ id: string; revision: string; final: boolean; parts: unknown[] }>('SELECT id,revision,final,parts FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source=$2 AND publication_id=$3', [attempt.id, source, event.messageId])).rows[0]
-      // A segment that never wrote anything is not a message.
-      if (!prior && !parts.length && !coreParts) return null
-      if (prior?.final) {
-        if (!event.final || coreParts) return prior.id
-        if (publicationPartsKey(prior.parts)!==publicationPartsKey(parts)) throw new Error('Publication identity conflict')
+      const prior = (await client.query<{ id: string; parts: unknown[] }>("SELECT id,parts FROM kipster.messages WHERE source_attempt_id=$1 AND publication_source='tool' AND publication_id=$2", [attempt.id, message.messageId])).rows[0]
+      if (prior) {
+        const sent = [...(message.text ? [{ kind: 'text', text: message.text }] : []), ...attachments.map(item => 'documentId' in item ? { kind: 'document', ...item } : { kind: 'file', ...item })]
+        if (publicationPartsKey(prior.parts) !== publicationPartsKey(sent)) throw new Error('This call ID already sent a different message')
         return prior.id
       }
-      await attach?.(client)
-      for(const artifactId of artifactIds){const artifact=(await client.query<{id:string}>("SELECT id FROM kipster.artifacts WHERE id=$1 AND installation_id=$2 AND state='ready' AND ((owner_kind='agent' AND owner_id=$3) OR (owner_kind='organization' AND owner_id=$4))",[artifactId,context.actor.installationId,context.agentId,context.context.kind==='organization'?context.context.organizationId:null])).rows[0];if(!artifact)throw new Error('Artifact publication denied')}
-      await requireMessageFileLimit(client, artifactIds)
-      if (coreParts) parts.push(...await coreParts(client))
-      let messageId = prior?.id ?? randomUUID()
-      let revision = prior ? Number(prior.revision) + 1 : 1
-      const progress = event.final && event.phase === 'progress'
-      if (prior) {
-        await client.query('UPDATE kipster.messages SET parts=$2::jsonb,final=$3,finished_at=CASE WHEN $3 THEN now() ELSE NULL END,revision=$4,progress=$5 WHERE id=$1', [messageId, JSON.stringify(parts), event.final, revision, progress])
-      } else {
-        const counter = (await client.query<{ next_message_position: string }>('SELECT next_message_position FROM kipster.threads WHERE id=$1', [context.threadId])).rows[0]!
-        await client.query('UPDATE kipster.threads SET next_message_position=next_message_position+1 WHERE id=$1', [context.threadId])
-        await client.query('INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,final,source_attempt_id,publication_source,publication_id,progress,finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9,$10,CASE WHEN $6 THEN now() ELSE NULL END)', [messageId, context.threadId, Number(counter.next_message_position), context.agentId, JSON.stringify(parts), event.final, attempt.id, source, event.messageId, progress])
+      await options.attach?.(client)
+      const parts: MessagePart[] = message.text ? [{ kind: 'text', text: message.text }] : []
+      for (const item of attachments) {
+        if ('documentId' in item) { parts.push(await documentCard(client, attempt.id, attempt.incarnation, item.documentId)); continue }
+        const artifact = (await client.query<{ id: string }>("SELECT id FROM kipster.artifacts WHERE id=$1 AND installation_id=$2 AND state='ready' AND ((owner_kind='agent' AND owner_id=$3) OR (owner_kind='organization' AND owner_id=$4))", [item.artifactId, context.actor.installationId, context.agentId, context.context.kind === 'organization' ? context.context.organizationId : null])).rows[0]
+        if (!artifact) throw new Error('Artifact publication denied')
+        parts.push({ kind: 'file', artifactId: item.artifactId, purpose: 'attachment' })
       }
-      for(const [index,artifactId] of artifactIds.entries())await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4) ON CONFLICT (message_id,ordinal) DO UPDATE SET artifact_id=EXCLUDED.artifact_id,purpose=EXCLUDED.purpose',[messageId,index+(event.text?1:0),artifactId,'attachment'])
+      const fileParts = parts.flatMap((part, ordinal) => part.kind === 'file' ? [{ ordinal, artifactId: part.artifactId }] : [])
+      await requireMessageFileLimit(client, fileParts.map(part => part.artifactId))
+      const messageId = randomUUID()
+      const counter = (await client.query<{ next_message_position: string }>('UPDATE kipster.threads SET next_message_position=next_message_position+1 WHERE id=$1 RETURNING next_message_position-1 AS next_message_position', [context.threadId])).rows[0]!
+      await client.query("INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,final,source_attempt_id,publication_source,publication_id,progress,finished_at) VALUES ($1,$2,$3,$4,$5::jsonb,true,$6,'tool',$7,$8,now())", [messageId, context.threadId, Number(counter.next_message_position), context.agentId, JSON.stringify(parts), attempt.id, message.messageId, !!message.progress])
+      for (const part of fileParts) await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)', [messageId, part.ordinal, part.artifactId, 'attachment'])
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])
-      await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, event.final ? 'message-final' : 'message-draft', messageId, revision, await messageRecord(client, messageId), 'running', messageId, event.final || !prior)
+      await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, 'message-final', messageId, 1, await messageRecord(client, messageId), 'running', messageId)
+      if (options.notify) await createMessageNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, messageId)
       return messageId
     })
-    if (saved) await this.hooks.afterOutput?.(event.messageId)
+    if (saved) await this.hooks.afterOutput?.(message.messageId)
     return saved
   }
 
@@ -1086,11 +1084,8 @@ export class TextDispatcher {
       await client.query('UPDATE kipster.text_runs SET state=$2,queue_hold=$3,failure=$4,retry_continue_generation=$5,cancel_delivery=CASE WHEN stop_requested THEN $6 ELSE cancel_delivery END,revision=revision+1 WHERE id=$1', [attempt.intentId, nextState, releaseRetryHold ? false : row.queue_hold || !['completed','queued','waiting'].includes(nextState), failure, releaseRetryHold || ['failed','cancelled','recovery-needed'].includes(nextState) ? null : row.retry_continue_generation,uncertain?'uncertain':'confirmed-ended'])
       await client.query('UPDATE kipster.threads SET revision=revision+1 WHERE id=$1', [context.threadId])
       await publishThreadChange(client, context.actor.installationId, context.actor.personId, context.threadId, context.chatId, 'work-changed', attempt.intentId, await workRevision(client, attempt.intentId), await workRecord(client, attempt.intentId), nextState, null)
-      // A kip's finished turn is its answer, which notifies nobody, and so does a turn an answer woke that ends without a
-      // message in its thread; their failures notify as any other.
-      const silent = (await client.query<{ silent: boolean }>(`SELECT r.trigger_kind='kip' OR (r.trigger_kind='answer' AND NOT EXISTS (SELECT 1 FROM kipster.messages m JOIN kipster.attempts a ON a.id=m.source_attempt_id WHERE a.intent_id=r.id)) AS silent
-        FROM kipster.text_runs r WHERE r.id=$1`, [attempt.intentId])).rows[0]!.silent
-      if ((!preparation || state !== 'failed') && ['completed','failed','recovery-needed'].includes(nextState) && !(silent && nextState === 'completed')) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState as 'completed'|'failed'|'recovery-needed')
+      // A finished turn notifies nobody: its messages notified as they were sent. Failures notify.
+      if ((!preparation || state !== 'failed') && (nextState === 'failed' || nextState === 'recovery-needed')) await createNotification(client, context.actor.installationId, context.actor.personId, context.threadId, attempt.intentId, nextState)
       if (nextState === 'queued') await this.runtime.jobs.send(client, attempt.intentId)
       const end = kipRunEnd(nextState, failure)
       if (end) await answerKipRun(client, this.runtime.jobs, attempt.intentId, end)

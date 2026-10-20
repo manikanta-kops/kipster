@@ -49,7 +49,7 @@ async function presentThread(client: SqlClient, threadId: string): Promise<void>
   const chat = (await client.query<{ chat_id: string }>('SELECT chat_id FROM kipster.threads WHERE id=$1', [threadId])).rows[0]
   if (!chat || !await chatPresent(client, chat.chat_id)) throw new RefusedError('gone', 'Thread is gone')
 }
-function checkInput(input: InteractionInput): void {
+export function checkInteraction(input: InteractionInput): void {
   if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(key=>!['kind','prompt','options','freeText','proposalId','proposal','grant'].includes(key))) throw new Error('Invalid interaction fields')
   if (input.kind !== 'question' && input.kind !== 'approval') throw new Error('Invalid interaction kind')
   if (typeof input.prompt !== 'string' || !input.prompt.trim() || input.prompt.length > 8000) throw new Error('Invalid interaction prompt')
@@ -67,9 +67,9 @@ function checkInput(input: InteractionInput): void {
   }
   if (input.kind === 'question' && !options.length && !input.freeText) throw new Error('Question needs a choice or free text')
 }
-/** Tool identity is bound to an admitted attempt. Duplicate call IDs return the original card. */
-export async function askInteraction(db: Postgres, attemptId: string, callId: string, input: InteractionInput, bind?: (client: SqlClient, interactionId: string) => Promise<void>): Promise<InteractionRecord> {
-  checkInput(input)
+/** Tool identity is bound to an admitted attempt. Duplicate call IDs return the original card. A silent card notifies nobody. */
+export async function askInteraction(db: Postgres, attemptId: string, callId: string, input: InteractionInput, bind?: (client: SqlClient, interactionId: string) => Promise<void>, silent = false): Promise<InteractionRecord> {
+  checkInteraction(input)
   if (!callId || callId.length > 200) throw new Error('Invalid tool call identity')
   const owner = (await db.query<{ intent_id: string; installation_id: string }>('SELECT a.intent_id,i.installation_id FROM kipster.attempts a JOIN kipster.work_intents i ON i.id=a.intent_id WHERE a.id=$1', [attemptId])).rows[0]
   if (!owner) throw new Error('Attempt not found')
@@ -91,7 +91,7 @@ export async function askInteraction(db: Postgres, attemptId: string, callId: st
     await client.query('UPDATE kipster.text_runs SET state=$2,continuation_interaction_id=$3,revision=revision+1 WHERE id=$1', [owner.intent_id, 'waiting', id])
     const record = await interactionRecord(client, id)
     await event(client, { ...row, state: 'waiting' }, record)
-    await createInteractionNotification(client,row.installation_id,row.caller_id,row.thread_id,owner.intent_id,id)
+    if (!silent) await createInteractionNotification(client,row.installation_id,row.caller_id,row.thread_id,owner.intent_id,id)
     await publishThreadChange(client, row.installation_id, row.caller_id, row.thread_id, row.chat_id, 'work-changed', owner.intent_id, Number((await client.query<{revision:string}>('SELECT revision FROM kipster.text_runs WHERE id=$1',[owner.intent_id])).rows[0]!.revision), await workRecord(client, owner.intent_id), 'waiting', null)
     return record
   })

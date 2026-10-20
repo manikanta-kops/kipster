@@ -8,7 +8,6 @@ import { randomUUID } from 'node:crypto'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher } from '../dist/runtime.js'
 import { eventSignals, publishAppEvent, readEvents } from '../dist/modules/synchronization/public.js'
-import { runContext } from '../dist/modules/conversations/public.js'
 import { message, textEvent, threadSnapshot } from '../dist/protocol/index.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
@@ -60,7 +59,7 @@ async function stream(url) {
   return { events, async close() { await reader.cancel(); await task } }
 }
 
-test('streaming drafts, coalescing, replay, listener reconnect, idle delivery and sealed interruptions', { skip: noDatabase, timeout: 30000 }, async () => {
+test('live and replayed messages, listener reconnect, idle delivery, backpressure and retention', { skip: noDatabase, timeout: 30000 }, async () => {
   const database = `kipster_stream_${randomUUID().replaceAll('-', '')}`
   const admin = new Postgres(adminUrl)
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -68,16 +67,12 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
   const home = await mkdtemp(join(tmpdir(), 'kipster-stream-'))
   let runtime, dispatcher, server
   const clients = []
-  let releaseWrite
   try {
     runtime = await openRuntime({ connectionString: isolated.href, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' } })
     const actor = { installationId: runtime.bootstrap.installationId, personId: runtime.bootstrap.ownerId }
     await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [runtime.bootstrap.rootAgentId, JSON.stringify({ adapterId: 'test-adapter', modelId: 'test-model' })])
     const adapter = fixture()
-    let block = true
-    dispatcher = new TextDispatcher(runtime, adapter, { async afterOutput(id) {
-      if (id === 'one' && block) { block = false; await new Promise(resolve => { releaseWrite = resolve }) }
-    } })
+    dispatcher = new TextDispatcher(runtime, adapter)
     server = await startTextServer(runtime, actor, { host: '127.0.0.1', port: 0, dispatcher })
     const post = async (path, value) => {
       const response = await fetch(server.url + path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) })
@@ -87,6 +82,7 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     const context = { kind: 'installation', installationId: actor.installationId }
     const { chatId } = await post('/v1/direct-chats', { version: 1, context, agentId: runtime.bootstrap.rootAgentId })
     const submit = () => post('/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId: actor.installationId, callerId: actor.personId }, target: { context, chatId }, mode: 'root', parts: [{ kind: 'text', text: 'stream' }] })
+    const say = (h, callId, text) => dispatcher.messageUserTool(h.context.attemptId, callId, { text, priority: 'normal', attachments: [] })
     await dispatcher.start()
     const first = await submit()
     await waitFor(() => Promise.resolve(adapter.handles), h => h.length === 1, 'execution')
@@ -100,52 +96,23 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     assert.equal(textEvent.parse(personEvent).data.finishedAt, personMessage.createdAt)
     const url = cursor => server.url + `/v1/threads/${first.threadId}/events?after=${encodeURIComponent(cursor)}`
     const live = await stream(url(before.cursor)); clients.push(live)
-    const text = (id, text, final = false) => handle.release({ kind: 'text', attemptId: handle.context.attemptId, messageId: id, text, final })
-    text('one', 'First draft')
-    await waitFor(() => Promise.resolve(live.events), e => e.some(x => x.type === 'message-draft'), 'draft before completion')
-    const draftSnapshot = threadSnapshot.parse(await snap())
-    assert.equal(draftSnapshot.work[0].state, 'running')
-    const draft = draftSnapshot.messages.find(m => !m.final)
-    assert.ok(Number.isFinite(Date.parse(draft.createdAt)))
-    assert.equal(Object.hasOwn(draft, 'finishedAt'), false)
-    const draftEvent = textEvent.parse(live.events.find(e => e.type === 'message-draft')).data
-    assert.equal(draftEvent.createdAt, draft.createdAt)
-    assert.equal(Object.hasOwn(draftEvent, 'finishedAt'), false)
-    message.parse(draft)
-    await waitFor(() => Promise.resolve(releaseWrite), Boolean, 'blocked output')
-    for (let i = 0; i < 3; i++) text('one', `fragment ${i}`)
-    text('two', 'Second draft')
-    await pause(50)
-    releaseWrite()
-    await waitFor(snap, s => s.messages.some(m => m.parts[0]?.text === 'fragment 2') && s.messages.some(m => m.parts[0]?.text === 'Second draft'), 'coalesced drafts')
+    // A provider's own text is not shown, drafts or final.
+    handle.release({ kind: 'text', attemptId: handle.context.attemptId, messageId: 'native', text: 'Native draft', final: false })
+    handle.release({ kind: 'text', attemptId: handle.context.attemptId, messageId: 'native', text: 'Native final', final: true })
+    await say(handle, 'one', 'First message')
+    await waitFor(() => Promise.resolve(live.events), e => e.some(x => x.type === 'message-final'), 'live message')
     const saved = await snap()
-    const writes = (await runtime.db.query("SELECT count(*)::int AS n FROM kipster.thread_events WHERE thread_id=$1 AND type='message-draft'", [first.threadId])).rows[0].n
-    assert.ok(writes <= 3, `only initial/latest drafts written: ${writes}`)
+    assert.equal(saved.work[0].state, 'running')
     const replay = await stream(url(saved.cursor)); clients.push(replay)
-    text('one', 'First final', true); text('two', 'Second final', true)
-    text('one', 'stale draft')
-    await waitFor(snap, s => s.messages.filter(m => m.authorId !== actor.personId && m.final).length === 2, 'authoritative finals')
-    const attempt = (await runtime.db.query('SELECT id,intent_id,generation,incarnation,state FROM kipster.attempts WHERE id=$1', [handle.context.attemptId])).rows[0]
-    await dispatcher.publishText({ ...attempt, intentId: attempt.intent_id, generation: Number(attempt.generation) }, { kind: 'text', attemptId: attempt.id, messageId: 'one', text: 'late direct draft', final: false }, await runContext(runtime.db, first.runId))
+    await say(handle, 'two', 'Second message')
     handle.release({ kind: 'ended', attemptId: handle.context.attemptId, confirmed: true })
     await waitFor(snap, s => s.work[0].state === 'completed', 'completion')
-    await waitFor(() => Promise.resolve(replay.events), e => e.filter(x => x.type === 'message-final').length === 2, 'replay finals')
-    const finals = replay.events.filter(x => x.type === 'message-final')
-    assert.equal(new Set(finals.map(e => e.resourceId)).size, 2)
-    assert.ok(finals.every(e => saved.messages.some(m => m.id === e.resourceId)))
+    await waitFor(() => Promise.resolve(replay.events), e => e.some(x => x.type === 'message-final'), 'replay final')
     const after = threadSnapshot.parse(await snap())
-    for (const event of finals) {
-      const final = textEvent.parse(event).data
-      const prior = saved.messages.find(m => m.id === final.id)
-      assert.equal(final.createdAt, prior.createdAt)
-      assert.ok(Date.parse(final.finishedAt) >= Date.parse(final.createdAt))
-      assert.ok(Date.parse(final.finishedAt) > Date.parse(final.createdAt), 'stream finish follows its initial draft')
-      assert.equal(after.messages.find(m => m.id === final.id).finishedAt, final.finishedAt)
-      message.parse(final)
-    }
-    assert.equal(after.messages.length, 3)
-    assert.ok(after.messages.every(m => m.final))
-    assert.ok(!after.messages.some(m => m.parts[0]?.text === 'stale draft'))
+    assert.deepEqual(after.messages.map(m => m.parts[0].text), ['stream', 'First message', 'Second message'])
+    assert.ok(after.messages.every(m => m.final && Date.parse(m.finishedAt) >= Date.parse(m.createdAt)))
+    assert.equal((await runtime.db.query("SELECT count(*)::int AS n FROM kipster.thread_events WHERE thread_id=$1 AND type='message-draft'", [first.threadId])).rows[0].n, 0)
+    for (const event of [...live.events, ...replay.events].filter(x => x.type === 'message-final')) message.parse(textEvent.parse(event).data)
     const scope = { kind: 'thread', installationId: actor.installationId, callerId: actor.personId, threadId: first.threadId }
     assert.deepEqual(replay.events.map(e => e.eventId), (await readEvents(runtime.db, scope, saved.cursor)).events.map(e => e.eventId))
     // The listener is shared, reconnects after a real connection loss, and wakes readers.
@@ -189,14 +156,14 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
         slowResponse.write = () => false
         fast = await stream(address); clients.push(fast)
       }
-      h.release({ kind: 'text', attemptId: h.context.attemptId, messageId: outcome, text: 'Partial answer', final: false })
+      await say(h, outcome, 'Partial answer')
       if (fast) {
-        await waitFor(() => Promise.resolve(fast.events), events => events.some(e => e.type === 'message-draft'), 'fast client progresses while slow client is blocked')
+        await waitFor(() => Promise.resolve(fast.events), events => events.some(e => e.type === 'message-final'), 'fast client progresses while slow client is blocked')
         await slow.close()
       }
 
       const state = () => get(`/v1/threads/${run.threadId}/snapshot`)
-      await waitFor(state, s => s.messages.some(m => !m.final), 'partial')
+      await waitFor(state, s => s.messages.length === 2, 'partial')
       if (outcome === 'cancelled') await dispatcher.control(actor, { operationId: randomUUID(), action: 'stop', context, chatId, threadId: run.threadId, runId: run.runId, attemptId: h.context.attemptId })
       h.release(outcome === 'failed' ? { kind: 'failed', attemptId: h.context.attemptId, confirmedEnded: true, message: 'fixture failure' } : { kind: 'ended', attemptId: h.context.attemptId, confirmed: true })
       const settled = await waitFor(state, s => s.work[0].state === outcome, outcome)
@@ -215,7 +182,6 @@ test('streaming drafts, coalescing, replay, listener reconnect, idle delivery an
     await assert.rejects(readEvents(runtime.db, application, old.cursor), /resync-required/)
     assert.equal((await snap()).messages.length, 3, 'retention preserves canonical messages')
   } finally {
-    releaseWrite?.()
     for (const client of clients) await client.close()
     await server?.close(); await dispatcher?.close(); await runtime?.close()
     await rm(home, { recursive: true, force: true })

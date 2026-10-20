@@ -482,14 +482,16 @@ export function createFakeCore(
     kind: Notice['kind'],
     interaction?: TextInteraction,
   ) {
-    const reply = thread.messages
-      .findLast((m) => m.authorId === thread.summary.agentId && m.final)
-      ?.parts.flatMap((p) => (p.kind === 'text' ? [p.text] : []))
+    const message = thread.messages.findLast(
+      (m) => m.authorId === thread.summary.agentId && m.final,
+    )
+    const reply = message?.parts
+      .flatMap((p) => (p.kind === 'text' ? [p.text] : []))
       .join(' ')
     const excerpt = (
       kind === 'interaction'
         ? interaction?.prompt
-        : kind === 'completed'
+        : kind === 'message'
           ? reply
           : work.failure
     )
@@ -506,6 +508,7 @@ export function createFakeCore(
       ...(interaction
         ? { interactionId: interaction.id, interactionState: interaction.state }
         : {}),
+      ...(kind === 'message' && message ? { messageId: message.id } : {}),
       ...(excerpt
         ? {
             preview:
@@ -753,8 +756,8 @@ export function createFakeCore(
       run.queueHold = false
       run.revision++
       changeWork(thread, run)
-      // A kip's answer goes back to it; only the person's own turns notify.
-      if (!answerBack(thread, run)) notify(thread, run, 'completed')
+      // A kip's answer goes back to it; only messages to the person notify.
+      if (!answerBack(thread, run)) notify(thread, run, 'message')
     }
     thread.stages.set(run.runId, stage + 1)
   }
@@ -830,7 +833,7 @@ export function createFakeCore(
     run.state = 'completed'
     run.revision++
     changeWork(thread, run)
-    notify(thread, run, 'completed')
+    notify(thread, run, 'message')
   }
 
   function checkedCursor(value: string, threadId?: string) {

@@ -10,7 +10,7 @@ const names = scope => executionTools(scope).map(tool => tool.name)
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
-  assert.deepEqual(base, ['post_chat_message', 'transcribe_voice_note', 'ask_user_question', 'request_user_approval', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc'])
+  assert.deepEqual(base, ['message_user', 'transcribe_voice_note', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc'])
   const full = names(all)
   assert.deepEqual(full.filter(name => !base.includes(name)), ['copy_attachment_to_workspace', 'manage_data_tables', 'manage_vector_collections', 'list_admin_operations', 'run_admin_operation'])
   for (const tool of executionTools(all)) {
@@ -18,9 +18,14 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
     assert.equal(tool.inputSchema.type, 'object')
     assert.equal(tool.inputSchema.additionalProperties, false)
   }
-  const waits = Object.fromEntries(executionTools(all).filter(tool => tool.waits).map(tool => [tool.name, tool.waits]))
-  // A kip message never pauses the sender's turn.
-  assert.deepEqual(waits, { ask_user_question: 'question', request_user_approval: 'approval' })
+  // A pending result, not the tool, leaves a run waiting.
+  assert.equal(executionTools(all).filter(tool => tool.waits).length, 0)
+  const messageUser = executionTools(all).find(tool => tool.name === 'message_user').inputSchema
+  assert.deepEqual(messageUser.required, ['priority'])
+  assert.deepEqual(messageUser.properties.priority.enum, ['silent', 'normal'])
+  assert.deepEqual(Object.keys(messageUser.properties.attachments.items.properties), ['path', 'artifactId', 'documentId'])
+  assert.deepEqual(messageUser.properties.element.properties.type.enum, ['choice', 'approval'])
+  assert.deepEqual(Object.keys(executionTools(all).find(tool => tool.name === 'message_kip').inputSchema.properties.attachments.items.properties), ['path', 'artifactId'])
   assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
   assert.match(memoryGuidance, /search_memory/)
   // A linked thread offers read_thread for its source thread with memory off, and once with memory on.
@@ -30,16 +35,17 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   const dataTables = executionTools(all).find(tool => tool.name === 'manage_data_tables')
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
   const outside = toolGuidance({ organization: false }), inside = toolGuidance({ organization: true })
-  assert.match(outside, /post_chat_message/)
-  assert.match(outside, /create_rich_doc/)
-  assert.match(outside, /message_kip/)
-  assert.match(outside, /end your turn with an empty reply/)
-  assert.doesNotMatch(outside, /delegat/)
-  assert.match(outside, /call post_chat_message with their paths in `files`/)
+  assert.match(outside, /The person sees only what you send with message_user\. Your final reply is not shown/)
+  assert.match(outside, /normal when the person should see it now/)
+  assert.match(outside, /For several questions at once, write a rich doc/)
+  assert.match(outside, /create a rich doc with create_rich_doc and send it with message_user/)
+  assert.match(outside, /answer it with message_kip to that kip/)
+  assert.match(outside, /or end your turn without a message/)
+  assert.doesNotMatch(outside, /delegat|post_chat_message|ask_user_question|request_user_approval|final reply is your answer/)
+  assert.match(outside, /Attach files you create or download by path/)
   assert.doesNotMatch(outside, /artifacts_write|artifacts_publish|harness tools|unavailable Kipster capabilities/)
   assert.doesNotMatch(outside, /copy_attachment_to_workspace/, 'the copy tool is named only where it is offered')
   assert.match(inside, /copy_attachment_to_workspace/)
-  for (const name of ['post_chat_message', 'message_kip']) assert.deepEqual(executionTools(all).find(tool => tool.name === name).inputSchema.properties.files.items, { type: 'string' })
   assert.match(executionTools(all).find(tool => tool.name === 'edit_rich_doc').description, /```question/)
 })
 
@@ -61,15 +67,22 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }
-  const dispatcher = Object.fromEntries(['publishToolText', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
+  const dispatcher = Object.fromEntries(['messageUserTool', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
   const host = textPublicationHost(dispatcher)
-  const valid = { post_chat_message: { text: 'Hi' }, transcribe_voice_note: { artifactId: 'a' }, copy_attachment_to_workspace: { artifactId: 'a' } }
+  const valid = { message_user: { text: 'Hi', priority: 'normal' }, transcribe_voice_note: { artifactId: 'a' }, copy_attachment_to_workspace: { artifactId: 'a' } }
   const offered = names({ ...all, memory: true })
   for (const name of offered) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
   const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [offered[index], [method, rest.at(-1)]]))
+  assert.equal(routed.message_user[0], 'messageUserTool')
   assert.deepEqual(routed.read_thread, ['memoryTool', 'read_thread'])
   assert.deepEqual(routed.message_kip, ['agentTool', 'agents.message'])
-  for (const name of ['delegate_to_kip', 'check_kip_task']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
+  for (const name of ['delegate_to_kip', 'check_kip_task', 'post_chat_message']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
+  // Questions and approvals by name are only an adapter's way to show a provider's own.
+  const question = { prompt: 'Pick', options: [{ id: 'a', label: 'A' }], freeText: false }
+  await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name: 'ask_user_question', arguments: question }), /Unsupported Kipster tool/)
+  seen.length = 0
+  await host.invokeTool({ attemptId: 'attempt', callId: 'native:call', name: 'ask_user_question', arguments: question })
+  assert.deepEqual(seen.map(([method]) => method), ['askToolInteraction'])
   assert.deepEqual(routed.run_admin_operation, ['adminTool', 'run_admin_operation'])
   assert.deepEqual(routed.manage_data_tables[0], 'structuredTool')
   assert.deepEqual(routed.manage_vector_collections[0], 'vectorTool')

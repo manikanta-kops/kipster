@@ -10,7 +10,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 
 const fixture = `export function createAdapter(host){return {id:'disconnect-fixture',version:'1',contractMajor:1,
   async readiness(){return {ready:true,catalog:{models:[{id:'test'}],supportedOptions:[],capabilities:{text:true,publication:true,cancellation:true,steering:false,nativeResume:false}}}},
-  async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publication-1',name:'post_chat_message',arguments:{text:'PERSISTED_BEFORE_DISCONNECT'}}).catch(()=>{});
+  async execute(context){void host.invokeTool({attemptId:context.attemptId,callId:'publication-1',name:'message_user',arguments:{text:'PERSISTED_BEFORE_DISCONNECT',priority:'normal'}}).catch(()=>{});
     return {events:(async function*(){await new Promise(()=>{})})(),async cancel(){return {acknowledged:false,confirmedEnded:false}},async reconcile(){return 'unknown'}}},
   async close(){}}}`
 async function waitFor(read, predicate) {
@@ -37,7 +37,7 @@ test('committed tool publication survives runner disconnect, restart does not re
     runtime = await openRuntime({ connectionString: isolated.href, home, names: { owner: 'Owner', organization: 'Org', rootAgent: 'Root' }, executionLimit: 1 })
     const actor = { installationId: runtime.bootstrap.installationId, personId: runtime.bootstrap.ownerId }
     await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [runtime.bootstrap.rootAgentId, JSON.stringify({ adapterId: 'disconnect-fixture', modelId: 'test' })])
-    const publication = textPublicationHost({ publishToolText: (...args) => dispatcher.publishToolText(...args) })
+    const publication = textPublicationHost({ messageUserTool: (...args) => dispatcher.messageUserTool(...args) })
     registry = new AdapterRegistry({ now: publication.now, async invokeTool(request) { const result = await publication.invokeTool(request); committed(result); await barrier; return result } }, join(home, 'generations'))
     await registry.register('disconnect-fixture', installation, 'dist/index.mjs')
     dispatcher = new TextDispatcher(runtime, registry)
@@ -48,7 +48,7 @@ test('committed tool publication survives runner disconnect, restart does not re
     await dispatcher.start()
     const receipt = await post('/v1/text/submissions', { version: 1, submissionId: randomUUID(), scope: { installationId: actor.installationId, callerId: actor.personId }, target: { context, chatId: chat.chatId }, mode: 'root', parts: [{ kind: 'text', text: 'publish once' }] })
     const publicationResult = await Promise.race([committedPromise, new Promise((_, reject) => setTimeout(() => reject(new Error('Publication did not commit')), 10000))])
-    assert.equal(publicationResult.status, 'completed')
+    assert.equal(publicationResult.status, 'sent')
     registry.current.get('disconnect-fixture').child.disconnect()
     release()
     const snapshot = await waitFor(async () => (await fetch(server.url + `/v1/threads/${receipt.threadId}/snapshot`)).json(), value => value.work[0]?.state === 'recovery-needed')
