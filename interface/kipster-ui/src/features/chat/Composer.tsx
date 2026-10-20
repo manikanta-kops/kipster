@@ -325,7 +325,7 @@ export function Composer({
               media.add([
                 {
                   blob,
-                  name: `Voice note.${blob.type.includes('mp4') ? 'm4a' : blob.type.includes('ogg') ? 'ogg' : 'webm'}`,
+                  name: 'Voice note.wav',
                   purpose: 'voice_note',
                 },
               ])
