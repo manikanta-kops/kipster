@@ -3,79 +3,223 @@ import { createServer } from 'node:net'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mkdir, realpath } from 'node:fs/promises'
-import { dependencies, exists, initializeHome, json, locked, privateDirectory, repository, run, saveJSON } from './local-common.mjs'
-import { checkDatabase, databaseURL, postgresBinaries, postgresClient, prepareDatabase, stopDatabase } from './local-database.mjs'
-import { installEmbeddingRuntime, installedEmbeddingRuntime } from '../installer/src/embedding.mjs'
+import {
+  dependencies,
+  exists,
+  initializeHome,
+  json,
+  locked,
+  privateDirectory,
+  repository,
+  run,
+  saveJSON,
+} from './local-common.mjs'
+import {
+  checkDatabase,
+  databaseURL,
+  postgresBinaries,
+  postgresClient,
+  prepareDatabase,
+  stopDatabase,
+} from './local-database.mjs'
+import { digest } from '../installer/src/files.mjs'
+import {
+  installTranscriptionRuntime,
+  transcriptionRuntime,
+} from '../installer/src/transcription.mjs'
+import {
+  installEmbeddingRuntime,
+  installedEmbeddingRuntime,
+} from '../installer/src/embedding.mjs'
 
 /** The plugin server Core runs in development: this repository's installed `@kipster/plugins`. */
-export const localPluginServer = join(repository, 'node_modules/@kipster/plugins/dist/server/cli.js')
+export const localPluginServer = join(
+  repository,
+  'node_modules/@kipster/plugins/dist/server/cli.js',
+)
 /**
  * `embedding` is the installed runtime's server entry; without one, host.json keeps its embedding settings.
  * `plugins` is the plugin server module when it is installed; without one, host.json keeps its plugins entry.
  */
-export function configuration(home, installation, previous = {}, embedding, plugins) {
+export function configuration(
+  home,
+  installation,
+  previous = {},
+  embedding,
+  plugins,
+  transcription,
+) {
   const kept = previous.embedding?.server ? previous.embedding : undefined
   return {
     ...previous,
-    ...(embedding ? { embedding: { module: join(installation, 'node_modules/@kipster/embedding-llama-cpp/dist/index.js'), options: kept?.options ?? {}, server: { ...embedding, port: kept?.server.port ?? embedding.port } } } : {}),
+    ...(embedding
+      ? {
+          embedding: {
+            module: join(
+              installation,
+              'node_modules/@kipster/embedding-llama-cpp/dist/index.js',
+            ),
+            options: kept?.options ?? {},
+            server: { ...embedding, port: kept?.server.port ?? embedding.port },
+          },
+        }
+      : {}),
     ...(plugins ? { plugins: { module: plugins } } : {}),
-    version: 1, home, databaseUrl: databaseURL(home), taskDataUrl: databaseURL(home, 'kipster', 'kipster_task'),
-    listen: previous.listen ?? { host: '127.0.0.1', port: 43120, allowedHosts: [], allowedOrigins: ['tauri://localhost'] },
+    ...(transcription
+      ? {
+          transcription: {
+            module: join(
+              installation,
+              'node_modules/@kipster/transcription-transcribe-cpp/dist/index.js',
+            ),
+            options: {
+              ...(previous.transcription?.module?.includes(
+                '/@kipster/transcription-transcribe-cpp/',
+              )
+                ? previous.transcription.options
+                : {}),
+              ...transcription,
+            },
+          },
+        }
+      : {}),
+    version: 1,
+    home,
+    databaseUrl: databaseURL(home),
+    taskDataUrl: databaseURL(home, 'kipster', 'kipster_task'),
+    listen: previous.listen ?? {
+      host: '127.0.0.1',
+      port: 43120,
+      allowedHosts: [],
+      allowedOrigins: ['tauri://localhost'],
+    },
     adapters: [
-      ...executionAdapters.map(id => ({ id, root: installation, entry: `node_modules/@kipster/${id}/dist/index.js`, ...saved(previous, id) })),
-      ...(previous.adapters ?? []).filter(adapter => !executionAdapters.includes(adapter.id)),
+      ...executionAdapters.map((id) => ({
+        id,
+        root: installation,
+        entry: `node_modules/@kipster/${id}/dist/index.js`,
+        ...saved(previous, id),
+      })),
+      ...(previous.adapters ?? []).filter(
+        (adapter) => !executionAdapters.includes(adapter.id),
+      ),
     ],
   }
 }
 /** Execution adapters built from this repository; the first is the default for agents that choose none. */
 const executionAdapters = ['codex-cli', 'claude-cli']
-const pluginServer = async () => await exists(localPluginServer) ? localPluginServer : undefined
+const pluginServer = async () =>
+  (await exists(localPluginServer)) ? localPluginServer : undefined
 function saved(previous, id) {
-  const config = (previous.adapters ?? []).find(adapter => adapter.id === id)?.config
+  const config = (previous.adapters ?? []).find(
+    (adapter) => adapter.id === id,
+  )?.config
   return config ? { config } : {}
 }
 export async function buildBackend(home) {
-  const core = join(repository, 'core'), adapters = [...executionAdapters, 'embedding-llama-cpp'].map(id => join(repository, 'adapters', id))
-  console.log('Building Core, the Codex and Claude CLI adapters and the embedding provider…')
+  const core = join(repository, 'core'),
+    adapters = [
+      ...executionAdapters,
+      'embedding-llama-cpp',
+      'transcription-transcribe-cpp',
+    ].map((id) => join(repository, 'adapters', id))
+  console.log(
+    'Building Core, the Codex and Claude CLI adapters and the embedding and transcription providers…',
+  )
   await dependencies()
   await run('npm', ['run', 'build'], { cwd: core })
-  for (const adapter of adapters) await run('npm', ['run', 'build'], { cwd: adapter })
-  const build = join(home, 'builds', randomUUID()), installation = join(build, 'packages')
+  for (const adapter of adapters)
+    await run('npm', ['run', 'build'], { cwd: adapter })
+  const build = join(home, 'builds', randomUUID()),
+    installation = join(build, 'packages')
   await mkdir(installation, { recursive: true, mode: 0o700 })
   const tarballs = []
   for (const cwd of [core, ...adapters]) {
     // Builds ran explicitly above; avoid running the full test suite on every launch.
-    const packed = await run('npm', ['pack', '--ignore-scripts', '--json', '--pack-destination', build], { cwd, capture: true })
+    const packed = await run(
+      'npm',
+      ['pack', '--ignore-scripts', '--json', '--pack-destination', build],
+      { cwd, capture: true },
+    )
     tarballs.push(join(build, JSON.parse(packed.output)[0].filename))
   }
-  await saveJSON(join(installation, 'package.json'), { name: 'kipster-development-runtime', private: true })
-  await run('npm', ['install', '--omit=dev', '--ignore-scripts', '--prefer-offline', '--no-audit', '--no-fund', ...tarballs], { cwd: installation })
+  await saveJSON(join(installation, 'package.json'), {
+    name: 'kipster-development-runtime',
+    private: true,
+  })
+  await run(
+    'npm',
+    [
+      'install',
+      '--omit=dev',
+      '--ignore-scripts',
+      '--prefer-offline',
+      '--no-audit',
+      '--no-fund',
+      ...tarballs,
+    ],
+    { cwd: installation },
+  )
   return installation
 }
-const cli = installation => join(installation, 'node_modules/@kipster/core/dist/host.js')
-export async function hostCommand(installation, configPath, action, capture = true) {
-  const result = await run(process.execPath, [cli(installation), action, '--config', configPath], { capture })
+const cli = (installation) =>
+  join(installation, 'node_modules/@kipster/core/dist/host.js')
+export async function hostCommand(
+  installation,
+  configPath,
+  action,
+  capture = true,
+) {
+  const result = await run(
+    process.execPath,
+    [cli(installation), action, '--config', configPath],
+    { capture },
+  )
   return capture ? JSON.parse(result.output) : undefined
 }
 async function portAvailable(listen) {
   const server = createServer()
   try {
-    await new Promise((resolve, reject) => { server.once('error', reject); server.listen(listen.port, listen.host, resolve) })
-  } catch { throw new Error(`Backend port ${listen.port} is occupied. Its owner was not stopped. Change listen.port in host.json and retry.`) }
-  finally { if (server.listening) await new Promise(resolve => server.close(resolve)) }
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(listen.port, listen.host, resolve)
+    })
+  } catch {
+    throw new Error(
+      `Backend port ${listen.port} is occupied. Its owner was not stopped. Change listen.port in host.json and retry.`,
+    )
+  } finally {
+    if (server.listening) await new Promise((resolve) => server.close(resolve))
+  }
 }
 async function currentState(home) {
   const file = join(home, 'active.json')
-  if (!await exists(file)) return undefined
+  if (!(await exists(file))) return undefined
   const state = await json(file)
-  if (typeof state.installation !== 'string' || !resolve(state.installation).startsWith(join(home, 'builds') + '/')) throw new Error('Development runtime path is invalid.')
+  if (
+    typeof state.installation !== 'string' ||
+    !resolve(state.installation).startsWith(join(home, 'builds') + '/')
+  )
+    throw new Error('Development runtime path is invalid.')
   return state
 }
 export async function activateBackend(home, installation, pgBin) {
   const configPath = join(home, 'host.json')
-  const previous = await exists(configPath) ? await json(configPath) : undefined
-  if (previous && previous.home !== home) throw new Error('host.json belongs to a different home; it was not changed.')
-  const config = configuration(home, installation, previous, await installedEmbeddingRuntime(home) ?? undefined, await pluginServer())
+  const previous = (await exists(configPath))
+    ? await json(configPath)
+    : undefined
+  if (previous && previous.home !== home)
+    throw new Error(
+      'host.json belongs to a different home; it was not changed.',
+    )
+  const config = configuration(
+    home,
+    installation,
+    previous,
+    (await installedEmbeddingRuntime(home)) ?? undefined,
+    await pluginServer(),
+    await developmentTranscription(home),
+  )
   const host = await import(pathToFileURL(cli(installation)).href)
   host.validateHostConfig(config)
   const state = await host.control(home, 'status')
@@ -91,56 +235,163 @@ export async function activateBackend(home, installation, pgBin) {
   await saveJSON(join(home, 'active.json'), { installation, pgBin })
   await hostCommand(installation, configPath, 'setup')
   const started = await hostCommand(installation, configPath, 'start')
-  const response = await fetch(`${started.url}/v1/bootstrap`, { signal: AbortSignal.timeout(5000) })
-  if (!response.ok || (await response.json()).installationId !== started.installationId) throw new Error('Backend started but its readiness check failed. Inspect the logs.')
+  const response = await fetch(`${started.url}/v1/bootstrap`, {
+    signal: AbortSignal.timeout(5000),
+  })
+  if (
+    !response.ok ||
+    (await response.json()).installationId !== started.installationId
+  )
+    throw new Error(
+      'Backend started but its readiness check failed. Inspect the logs.',
+    )
   return started
 }
-export async function backend(inputHome, action, { embeddings = false } = {}) {
-  if (Buffer.byteLength(join(inputHome, '.host-control/control.sock')) > 103) throw new Error('Development home is too long for a macOS control socket. Use a shorter home folder path.')
-  if (action && !await exists(inputHome)) { console.log('Development backend and database are stopped (not initialized).'); return }
+export async function backend(
+  inputHome,
+  action,
+  { embeddings = false, transcription = false } = {},
+) {
+  if (Buffer.byteLength(join(inputHome, '.host-control/control.sock')) > 103)
+    throw new Error(
+      'Development home is too long for a macOS control socket. Use a shorter home folder path.',
+    )
+  if (action && !(await exists(inputHome))) {
+    console.log(
+      'Development backend and database are stopped (not initialized).',
+    )
+    return
+  }
   await privateDirectory(inputHome)
   const home = await realpath(inputHome)
-  if (Buffer.byteLength(join(home, '.host-control/control.sock')) > 103) throw new Error('Resolved development home is too long for a macOS control socket. Use a shorter home folder path.')
+  if (Buffer.byteLength(join(home, '.host-control/control.sock')) > 103)
+    throw new Error(
+      'Resolved development home is too long for a macOS control socket. Use a shorter home folder path.',
+    )
   return locked(join(home, '.command-lock'), async () => {
     await initializeHome(home)
     const current = await currentState(home)
     if (action) {
-      if (!current) { console.log('No backend runtime is active. Rerun npm run backend to finish setup.'); return }
+      if (!current) {
+        console.log(
+          'No backend runtime is active. Rerun npm run backend to finish setup.',
+        )
+        return
+      }
       const Client = postgresClient(current.installation)
       if (action === '--stop') {
         await hostCommand(current.installation, join(home, 'host.json'), 'stop')
         await stopDatabase(home, current.pgBin, Client)
         console.log('Development backend and database stopped. Data preserved.')
       } else {
-        console.log(JSON.stringify(await hostCommand(current.installation, join(home, 'host.json'), 'status'), null, 2))
-        console.log(`PostgreSQL: ${await checkDatabase(home, current.pgBin, Client) ? 'running' : 'stopped'}\nData: ${home}`)
+        console.log(
+          JSON.stringify(
+            await hostCommand(
+              current.installation,
+              join(home, 'host.json'),
+              'status',
+            ),
+            null,
+            2,
+          ),
+        )
+        console.log(
+          `PostgreSQL: ${(await checkDatabase(home, current.pgBin, Client)) ? 'running' : 'stopped'}\nData: ${home}`,
+        )
       }
       return
     }
     await privateDirectory(join(home, 'logs'))
     if (action === undefined && embeddings) {
-      console.log('Downloading and verifying llama.cpp and EmbeddingGemma 2 when missing (about 330 MB)…')
+      console.log(
+        'Downloading and verifying llama.cpp and EmbeddingGemma 2 when missing (about 330 MB)…',
+      )
       const runtime = await installEmbeddingRuntime(home)
       if (!runtime.available) console.log(runtime.reason)
     }
+    if (transcription) await developmentTranscription(home, { download: true })
     const pgBin = await postgresBinaries()
     const installation = await buildBackend(home)
     // Record first setup before database startup, so --stop works after an interrupted setup.
     if (!current) {
       await saveJSON(join(home, 'active.json'), { installation, pgBin })
-      if (!await exists(join(home, 'host.json'))) await saveJSON(join(home, 'host.json'), configuration(home, installation, {}, undefined, await pluginServer()))
+      if (!(await exists(join(home, 'host.json'))))
+        await saveJSON(
+          join(home, 'host.json'),
+          configuration(
+            home,
+            installation,
+            {},
+            undefined,
+            await pluginServer(),
+          ),
+        )
     }
     await prepareDatabase(home, pgBin, postgresClient(installation))
     const started = await activateBackend(home, installation, pgBin)
-    const available = id => started.adapters?.find(adapter => adapter.id === id)?.available
-    console.log(`\nBackend running: ${started.url}\nData: ${home}\nLogs: ${join(home, 'logs/host.log')}`)
-    console.log(available('codex-cli') ? 'Codex: ready. Agents use its default model until you choose another in Settings.' : 'Codex: unavailable. Check your Codex CLI/account and the host log, then rerun npm run backend.')
-    console.log(available('claude-cli') ? 'Claude CLI: ready. Choose it for a kip in Settings.' : 'Claude CLI: unavailable. Check your claude CLI login and the host log, then rerun npm run backend.')
+    const available = (id) =>
+      started.adapters?.find((adapter) => adapter.id === id)?.available
+    console.log(
+      `\nBackend running: ${started.url}\nData: ${home}\nLogs: ${join(home, 'logs/host.log')}`,
+    )
+    console.log(
+      available('codex-cli')
+        ? 'Codex: ready. Agents use its default model until you choose another in Settings.'
+        : 'Codex: unavailable. Check your Codex CLI/account and the host log, then rerun npm run backend.',
+    )
+    console.log(
+      available('claude-cli')
+        ? 'Claude CLI: ready. Choose it for a kip in Settings.'
+        : 'Claude CLI: unavailable. Check your claude CLI login and the host log, then rerun npm run backend.',
+    )
     const config = await json(join(home, 'host.json'))
-    if (config.embedding?.server) console.log('Embeddings: Core runs the downloaded llama.cpp server with EmbeddingGemma 2.')
-    else if (!config.embedding) console.log('Embeddings: not downloaded, so memory search is unavailable. Run npm run backend -- --with-embeddings to download llama.cpp and EmbeddingGemma 2 into this development home.')
-    if (!config.plugins) console.log('Plugins: off, because @kipster/plugins is not installed. Run npm ci at the repository root.')
-    if (!config.transcription) console.log('Voice transcription: not configured.')
-    console.log('You can close this terminal. Use npm run backend -- --stop to stop this installation.')
+    if (config.embedding?.server)
+      console.log(
+        'Embeddings: Core runs the downloaded llama.cpp server with EmbeddingGemma 2.',
+      )
+    else if (!config.embedding)
+      console.log(
+        'Embeddings: not downloaded, so memory search is unavailable. Run npm run backend -- --with-embeddings to download llama.cpp and EmbeddingGemma 2 into this development home.',
+      )
+    if (!config.plugins)
+      console.log(
+        'Plugins: off, because @kipster/plugins is not installed. Run npm ci at the repository root.',
+      )
+    if (!config.transcription)
+      console.log(
+        'Voice transcription: not configured. Run npm run backend -- --with-transcription to download Parakeet Ultra into this development home.',
+      )
+    else console.log('Voice transcription: configured with the local provider.')
+    console.log(
+      'You can close this terminal. Use npm run backend -- --stop to stop this installation.',
+    )
   })
+}
+
+/** Reuse only verified local bytes; downloading requires the explicit launch flag. */
+export async function developmentTranscription(
+  home,
+  {
+    download = false,
+    manifest = transcriptionRuntime,
+    install = installTranscriptionRuntime,
+  } = {},
+) {
+  if (download) {
+    const runtime = await install(home, { manifest })
+    if (!runtime.available) {
+      console.log(runtime.reason)
+      return undefined
+    }
+    return runtime.options
+  }
+  const model = join(home, 'transcription/models', manifest.model.file)
+  if (!(await exists(model))) return undefined
+  const current = await digest(model)
+  if (
+    current.size !== manifest.model.size ||
+    current.sha256 !== manifest.model.sha256
+  )
+    return undefined
+  return { model, modelSha256: manifest.model.sha256 }
 }

@@ -232,6 +232,8 @@ test('a Core without memory cards shows the Memory switch and sleep time, but no
     .poll(async () => (await coreJson(page, '/v1/settings/learning')).enabled)
     .toBe(!enabled)
   expect(reads).toEqual([])
+  // Finish in-flight settings reads before Playwright disposes their responses.
+  await page.unrouteAll({ behavior: 'wait' })
 })
 
 test('a Core advertising memory cards offers Cards, which lists them', async ({

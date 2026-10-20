@@ -225,3 +225,55 @@ test('the kip messaging fixture sends through Core tools and recognises turns wo
   assert.match(start, /part\.kind === 'kip-answer'/)
   assert.match(start, /reply\(woken \? '' : text\)/)
 })
+
+test('transcription staging verifies bytes atomically and startup inspection never downloads', async (t) => {
+  const { mkdtemp, writeFile, rm } = await import('node:fs/promises')
+  const { createHash } = await import('node:crypto')
+  const { stageTranscriptionModel, transcriptionOptions } =
+    await import('../verify/transcription-model.mjs')
+  const { recordingDuration } = await import('../verify/voice-audio.mjs')
+  const home = await mkdtemp('/tmp/kipster-kit-model-')
+  t.after(() => rm(home, { recursive: true, force: true }))
+  const source = resolve(home, 'source.gguf'),
+    bytes = Buffer.from('test model')
+  const manifest = {
+    model: {
+      file: 'test.gguf',
+      size: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    },
+  }
+  assert.equal(await transcriptionOptions(home, manifest), undefined)
+  await writeFile(source, bytes)
+  const options = await stageTranscriptionModel(home, source, manifest)
+  assert.deepEqual(await transcriptionOptions(home, manifest), options)
+  assert.equal((await stat(options.model)).mode & 0o777, 0o600)
+  await writeFile(source, 'bad! model')
+  await assert.rejects(
+    stageTranscriptionModel(home, source, manifest),
+    /mismatch/,
+  )
+  assert.deepEqual(await readFile(options.model), bytes)
+  assert.deepEqual(await readdir(resolve(home, 'transcription/models')), [
+    'test.gguf',
+  ])
+  await writeFile(options.model, 'short')
+  assert.equal(await transcriptionOptions(home, manifest), undefined)
+  const audio = Buffer.alloc(44 + 32000)
+  audio.write('RIFF')
+  audio.writeUInt32LE(audio.length - 8, 4)
+  audio.write('WAVEfmt ', 8)
+  audio.writeUInt32LE(16, 16)
+  audio.writeUInt16LE(1, 20)
+  audio.writeUInt16LE(1, 22)
+  audio.writeUInt32LE(16000, 24)
+  audio.writeUInt16LE(16, 34)
+  audio.write('data', 36)
+  audio.writeUInt32LE(32000, 40)
+  const wav = resolve(home, 'voice.wav')
+  await writeFile(wav, audio)
+  assert.equal(await recordingDuration(wav), 1500)
+  audio.writeUInt32LE(48000, 24)
+  await writeFile(wav, audio)
+  await assert.rejects(recordingDuration(wav), /16 kHz/)
+})

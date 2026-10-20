@@ -44,7 +44,6 @@ test('release plan covers every workspace package; the app and the installer bui
     '@kipster/core',
     '@kipster/embedding-llama-cpp',
     '@kipster/installer',
-    '@kipster/transcription-spokenly',
     '@kipster/transcription-transcribe-cpp',
     '@kipster/ui',
   ])

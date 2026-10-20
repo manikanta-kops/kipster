@@ -111,9 +111,19 @@ test('a linked thread names its sender in the feed, its pane chips and banner', 
   await expect(reply.locator('.kip-via')).toHaveCount(0)
   await expect(card(page, plans).locator('.role-label')).toHaveCount(0)
   // A long source title shrinks inside the header and leaves its buttons usable.
-  const chip = await pane(page).locator('.kip-link-chip').boundingBox()
-  const actions = await pane(page).locator('.header-actions').boundingBox()
-  expect(chip!.x + chip!.width).toBeLessThanOrEqual(actions!.x + 1)
+  // Read both edges in one frame while the pane animates into view.
+  await expect
+    .poll(() =>
+      pane(page).evaluate((element) => {
+        const chip = element.querySelector('.kip-link-chip')!
+        const actions = element.querySelector('.header-actions')!
+        return (
+          chip.getBoundingClientRect().right -
+          actions.getBoundingClientRect().left
+        )
+      }),
+    )
+    .toBeLessThanOrEqual(1)
   await pane(page).getByRole('button', { name: 'Close thread' }).click()
   await expect(pane(page)).toHaveCount(0)
 })
