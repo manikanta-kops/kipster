@@ -79,7 +79,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build -w core
-      # Directory selection includes transcription-transcribe-cpp and the retained Spokenly package.
+      # Directory selection includes transcription-transcribe-cpp.
       - run: npm run check -w adapters
 
   installer:

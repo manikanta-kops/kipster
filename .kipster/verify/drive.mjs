@@ -19,6 +19,15 @@ if (
 )
   throw Error('Expected the allocated local factory URL')
 const origin = url.origin
+const audioFile = process.env.VOICE_WAV
+  ? resolve(process.env.VOICE_WAV)
+  : undefined
+const silence = process.env.VOICE_EXPECT === 'no-speech'
+if (name === 'voice-real' && !audioFile)
+  throw Error('Set VOICE_WAV to a generated 16 kHz mono PCM WAV')
+const recordingMs = audioFile
+  ? await (await import('./voice-audio.mjs')).recordingDuration(audioFile)
+  : undefined
 // The plugin sign-in page is the instance's fixture service on another loopback
 // origin. Allow exactly the origin the instance publishes, and only for plugins.
 const allowed = new Set([origin])
@@ -47,9 +56,17 @@ const browser = await chromium.launch({
   channel: 'chrome',
   env: isolatedEnvironment(home),
   headless: true,
+  args: audioFile
+    ? [
+        '--use-fake-device-for-media-stream',
+        '--use-fake-ui-for-media-stream',
+        `--use-file-for-fake-audio-capture=${audioFile}%noloop`,
+      ]
+    : [],
 })
 const context = await browser.newContext({
   viewport: { width: 1440, height: 1000 },
+  ...(audioFile ? { permissions: ['microphone'] } : {}),
 })
 const findings = []
 // Chrome's built-in PDF viewer loads its own bundled resources; none leave the browser.
@@ -74,9 +91,16 @@ const page = await context.newPage()
 page.on('pageerror', (error) => findings.push(error.message))
 let result = 'failed'
 try {
-  await drive(name, { page, expect, origin, evidenceDir })
+  const verdict = await drive(name, {
+    page,
+    expect,
+    origin,
+    evidenceDir,
+    recordingMs,
+    silence,
+  })
   expect(findings).toEqual([])
-  result = 'passed'
+  result = verdict?.result ?? 'passed'
 } catch (error) {
   findings.push(error.stack ?? error.message)
   await page

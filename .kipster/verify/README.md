@@ -12,7 +12,7 @@ Factory Owner is the trusted owner, Factory Garden the initial organization and
 Kip the protected root admin. There is no login/password. Obtain IDs with
 `GET /v1/bootstrap` and `GET /v1/directory`. Each instance gets an empty generated
 PostgreSQL 18 database with pgvector and a home inside its disposable checkout.
-No owner credentials, provider homes or real adapters are used.
+No owner credentials or provider homes are used. Execution uses the deterministic fixture; transcription can use the pinned local model.
 
 Ordinary messages return `Fixture reply: <text>`. Special messages start with
 `__question__` (Blue/Red question), `__approval__` (inert color proposal),
@@ -25,8 +25,7 @@ reply `Fixture sent files: <text>`). Kip messaging uses three more:
 text back as the reply, unless a kip's answer starting with it woke the turn,
 which then ends with an empty reply. A kip message starting with `__question__`
 makes the recipient ask in its linked thread. A message containing `write a rich doc`
-creates Trip plan; submission revises its heading and resolves submitted comments. Transcription reports
-unavailable and preserves original voice bytes. Updates use an empty local
+creates Trip plan; submission revises its heading and resolves submitted comments. By default transcription reports unavailable and preserves original voice bytes. When the pinned model is staged before startup, transcription uses the real local provider. Updates use an empty local
 catalog and an unmanaged backend; they never install anything. Plugins run the
 `@kipster/plugins` server in test-only mode with one plugin, Fixture, whose local
 fixture service signs in as alice or bob; no real service is contacted.
@@ -103,3 +102,36 @@ No restart durability claim follows from a browser reload.
 These commands were derived from source/tests. Onboarding's evidence records the
 static checks and deterministic gate; live boot is verified by verify-kit and
 feature driving by the independent tester. Do not treat an unrun command as proof.
+
+## Real local voice transcription
+
+Before the factory starts an instance, stage the pinned Parakeet Ultra model in
+that checkout's private instance home:
+
+```sh
+node .kipster/verify/transcription-model.mjs /absolute/path/to/parakeet-ultra-Q8_0.gguf
+```
+
+Omit the source to download through the installer's pinned, verified downloader.
+The helper verifies size and SHA-256 and copies privately; never commit models.
+Startup never downloads: it selects and builds the real provider only when the
+instance model has the pinned size. The provider verifies SHA-256 before loading.
+A running fixture instance needs a factory-managed fresh start to select it.
+
+Generate English, German (`say -v Anna`) and French (`say -v Thomas`) WAVs with
+`say -o speech.wav --file-format=WAVE --data-format=LEI16@16000 "your sentence"`.
+Also generate a silent 16 kHz mono 16-bit PCM WAV. Run each separately with its own
+evidence directory, using the factory handle:
+
+```sh
+VOICE_WAV=/absolute/path/to/speech.wav node .kipster/verify/drive.mjs voice-real
+VOICE_WAV=/absolute/path/to/silent.wav VOICE_EXPECT=no-speech node .kipster/verify/drive.mjs voice-real
+```
+
+The driver uses Chromium's fake audio capture through the real Record voice note
+button, checks the durable transcript and its fixture kip echo, and captures a
+thread screenshot, trace and transcript JSON. It asserts nonempty speech, never
+exact words or recognition quality. Execution remains the fixture; Core's
+`turn-prompt.test.mjs` separately covers model prompt delivery. `voice` records a
+skip when real transcription is active. Hardware microphones and native client
+permissions remain unverified by these commands.
