@@ -89,7 +89,7 @@ Retaining a file does not mean the selected model can understand its contents. P
 
 ### Automatic preparation
 
-Every input explicitly designated a voice note receives automatic transcription through the installation-configured transcription service. Initial implementation: Spokenly CLI. Reserve an interchangeable CLI/API service contract without implementing additional providers now.
+Every input explicitly designated a voice note receives automatic transcription through the installation-configured transcription service. The local provider runs transcribe.cpp with the Parakeet Ultra model downloaded by the installer. It accepts 16 kHz mono 16-bit PCM WAV (`audio/wav`); decoding other formats is a later step inside the transcription package. Keep the provider contract interchangeable.
 
 Normal flow:
 
@@ -119,7 +119,7 @@ The agent can invoke the transcription tool, use supported audio processing, wor
 
 Expose the same configured transcription service to agents through a Kipster tool. That lets an agent transcribe an ordinary attached audio file when the task calls for it, or retry a failed voice note. The tool operates on a registered artifact or an allowed file reference and returns transcript/status/error information. Exact arguments, retry policy, caching, and supported formats belong to the execution and storage blocks.
 
-The tool is part of the standard Kipster capability catalog. An unavailable dependency should report unavailable, rather than disappear silently. Health checks must validate that the configured transcription dependency works. A CLI running on the host does not by itself imply that its underlying recognition model runs locally; inspect the chosen dependency configuration during implementation.
+The tool is part of the standard Kipster capability catalog. An unavailable dependency should report unavailable, rather than disappear silently. Readiness checks the local model file and pinned size without transcribing; a separate inference test validates the native runtime. The model runs in an owned child process, leaving Core responsive.
 
 ## 5. State, reactions, progress, and user-facing output
 

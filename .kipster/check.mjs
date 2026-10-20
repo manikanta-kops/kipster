@@ -91,6 +91,7 @@ try {
   ])
   await run('npm', ['run', 'test:postgres', '-w', 'core'])
   await run('npm', ['run', 'test:package', '-w', 'core'])
+  // The directory selector includes every adapter workspace, including local transcription.
   await run('npm', ['run', 'check', '-w', 'adapters'])
   await run('npm', ['run', 'test:postgres', '-w', 'installer'])
   if (process.platform === 'darwin')
