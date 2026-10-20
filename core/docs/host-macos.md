@@ -105,15 +105,28 @@ key file in `<home>/plugins`, and its output goes to `logs/plugins.log`. Without
 [Plugin server](../README.md#plugin-server) for restarts, updates and why Core
 refuses an older release than one that already ran.
 
-Configure Spokenly with `transcription: { "module": "/absolute/path/to/adapter/dist/index.js",
-"options": { "executable": "/absolute/path/to/spokenly",
-"ffmpegExecutable": "/absolute/path/to/ffmpeg", "timeoutMs": 60000,
-"maxOutputBytes": 1048576 } }`.
-Install FFmpeg separately to enable conversion of WebM and other unsupported
-inputs. Compatible formats are passed through with a suitable temporary filename;
-original artifacts are preserved.
-The adapter selects no fallback and downloads no model. Configure its supported
-recognition route explicitly; microphone consent is separate from a CLI check.
+Local transcription uses transcribe.cpp. Once `@kipster/transcription-transcribe-cpp`
+is released on the installation's channel, the installer downloads the pinned
+Parakeet Ultra Q8_0 model (CC-BY-4.0) into `<home>/transcription/models/`, verifies
+its size and SHA-256, and writes:
+
+```json
+"transcription": {
+  "module": "<home>/current/node_modules/@kipster/transcription-transcribe-cpp/dist/index.js",
+  "options": {
+    "model": "<home>/transcription/models/parakeet-ultra-Q8_0.gguf",
+    "modelSha256": "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59"
+  }
+}
+```
+
+Voice notes use 16 kHz mono 16-bit PCM WAV (`audio/wav`). Decoding other formats
+is a later step in the transcription package. Original artifacts are preserved.
+The installer skips transcription with a report when its native package is
+unsupported or the model download fails. Passive `doctor` names the configured
+model and checks that it is present and readable without loading the module.
+`doctor --probe` adds a `transcription-probe` readiness row; it never transcribes
+or records audio.
 
 ## Inspect and start
 

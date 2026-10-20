@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, open, readFile } from 'node:fs/promises'
+import { access, mkdir, open, readFile, stat } from 'node:fs/promises'
 import { constants, realpathSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { openRuntime, startTextServer, TextDispatcher, textPublicationHost, AdapterRegistry, type Runtime, type TextServer } from './runtime.js'
@@ -198,7 +198,33 @@ export async function doctor(config: HostConfig, probe = false): Promise<Diagnos
     try { await access(config.plugins.module, constants.R_OK); const row = pluginServerDiagnostic(running?.plugins); add('plugins', row.status, row.message) }
     catch { add('plugins', 'unavailable', 'The configured plugin server module is missing. Reinstall or update Kipster; plugins are off meanwhile.') }
   } else add('plugins', 'not-configured', 'No plugin server is configured, so plugins are off.')
-  add('transcription', config.transcription ? 'not-probed' : 'not-configured', config.transcription ? 'Configured module; passive checks do not invoke the provider or request microphone access.' : 'Voice recording/transcription is unavailable until explicitly configured.')
+  const transcriptionModel = config.transcription?.options?.model
+  if (typeof transcriptionModel === 'string') {
+    const name = basename(transcriptionModel)
+    try {
+      if (!(await stat(transcriptionModel)).isFile())
+        throw new Error('Not a model file')
+      await access(transcriptionModel, constants.R_OK)
+      add(
+        'transcription',
+        'ok',
+        `Transcription model ${name} is present and readable; provider not probed.`,
+      )
+    } catch {
+      add(
+        'transcription',
+        'unavailable',
+        `Transcription model ${name} is missing or unreadable. Reinstall Kipster.`,
+      )
+    }
+  } else
+    add(
+      'transcription',
+      config.transcription ? 'not-probed' : 'not-configured',
+      config.transcription
+        ? 'Configured module; passive checks do not invoke the provider or request microphone access.'
+        : 'Voice recording/transcription is unavailable until explicitly configured.',
+    )
   if (probe) {
     environment(config)
     if (embeddingServer && running?.embedding?.state !== 'ready') add('embedding-probe', 'unavailable', 'The embedding server is not ready. Start the host, which runs it, and check the embedding row.')

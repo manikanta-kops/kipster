@@ -177,8 +177,17 @@ test('success, verification failure, migration/health rollback, restore and rete
   const home = await directory(t), { database: db, databaseUrl } = await database(t), catalog = await catalogs(t)
   const { path, maintenancePath } = await configuration(t, home, databaseUrl, {
     updates: { managed: false, channelUrl: catalog.base },
-    embedding: { module: join(home, 'embedding-llama-cpp/dist/index.js'), options: { model: 'kept' } },
-    transcription: { module: join(home, 'transcription-spokenly/dist/index.js'), options: { executable: '/usr/bin/false' } },
+    embedding: {
+      module: join(home, 'embedding-llama-cpp/dist/index.js'),
+      options: { model: 'kept' },
+    },
+    transcription: {
+      module: join(home, 'transcription-transcribe-cpp/dist/index.js'),
+      options: {
+        model: join(home, 'transcription/models/fixture.gguf'),
+        modelSha256: 'a'.repeat(64),
+      },
+    },
   })
   const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: true, healthTimeout: 1000 }
   await assert.rejects(install({ ...options, maintenanceConfig: undefined }, hooks), /superuser maintenance login/)
@@ -290,7 +299,7 @@ test('interrupted activation recovers on the next apply and preserves newer requ
   const ready = join(home, 'interrupted')
   const code = `import {Installer} from ${JSON.stringify(new URL('../src/installer.mjs', import.meta.url).href)};
     import {atomic} from ${JSON.stringify(new URL('../src/files.mjs', import.meta.url).href)};
-    const installer=await Installer.open(${JSON.stringify(home)},{platformCheck:async()=>{},embedding:{manifest:null},onStep:async step=>{if(step==='migrating'){await atomic(${JSON.stringify(ready)},'ready'); await new Promise(()=>setInterval(()=>{},10000))}}}); await installer.update('0.2.0');`
+    const installer=await Installer.open(${JSON.stringify(home)},{platformCheck:async()=>{},embedding:{manifest:null},transcription:{manifest:null},onStep:async step=>{if(step==='migrating'){await atomic(${JSON.stringify(ready)},'ready'); await new Promise(()=>setInterval(()=>{},10000))}}}); await installer.update('0.2.0');`
   const child = spawn(process.execPath, ['--input-type=module', '-e', code], { env: process.env, stdio: 'ignore' })
   const done = new Promise(resolve => child.once('exit', resolve))
   for (let i = 0; i < 1000; i++) { try { await stat(ready); break } catch { await delay(20) } }
