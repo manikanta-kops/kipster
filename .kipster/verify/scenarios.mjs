@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { filesPerMessage, fixtureDirectory, fixtureFiles } from './files.mjs'
 
 export const scenarios = [
@@ -25,12 +25,27 @@ export const scenarios = [
   'attachment',
   'kip-files',
   'voice',
+  'voice-real',
+  'voice-file',
+  'voice-path',
   'updates',
   'plugins',
   'kip-messaging',
 ]
 
-export async function drive(name, { page, expect, origin, evidenceDir }) {
+export async function drive(
+  name,
+  {
+    page,
+    expect,
+    origin,
+    evidenceDir,
+    recordingMs,
+    silence,
+    mediaFile,
+    mediaExpect,
+  },
+) {
   const unique = (label) => `${label} ${crypto.randomUUID().slice(0, 8)}`
   const get = async (path) => {
     const response = await page.request.get(origin + path)
@@ -725,55 +740,213 @@ export async function drive(name, { page, expect, origin, evidenceDir }) {
       )
       break
     }
-    case 'voice': {
-      await page.evaluate(() => {
-        Object.defineProperty(navigator, 'mediaDevices', {
-          value: {
-            getUserMedia: async () => {
-              const audio = new AudioContext(),
-                oscillator = audio.createOscillator(),
-                destination = audio.createMediaStreamDestination()
-              oscillator.connect(destination)
-              oscillator.start()
-              await audio.resume()
-              const track = destination.stream.getTracks()[0],
-                stop = track.stop.bind(track)
-              track.stop = () => {
-                stop()
-                oscillator.stop()
-                void audio.close()
-              }
-              return destination.stream
+    case 'voice':
+    case 'voice-real': {
+      const real =
+        (await get('/__fixture/transcription')).provider === 'transcribe-cpp'
+      if (name === 'voice-real')
+        expect(real, 'Stage the model before factory startup').toBe(true)
+      if (name === 'voice' && real) {
+        await writeFile(
+          `${evidenceDir}/voice-skipped.json`,
+          JSON.stringify({
+            result: 'skipped',
+            reason:
+              'Real transcription active; use voice-real with speech and silence WAVs',
+          }),
+        )
+        return { result: 'skipped' }
+      }
+      if (name === 'voice')
+        await page.evaluate(() => {
+          Object.defineProperty(navigator, 'mediaDevices', {
+            value: {
+              getUserMedia: async () => {
+                const audio = new AudioContext(),
+                  oscillator = audio.createOscillator(),
+                  destination = audio.createMediaStreamDestination()
+                oscillator.connect(destination)
+                oscillator.start()
+                await audio.resume()
+                const track = destination.stream.getTracks()[0],
+                  stop = track.stop.bind(track)
+                track.stop = () => {
+                  stop()
+                  oscillator.stop()
+                  void audio.close()
+                }
+                return destination.stream
+              },
             },
-          },
+          })
         })
-      })
       await page
         .getByRole('button', { name: 'Record voice note', exact: true })
         .click()
       await expect(
         page.getByRole('button', { name: 'Stop recording' }),
       ).toBeVisible()
-      await page.waitForTimeout(700)
+      await page.waitForTimeout(recordingMs ?? 700)
       await page.getByRole('button', { name: 'Stop recording' }).click()
       await expect(page.locator('.pending-media .voice-play')).toBeVisible()
+      const accepted = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/v1/text/submissions') &&
+          response.request().method() === 'POST',
+      )
+      const voiceFeed = page.locator('.feed-message').filter({
+        has: page.getByRole('region', { name: 'Voice preparation' }),
+      })
+      const before = await voiceFeed.count()
       await page.getByRole('button', { name: 'Send message' }).first().click()
-      await page
-        .locator('.feed-message')
-        .filter({
-          has: page.getByRole('region', { name: 'Voice preparation' }),
-        })
+      const receipt = await (await accepted).json()
+      await expect(voiceFeed).toHaveCount(before + 1)
+      await voiceFeed
         .last()
         .getByRole('button', { name: /^Open thread:/ })
         .press('Enter')
-      await expect(page.getByRole('region', { name: 'Thread' })).toContainText(
-        'Transcription unavailable',
-      )
-      await expect(
-        page.getByText(
-          /^Fixture received voice_note; original available; transcription unavailable/,
+      const expected =
+        name === 'voice' ? 'unavailable' : silence ? 'no-speech' : 'succeeded'
+      let transcript
+      await expect
+        .poll(
+          async () => {
+            const state = await snapshot(receipt)
+            transcript = state.messages.flatMap(
+              (message) => message.preparation ?? [],
+            )[0]
+            return transcript?.status
+          },
+          { timeout: 180000 },
+        )
+        .toBe(expected)
+      const pane = page.locator('.thread-pane')
+      if (expected === 'succeeded') {
+        expect(transcript.transcript.trim().length).toBeGreaterThan(0)
+        await pane
+          .getByRole('region', { name: 'Voice preparation' })
+          .getByText('Transcript', { exact: true })
+          .click()
+        await expect(
+          pane.getByText(transcript.transcript, { exact: true }),
+        ).toBeVisible({ timeout: 10000 })
+      } else
+        await expect(pane).toContainText(
+          expected === 'no-speech'
+            ? 'No speech detected'
+            : 'Transcription unavailable',
+        )
+      const reply = pane.getByText(
+        new RegExp(
+          `^Fixture received voice_note; original available; transcription ${expected};`,
         ),
-      ).toBeVisible()
+      )
+      await expect(reply).toBeVisible({ timeout: 15000 })
+      if (expected === 'succeeded')
+        await expect(reply).toContainText(`transcript ${transcript.transcript}`)
+      await writeFile(
+        `${evidenceDir}/${name}-transcript.json`,
+        JSON.stringify(
+          {
+            expected,
+            transcript,
+            received: await reply.innerText(),
+            threadId: receipt.threadId,
+          },
+          null,
+          2,
+        ) + '\n',
+      )
+      break
+    }
+    case 'voice-file': {
+      // The fixture kip calls Core's transcribe tool on the attached file.
+      expect(
+        (await get('/__fixture/transcription')).provider,
+        'Stage the model and FFmpeg before factory startup',
+      ).toBe('transcribe-cpp')
+      const composer = page.getByRole('form', {
+        name: 'Start a new thread',
+        exact: true,
+      })
+      const file = basename(mediaFile)
+      await composer.locator('input[type=file]').setInputFiles(mediaFile)
+      await expect(composer.getByText(file, { exact: true })).toBeVisible()
+      const caption = unique('Please transcribe this file')
+      await composer.getByRole('textbox').fill(caption)
+      const accepted = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/v1/text/submissions') &&
+          response.request().method() === 'POST',
+      )
+      await composer.getByRole('button', { name: 'Send message' }).click()
+      const receipt = await (await accepted).json()
+      const feed = page.locator('.feed-message').filter({
+        has: page.getByText(caption, { exact: true }),
+      })
+      await feed.getByRole('button', { name: /^Open thread:/ }).press('Enter')
+      const reply = page
+        .locator('.thread-pane')
+        .getByText(
+          new RegExp(
+            `^Fixture transcribed ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}; status `,
+          ),
+        )
+      await expect(reply).toBeVisible({ timeout: 180000 })
+      const received = await reply.innerText()
+      expect(received).toContain(`status ${mediaExpect}`)
+      if (mediaExpect === 'succeeded')
+        expect(
+          received.split('; transcript ')[1]?.trim().length,
+        ).toBeGreaterThan(0)
+      await writeFile(
+        `${evidenceDir}/voice-file-result.json`,
+        JSON.stringify(
+          { file, expected: mediaExpect, received, threadId: receipt.threadId },
+          null,
+          2,
+        ) + '\n',
+      )
+      await page.screenshot({ path: `${evidenceDir}/voice-file.png` })
+      break
+    }
+    case 'voice-path': {
+      // The fixture kip calls Core's transcribe tool with a local path, no attachment.
+      expect(
+        (await get('/__fixture/transcription')).provider,
+        'Stage the model and FFmpeg before factory startup',
+      ).toBe('transcribe-cpp')
+      const composer = page.getByRole('form', {
+        name: 'Start a new thread',
+        exact: true,
+      })
+      const caption = `${unique('Note')}: transcribe the file at ${mediaFile}`
+      await composer.getByRole('textbox').fill(caption)
+      await composer.getByRole('button', { name: 'Send message' }).click()
+      await page
+        .locator('.feed-message')
+        .filter({ has: page.getByText(caption, { exact: true }) })
+        .getByRole('button', { name: /^Open thread:/ })
+        .press('Enter')
+      const reply = page
+        .locator('.thread-pane')
+        .getByText(`Fixture transcribed ${mediaFile}; status `)
+      await expect(reply).toBeVisible({ timeout: 180000 })
+      const received = await reply.innerText()
+      expect(received).toContain(`status ${mediaExpect}`)
+      if (mediaExpect === 'succeeded')
+        expect(
+          received.split('; transcript ')[1]?.trim().length,
+        ).toBeGreaterThan(0)
+      await writeFile(
+        `${evidenceDir}/voice-path-result.json`,
+        JSON.stringify(
+          { file: mediaFile, expected: mediaExpect, received },
+          null,
+          2,
+        ) + '\n',
+      )
+      await page.screenshot({ path: `${evidenceDir}/voice-path.png` })
       break
     }
     case 'updates': {

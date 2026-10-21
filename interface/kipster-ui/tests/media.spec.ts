@@ -245,7 +245,7 @@ for (const outcome of ['succeeded', 'no-speech', 'unavailable'])
             partIndex: 0,
             revision: 1,
             status: outcome,
-            provider: 'spokenly-cli',
+            provider: 'transcribe-cpp',
             ...(outcome === 'succeeded'
               ? { transcript: 'Derived transcript' }
               : { error: 'No transcript available' }),
@@ -256,7 +256,7 @@ for (const outcome of ['succeeded', 'no-speech', 'unavailable'])
     await page.reload()
     const card = page
       .getByRole('region', { name: 'Voice preparation' })
-      .filter({ hasText: 'spokenly-cli' })
+      .filter({ hasText: 'transcribe-cpp' })
     await expect(card).toBeVisible()
     await expect(card).toContainText('Derived from voice note 1')
     if (outcome === 'succeeded') {
@@ -468,6 +468,12 @@ for (const action of ['cancel', 'navigate', 'late-cancel', 'late-navigate'])
       await page.getByRole('button', { name: 'Mira', exact: true }).click()
     else await page.getByRole('button', { name: 'Cancel recording' }).click()
     await expect.poll(async () => (await microphoneState(page)).stopped).toBe(1)
+    await expect
+      .poll(async () => {
+        const { contexts, closed } = await microphoneState(page)
+        return contexts - closed
+      })
+      .toBe(0)
     await expect(page.locator('.attachment-list')).toHaveCount(0)
   })
 
@@ -485,6 +491,7 @@ test('recording can be removed and recorded again without retaining old streams'
     await expect(page.getByText(/Uploaded/)).toBeVisible()
     await page.getByRole('button', { name: /Remove Voice note/ }).click()
     expect((await microphoneState(page)).stopped).toBe(count)
+    expect((await microphoneState(page)).closed).toBe(count)
   }
   await expect(page.locator('.attachment-list')).toHaveCount(0)
 })
@@ -503,9 +510,35 @@ test('synthetic recording requests permission on action, stops tracks, reviews o
   ).toBeFocused()
   await expect(page.getByText('Recording 0:01')).toBeVisible()
   await page.requestGC()
+  const uploaded = page.waitForRequest(
+    (request) =>
+      request.method() === 'PUT' && request.url().includes('/media/uploads/'),
+  )
   await page.getByRole('button', { name: 'Stop recording' }).click()
+  const upload = await uploaded
+  const intent = JSON.parse(new URL(upload.url()).searchParams.get('intent')!)
+  expect(intent.name).toBe('Voice note.wav')
+  expect(intent.mimeType).toBe('audio/wav')
+  const samples = assertWav(upload.postDataBuffer()!)
+  // A 440 Hz source has 220 rising zero crossings in 8,000 samples at 16 kHz.
+  expect(samples.length).toBeGreaterThanOrEqual(8000)
+  const tail = samples.slice(-8000)
+  const crossings = tail.filter(
+    (sample, i) => i > 0 && sample >= 0 && tail[i - 1] < 0,
+  ).length
+  expect(crossings).toBeGreaterThanOrEqual(210)
+  expect(crossings).toBeLessThanOrEqual(230)
   await expect(page.locator('.pending-media .voice-play')).toBeVisible()
   expect((await microphoneState(page)).stopped).toBe(1)
+  expect((await microphoneState(page)).closed).toBe(1)
+  expect((await microphoneState(page)).constraints).toEqual({
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+  })
   await send(page, 'Typed caption stays typed')
   await expect.poll(async () => (await mediaMessages(page)).length).toBe(1)
   const [message] = await mediaMessages(page)
@@ -1321,3 +1354,93 @@ test('a PDF preview frames only real PDF bytes as a typed blob', async ({
   await expect(page.locator('iframe')).toHaveCount(1)
   expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
 })
+
+test('recording labels WAV with the rate the platform actually gives', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page, 'native-rate')
+  await setupMedia(page)
+  await page
+    .getByRole('button', { name: 'Record voice note', exact: true })
+    .click()
+  await expect(page.getByText('Recording 0:01')).toBeVisible()
+  const uploaded = page.waitForRequest(
+    (request) =>
+      request.method() === 'PUT' && request.url().includes('/media/uploads/'),
+  )
+  await page.getByRole('button', { name: 'Stop recording' }).click()
+  const samples = assertWav((await uploaded).postDataBuffer()!, 48000)
+  expect(samples.length).toBeGreaterThanOrEqual(24000)
+})
+
+function assertWav(bytes: Buffer, rate = 16000) {
+  expect(bytes.toString('ascii', 0, 4)).toBe('RIFF')
+  expect(bytes.readUInt32LE(4)).toBe(bytes.length - 8)
+  expect(bytes.toString('ascii', 8, 16)).toBe('WAVEfmt ')
+  expect(bytes.readUInt32LE(16)).toBe(16)
+  expect(bytes.readUInt16LE(20)).toBe(1)
+  expect(bytes.readUInt16LE(22)).toBe(1)
+  expect(bytes.readUInt32LE(24)).toBe(rate)
+  expect(bytes.readUInt32LE(28)).toBe(rate * 2)
+  expect(bytes.readUInt16LE(32)).toBe(2)
+  expect(bytes.readUInt16LE(34)).toBe(16)
+  expect(bytes.toString('ascii', 36, 40)).toBe('data')
+  expect(bytes.readUInt32LE(40)).toBe(bytes.length - 44)
+  expect((bytes.length - 44) % 2).toBe(0)
+  const samples = Array.from({ length: (bytes.length - 44) / 2 }, (_, i) =>
+    bytes.readInt16LE(44 + i * 2),
+  )
+  expect(samples.length).toBeGreaterThan(0)
+  expect(samples.some((sample) => sample !== 0)).toBe(true)
+  return samples
+}
+
+for (const [mode, title, expected] of [
+  ['stereo', 'mixes stereo samples to mono', 8192],
+  ['positive-clipping', 'clamps positive samples', 32767],
+  ['negative-clipping', 'clamps negative samples', -32768],
+] as const)
+  test(`WAV recording ${title}`, async ({ page }) => {
+    await syntheticMicrophone(page, mode)
+    await setupMedia(page)
+    await page
+      .getByRole('button', { name: 'Record voice note', exact: true })
+      .click()
+    await expect(page.getByText('Recording 0:01')).toBeVisible()
+    const uploaded = page.waitForRequest(
+      (request) =>
+        request.method() === 'PUT' && request.url().includes('/media/uploads/'),
+    )
+    await page.getByRole('button', { name: 'Stop recording' }).click()
+    const samples = assertWav((await uploaded).postDataBuffer()!)
+    // Ignore the initial transient and allow four PCM steps for browser resampling.
+    // Stereo's mean is (0.75 - 0.25) / 2.
+    const tail = samples.slice(-1600)
+    expect(
+      tail.every((sample) => Math.abs(sample - expected) <= 4),
+      JSON.stringify({
+        min: Math.min(...tail),
+        max: Math.max(...tail),
+        mean: tail.reduce((a, b) => a + b, 0) / tail.length,
+      }),
+    ).toBe(true)
+    expect((await microphoneState(page)).closed).toBe(1)
+    expect((await microphoneState(page)).stopped).toBe(1)
+  })
+
+for (const mode of ['setup-error', 'processor-error'])
+  test(`recording ${mode} releases tracks and AudioContext`, async ({
+    page,
+  }) => {
+    await syntheticMicrophone(page, mode)
+    await setupMedia(page)
+    await page
+      .getByRole('button', { name: 'Record voice note', exact: true })
+      .click()
+    await expect(page.locator('.voice-control [role=alert]')).toHaveText(
+      'Recording failed. Please try again.',
+    )
+    await expect.poll(async () => (await microphoneState(page)).stopped).toBe(1)
+    await expect.poll(async () => (await microphoneState(page)).closed).toBe(1)
+    await expect(page.locator('.attachment-list')).toHaveCount(0)
+  })

@@ -19,10 +19,14 @@ In Start a new thread or Reply in this thread, Attach files opens the file picke
 | Send `__files__` in a new thread and in a reply   | `node .kipster/verify/drive.mjs kip-files`  | Each kip file previews (or shows the generic card), Download returns the original bytes, and Core reports its name, MIME type and size. |
 | Record synthetic audio and send the voice note    | `node .kipster/verify/drive.mjs voice`      | The thread shows Transcription unavailable; the fixture receives available original audio with unavailable transcription.               |
 
+| Record speech or silence through the real local model | `node .kipster/verify/drive.mjs voice-real` | With VOICE_WAV and the staged model, the thread and fixture reply show nonempty transcript text, or no-speech when VOICE_EXPECT=no-speech. |
+| Transcribe an attached audio or video file | `node .kipster/verify/drive.mjs voice-file` | With MEDIA_FILE and the staged model and FFmpeg, the fixture kip's reply shows the transcript, or the status named by VOICE_EXPECT. |
+| Transcribe a local file by path | `node .kipster/verify/drive.mjs voice-path` | With MEDIA_FILE, the fixture kip calls transcribe_media with the path and replies with the transcript or the VOICE_EXPECT status. |
+
 ## Gotchas
 
 Use APP_URL and EVIDENCE_DIR from [the verification guide](../README.md). Each command saves a screenshot, trace and JSON verdict.
 
-The driver synthesizes audio instead of requesting a physical microphone and calls no transcription service. This does not prove hardware permissions, actual speech recognition, HEIC, upload failures, paste/drop or draft recovery. Original file bytes must remain authoritative. Keep generated media and captures under the evidence directory.
+The default voice scenario synthesizes audio and uses fixture transcription (it skips on a real-model instance). The voice-real scenario uses VOICE_WAV through Chromium fake audio capture and the real local model; see the verification guide. This does not prove hardware permissions, actual speech recognition, HEIC, upload failures, paste/drop or draft recovery. Original file bytes must remain authoritative. Keep generated media and captures under the evidence directory.
 
 `kip-files` uses the fixture kip, not a real provider, and the committed files in `.kipster/verify/fixtures`. It proves previews in headless Chrome only; PDF painting in WebKit or the packaged macOS app is unproven. When Chrome reports no PDF viewer, the PDF must show the generic card instead, recorded as `pdfViewerEnabled` in `kip-files-details.json` with each file's preview, artifact ID, MIME type and size. It also saves `kip-files-main-chat.png`, `kip-files-thread-pane.png` and `kip-files-thread-pane-files.png`. Light and dark screenshots are taken only while Appearance is System. Kip files appear in the thread pane; the main chat shows the thread's root and reply count.

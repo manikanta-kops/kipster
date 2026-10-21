@@ -124,24 +124,87 @@ export async function mediaMessages(page: Page) {
 }
 export async function syntheticMicrophone(page: Page, mode = 'normal') {
   await page.addInitScript((mode) => {
-    const state = { requested: 0, stopped: 0, created: 0 }
+    const state = {
+      requested: 0,
+      stopped: 0,
+      created: 0,
+      contexts: 0,
+      closed: 0,
+    }
     Object.assign(window, { syntheticMicrophone: state })
+    const NativeAudioContext = window.AudioContext
+    window.AudioContext = class extends NativeAudioContext {
+      constructor(options?: AudioContextOptions) {
+        super(
+          mode === 'native-rate' ? { ...options, sampleRate: 48000 } : options,
+        )
+        state.contexts++
+        if (mode === 'setup-error')
+          this.audioWorklet.addModule = async () => {
+            throw new Error('Recording failed. Please try again.')
+          }
+        if (mode === 'processor-error') {
+          const addModule = this.audioWorklet.addModule.bind(this.audioWorklet)
+          this.audioWorklet.addModule = async () => {
+            const url = URL.createObjectURL(
+              new Blob(
+                [
+                  `registerProcessor('kipster-recording', class extends AudioWorkletProcessor {
+                process() { throw new Error('Test processor failure') }
+              })`,
+                ],
+                { type: 'text/javascript' },
+              ),
+            )
+            try {
+              await addModule(url)
+            } finally {
+              URL.revokeObjectURL(url)
+            }
+          }
+        }
+      }
+      async close() {
+        await super.close()
+        state.closed++
+      }
+    }
     if (mode === 'unsupported')
-      Object.defineProperty(window, 'MediaRecorder', { value: undefined })
+      Object.defineProperty(window, 'AudioWorkletNode', { value: undefined })
     Object.defineProperty(navigator, 'mediaDevices', {
       value: {
-        getUserMedia: async () => {
+        getUserMedia: async (constraints: MediaStreamConstraints) => {
           state.requested++
+          Object.assign(state, { constraints })
           if (mode === 'denied')
             throw new DOMException('Permission denied', 'NotAllowedError')
           if (mode === 'unavailable')
             throw new DOMException('No microphone', 'NotFoundError')
           if (mode === 'late')
             await new Promise((resolve) => setTimeout(resolve, 600))
-          const audio = new AudioContext()
+          const audio = new NativeAudioContext()
           const oscillator = audio.createOscillator()
           const destination = audio.createMediaStreamDestination()
-          oscillator.connect(destination)
+          let constants: ConstantSourceNode[] = []
+          if (
+            ['stereo', 'positive-clipping', 'negative-clipping'].includes(mode)
+          ) {
+            const merger = audio.createChannelMerger(2)
+            const offsets =
+              mode === 'stereo'
+                ? [0.75, -0.25]
+                : mode === 'positive-clipping'
+                  ? [2, 2]
+                  : [-2, -2]
+            constants = offsets.map((offset, channel) => {
+              const source = audio.createConstantSource()
+              source.offset.value = offset
+              source.connect(merger, 0, channel)
+              source.start()
+              return source
+            })
+            merger.connect(destination)
+          } else oscillator.connect(destination)
           oscillator.start()
           void audio.resume()
           state.created++
@@ -154,6 +217,7 @@ export async function syntheticMicrophone(page: Page, mode = 'normal') {
                 stopped = true
                 state.stopped++
                 oscillator.stop()
+                constants.forEach((source) => source.stop())
                 void audio.close()
               }
               stop()
@@ -179,6 +243,9 @@ export async function microphoneState(page: Page) {
             requested: number
             stopped: number
             created: number
+            contexts: number
+            closed: number
+            constraints: MediaStreamConstraints
           }
         }
       ).syntheticMicrophone,

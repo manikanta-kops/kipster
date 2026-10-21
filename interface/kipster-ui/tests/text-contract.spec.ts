@@ -215,7 +215,7 @@ test('voice preparation is parsed as derived status beside the original part', (
         partIndex: 0,
         revision: 2,
         status: 'unavailable',
-        provider: 'spokenly-cli',
+        provider: 'transcribe-cpp',
         error: 'timeout',
       },
     ],
@@ -345,12 +345,12 @@ test('voice preparation tolerates unusual values without imposing Core rules', (
         partIndex: 0,
         revision: 0,
         status: 'succeeded',
-        provider: 'spokenly-cli',
+        provider: 'transcribe-cpp',
         transcript: 'Original voice',
       },
     ],
   }
-  expect(parseMessage(voice).preparation?.[0].provider).toBe('spokenly-cli')
+  expect(parseMessage(voice).preparation?.[0].provider).toBe('transcribe-cpp')
   for (const patch of [
     { provider: '' },
     { provider: '   ' },
