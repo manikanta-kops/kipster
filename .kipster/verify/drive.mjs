@@ -23,6 +23,12 @@ const audioFile = process.env.VOICE_WAV
   ? resolve(process.env.VOICE_WAV)
   : undefined
 const silence = process.env.VOICE_EXPECT === 'no-speech'
+const mediaFile = process.env.MEDIA_FILE
+  ? resolve(process.env.MEDIA_FILE)
+  : undefined
+const mediaExpect = process.env.VOICE_EXPECT ?? 'succeeded'
+if (name === 'voice-file' && !mediaFile)
+  throw Error('Set MEDIA_FILE to an audio or video file')
 if (name === 'voice-real' && !audioFile)
   throw Error('Set VOICE_WAV to a generated 16 kHz mono PCM WAV')
 const recordingMs = audioFile
@@ -98,6 +104,8 @@ try {
     evidenceDir,
     recordingMs,
     silence,
+    mediaFile,
+    mediaExpect,
   })
   expect(findings).toEqual([])
   result = verdict?.result ?? 'passed'

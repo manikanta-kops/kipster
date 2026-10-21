@@ -107,23 +107,27 @@ refuses an older release than one that already ran.
 
 Local transcription uses transcribe.cpp. Once `@kipster/transcription-transcribe-cpp`
 is released on the installation's channel, the installer downloads the pinned
-Parakeet Ultra Q8_0 model (CC-BY-4.0) into `<home>/transcription/models/`, verifies
-its size and SHA-256, and writes:
+Parakeet Ultra Q8_0 model (CC-BY-4.0) into `<home>/transcription/models/` and
+Jellyfin's portable FFmpeg 8.1.3 (GPL-3.0) into `<home>/transcription/ffmpeg/`,
+verifies each one's size and SHA-256, and writes:
 
 ```json
 "transcription": {
   "module": "<home>/current/node_modules/@kipster/transcription-transcribe-cpp/dist/index.js",
   "options": {
     "model": "<home>/transcription/models/parakeet-ultra-Q8_0.gguf",
-    "modelSha256": "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59"
+    "modelSha256": "007a59761e9258779f189df396b50d12b83bb5b79e66df4b955c230d2f2a0a59",
+    "ffmpeg": "<home>/transcription/ffmpeg/ffmpeg"
   }
 }
 ```
 
-Voice notes use 16 kHz mono 16-bit PCM WAV (`audio/wav`). Decoding other formats
-is a later step in the transcription package. Original artifacts are preserved.
-The installer skips transcription with a report when its native package is
-unsupported or the model download fails. Passive `doctor` names the configured
+Voice notes use 16 kHz mono 16-bit PCM WAV (`audio/wav`), which goes straight to
+the model. FFmpeg decodes any other audio or video file a kip is asked to
+transcribe. Original artifacts are preserved. The installer skips transcription
+with a report when its native package is unsupported or the model download fails.
+If FFmpeg cannot be installed, for example on Linux without xz, voice notes still
+work and the report says how to enable other files. Passive `doctor` names the configured
 model and checks that it is present and readable without loading the module.
 `doctor --probe` adds a `transcription-probe` readiness row; it never transcribes
 or records audio.

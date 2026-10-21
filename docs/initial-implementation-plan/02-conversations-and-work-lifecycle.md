@@ -89,7 +89,7 @@ Retaining a file does not mean the selected model can understand its contents. P
 
 ### Automatic preparation
 
-Every input explicitly designated a voice note receives automatic transcription through the installation-configured transcription service. The local provider runs transcribe.cpp with the Parakeet Ultra model downloaded by the installer. It accepts 16 kHz mono 16-bit PCM WAV (`audio/wav`); decoding other formats is a later step inside the transcription package. Keep the provider contract interchangeable.
+Every input explicitly designated a voice note receives automatic transcription through the installation-configured transcription service. The local provider runs transcribe.cpp with the Parakeet Ultra model downloaded by the installer. Recorded 16 kHz mono 16-bit PCM WAV goes straight to the model; the package decodes any other audio or video file with FFmpeg downloaded by the installer. Keep the provider contract interchangeable.
 
 Normal flow:
 

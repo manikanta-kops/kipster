@@ -410,6 +410,24 @@ try {
           ended()
           return
         }
+        const media = context.input
+          .at(-1)
+          .parts.find(
+            (part) =>
+              part.purpose === 'attachment' &&
+              /^(audio|video)\//.test(part.mimeType),
+          )
+        if (media && /transcribe/i.test(text)) {
+          const result = await handle.callTool(
+            `fixture-transcribe-${randomUUID()}`,
+            'transcribe_voice_note',
+            { artifactId: media.artifactId },
+          )
+          await reply(
+            `Fixture transcribed ${media.name}; status ${result.status}; ${result.status === 'succeeded' ? `transcript ${result.text}` : `reason ${result.reason ?? 'none'}`}`,
+          )
+          return
+        }
         const voice = context.input
           .at(-1)
           .parts.find((part) => part.purpose === 'voice_note')

@@ -26,6 +26,7 @@ import { digest } from '../installer/src/files.mjs'
 import {
   installTranscriptionRuntime,
   transcriptionRuntime,
+  verifiedFfmpeg,
 } from '../installer/src/transcription.mjs'
 import {
   installEmbeddingRuntime,
@@ -383,6 +384,7 @@ export async function developmentTranscription(
       console.log(runtime.reason)
       return undefined
     }
+    if (runtime.warning) console.log(runtime.warning)
     return runtime.options
   }
   const model = join(home, 'transcription/models', manifest.model.file)
@@ -393,5 +395,13 @@ export async function developmentTranscription(
     current.sha256 !== manifest.model.sha256
   )
     return undefined
-  return { model, modelSha256: manifest.model.sha256 }
+  const ffmpeg = await verifiedFfmpeg(
+    home,
+    manifest.ffmpeg?.platforms[`${process.platform}-${process.arch}`],
+  )
+  return {
+    model,
+    modelSha256: manifest.model.sha256,
+    ...(ffmpeg ? { ffmpeg } : {}),
+  }
 }

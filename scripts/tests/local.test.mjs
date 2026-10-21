@@ -200,6 +200,32 @@ test('development transcription downloads only explicitly, verifies reuse, and r
   await writeFile(model, bytes)
   const options = await developmentTranscription(home, { manifest, install })
   assert.deepEqual(options, { model, modelSha256: manifest.model.sha256 })
+  const ffmpegBytes = Buffer.from('verified ffmpeg'),
+    ffmpeg = join(home, 'transcription/ffmpeg/ffmpeg')
+  await mkdir(join(home, 'transcription/ffmpeg'), { recursive: true })
+  await writeFile(ffmpeg, ffmpegBytes)
+  const pinned = {
+    ...manifest,
+    ffmpeg: {
+      platforms: {
+        [`${process.platform}-${process.arch}`]: {
+          binary: {
+            size: ffmpegBytes.length,
+            sha256: createHash('sha256').update(ffmpegBytes).digest('hex'),
+          },
+        },
+      },
+    },
+  }
+  assert.deepEqual(
+    await developmentTranscription(home, { manifest: pinned, install }),
+    { model, modelSha256: manifest.model.sha256, ffmpeg },
+  )
+  await writeFile(ffmpeg, 'corrupt ffmpeg!')
+  assert.deepEqual(
+    await developmentTranscription(home, { manifest: pinned, install }),
+    options,
+  )
   await writeFile(model, Buffer.from('corrupt! model'))
   assert.equal(
     await developmentTranscription(home, { manifest, install }),

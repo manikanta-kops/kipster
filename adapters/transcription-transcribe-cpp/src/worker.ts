@@ -4,17 +4,38 @@ import { createHash } from 'node:crypto'
 import type { TranscribeModel } from 'transcribe-cpp'
 import { provider, type Request, type Reply } from './messages.js'
 import { readWav } from './wav.js'
+import { decodeWithFfmpeg, DecodedTooLong } from './decode.js'
 
 let model: TranscribeModel | undefined
+
+async function read({
+  path,
+  mimeType,
+  config,
+}: Request): Promise<Float32Array> {
+  if (mimeType === 'audio/wav')
+    try {
+      return await readWav(path)
+    } catch (error) {
+      if (!config.ffmpeg) throw error
+    }
+  if (!config.ffmpeg) throw new Error('No decoder for this type')
+  return decodeWithFfmpeg(config.ffmpeg, path)
+}
 
 async function transcribe(request: Request): Promise<Reply> {
   let samples: Float32Array
   try {
     if ((await stat(request.path)).size !== request.size)
       throw new Error('Input size changed')
-    samples = await readWav(request.path)
-  } catch {
-    return { status: 'unavailable', reason: 'invalid-input', provider }
+    samples = await read(request)
+  } catch (error) {
+    return {
+      status: 'unavailable',
+      reason:
+        error instanceof DecodedTooLong ? 'output-limit' : 'invalid-input',
+      provider,
+    }
   }
   if (!samples.length) return { status: 'no-speech', text: '', provider }
   try {

@@ -1355,15 +1355,33 @@ test('a PDF preview frames only real PDF bytes as a typed blob', async ({
   expect(await page.evaluate(() => 'mediaExecuted' in window)).toBe(false)
 })
 
-function assertWav(bytes: Buffer) {
+test('recording labels WAV with the rate the platform actually gives', async ({
+  page,
+}) => {
+  await syntheticMicrophone(page, 'native-rate')
+  await setupMedia(page)
+  await page
+    .getByRole('button', { name: 'Record voice note', exact: true })
+    .click()
+  await expect(page.getByText('Recording 0:01')).toBeVisible()
+  const uploaded = page.waitForRequest(
+    (request) =>
+      request.method() === 'PUT' && request.url().includes('/media/uploads/'),
+  )
+  await page.getByRole('button', { name: 'Stop recording' }).click()
+  const samples = assertWav((await uploaded).postDataBuffer()!, 48000)
+  expect(samples.length).toBeGreaterThanOrEqual(24000)
+})
+
+function assertWav(bytes: Buffer, rate = 16000) {
   expect(bytes.toString('ascii', 0, 4)).toBe('RIFF')
   expect(bytes.readUInt32LE(4)).toBe(bytes.length - 8)
   expect(bytes.toString('ascii', 8, 16)).toBe('WAVEfmt ')
   expect(bytes.readUInt32LE(16)).toBe(16)
   expect(bytes.readUInt16LE(20)).toBe(1)
   expect(bytes.readUInt16LE(22)).toBe(1)
-  expect(bytes.readUInt32LE(24)).toBe(16000)
-  expect(bytes.readUInt32LE(28)).toBe(32000)
+  expect(bytes.readUInt32LE(24)).toBe(rate)
+  expect(bytes.readUInt32LE(28)).toBe(rate * 2)
   expect(bytes.readUInt16LE(32)).toBe(2)
   expect(bytes.readUInt16LE(34)).toBe(16)
   expect(bytes.toString('ascii', 36, 40)).toBe('data')

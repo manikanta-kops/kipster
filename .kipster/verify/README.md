@@ -105,15 +105,16 @@ feature driving by the independent tester. Do not treat an unrun command as proo
 
 ## Real local voice transcription
 
-Before the factory starts an instance, stage the pinned Parakeet Ultra model in
-that checkout's private instance home:
+Before the factory starts an instance, stage the pinned Parakeet Ultra model and
+FFmpeg in that checkout's private instance home:
 
 ```sh
 node .kipster/verify/transcription-model.mjs /absolute/path/to/parakeet-ultra-Q8_0.gguf
 ```
 
 Omit the source to download through the installer's pinned, verified downloader.
-The helper verifies size and SHA-256 and copies privately; never commit models.
+The helper verifies size and SHA-256 and copies privately, then installs the
+pinned FFmpeg the same way; never commit models or binaries.
 Startup never downloads: it selects and builds the real provider only when the
 instance model has the pinned size. The provider verifies SHA-256 before loading.
 A running fixture instance needs a factory-managed fresh start to select it.
@@ -126,6 +127,18 @@ evidence directory, using the factory handle:
 ```sh
 VOICE_WAV=/absolute/path/to/speech.wav node .kipster/verify/drive.mjs voice-real
 VOICE_WAV=/absolute/path/to/silent.wav VOICE_EXPECT=no-speech node .kipster/verify/drive.mjs voice-real
+```
+
+For other files, attach one through the composer with a caption containing
+"transcribe"; the fixture kip calls `transcribe_voice_note` on it and replies
+`Fixture transcribed <name>; status <status>; ...`. Generate MP3, M4A, FLAC, Opus,
+MP4 and MOV samples from a `say` recording with FFmpeg, plus a silent file and a
+video without audio:
+
+```sh
+MEDIA_FILE=/absolute/path/to/speech.mp3 node .kipster/verify/drive.mjs voice-file
+MEDIA_FILE=/absolute/path/to/silent.mp3 VOICE_EXPECT=no-speech node .kipster/verify/drive.mjs voice-file
+MEDIA_FILE=/absolute/path/to/no-audio.mp4 VOICE_EXPECT=unavailable node .kipster/verify/drive.mjs voice-file
 ```
 
 The driver uses Chromium's fake audio capture through the real Record voice note

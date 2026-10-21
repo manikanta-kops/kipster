@@ -3,6 +3,7 @@ import type { Config } from './config.js'
 
 export interface Request {
   path: string
+  mimeType: string
   size: number
   config: Config
 }

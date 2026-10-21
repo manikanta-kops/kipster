@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile, writeFile, rm } from 'node:fs/promises'
+import { chmod, readFile, writeFile, rm } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { version } from 'transcribe-cpp'
@@ -58,6 +58,9 @@ test('options require an absolute model, SHA-256, known or explicit size, and bo
     {},
     { ...base, model: 'relative' },
     { ...base, model: '/bad\0path' },
+    { ...base, ffmpeg: 'ffmpeg' },
+    { ...base, ffmpeg: '/bad\0path' },
+    { ...base, ffmpeg: 1 },
     { ...base, modelSha256: 'x'.repeat(64) },
     { ...base, modelSha256: 'a'.repeat(63) },
     ...[0, -1, 1.2, '20', Infinity, 600001].map((timeoutMs) => ({
@@ -73,7 +76,7 @@ test('options require an absolute model, SHA-256, known or explicit size, and bo
     assert.throws(() => createTranscriptionProvider(options))
   assert.deepEqual(
     configuration({ ...base, modelSha256: ultra.toUpperCase() }),
-    { ...base, modelSize: 740363168, timeoutMs: 60000 },
+    { ...base, modelSize: 740363168, timeoutMs: 120000 },
   )
   assert.equal(
     configuration({
@@ -117,7 +120,9 @@ for (const mode of ['empty', 'whitespace'])
     })
   })
 test('timeout kills a busy child and a later call gets a new worker', async (t) => {
-  const { provider, path, waitForCalls } = await fixture(t, { timeoutMs: 1000 })
+  const { provider, path, waitForCalls } = await fixture(t, {
+    timeoutMs: 1000,
+  })
   assert.deepEqual(
     await provider.transcribe(input(path('hold'))),
     unavailable('timeout'),
@@ -229,6 +234,94 @@ for (const busy of [false, true])
       unavailable('provider-error'),
     )
   })
+const fakeFfmpeg = new URL('./fixtures/ffmpeg.mjs', import.meta.url).pathname
+test('FFmpeg widens input types and readiness requires it to be executable', async (t) => {
+  const config = await modelConfig(t)
+  const ffmpeg = join(dirname(config.model), 'ffmpeg')
+  const provider = createProvider({ ...config, ffmpeg }, fakeWorker)
+  t.after(() => provider.close())
+  assert.deepEqual(provider.inputTypes, ['audio/*', 'video/*'])
+  assert.deepEqual(await provider.readiness(), {
+    ready: false,
+    reason: 'FFmpeg is unavailable',
+  })
+  await writeFile(ffmpeg, '')
+  assert.equal((await provider.readiness()).ready, false)
+  await chmod(ffmpeg, 0o755)
+  assert.deepEqual(await provider.readiness(), { ready: true })
+  for (const mimeType of [
+    'audio/mpeg',
+    'video/quicktime; codecs=x',
+    'AUDIO/OGG',
+  ])
+    assert.equal(
+      (
+        await provider.transcribe(
+          input(join(dirname(config.model), 'ok'), { mimeType }),
+        )
+      ).status,
+      'succeeded',
+    )
+  assert.deepEqual(
+    await provider.transcribe(
+      input(join(dirname(config.model), 'ok'), { mimeType: 'application/pdf' }),
+    ),
+    unavailable('invalid-input'),
+  )
+})
+test('real worker decodes other formats with FFmpeg from a local file only', async (t) => {
+  const config = await modelConfig(t)
+  const provider = createTranscriptionProvider({
+    ...config,
+    ffmpeg: fakeFfmpeg,
+  })
+  t.after(() => provider.close())
+  const folder = dirname(config.model)
+  const silent = join(folder, 'silent.mp3'),
+    broken = join(folder, 'broken'),
+    wide = join(folder, 'wide.wav')
+  await writeFile(silent, 'mp3')
+  await writeFile(broken, 'mp3')
+  await writeFile(wide, wav({ rate: 44100 }))
+  assert.deepEqual(
+    await provider.transcribe(
+      input(silent, { size: 3, mimeType: 'audio/mpeg' }),
+    ),
+    { status: 'no-speech', text: '', provider: 'transcribe-cpp' },
+  )
+  assert.deepEqual(
+    await provider.transcribe(
+      input(broken, { size: 3, mimeType: 'video/mp4' }),
+    ),
+    unavailable('invalid-input'),
+  )
+  assert.deepEqual(
+    await provider.transcribe(input(wide, { size: wav().length })),
+    { status: 'no-speech', text: '', provider: 'transcribe-cpp' },
+  )
+  const calls = (await readFile(join(folder, 'ffmpeg.jsonl'), 'utf8'))
+    .trim()
+    .split('\n')
+    .map(JSON.parse)
+  assert.deepEqual(
+    calls.map((args) => args[args.indexOf('-i') + 1]),
+    [silent, broken, wide],
+  )
+  for (const args of calls) {
+    assert.equal(args[args.indexOf('-protocol_whitelist') + 1], 'file')
+    assert.deepEqual(args.slice(-9), [
+      '-ac',
+      '1',
+      '-ar',
+      '16000',
+      '-c:a',
+      'pcm_s16le',
+      '-f',
+      's16le',
+      'pipe:1',
+    ])
+  }
+})
 test('bad metadata is invalid-input before starting a child', async (t) => {
   const { provider, path, calls } = await fixture(t)
   for (const options of [

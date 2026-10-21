@@ -20,7 +20,7 @@ Development of this version does not require operating or migrating an existing 
 
 - Kipster UI as the only implemented interface.
 - Text, links, images, documents, video attachments, and explicitly distinguished voice notes versus ordinary audio attachments.
-- Automatic local voice-note transcription using transcribe.cpp with Parakeet Ultra downloaded by the installer, accepting 16 kHz mono 16-bit PCM WAV (other formats are a later decoding step inside the transcription package); expose the same service as an agent tool and hand failed transcription to the agent with the original audio and an explicit failure marker.
+- Automatic local voice-note transcription using transcribe.cpp with Parakeet Ultra downloaded by the installer, sending recorded 16 kHz mono 16-bit PCM WAV straight to the model and decoding any other audio or video file with FFmpeg inside the transcription package; expose the same service as an agent tool and hand failed transcription to the agent with the original audio and an explicit failure marker.
 - Threads started by root messages, with replies queued inside a thread.
 - Concurrent work across threads, including the same agent, with a configurable installation-wide ceiling of 20 active AI executions initially; work kips do for each other counts toward this limit.
 - Kip messaging: kips message each other in visible linked threads, and each answer comes back and wakes the sender (decision block 11).

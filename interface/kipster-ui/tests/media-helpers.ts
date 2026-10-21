@@ -135,7 +135,9 @@ export async function syntheticMicrophone(page: Page, mode = 'normal') {
     const NativeAudioContext = window.AudioContext
     window.AudioContext = class extends NativeAudioContext {
       constructor(options?: AudioContextOptions) {
-        super(options)
+        super(
+          mode === 'native-rate' ? { ...options, sampleRate: 48000 } : options,
+        )
         state.contexts++
         if (mode === 'setup-error')
           this.audioWorklet.addModule = async () => {

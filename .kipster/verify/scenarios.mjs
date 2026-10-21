@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { filesPerMessage, fixtureDirectory, fixtureFiles } from './files.mjs'
 
 export const scenarios = [
@@ -26,6 +26,7 @@ export const scenarios = [
   'kip-files',
   'voice',
   'voice-real',
+  'voice-file',
   'updates',
   'plugins',
   'kip-messaging',
@@ -33,7 +34,16 @@ export const scenarios = [
 
 export async function drive(
   name,
-  { page, expect, origin, evidenceDir, recordingMs, silence },
+  {
+    page,
+    expect,
+    origin,
+    evidenceDir,
+    recordingMs,
+    silence,
+    mediaFile,
+    mediaExpect,
+  },
 ) {
   const unique = (label) => `${label} ${crypto.randomUUID().slice(0, 8)}`
   const get = async (path) => {
@@ -846,6 +856,57 @@ export async function drive(
           2,
         ) + '\n',
       )
+      break
+    }
+    case 'voice-file': {
+      // The fixture kip calls Core's transcribe tool on the attached file.
+      expect(
+        (await get('/__fixture/transcription')).provider,
+        'Stage the model and FFmpeg before factory startup',
+      ).toBe('transcribe-cpp')
+      const composer = page.getByRole('form', {
+        name: 'Start a new thread',
+        exact: true,
+      })
+      const file = basename(mediaFile)
+      await composer.locator('input[type=file]').setInputFiles(mediaFile)
+      await expect(composer.getByText(file, { exact: true })).toBeVisible()
+      const caption = unique('Please transcribe this file')
+      await composer.getByRole('textbox').fill(caption)
+      const accepted = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/v1/text/submissions') &&
+          response.request().method() === 'POST',
+      )
+      await composer.getByRole('button', { name: 'Send message' }).click()
+      const receipt = await (await accepted).json()
+      const feed = page.locator('.feed-message').filter({
+        has: page.getByText(caption, { exact: true }),
+      })
+      await feed.getByRole('button', { name: /^Open thread:/ }).press('Enter')
+      const reply = page
+        .locator('.thread-pane')
+        .getByText(
+          new RegExp(
+            `^Fixture transcribed ${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}; status `,
+          ),
+        )
+      await expect(reply).toBeVisible({ timeout: 180000 })
+      const received = await reply.innerText()
+      expect(received).toContain(`status ${mediaExpect}`)
+      if (mediaExpect === 'succeeded')
+        expect(
+          received.split('; transcript ')[1]?.trim().length,
+        ).toBeGreaterThan(0)
+      await writeFile(
+        `${evidenceDir}/voice-file-result.json`,
+        JSON.stringify(
+          { file, expected: mediaExpect, received, threadId: receipt.threadId },
+          null,
+          2,
+        ) + '\n',
+      )
+      await page.screenshot({ path: `${evidenceDir}/voice-file.png` })
       break
     }
     case 'updates': {

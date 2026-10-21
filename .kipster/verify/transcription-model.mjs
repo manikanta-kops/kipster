@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { digest, privateDirectory } from '../../installer/src/files.mjs'
 import {
+  installFfmpeg,
   installTranscriptionRuntime,
   transcriptionRuntime,
 } from '../../installer/src/transcription.mjs'
@@ -19,9 +20,18 @@ export async function transcriptionOptions(
     if (error.code === 'ENOENT') return null
     throw error
   })
-  return info?.isFile() && info.size === manifest.model.size
-    ? { model, modelSha256: manifest.model.sha256 }
-    : undefined
+  if (!info?.isFile() || info.size !== manifest.model.size) return undefined
+  const asset =
+    manifest.ffmpeg?.platforms[`${process.platform}-${process.arch}`]
+  const ffmpeg = join(home, 'transcription/ffmpeg/ffmpeg')
+  const binary = await stat(ffmpeg).catch(() => null)
+  return {
+    model,
+    modelSha256: manifest.model.sha256,
+    ...(binary?.isFile() && binary.size === asset?.binary.size
+      ? { ffmpeg }
+      : {}),
+  }
 }
 
 /** Explicit preparation only: startup never calls this or downloads a model. */
@@ -50,7 +60,16 @@ export async function stageTranscriptionModel(
     )
       throw Error('Transcription model size or SHA-256 mismatch')
     await rename(temporary, target)
-    return { model: target, modelSha256: manifest.model.sha256 }
+    const asset =
+      manifest.ffmpeg?.platforms[`${process.platform}-${process.arch}`]
+    const ffmpeg = asset
+      ? await installFfmpeg(join(home, 'transcription'), asset)
+      : undefined
+    return {
+      model: target,
+      modelSha256: manifest.model.sha256,
+      ...(ffmpeg ? { ffmpeg } : {}),
+    }
   } finally {
     await rm(temporary, { force: true })
   }

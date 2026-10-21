@@ -10,7 +10,7 @@ export interface RecordingService {
   start(signal: AbortSignal): Promise<RecordingSession>
 }
 
-function wav(chunks: Float32Array[]): Blob {
+function wav(chunks: Float32Array[], rate: number): Blob {
   const samples = chunks.reduce((count, chunk) => count + chunk.length, 0)
   const buffer = new ArrayBuffer(44 + samples * 2)
   const view = new DataView(buffer)
@@ -25,8 +25,8 @@ function wav(chunks: Float32Array[]): Blob {
   view.setUint32(16, 16, true)
   view.setUint16(20, 1, true)
   view.setUint16(22, 1, true)
-  view.setUint32(24, 16000, true)
-  view.setUint32(28, 32000, true)
+  view.setUint32(24, rate, true)
+  view.setUint32(28, rate * 2, true)
   view.setUint16(32, 2, true)
   view.setUint16(34, 16, true)
   text(36, 'data')
@@ -108,7 +108,7 @@ export const browserRecording: RecordingService = {
           reject(new Error('The recording contains no audio bytes.'))
         else {
           try {
-            resolve(wav(chunks))
+            resolve(wav(chunks, context.sampleRate))
           } catch (error) {
             reject(
               error instanceof Error

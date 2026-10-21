@@ -48,6 +48,13 @@ export function createProvider(
   workerPath = new URL('./worker.js', import.meta.url),
 ): TranscriptionProvider {
   const config = configuration(options)
+  const inputTypes = config.ffmpeg ? ['audio/*', 'video/*'] : ['audio/wav']
+  const accepts = (type: string) =>
+    inputTypes.some((pattern) =>
+      pattern.endsWith('/*')
+        ? type.startsWith(pattern.slice(0, -1))
+        : pattern === type,
+    )
   let worker: Worker | undefined
   let tail = Promise.resolve()
   let closed = false
@@ -116,6 +123,7 @@ export function createProvider(
       }
       const messageBody: Request = {
         path: input.path,
+        mimeType: input.mimeType.split(';', 1)[0]!.trim().toLowerCase(),
         size: input.size,
         config,
       }
@@ -138,7 +146,7 @@ export function createProvider(
   return {
     id: provider,
     contractMajor: 1,
-    inputTypes: ['audio/wav'],
+    inputTypes,
     async readiness() {
       if (closed)
         return { ready: false, reason: 'Transcription provider is closed' }
@@ -150,10 +158,17 @@ export function createProvider(
             reason: 'Transcription model has the wrong size',
           }
         await access(config.model, constants.R_OK)
-        return { ready: true }
       } catch {
         return { ready: false, reason: 'Transcription model is unavailable' }
       }
+      if (config.ffmpeg)
+        try {
+          if (!(await stat(config.ffmpeg)).isFile()) throw new Error()
+          await access(config.ffmpeg, constants.X_OK)
+        } catch {
+          return { ready: false, reason: 'FFmpeg is unavailable' }
+        }
+      return { ready: true }
     },
     async transcribe(input) {
       if (closed) return failure('provider-error')
@@ -164,7 +179,7 @@ export function createProvider(
         !Number.isSafeInteger(input.size) ||
         input.size < 1 ||
         input.size > maxInputBytes ||
-        input.mimeType.split(';', 1)[0]!.trim().toLowerCase() !== 'audio/wav'
+        !accepts(input.mimeType.split(';', 1)[0]!.trim().toLowerCase())
       )
         return failure('invalid-input')
       return new Promise<TranscriptionResult>((resolve) => {

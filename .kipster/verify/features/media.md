@@ -20,6 +20,7 @@ In Start a new thread or Reply in this thread, Attach files opens the file picke
 | Record synthetic audio and send the voice note    | `node .kipster/verify/drive.mjs voice`      | The thread shows Transcription unavailable; the fixture receives available original audio with unavailable transcription.               |
 
 | Record speech or silence through the real local model | `node .kipster/verify/drive.mjs voice-real` | With VOICE_WAV and the staged model, the thread and fixture reply show nonempty transcript text, or no-speech when VOICE_EXPECT=no-speech. |
+| Transcribe an attached audio or video file | `node .kipster/verify/drive.mjs voice-file` | With MEDIA_FILE and the staged model and FFmpeg, the fixture kip's reply shows the transcript, or the status named by VOICE_EXPECT. |
 
 ## Gotchas
 

@@ -10,6 +10,7 @@ export interface Config {
   model: string
   modelSha256: string
   modelSize: number
+  ffmpeg?: string
   timeoutMs: number
 }
 
@@ -24,6 +25,10 @@ export function configuration(options: unknown): Config {
     row.model.includes('\0') ||
     typeof row.modelSha256 !== 'string' ||
     !/^[a-f0-9]{64}$/i.test(row.modelSha256) ||
+    (row.ffmpeg !== undefined &&
+      (typeof row.ffmpeg !== 'string' ||
+        !isAbsolute(row.ffmpeg) ||
+        row.ffmpeg.includes('\0'))) ||
     (row.modelSize !== undefined &&
       (!Number.isSafeInteger(row.modelSize) || Number(row.modelSize) < 1)) ||
     (row.timeoutMs !== undefined &&
@@ -32,7 +37,7 @@ export function configuration(options: unknown): Config {
         Number(row.timeoutMs) > 600000))
   ) {
     throw new Error(
-      'Invalid transcribe.cpp configuration: use an absolute model path, SHA-256 and positive integer limits',
+      'Invalid transcribe.cpp configuration: use absolute model and FFmpeg paths, a SHA-256 and positive integer limits',
     )
   }
   const modelSha256 = row.modelSha256.toLowerCase()
@@ -52,6 +57,7 @@ export function configuration(options: unknown): Config {
     model: row.model,
     modelSha256,
     modelSize,
-    timeoutMs: (row.timeoutMs as number | undefined) ?? 60000,
+    ...(row.ffmpeg ? { ffmpeg: row.ffmpeg as string } : {}),
+    timeoutMs: (row.timeoutMs as number | undefined) ?? 120000,
   }
 }
