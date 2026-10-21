@@ -10,7 +10,7 @@ const names = scope => executionTools(scope).map(tool => tool.name)
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
-  assert.deepEqual(base, ['message_user', 'transcribe_voice_note', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc'])
+  assert.deepEqual(base, ['message_user', 'transcribe_voice_note', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc', 'create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
   const full = names(all)
   assert.deepEqual(full.filter(name => !base.includes(name)), ['copy_attachment_to_workspace', 'manage_data_tables', 'manage_vector_collections', 'list_admin_operations', 'run_admin_operation'])
   for (const tool of executionTools(all)) {
@@ -39,6 +39,7 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.match(outside, /normal when the person should see it now/)
   assert.match(outside, /For several questions at once, write a rich doc/)
   assert.match(outside, /create a rich doc with create_rich_doc and send it with message_user/)
+  assert.match(outside, /something done later or on a repeat, create a routine with create_routine/)
   assert.match(outside, /answer it with message_kip to that kip/)
   assert.match(outside, /or end your turn without a message/)
   assert.doesNotMatch(outside, /delegat|post_chat_message|ask_user_question|request_user_approval|final reply is your answer/)
@@ -67,7 +68,7 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }
-  const dispatcher = Object.fromEntries(['messageUserTool', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool'].map(method => [method, record(method)]))
+  const dispatcher = Object.fromEntries(['messageUserTool', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool', 'routineTool'].map(method => [method, record(method)]))
   const host = textPublicationHost(dispatcher)
   const valid = { message_user: { text: 'Hi', priority: 'normal' }, transcribe_voice_note: { artifactId: 'a' }, copy_attachment_to_workspace: { artifactId: 'a' } }
   const offered = names({ ...all, memory: true })
@@ -87,6 +88,8 @@ test('every offered tool name reaches its Core handler', async () => {
   assert.deepEqual(routed.manage_data_tables[0], 'structuredTool')
   assert.deepEqual(routed.manage_vector_collections[0], 'vectorTool')
   assert.deepEqual(routed.edit_rich_doc, ['documentTool', 'documents.edit'])
+  assert.deepEqual(routed.create_routine, ['routineTool', 'create_routine'])
+  assert.deepEqual(routed.delete_routine, ['routineTool', 'delete_routine'])
   for (const name of ['memory_save', 'memory_link', 'data_space', 'vectors_space', 'artifacts_write', 'artifacts_publish']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
 })
 

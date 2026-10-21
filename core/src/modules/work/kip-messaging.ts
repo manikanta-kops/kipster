@@ -15,12 +15,13 @@ const workspacesOf = async (client: SqlClient, agentId: string): Promise<{ id: s
   WHERE m.agent_id=$1 AND kipster.live_organization(o.id) ORDER BY o.display_name,o.id`, [agentId])).rows
 const agentName = async (client: SqlClient, agentId: string): Promise<string> => (await client.query<{ display_name: string }>('SELECT display_name FROM kipster.agents WHERE id=$1', [agentId])).rows[0]?.display_name ?? 'A kip'
 
-interface Scope {
+export interface KipScope {
   runId: string; threadId: string; chatId: string; installationId: string; agentId: string; contextKind: 'installation' | 'organization'; contextId: string
   chainRootId: string; chainDepth: number; personId: string
 }
+type Scope = KipScope
 /** The run of a current, issued attempt that is not stopping. */
-async function boundScope(client: SqlClient, attemptId: string, incarnation: string): Promise<Scope> {
+export async function boundScope(client: SqlClient, attemptId: string, incarnation: string): Promise<Scope> {
   const row = uuid.test(attemptId) ? (await client.query<{ run_id: string; thread_id: string; chat_id: string; installation_id: string; agent_id: string; context_kind: 'installation' | 'organization'; context_id: string; chain_root_id: string; chain_depth: number; responsible_person_id: string; attempt_state: string; run_state: string; stop_requested: boolean }>(
     `SELECT r.id AS run_id,r.thread_id,t.chat_id,c.installation_id,c.agent_id,c.context_kind,c.context_id,r.chain_root_id,r.chain_depth,r.responsible_person_id,a.state AS attempt_state,r.state AS run_state,r.stop_requested
      FROM kipster.attempts a JOIN kipster.text_runs r ON r.id=a.intent_id JOIN kipster.threads t ON t.id=r.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
@@ -49,13 +50,13 @@ export async function getAgent(db: Postgres, attemptId: string, incarnation: str
 export interface KipMessageFiles { files: readonly { artifactId: string }[]; settle(client: SqlClient): Promise<void> }
 export interface KipMessageInput { recipientId: string; text: string; attachments: readonly ({ path: string } | { artifactId: string })[]; workspaceId?: string; requestHash: string }
 export interface KipMessageResult { status: 'sent'; recipientId: string; threadId: string; chatId: string; messageId: string }
-type Target = { kind: 'installation' | 'organization'; id: string }
+export type Target = { kind: 'installation' | 'organization'; id: string }
 
 /**
  * Where a new linked thread goes. A workspace kip messages the kips of its workspace and the admin kip; the admin kip
  * messages any kip, in the workspace it names, the one it is working in, or the recipient's only one.
  */
-async function messageTarget(client: SqlClient, scope: Scope, recipientId: string, name: string, workspaceId: string | undefined): Promise<Target> {
+export async function messageTarget(client: SqlClient, scope: Scope, recipientId: string, name: string, workspaceId: string | undefined): Promise<Target> {
   const installation: Target = { kind: 'installation', id: scope.installationId }
   if (await isAdmin(client, recipientId)) {
     if (workspaceId !== undefined) throw new Error(`${name} is the admin kip and works outside every workspace; leave out workspaceId`)
@@ -187,7 +188,7 @@ export async function messageKip(db: Postgres, jobs: Jobs, attemptId: string, in
 
 type Part = Record<string, unknown> & { kind: string }
 /** A finished message at the end of the thread. Caller holds the thread lock. */
-async function insertMessage(client: SqlClient, threadId: string, authorId: string, parts: Part[], artifactIds: readonly string[], publication?: { attemptId: string; publicationId: string }): Promise<string> {
+export async function insertMessage(client: SqlClient, threadId: string, authorId: string, parts: Part[], artifactIds: readonly string[], publication?: { attemptId: string; publicationId: string }): Promise<string> {
   const id = randomUUID()
   const position = Number((await client.query<{ position: string }>('UPDATE kipster.threads SET next_message_position=next_message_position+1,revision=revision+1 WHERE id=$1 RETURNING next_message_position-1 AS position', [threadId])).rows[0]!.position)
   await client.query(`INSERT INTO kipster.messages(id,thread_id,position,author_id,parts,finished_at,source_attempt_id,publication_source,publication_id) VALUES ($1,$2,$3,$4,$5::jsonb,now(),$6,$7,$8)`,
@@ -196,13 +197,13 @@ async function insertMessage(client: SqlClient, threadId: string, authorId: stri
   for (const [index, artifactId] of artifactIds.entries()) await client.query('INSERT INTO kipster.message_artifacts(message_id,ordinal,artifact_id,purpose) VALUES ($1,$2,$3,$4)', [id, ordinals[index], artifactId, 'attachment'])
   return id
 }
-/** Queues a run behind the thread's earlier work. Caller holds the thread lock. */
-async function queueRun(client: SqlClient, jobs: Jobs, threadId: string, messageId: string, installationId: string, chain: { trigger: 'kip' | 'answer'; chainRootId: string; chainDepth: number; personId: string }): Promise<string> {
+/** Queues a run behind the thread's earlier work; a run without a chain root starts its own chain. Caller holds the thread lock. */
+export async function queueRun(client: SqlClient, jobs: Jobs, threadId: string, messageId: string, installationId: string, chain: { trigger: 'kip' | 'answer' | 'routine'; chainRootId?: string; chainDepth: number; personId: string }): Promise<string> {
   const id = randomUUID()
   const position = Number((await client.query<{ position: string }>('UPDATE kipster.threads SET next_queue_position=next_queue_position+1 WHERE id=$1 RETURNING next_queue_position-1 AS position', [threadId])).rows[0]!.position)
   await client.query("INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'queued')", [id, installationId])
   await client.query(`INSERT INTO kipster.text_runs(id,thread_id,input_message_id,state,queue_position,trigger_kind,chain_root_id,chain_depth,responsible_person_id) VALUES ($1,$2,$3,'queued',$4,$5,$6,$7,$8)`,
-    [id, threadId, messageId, position, chain.trigger, chain.chainRootId, chain.chainDepth, chain.personId])
+    [id, threadId, messageId, position, chain.trigger, chain.chainRootId ?? id, chain.chainDepth, chain.personId])
   await jobs.send(client, id)
   return id
 }

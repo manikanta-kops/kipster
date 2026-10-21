@@ -43,7 +43,7 @@ const linkTitleLength = 55
 /**
  * Kip messaging fields of a thread summary: `startedBy`, the author of its first message; `linkedFrom`, on a linked
  * thread, the thread its messages come from; `links`, on a source thread, its linked threads and whether a message
- * sent to each still waits for its answer.
+ * sent to each still waits for its answer; `routine`, on a thread a routine's run started, that routine.
  */
 async function linkFields(client: SqlClient, threadIds: readonly string[]): Promise<Map<string, Record<string, unknown>>> {
   const fields = new Map<string, Record<string, unknown>>(threadIds.map(id => [id, {}]))
@@ -64,6 +64,8 @@ async function linkFields(client: SqlClient, threadIds: readonly string[]): Prom
     const item = fields.get(row.source_thread_id)!
     item.links = [...(item.links as unknown[] ?? []), { agentId: row.recipient_agent_id, threadId: row.linked_thread_id, chatId: row.chat_id, waiting: row.waiting }]
   }
+  const routines = await client.query<{ thread_id: string; routine_id: string | null; routine_name: string }>('SELECT thread_id,routine_id,routine_name FROM kipster.routine_runs WHERE thread_id=ANY($1::uuid[])', [threadIds])
+  for (const row of routines.rows) fields.get(row.thread_id)!.routine = { id: row.routine_id, name: row.routine_name }
   return fields
 }
 

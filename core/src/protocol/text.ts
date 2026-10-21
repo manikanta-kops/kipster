@@ -74,9 +74,12 @@ export type ThreadLinkedFrom = Infer<typeof threadLinkedFrom>
 /** A kip this thread has messaged and its linked thread; `waiting` while a message sent from here has no answer yet. */
 export const threadLink = object({ agentId: id, threadId: id, chatId: id, waiting: boolean() }, false)
 export type ThreadLink = Infer<typeof threadLink>
-/** `startedBy` is the author of the thread's first message, the person or a kip. */
+/** The routine whose run started a thread; `id` is null once the routine is deleted. */
+export const threadRoutine = object({ id: nullable(id), name: string() }, false)
+export type ThreadRoutine = Infer<typeof threadRoutine>
+/** `startedBy` is the author of the thread's first message, the person or a kip. `routine` marks a routine's run. */
 export const appThreadSummary = object({ threadId: id, chatId: id, contextKind: union(literal('installation'), literal('organization')), contextId: id, agentId: id, revision: integer(), state: string(), lastMessageId: id, createdAt: utcTimestamp(),
-  startedBy: optional(id), linkedFrom: optional(threadLinkedFrom), links: optional(array(threadLink)) }, false)
+  startedBy: optional(id), linkedFrom: optional(threadLinkedFrom), links: optional(array(threadLink)), routine: optional(threadRoutine) }, false)
 export type AppThreadSummary = Infer<typeof appThreadSummary>
 export const interactionState = union(literal('pending'), literal('settled'), literal('cancelled'), literal('superseded'))
 /**

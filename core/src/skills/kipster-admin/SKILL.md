@@ -30,6 +30,7 @@ Read an operation with `list_admin_operations` before you call it for the first 
 | what you know about me, remembered facts, forget that | memory cards | `memory` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 | plugins, connections, integrations, connect my GitHub or Notion, accounts | plugins and their signed-in accounts | `plugins` |
+| routines, schedules, recurring tasks, reminders | routines and their daily run limit | `routines` and the routine tools |
 
 ## How to work
 
@@ -104,6 +105,12 @@ kips use by default with `plugins.default_set` (`plugins.default_clear` removes 
 `plugins.account_remove`. These settings live in the plugin server. When an operation fails with `plugins-unavailable`,
 plugins are off right now; Core starts the plugin server again, so try once more after a short wait, then tell the
 person.
+
+**Routines.** A routine is work a kip does on its own when its triggers fire; each run starts a new thread in that
+kip's chat. Create, change, pause and delete routines with `create_routine`, `edit_routine`, `list_routines` and
+`delete_routine`; with `agentId` they act on any kip's routines. `routines.settings_get` and `routines.settings_set`
+read and change `dailyRunLimit`, the most runs one kip starts a day across its routines (default 50); runs past it are
+skipped and recorded.
 
 **Data tables and vector collections.** You may read and change any workspace's data tables and vector collections
 and any kip's own ones: set `target` in `manage_data_tables` or `manage_vector_collections` to
