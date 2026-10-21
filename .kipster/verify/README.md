@@ -130,7 +130,7 @@ VOICE_WAV=/absolute/path/to/silent.wav VOICE_EXPECT=no-speech node .kipster/veri
 ```
 
 For other files, attach one through the composer with a caption containing
-"transcribe"; the fixture kip calls `transcribe_voice_note` on it and replies
+"transcribe"; the fixture kip calls `transcribe_media` on it and replies
 `Fixture transcribed <name>; status <status>; ...`. Generate MP3, M4A, FLAC, Opus,
 MP4 and MOV samples from a `say` recording with FFmpeg, plus a silent file and a
 video without audio:
@@ -140,6 +140,9 @@ MEDIA_FILE=/absolute/path/to/speech.mp3 node .kipster/verify/drive.mjs voice-fil
 MEDIA_FILE=/absolute/path/to/silent.mp3 VOICE_EXPECT=no-speech node .kipster/verify/drive.mjs voice-file
 MEDIA_FILE=/absolute/path/to/no-audio.mp4 VOICE_EXPECT=unavailable node .kipster/verify/drive.mjs voice-file
 ```
+
+`voice-path` sends `transcribe the file at <MEDIA_FILE>` without an attachment;
+the fixture kip calls `transcribe_media` with that path.
 
 The driver uses Chromium's fake audio capture through the real Record voice note
 button, checks the durable transcript and its fixture kip echo, and captures a

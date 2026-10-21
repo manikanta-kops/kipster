@@ -417,10 +417,22 @@ try {
               part.purpose === 'attachment' &&
               /^(audio|video)\//.test(part.mimeType),
           )
+        const local = /transcribe the file at (\/\S+)/i.exec(text)
+        if (local) {
+          const result = await handle.callTool(
+            `fixture-transcribe-${randomUUID()}`,
+            'transcribe_media',
+            { path: local[1] },
+          )
+          await reply(
+            `Fixture transcribed ${local[1]}; status ${result.status}; ${result.status === 'succeeded' ? `transcript ${result.text}` : `reason ${result.reason ?? 'none'}`}`,
+          )
+          return
+        }
         if (media && /transcribe/i.test(text)) {
           const result = await handle.callTool(
             `fixture-transcribe-${randomUUID()}`,
-            'transcribe_voice_note',
+            'transcribe_media',
             { artifactId: media.artifactId },
           )
           await reply(

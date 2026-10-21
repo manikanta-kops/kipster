@@ -27,6 +27,7 @@ export const scenarios = [
   'voice',
   'voice-real',
   'voice-file',
+  'voice-path',
   'updates',
   'plugins',
   'kip-messaging',
@@ -907,6 +908,45 @@ export async function drive(
         ) + '\n',
       )
       await page.screenshot({ path: `${evidenceDir}/voice-file.png` })
+      break
+    }
+    case 'voice-path': {
+      // The fixture kip calls Core's transcribe tool with a local path, no attachment.
+      expect(
+        (await get('/__fixture/transcription')).provider,
+        'Stage the model and FFmpeg before factory startup',
+      ).toBe('transcribe-cpp')
+      const composer = page.getByRole('form', {
+        name: 'Start a new thread',
+        exact: true,
+      })
+      const caption = `${unique('Note')}: transcribe the file at ${mediaFile}`
+      await composer.getByRole('textbox').fill(caption)
+      await composer.getByRole('button', { name: 'Send message' }).click()
+      await page
+        .locator('.feed-message')
+        .filter({ has: page.getByText(caption, { exact: true }) })
+        .getByRole('button', { name: /^Open thread:/ })
+        .press('Enter')
+      const reply = page
+        .locator('.thread-pane')
+        .getByText(`Fixture transcribed ${mediaFile}; status `)
+      await expect(reply).toBeVisible({ timeout: 180000 })
+      const received = await reply.innerText()
+      expect(received).toContain(`status ${mediaExpect}`)
+      if (mediaExpect === 'succeeded')
+        expect(
+          received.split('; transcript ')[1]?.trim().length,
+        ).toBeGreaterThan(0)
+      await writeFile(
+        `${evidenceDir}/voice-path-result.json`,
+        JSON.stringify(
+          { file: mediaFile, expected: mediaExpect, received },
+          null,
+          2,
+        ) + '\n',
+      )
+      await page.screenshot({ path: `${evidenceDir}/voice-path.png` })
       break
     }
     case 'updates': {

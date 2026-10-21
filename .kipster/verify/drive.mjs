@@ -27,7 +27,7 @@ const mediaFile = process.env.MEDIA_FILE
   ? resolve(process.env.MEDIA_FILE)
   : undefined
 const mediaExpect = process.env.VOICE_EXPECT ?? 'succeeded'
-if (name === 'voice-file' && !mediaFile)
+if (['voice-file', 'voice-path'].includes(name) && !mediaFile)
   throw Error('Set MEDIA_FILE to an audio or video file')
 if (name === 'voice-real' && !audioFile)
   throw Error('Set VOICE_WAV to a generated 16 kHz mono PCM WAV')

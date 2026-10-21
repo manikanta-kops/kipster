@@ -3,6 +3,8 @@ import { attachmentsInput, messageUserInput, type Attachment, type MessageUserIn
 import { continuationPrompt, turnPrompt } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { createHash, randomUUID } from 'node:crypto'
+import { stat } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import type { TextExecutionAdapter, ExecutionContext, ExecutionEvent, AdapterHost, AdapterReadiness, ExecutionHandle, MessageAuthor, TextExecutionContext } from '../adapter-api/index.js'
 import { AdapterRegistry, adapterRecord, boundedReason, notReadyReason, validReadiness } from './adapter-registry.js'
 import type { Runtime } from '../runtime.js'
@@ -24,7 +26,7 @@ import { OperationEngine, type StepOutcome } from './operations.js'
 import { agentDeletionSteps, type ForgetOutcome } from './agent-deletion.js'
 import { createDocument, documentCard, documentCreation, documentInput, documentTool, finishRunDocuments } from '../modules/documents/public.js'
 import type { MessagePart } from '../protocol/text.js'
-import { MAX_FILES_PER_MESSAGE, requireMessageFileLimit, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
+import { MAX_FILES_PER_MESSAGE, mimeTypeFor, requireMessageFileLimit, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
 import { memoryTool, settleInterruptedMemoryCalls, turnMemory } from '../modules/memory/public.js'
 
@@ -103,16 +105,17 @@ async function linkedThreadLine(db: Postgres, threadId: string): Promise<string>
   return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation; answer them with message_kip to ${row.name} (recipientId ${row.sender_agent_id}), and the answer goes back there. If a message lacks a detail you need, read that conversation with read_thread. Answer a message the person writes here to the person, with message_user.`
 }
 
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'transcribePathTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
       if (!request.arguments || typeof request.arguments !== 'object' || Array.isArray(request.arguments)) throw new Error('Unsupported Kipster tool')
       const args = request.arguments as Record<string, unknown>
       if (request.name === 'message_user') return dispatcher.messageUserTool(request.attemptId, request.callId, messageUserInput(args))
-      if(request.name==='transcribe_voice_note'){
-        if(Object.keys(args).length!==1||typeof args.artifactId!=='string')throw new Error('Invalid transcription arguments')
-        return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
+      if(request.name==='transcribe_media'){
+        if(Object.keys(args).length===1&&typeof args.artifactId==='string')return dispatcher.transcribeTool(request.attemptId,request.callId,args.artifactId)
+        if(Object.keys(args).length===1&&typeof args.path==='string')return dispatcher.transcribePathTool(request.attemptId,request.callId,args.path)
+        throw new Error('Pass either artifactId or path')
       }
       if(request.name==='copy_attachment_to_workspace'){
         if(Object.keys(args).some(key=>!['artifactId','workspaceId'].includes(key))||typeof args.artifactId!=='string'||(args.workspaceId!==undefined&&typeof args.workspaceId!=='string'))throw new Error('Invalid organization publication arguments')
@@ -1005,6 +1008,30 @@ export class TextDispatcher {
       return !!updated.rowCount
     })
     return settled?result:{status:'unavailable',reason:'cancelled'}
+  }
+
+  /** Transcribes a file on this computer by absolute path. Unlike attachments, no record survives a restart; the kip calls again. */
+  async transcribePathTool(attemptId:string,callId:string,path:string):Promise<unknown>{
+    const provider=this.runtime.transcription?.id??'unconfigured'
+    if(!callId||callId.length>200||!isAbsolute(path)||path.includes('\0'))return {status:'unavailable',reason:'invalid-input',provider}
+    const attempt=(await this.runtime.db.query<{intent_id:string;state:string}>(`SELECT intent_id,state FROM kipster.attempts WHERE id=$1 AND incarnation=$2`,[attemptId,this.incarnation])).rows[0]
+    if(!attempt||attempt.state!=='issued')return {status:'unavailable',reason:'cancelled',provider}
+    const controller=new AbortController(),key=`${attempt.intent_id}:${callId}`
+    this.toolControllers.set(key,controller)
+    const timer=setTimeout(()=>controller.abort(),120000)
+    let result:unknown
+    try{
+      const current=(await this.runtime.db.query<{state:string;stop_requested:boolean}>(`SELECT state,stop_requested FROM kipster.text_runs WHERE id=$1 AND current_attempt_id=$2`,[attempt.intent_id,attemptId])).rows[0]
+      if(!current||current.state!=='running'||current.stop_requested)result={status:'unavailable',reason:'cancelled',provider}
+      else if(!this.runtime.transcription)result={status:'unavailable',reason:'unavailable',provider}
+      else{
+        const info=await stat(path).catch(()=>undefined),mimeType=mimeTypeFor(path)
+        if(!info?.isFile()||!acceptsType(this.runtime.transcription,mimeType))result={status:'unavailable',reason:'invalid-input',provider}
+        else result=await abortableResult(controller.signal,()=>this.runtime.transcription!.transcribe({path,mimeType,size:info.size,signal:controller.signal}),{status:'unavailable',reason:'timeout',provider})
+      }
+    }catch{result={status:'unavailable',reason:'provider-error',provider}}
+    finally{clearTimeout(timer);this.toolControllers.delete(key)}
+    return normalizedTranscription(result,provider)
   }
 
   async copyArtifactTool(attemptId:string,callId:string,artifactId:string,workspaceId?:string):Promise<unknown>{return this.runtime.artifacts.copyToOrganization(attemptId,this.incarnation,callId,artifactId,workspaceId)}
