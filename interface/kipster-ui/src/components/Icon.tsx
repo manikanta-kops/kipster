@@ -66,6 +66,7 @@ import { MagnifyingGlassIcon } from '@phosphor-icons/react/dist/csr/MagnifyingGl
 import { CaretLeftIcon } from '@phosphor-icons/react/dist/csr/CaretLeft'
 import { TerminalIcon } from '@phosphor-icons/react/dist/csr/Terminal'
 import { ShieldCheckIcon } from '@phosphor-icons/react/dist/csr/ShieldCheck'
+import { ClockIcon } from '@phosphor-icons/react/dist/csr/Clock'
 
 const icons = {
   bell: BellIcon,
@@ -135,6 +136,7 @@ const icons = {
   back: CaretLeftIcon,
   terminal: TerminalIcon,
   shield: ShieldCheckIcon,
+  clock: ClockIcon,
 } as const
 
 /** Direct imports keep unused icons out of the development module graph too. */

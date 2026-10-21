@@ -3,17 +3,20 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { Icon } from '../../components/Icon'
 import { Avatar } from './Message'
 
-export type ThreadFilterValue = 'all' | 'you' | 'kips'
+export type ThreadFilterValue = 'all' | 'you' | 'kips' | 'routines'
 
 const filterLabels: Record<ThreadFilterValue, string> = {
   all: 'All threads',
   you: 'Started by you',
   kips: 'From other kips',
+  routines: 'Routines',
 }
+export const isThreadFilter = (value: unknown): value is ThreadFilterValue =>
+  typeof value === 'string' && Object.hasOwn(filterLabels, value)
 
 /**
  * The feed's thread filter, next to the theme toggle. Hovering or keyboard focus opens its
- * menu; the choice is view state for this chat only.
+ * menu; Core keeps the choice, so every chat and window shows the same threads.
  */
 export function ThreadFilter({
   value,
@@ -120,6 +123,7 @@ export function ThreadFilter({
     { value: 'all', icon: <Icon name="list" size={16} /> },
     { value: 'you', icon: <Avatar name="You" isSelf /> },
     { value: 'kips', icon: <Icon name="link" size={16} /> },
+    { value: 'routines', icon: <Icon name="clock" size={16} /> },
   ]
   return (
     <div

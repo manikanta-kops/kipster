@@ -452,6 +452,7 @@ export function createAdministration(options: Options = {}) {
     notifyReplies: null as boolean | null,
     inAppBanners: null as boolean | null,
     dockBadge: null as boolean | null,
+    threadFilter: null as string | null,
   }
   const switches = [
     'desktopNotifications',
@@ -680,7 +681,7 @@ export function createAdministration(options: Options = {}) {
     if (path === '/v1/settings/interface' && method === 'PUT') {
       const body = object(await request.json())
       if (body.version !== 1) invalid()
-      keys(body, ['version', 'palette', 'theme', ...switches])
+      keys(body, ['version', 'palette', 'theme', 'threadFilter', ...switches])
       const palettes = ['glacier', 'alpenglow', 'pine', 'graphite', 'obsidian']
       if (
         body.palette !== undefined &&
@@ -699,8 +700,16 @@ export function createAdministration(options: Options = {}) {
       )
         invalid()
       if (
+        body.threadFilter !== undefined &&
+        !['all', 'you', 'kips', 'routines'].includes(
+          body.threadFilter as string,
+        )
+      )
+        invalid()
+      if (
         body.palette === undefined &&
         body.theme === undefined &&
+        body.threadFilter === undefined &&
         switches.every((name) => body[name] === undefined)
       )
         invalid('Invalid interface preferences: no change given')
@@ -708,6 +717,9 @@ export function createAdministration(options: Options = {}) {
         palette:
           (body.palette as string | undefined) ?? interfaceChoices.palette,
         theme: (body.theme as string | undefined) ?? interfaceChoices.theme,
+        threadFilter:
+          (body.threadFilter as string | undefined) ??
+          interfaceChoices.threadFilter,
         ...Object.fromEntries(
           switches.map((name) => [
             name,

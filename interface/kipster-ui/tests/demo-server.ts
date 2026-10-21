@@ -35,6 +35,8 @@ export function demoServer(): Plugin {
         }),
       )
       outgoing.writeHead(response.status, Object.fromEntries(response.headers))
+      // Core sends a stream's headers at once, before its first event.
+      outgoing.flushHeaders()
       if (response.body) {
         const reader = response.body.getReader()
         try {

@@ -61,7 +61,8 @@ is. Each save keeps a backup; `identity.backups` and `identity.restore` undo a c
 **Change the look.** `interface.set` with `palette` (glacier, alpenglow, pine, graphite, obsidian), `theme` (light,
 dark, or system to follow the computer), `desktopNotifications` and the notification choices (`notifyNeeds`,
 `notifyFailures`, `notifyReplies`, `inAppBanners`, `dockBadge`). If they turn notifications on, mention that their
-computer may ask once to allow them.
+computer may ask once to allow them. `threadFilter` picks which threads every chat shows: `all`, `you` (started by
+the person), `kips` (started by other kips) or `routines` (routine runs).
 
 **Change the model.** Read `adapters.list` for available models and efforts, then `settings.set` on the kip or on the
 workspace (the default for every kip in it). `settings.effective` shows what a kip will actually use.

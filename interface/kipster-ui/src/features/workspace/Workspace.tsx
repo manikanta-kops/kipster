@@ -14,6 +14,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type ReactNode,
 } from 'react'
@@ -42,7 +43,11 @@ import { RootFeed } from '../chat/RootFeed'
 import { ThreadPane } from '../chat/ThreadPane'
 import { KipFace, LinkChips, LinkedBanner, WaitingLine } from '../chat/KipLinks'
 import { listNames } from '../chat/kip-names'
-import { ThreadFilter, type ThreadFilterValue } from '../chat/ThreadFilter'
+import {
+  isThreadFilter,
+  ThreadFilter,
+  type ThreadFilterValue,
+} from '../chat/ThreadFilter'
 import { DocPane } from '../documents/DocPane'
 import { DocsSection } from '../documents/DocCard'
 import { DocumentStore } from '../documents/store'
@@ -131,6 +136,7 @@ import {
   type WireEvent,
 } from '../../data/text'
 
+const noSubscription = () => () => {}
 const CoreSettingsPanel = lazy(() =>
   import('../settings/CoreSettingsPanel').then((m) => ({
     default: m.CoreSettingsPanel,
@@ -358,11 +364,26 @@ export function Workspace({
   usePointerGloss()
   const reduceMotion = useReducedMotion()
   const [expanded, setExpanded] = useState(false)
-  // The feed's thread filter is view state for one chat; another chat opens unfiltered.
-  const [filter, setFilter] = useState<{
-    key: string
+  // Core keeps the thread filter for every chat. A choice shows at once and gives way to the
+  // next value Core reports; while Core keeps none, it lasts for this window.
+  const savedFilter = useSyncExternalStore(
+    interfacePreferences?.subscribe ?? noSubscription,
+    () => interfacePreferences?.value?.threadFilter,
+  )
+  const [chosenFilter, setChosenFilter] = useState<{
     value: ThreadFilterValue
-  }>({ key: '', value: 'all' })
+    over: unknown
+  } | null>(null)
+  const threadFilter: ThreadFilterValue =
+    chosenFilter && chosenFilter.over === savedFilter
+      ? chosenFilter.value
+      : isThreadFilter(savedFilter)
+        ? savedFilter
+        : 'all'
+  const chooseFilter = (value: ThreadFilterValue) => {
+    setChosenFilter({ value, over: savedFilter })
+    void interfacePreferences?.save({ threadFilter: value }).catch(() => {})
+  }
   const feedScroll = useRef<HTMLDivElement>(null)
   const threadScroll = useRef<HTMLDivElement>(null)
   const historyControls = useRef<{ latest: () => void }>(null)
@@ -1731,18 +1752,23 @@ export function Workspace({
       ),
     )
   const startedOf = (s: Summary) => preview.threadsById[s.threadId]?.startedBy
-  const byYou = current.filter((s) => startedOf(s) === identity.callerId)
+  // A routine's runs show only under Routines, whoever wrote the routine.
+  const routineRuns = current.filter((s) => s.routine)
+  const byYou = current.filter(
+    (s) => !s.routine && startedOf(s) === identity.callerId,
+  )
   const fromKips = current.filter((s) => {
     const by = startedOf(s)
-    return !!by && by !== identity.callerId && by !== s.agentId
+    return !s.routine && !!by && by !== identity.callerId && by !== s.agentId
   })
-  const threadFilter = filter.key === key ? filter.value : 'all'
   const shownThreads =
     threadFilter === 'you'
       ? byYou
       : threadFilter === 'kips'
         ? fromKips
-        : current
+        : threadFilter === 'routines'
+          ? routineRuns
+          : current
   const unseenFailures = new Set(
     inbox.filter((n) => isFailure(n) && !n.read).map((n) => n.target.threadId),
   )
@@ -2226,13 +2252,14 @@ export function Workspace({
                     all: current.length,
                     you: byYou.length,
                     kips: fromKips.length,
+                    routines: routineRuns.length,
                   }}
                   senders={[...new Set(fromKips.map(startedOf))]
                     .slice(0, 3)
                     .map((id) => (
                       <KipFace key={id} data={preview} agentId={id!} />
                     ))}
-                  onChange={(value) => setFilter({ key, value })}
+                  onChange={chooseFilter}
                 />
               )}
               {!narrow && themeToggle && (
@@ -2280,7 +2307,9 @@ export function Workspace({
                       ? `No kip has messaged ${agentName} yet.`
                       : threadFilter === 'you'
                         ? `You haven’t started a thread with ${agentName} yet.`
-                        : undefined
+                        : threadFilter === 'routines'
+                          ? `${agentName} hasn’t run a routine yet.`
+                          : undefined
                   }
                   rootNotice={(thread) =>
                     hydrationErrors[thread.id] && (

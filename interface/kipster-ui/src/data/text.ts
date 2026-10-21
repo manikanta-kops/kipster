@@ -224,6 +224,10 @@ export function parseSummary(value: unknown): Summary {
           typeof value.linkedFrom.chatId === 'string' &&
           typeof value.linkedFrom.agentId === 'string' &&
           typeof value.linkedFrom.title === 'string')) &&
+      (value.routine === undefined ||
+        (record(value.routine) &&
+          (value.routine.id === null || typeof value.routine.id === 'string') &&
+          typeof value.routine.name === 'string')) &&
       (value.links === undefined ||
         (Array.isArray(value.links) &&
           value.links.every(
