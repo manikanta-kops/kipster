@@ -144,7 +144,7 @@ async function populate(ctx) {
   const target = { kind: 'agent', ownerId: ctx.scout }
   const collection = await own.call('manage_vector_collections', { target, operation: 'create', name: 'notes' })
   await own.call('manage_vector_collections', { target, operation: 'upsert', collectionId: collection.collectionId, key: 'one', expectedRevision: 0, text: 'A note' })
-  await own.call('manage_data_tables', { target, operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
+  await own.call('manage_data_tables', { target, operation: 'create_table', description: 'Test table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
   await ctx.finish(own)
   await ctx.settled(own.runId, 'completed')
 
@@ -205,9 +205,9 @@ async function seedMemory(ctx, data) {
   }
   const card = async (statement, sources, extra = {}) => {
     const id = randomUUID()
-    await db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,details,confirmed,organization_id,valid_to,replaced_by)
+    await db.query(`INSERT INTO kipster.memories(id,installation_id,type,subject,statement,details,confirmed,organization_id,valid_to,replaced_by)
       VALUES ($1,$2,'fact','user',$3,'{}',true,$4,CASE WHEN $5::boolean THEN now() END,$6)`, [id, installationId, statement, extra.organizationId ?? null, extra.ended ?? false, extra.replacedBy ?? null])
-    for (const [threadId, messageId] of sources) await db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, installationId, threadId, messageId])
+    for (const [threadId, messageId] of sources) await db.query('INSERT INTO kipster.memory_sources(memory_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, installationId, threadId, messageId])
     return id
   }
   const diary = (agentId, day, threadIds) => db.query('INSERT INTO kipster.diary(agent_id,day,installation_id,summary,thread_ids) VALUES ($1,$2,$3,$4,$5::uuid[])', [agentId, day, installationId, `What happened on ${day}`, threadIds])
@@ -324,11 +324,11 @@ async function assertRemoved(ctx, data, events, { copies }) {
   const rows = async (sql, params = []) => (await ctx.db.query(sql, params)).rows
   assert.deepEqual(await rows('SELECT id, embedding IS NOT NULL AS embedded FROM kipster.thread_chunks'), [{ id: memory.rootChunk, embedded: true }])
   assert.deepEqual(await rows('SELECT thread_id FROM kipster.memory_thread_state'), [{ thread_id: data.parent.threadId }])
-  const sources = id => rows('SELECT thread_id, message_id FROM kipster.card_sources WHERE card_id=$1', [id])
-  assert.deepEqual(await rows('SELECT id FROM kipster.cards WHERE id=$1', [memory.scoutCard]), [])
+  const sources = id => rows('SELECT thread_id, message_id FROM kipster.memory_sources WHERE memory_id=$1', [id])
+  assert.deepEqual(await rows('SELECT id FROM kipster.memories WHERE id=$1', [memory.scoutCard]), [])
   assert.deepEqual(await sources(memory.sharedCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
   assert.deepEqual(await sources(memory.rootCard), [{ thread_id: data.parent.threadId, message_id: memory.rootMessage }])
-  assert.deepEqual(await rows('SELECT replaced_by, valid_to IS NOT NULL AS ended FROM kipster.cards WHERE id=$1', [memory.endedCard]), [{ replaced_by: null, ended: true }])
+  assert.deepEqual(await rows('SELECT replaced_by, valid_to IS NOT NULL AS ended FROM kipster.memories WHERE id=$1', [memory.endedCard]), [{ replaced_by: null, ended: true }])
   assert.deepEqual(await rows("SELECT agent_id, day::text AS day, thread_ids, summary, embedding IS NULL AS unembedded FROM kipster.diary"), [{ agent_id: ctx.root, day: '2026-10-11', thread_ids: [data.parent.threadId], summary: null, unembedded: true }])
 
   // Vectors, task data, home, identity backups.
@@ -495,13 +495,13 @@ test('organization deletion fences work, removes owned resources and preserves g
   const deletionCursor = await ctx.cursor()
   const shared = { kind: 'organization', ownerId: ctx.organizationId }
   const sharedCollection = await running.call('manage_vector_collections', { target: shared, operation: 'create', name: 'shared_notes' })
-  await running.call('manage_data_tables', { target: shared, operation: 'create_table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
+  await running.call('manage_data_tables', { target: shared, operation: 'create_table', description: 'Test table', table: 'shared_notes', columns: [{ name: 'note', type: 'text' }] })
   // Cards learned in the other organization's thread: one carries the deleted organization, one is global.
   const otherMessage = (await ctx.db.query('SELECT input_message_id AS id FROM kipster.text_runs WHERE id=$1', [other.runId])).rows[0].id
   const card = async organizationId => {
     const id = randomUUID()
-    await ctx.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,organization_id) VALUES ($1,$2,'fact','user','Works with Scout',$3)`, [id, ctx.installationId, organizationId])
-    await ctx.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, ctx.installationId, other.threadId, otherMessage])
+    await ctx.db.query(`INSERT INTO kipster.memories(id,installation_id,type,subject,statement,organization_id) VALUES ($1,$2,'fact','user','Works with Scout',$3)`, [id, ctx.installationId, organizationId])
+    await ctx.db.query('INSERT INTO kipster.memory_sources(memory_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [id, ctx.installationId, other.threadId, otherMessage])
     return id
   }
   const organizationCard = await card(ctx.organizationId), globalCard = await card(null)
@@ -529,7 +529,7 @@ test('organization deletion fences work, removes owned resources and preserves g
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM kipster.vector_collections WHERE id=$1', [sharedCollection.collectionId])).rows[0].n, 0)
   assert.equal((await ctx.db.query('SELECT count(*)::int n FROM pg_namespace WHERE nspname=$1', [`task_o_${ctx.organizationId.replaceAll('-', '')}`])).rows[0].n, 0)
   // Its cards and the memory of its threads are gone; the global card stays.
-  assert.deepEqual((await ctx.db.query('SELECT id FROM kipster.cards ORDER BY id')).rows, [{ id: globalCard }])
+  assert.deepEqual((await ctx.db.query('SELECT id FROM kipster.memories ORDER BY id')).rows, [{ id: globalCard }])
   assert.notEqual(organizationCard, globalCard)
   for (const table of ['thread_chunks', 'memory_thread_state', 'diary']) assert.equal((await ctx.db.query(`SELECT count(*)::int n FROM kipster.${table}`)).rows[0].n, 0, table)
   assert.equal(await exists(join(ctx.home, 'organizations', ctx.organizationId)), false)

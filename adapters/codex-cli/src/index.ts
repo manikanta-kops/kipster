@@ -443,7 +443,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       return { events: queue, cancel: async () => ({ acknowledged: true, confirmedEnded: true }), reconcile: async () => 'ended' }
     }
     // Only Kip memory's nightly steps; a task or step this adapter does not know fails before launch.
-    if (payload.task !== 'memory' || !['chunks', 'cards', 'diary', 'core'].includes(payload.step)) return refused('Unsupported maintenance task')
+    if (payload.task !== 'memory' || !['chunks', 'memories', 'lessons', 'diary', 'core'].includes(payload.step)) return refused('Unsupported maintenance task')
     const supported = this.modelCatalog?.find(entry => entry.id === settings.modelId)
     if (settings.adapterId !== this.id || !supported) return refused('Codex model is unavailable')
     if (settings.effort && !supported.efforts?.includes(settings.effort)) return refused('Codex effort is unsupported')

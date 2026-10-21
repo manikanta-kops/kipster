@@ -119,7 +119,7 @@ const canonical = (value: unknown): string =>
       : v,
   )
 
-type Card = {
+type MemoryItem = {
   id: string
   type: string
   subject: string
@@ -138,13 +138,14 @@ type Card = {
 }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-/** Memory cards with Core's list, read, edit and delete rules. Cards of a deleted organization are gone. */
-function memoryCards(organizations: Organization[]) {
+/** Memories with Core's list, read, edit and delete rules. Memories of a deleted organization are gone. */
+function memoryStore(organizations: Organization[]) {
   const learned = '2026-10-11T02:00:00.000Z'
-  const card = (
+  const memory = (
     n: number,
-    fields: Partial<Card> & Pick<Card, 'type' | 'subject' | 'statement'>,
-  ): Card => ({
+    fields: Partial<MemoryItem> &
+      Pick<MemoryItem, 'type' | 'subject' | 'statement'>,
+  ): MemoryItem => ({
     id: id(60 + n),
     details: {},
     confirmed: false,
@@ -159,21 +160,21 @@ function memoryCards(organizations: Organization[]) {
     sources: [{ threadId: id(90), messageId: id(91 + n) }],
     ...fields,
   })
-  const cards: Card[] = [
-    card(0, {
+  const items: MemoryItem[] = [
+    memory(0, {
       type: 'preference',
       subject: 'user',
       statement: 'Loves steak',
       validTo: '2026-10-11T02:00:05.000Z',
       replacedBy: id(65),
     }),
-    card(1, {
+    memory(1, {
       type: 'person',
       subject: 'Priya',
       statement: 'User’s sister',
       details: { relation: 'sister' },
     }),
-    card(2, {
+    memory(2, {
       type: 'routine',
       subject: 'launch review',
       statement: 'Launch review every Friday',
@@ -181,21 +182,21 @@ function memoryCards(organizations: Organization[]) {
       organizationId: id(10),
       confirmed: true,
     }),
-    card(3, {
+    memory(3, {
       type: 'goal',
       subject: 'portfolio',
       statement: 'Refresh the studio portfolio before December',
       details: { due: '2026-12-01' },
       organizationId: id(11),
     }),
-    card(4, {
+    memory(4, {
       type: 'event',
       subject: 'user',
       statement: 'Dentist on 13 Oct 2026 at 3 pm',
       details: { date: '2026-10-13', time: '15:00' },
       confirmed: true,
     }),
-    card(5, {
+    memory(5, {
       type: 'preference',
       subject: 'user',
       statement: 'Vegetarian since Oct 2026',
@@ -204,7 +205,7 @@ function memoryCards(organizations: Organization[]) {
     }),
   ]
   const live = () =>
-    cards.filter(
+    items.filter(
       (c) =>
         !c.organizationId ||
         organizations.some(
@@ -212,21 +213,21 @@ function memoryCards(organizations: Organization[]) {
         ),
     )
   const find = (value: string) =>
-    live().find((c) => c.id === value) ?? missing('Card')
-  const order = (a: Card, b: Card) =>
+    live().find((c) => c.id === value) ?? missing('Memory')
+  const order = (a: MemoryItem, b: MemoryItem) =>
     b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
-  const cardText = (value: unknown, name: string, max: number) =>
+  const memoryText = (value: unknown, name: string, max: number) =>
     typeof value === 'string' &&
     value.trim() &&
     value.length <= max &&
     !value.includes('\0')
       ? value.trim()
-      : invalid(`Invalid card ${name}`)
+      : invalid(`Invalid memory ${name}`)
   return {
     async route(request: Request, url: URL): Promise<Response | undefined> {
       const path = url.pathname,
         method = request.method
-      if (path === '/v1/memory/cards' && method === 'GET') {
+      if (path === '/v1/memory/memories' && method === 'GET') {
         const ended = url.searchParams.get('ended'),
           limit = url.searchParams.get('limit'),
           cursor = url.searchParams.get('cursor')
@@ -236,11 +237,11 @@ function memoryCards(organizations: Organization[]) {
           limit !== null &&
           (!/^[1-9]\d{0,2}$/.test(limit) || Number(limit) > 200)
         )
-          invalid('Invalid card page limit')
+          invalid('Invalid page limit')
         const all = live().sort(order)
         const after = cursor ? all.findIndex((c) => c.id === cursor) : -1
         if (cursor && (!uuid.test(cursor) || after < 0))
-          invalid('Invalid card cursor')
+          invalid('Invalid memory cursor')
         const size = Number(limit ?? 50)
         const rest = all
           .slice(after + 1)
@@ -248,48 +249,50 @@ function memoryCards(organizations: Organization[]) {
         const page = rest.slice(0, size)
         return json({
           version: 1,
-          cards: structuredClone(page),
+          memories: structuredClone(page),
           nextCursor: rest.length > size ? page.at(-1)!.id : null,
         })
       }
-      const match = /^\/v1\/memory\/cards\/([0-9a-f-]{36})$/.exec(path)
+      const match = /^\/v1\/memory\/memories\/([0-9a-f-]{36})$/.exec(path)
       if (!match) return undefined
-      const cardId = match[1]
-      if (!uuid.test(cardId)) missing('Card')
+      const memoryId = match[1]
+      if (!uuid.test(memoryId)) missing('Memory')
       if (method === 'GET')
-        return json({ version: 1, card: structuredClone(find(cardId)) })
+        return json({ version: 1, memory: structuredClone(find(memoryId)) })
       if (method === 'DELETE') {
-        const index = cards.indexOf(live().find((c) => c.id === cardId)!)
+        const index = items.indexOf(live().find((c) => c.id === memoryId)!)
         if (index >= 0) {
-          cards.splice(index, 1)
-          for (const c of cards)
-            if (c.replacedBy === cardId) c.replacedBy = null
+          items.splice(index, 1)
+          for (const c of items)
+            if (c.replacedBy === memoryId) c.replacedBy = null
         }
-        return json({ version: 1, cardId, deleted: index >= 0 })
+        return json({ version: 1, memoryId, deleted: index >= 0 })
       }
       if (method !== 'PUT') return undefined
       const body = object(await request.json())
       if (body.version !== 1) invalid()
       keys(body, ['version', 'type', 'subject', 'statement', 'details'])
-      const edit: Partial<Card> = {}
+      const edit: Partial<MemoryItem> = {}
       if (body.type !== undefined)
-        edit.type = cardText(body.type, 'type', 40).toLowerCase()
+        edit.type = memoryText(body.type, 'type', 40).toLowerCase()
       if (body.subject !== undefined)
-        edit.subject = cardText(body.subject, 'subject', 200)
+        edit.subject = memoryText(body.subject, 'subject', 200)
       if (body.statement !== undefined)
-        edit.statement = cardText(body.statement, 'statement', 2000)
+        edit.statement = memoryText(body.statement, 'statement', 2000)
       if (body.details !== undefined) {
         const details = object(body.details)
         if (new TextEncoder().encode(JSON.stringify(details)).length > 4096)
-          invalid('Invalid card details')
+          invalid('Invalid memory details')
         edit.details = details
       }
       if (!Object.keys(edit).length)
-        invalid('Invalid card edit: nothing to change')
-      const current = find(cardId)
+        invalid('Invalid memory edit: nothing to change')
+      const current = find(memoryId)
       if (current.validTo)
-        conflict('Card was replaced; only a current card can be edited')
-      const changed = (Object.keys(edit) as (keyof Card)[]).some(
+        conflict(
+          'Memory was replaced or ended; only a current one can be edited',
+        )
+      const changed = (Object.keys(edit) as (keyof MemoryItem)[]).some(
         (key) => canonical(edit[key]) !== canonical(current[key]),
       )
       if (changed || !current.confirmed)
@@ -298,7 +301,174 @@ function memoryCards(organizations: Organization[]) {
           embedded: current.embedded && !changed,
           updatedAt: new Date().toISOString(),
         })
-      return json({ version: 1, card: structuredClone(current) })
+      return json({ version: 1, memory: structuredClone(current) })
+    },
+  }
+}
+
+type LessonItem = {
+  id: string
+  agentId: string
+  organizationId: string | null
+  statement: string
+  confirmations: number
+  lastConfirmedNight: string
+  validFrom: string
+  validTo: string | null
+  replacedBy: string | null
+  createdAt: string
+  updatedAt: string
+  embedded: boolean
+  sources: { threadId: string; messageId: string }[]
+}
+
+/** Lessons of the starter kips with Core's list, read, edit and delete rules. Lessons learned in a deleted organization are gone. */
+function lessonStore(organizations: Organization[]) {
+  const lesson = (
+    n: number,
+    fields: Partial<LessonItem> &
+      Pick<LessonItem, 'agentId' | 'statement' | 'confirmations'>,
+  ): LessonItem => ({
+    id: id(70 + n),
+    organizationId: null,
+    lastConfirmedNight: '2026-10-11',
+    validFrom: '2026-10-02T02:00:00.000Z',
+    validTo: null,
+    replacedBy: null,
+    createdAt: '2026-10-02T02:00:00.000Z',
+    updatedAt: `2026-10-11T02:00:0${n}.000Z`,
+    embedded: true,
+    sources: [{ threadId: id(90), messageId: id(97 + n) }],
+    ...fields,
+  })
+  const items: LessonItem[] = [
+    lesson(0, {
+      agentId: id(20),
+      statement:
+        'When the person asks for a plan, give the first three steps before the details',
+      confirmations: 4,
+    }),
+    lesson(1, {
+      agentId: id(20),
+      statement:
+        'For hotel searches, give Atlas the dates and the budget in the first message',
+      confirmations: 2,
+      lastConfirmedNight: '2026-10-09',
+    }),
+    lesson(2, {
+      agentId: id(21),
+      statement:
+        'Launch review notes go in the shared review doc, newest week first',
+      confirmations: 3,
+      organizationId: id(10),
+    }),
+    lesson(3, {
+      agentId: id(21),
+      statement: 'Quote sources with their publication date',
+      confirmations: 1,
+      lastConfirmedNight: '2026-10-05',
+      validTo: '2026-10-11T02:00:03.000Z',
+      replacedBy: id(74),
+    }),
+    lesson(4, {
+      agentId: id(21),
+      statement:
+        'Quote every source with its publication date and a link the person can open',
+      confirmations: 2,
+    }),
+    lesson(5, {
+      agentId: id(22),
+      statement:
+        'For portfolio pieces, show two options side by side before polishing one',
+      confirmations: 2,
+      organizationId: id(11),
+    }),
+  ]
+  const live = () =>
+    items.filter(
+      (l) =>
+        !l.organizationId ||
+        organizations.some(
+          (o) => o.id === l.organizationId && o.lifecycle !== 'deleted',
+        ),
+    )
+  const find = (value: string) =>
+    live().find((l) => l.id === value) ?? missing('Lesson')
+  const order = (a: LessonItem, b: LessonItem) =>
+    b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
+  return {
+    async route(request: Request, url: URL): Promise<Response | undefined> {
+      const path = url.pathname,
+        method = request.method
+      if (path === '/v1/memory/lessons' && method === 'GET') {
+        const ended = url.searchParams.get('ended'),
+          limit = url.searchParams.get('limit'),
+          cursor = url.searchParams.get('cursor'),
+          agentId = url.searchParams.get('agentId')
+        if (ended !== null && ended !== 'true' && ended !== 'false')
+          invalid('Invalid ended filter')
+        if (
+          limit !== null &&
+          (!/^[1-9]\d{0,2}$/.test(limit) || Number(limit) > 200)
+        )
+          invalid('Invalid page limit')
+        if (agentId && !uuid.test(agentId)) missing('Agent')
+        const all = live()
+          .filter((l) => !agentId || l.agentId === agentId)
+          .sort(order)
+        const after = cursor ? all.findIndex((l) => l.id === cursor) : -1
+        if (cursor && (!uuid.test(cursor) || after < 0))
+          invalid('Invalid lesson cursor')
+        const size = Number(limit ?? 50)
+        const rest = all
+          .slice(after + 1)
+          .filter((l) => ended === 'true' || !l.validTo)
+        const page = rest.slice(0, size)
+        return json({
+          version: 1,
+          lessons: structuredClone(page),
+          nextCursor: rest.length > size ? page.at(-1)!.id : null,
+        })
+      }
+      const match = /^\/v1\/memory\/lessons\/([0-9a-f-]{36})$/.exec(path)
+      if (!match) return undefined
+      const lessonId = match[1]
+      if (!uuid.test(lessonId)) missing('Lesson')
+      if (method === 'GET')
+        return json({ version: 1, lesson: structuredClone(find(lessonId)) })
+      if (method === 'DELETE') {
+        const index = items.indexOf(live().find((l) => l.id === lessonId)!)
+        if (index >= 0) {
+          items.splice(index, 1)
+          for (const l of items)
+            if (l.replacedBy === lessonId) l.replacedBy = null
+        }
+        return json({ version: 1, lessonId, deleted: index >= 0 })
+      }
+      if (method !== 'PUT') return undefined
+      const body = object(await request.json())
+      if (body.version !== 1) invalid()
+      keys(body, ['version', 'statement'])
+      const statement =
+        typeof body.statement === 'string' &&
+        body.statement.length >= 1 &&
+        body.statement.length <= 1000
+          ? body.statement
+          : invalid()
+      const text = statement.trim().replace(/\s+/g, ' ')
+      if (!text || text.includes('\0')) invalid('Invalid lesson statement')
+      const current = find(lessonId)
+      if (current.validTo)
+        conflict(
+          'Lesson was replaced or ended; only a current one can be edited',
+        )
+      if (text !== current.statement)
+        Object.assign(current, {
+          statement: text,
+          embedded: false,
+          updatedAt: new Date().toISOString(),
+        })
+      return json({ version: 1, lesson: structuredClone(current) })
     },
   }
 }
@@ -418,16 +588,17 @@ export function createAdministration(options: Options = {}) {
       modelId: string
       effort?: string
     } | null,
-    coreCardCount: 60,
-    searchCardCount: 10,
+    coreMemoryCount: 60,
+    searchMemoryCount: 10,
     searchChunkCount: 6,
   }
   const memoryCounts = {
-    coreCardCount: 200,
-    searchCardCount: 50,
+    coreMemoryCount: 200,
+    searchMemoryCount: 50,
     searchChunkCount: 30,
   } as const
-  const cards = memoryCards(organizations)
+  const memories = memoryStore(organizations)
+  const lessons = lessonStore(organizations)
   const permissions = {
     revision: 0,
     mode: 'auto',
@@ -586,7 +757,7 @@ export function createAdministration(options: Options = {}) {
       notificationActions: true,
       documents: true,
       permissionModes: true,
-      memoryCards: true,
+      memories: true,
       viewingWorkspace: true,
     },
   })
@@ -620,7 +791,9 @@ export function createAdministration(options: Options = {}) {
       method = request.method
     if (method === 'GET' && path === '/v1/bootstrap') return json(bootstrap())
     if (method === 'GET' && path === '/v1/directory') return json(directory())
-    const memory = await cards.route(request, url)
+    const memory =
+      (await memories.route(request, url)) ??
+      (await lessons.route(request, url))
     if (memory) return memory
     if (method === 'GET' && path === '/v1/settings')
       return json({
@@ -1089,8 +1262,8 @@ export function createAdministration(options: Options = {}) {
               ? {}
               : {
                   nightlyModel: learning.nightlyModel,
-                  coreCardCount: learning.coreCardCount,
-                  searchCardCount: learning.searchCardCount,
+                  coreMemoryCount: learning.coreMemoryCount,
+                  searchMemoryCount: learning.searchMemoryCount,
                   searchChunkCount: learning.searchChunkCount,
                 }),
           },

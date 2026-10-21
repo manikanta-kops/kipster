@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto'
-import type { Postgres } from '../../platform/postgres/public.js'
+import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
+import type { IdentityFiles } from '../../platform/home/public.js'
 import type { EmbeddingProfile } from '../vectors/public.js'
-import { CardService, embedPending, type CardSource } from './cards.js'
+import { taskTables } from '../structured/public.js'
+import { MemoryService, type MessageSource } from './memories.js'
+import { LESSONS, LessonService, rebuildLearned, type Lesson } from './lessons.js'
+import { embedNow, embedPending } from './embed.js'
 import { memorySettings, learningCondition } from './settings.js'
 import {
-  CHUNK_WORDS, cardsPrompt, chunksPrompt, corePrompt, diaryPrompt, parseCards, parseChunks, parseCore, parseDiary, promptText, windows, wordCount,
-  type CardChange, type MemoryStep, type PromptCard, type PromptMessage,
+  CHUNK_WORDS, chunksPrompt, corePrompt, diaryPrompt, lessonsPrompt, memoriesPrompt, parseChunks, parseCore, parseDiary, parseLessons, parseMemories, promptText, windows, wordCount,
+  type Author, type LessonChange, type MemoryChange, type MemoryStep, type PromptKip, type PromptLesson, type PromptMemory, type PromptMessage, type PromptTable,
 } from './prompts.js'
 
 export interface MemoryModelRequest { agentId: string; threadId: string | null; step: MemoryStep; instructions: string; outputSchema: Record<string, unknown>; signal: AbortSignal }
@@ -19,12 +23,12 @@ export const NIGHTLY = {
   /** A failed run is tried again after this many minutes times its failures, and given up for the night after `failures`. */
   retryMinutes: 30,
   failures: 3,
-  /** Earlier messages shown to the cards step as context. */
+  /** Earlier messages shown to the memories and lessons steps as context. */
   contextMessages: 6,
-  /** Nearest existing cards per user message, and in total, offered to the cards step. */
+  /** Nearest existing memories per message of the person, and in total, offered to the memories step. */
   nearestPerMessage: 5,
   nearestTotal: 30,
-  /** Most cards the core step ranks. */
+  /** Most memories the core step ranks. */
   coreCandidates: 300,
 } as const
 
@@ -54,39 +58,46 @@ export function unprocessedThreadCondition(threadColumn: string, chatColumn: str
       AND um.position > COALESCE((SELECT us.processed_position FROM kipster.memory_thread_state us WHERE us.thread_id = ${threadColumn}), 0)))`
 }
 
-interface Message { id: string; position: number; author: 'user' | 'kip' | 'other'; name: string; at: Date; text: string; progress: boolean }
+interface Message { id: string; position: number; author: Author; authorId: string; name: string; at: Date; text: string; progress: boolean }
 interface Thread { id: string; organizationId: string | null; organizationName: string | null; processed: number }
 /** A diary page that owes a rebuild: a thread it covered was deleted. */
 interface OwedPage { day: string; organizationId: string | null; threadIds: string[] }
-type MessageRow = { id: string; position: string; final: boolean; progress: boolean; created_at: Date; parts: unknown[]; person: string | null; agent: string | null; transcripts: Record<string, string> | null }
+type MessageRow = { id: string; position: string; final: boolean; progress: boolean; created_at: Date; parts: unknown[]; author_id: string; person: string | null; agent: string | null; admin: boolean; transcripts: Record<string, string> | null }
 /** Columns of a `MessageRow`, with the message table as `m`. */
-const messageColumns = `m.id, m.position, m.final, m.progress, m.created_at, m.parts, p.display_name AS person, a.display_name AS agent,
+const messageColumns = `m.id, m.position, m.final, m.progress, m.created_at, m.parts, m.author_id, p.display_name AS person, a.display_name AS agent,
+  EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin,
   (SELECT jsonb_object_agg(v.ordinal::text, v.transcript) FROM kipster.voice_preparations v WHERE v.message_id=m.id AND v.transcript IS NOT NULL) AS transcripts`
 const messageAuthors = 'LEFT JOIN kipster.people p ON p.id=m.author_id LEFT JOIN kipster.agents a ON a.id=m.author_id'
 function message(row: MessageRow): Message {
-  const author = row.person !== null ? 'user' : row.agent !== null ? 'kip' : 'other'
-  return { id: row.id, position: Number(row.position), author, name: row.person ?? row.agent ?? 'Unknown', at: row.created_at, text: render(row.parts, row.transcripts ?? {}), progress: row.progress }
+  const author: Author = row.person !== null ? 'person' : row.agent !== null ? (row.admin ? 'admin kip' : 'kip') : 'other'
+  return { id: row.id, position: Number(row.position), author, authorId: row.author_id, name: row.person ?? row.agent ?? 'Unknown', at: row.created_at, text: render(row.parts, row.transcripts ?? {}), progress: row.progress }
 }
 interface ChunkRow { from: number; to: number; startedAt: Date; endedAt: Date; title: string; text: string }
-type CardOperation = { change: CardChange; sources: CardSource[] }
+type MemoryOperation = { change: MemoryChange; sources: MessageSource[] }
+type LessonOperation = { change: LessonChange; sources: MessageSource[] }
+/** What saving a thread changed. */
+interface Saved { memories: string[] | null; lessons: string[] | null }
 
 /**
- * The nightly memory run of one installation (decision record 10, section 4). At each kip's sleep time, for every kip
- * with memory on and new messages, it writes thread chunks, changes the shared cards, writes diary pages, re-picks the
- * core cards and embeds what changed. A thread's results and its processed position are saved in one transaction, so a
- * failure leaves the thread for the next run. Only one Core incarnation runs an agent at a time.
+ * The nightly memory run of one installation (decision records 10 and 13). At each kip's sleep time, for every kip
+ * with memory on and new messages, it writes thread chunks, changes the shared memories and the kip's lessons, writes
+ * diary pages, re-picks the core memories, embeds what changed and writes the kip's top lessons into its identity.md. A
+ * thread's results and its processed position are saved in one transaction, so a failure leaves the thread for the next
+ * run. Only one Core incarnation runs an agent at a time.
  */
 export class NightlyMemory {
-  readonly cards: CardService
-  constructor(private readonly options: { db: Postgres; installationId: string; embedding?: EmbeddingProfile | undefined; clock: () => Date; incarnation: string; model: MemoryModel }) {
-    this.cards = new CardService(options.db, options.installationId, options.embedding)
+  readonly memories: MemoryService
+  readonly lessons: LessonService
+  constructor(private readonly options: { db: Postgres; installationId: string; embedding?: EmbeddingProfile | undefined; identity?: IdentityFiles | undefined; clock: () => Date; incarnation: string; model: MemoryModel }) {
+    this.memories = new MemoryService(options.db, options.installationId, options.embedding)
+    this.lessons = new LessonService(options.db, options.installationId, options.embedding)
   }
   private get db(): Postgres { return this.options.db }
   private get installationId(): string { return this.options.installationId }
 
   /** Agents whose sleep day began after their last run, with memory on and work: unprocessed threads, diary pages owing a
    * rebuild, a failed run to retry, a core re-pick still owed or, with an embedding provider, rows waiting for an
-   * embedding, oldest night first. The agent's own chunks and diary pages wait for it. Cards, shared by the
+   * embedding, oldest night first. The agent's own chunks, lessons and diary pages wait for it. Memories, shared by the
    * installation, wait for any agent whose sleep time arrives: a due run embeds them, and with none due, one agent whose
    * night begins, the admin kip first, runs for them alone. Agents due with nothing to do have their night recorded, so a message
    * later that day waits for the next sleep time. */
@@ -98,11 +109,12 @@ export class NightlyMemory {
          EXISTS (SELECT 1 FROM kipster.direct_chats c JOIN kipster.threads t ON t.chat_id=c.id WHERE c.agent_id=a.id AND ${unprocessedThreadCondition('t.id', 'c')}) AS pending,
          EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.summary IS NULL) AS owed,
          $2::boolean AND (EXISTS (SELECT 1 FROM kipster.thread_chunks ch WHERE ch.agent_id=a.id AND ch.embedding IS NULL)
+           OR EXISTS (SELECT 1 FROM kipster.lessons l WHERE l.agent_id=a.id AND l.embedding IS NULL)
            OR EXISTS (SELECT 1 FROM kipster.diary d WHERE d.agent_id=a.id AND d.embedding IS NULL AND d.summary IS NOT NULL)) AS unembedded,
          EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin
        FROM kipster.agents a JOIN kipster.installations i ON i.id=a.installation_id LEFT JOIN kipster.memory_nights n ON n.agent_id=a.id
        WHERE a.installation_id=$1 AND ${learningCondition('a.id')} ORDER BY n.night NULLS FIRST, a.id`, [this.installationId, embedding])).rows
-    const cards = embedding && (await this.db.query('SELECT 1 FROM kipster.cards WHERE installation_id=$1 AND embedding IS NULL LIMIT 1', [this.installationId])).rows.length > 0
+    const memories = embedding && (await this.db.query('SELECT 1 FROM kipster.memories WHERE installation_id=$1 AND embedding IS NULL LIMIT 1', [this.installationId])).rows.length > 0
     const due: string[] = []
     const idle: { id: string; night: string; admin: boolean }[] = []
     for (const row of rows) {
@@ -112,9 +124,9 @@ export class NightlyMemory {
       if (row.retry_at && row.retry_at > now) continue
       due.push(row.id)
     }
-    const cardAgent = cards && due.length === 0 ? (idle.find(row => row.admin) ?? idle[0]) : undefined
-    if (cardAgent) due.push(cardAgent.id)
-    for (const row of idle) if (row !== cardAgent) await this.finish(row.id, row.night, null, true)
+    const memoryAgent = memories && due.length === 0 ? (idle.find(row => row.admin) ?? idle[0]) : undefined
+    if (memoryAgent) due.push(memoryAgent.id)
+    for (const row of idle) if (row !== memoryAgent) await this.finish(row.id, row.night, null, true)
     return due
   }
 
@@ -141,7 +153,7 @@ export class NightlyMemory {
       ON CONFLICT (agent_id) DO UPDATE SET owner=EXCLUDED.owner, started_at=now(), updated_at=now()
       WHERE kipster.memory_nights.owner IS NULL OR kipster.memory_nights.owner=EXCLUDED.owner RETURNING repick`, [agentId, this.installationId, this.options.incarnation])
     if (!claimed.rowCount) return { outcome: 'busy' }
-    // A re-pick an earlier run owed, after changing cards, is done in this one.
+    // A re-pick an earlier run owed, after changing memories, is done in this one.
     let changed = claimed.rows[0]!.repick
     try {
       // Pages owing a rebuild first, so the threads' new messages build on them.
@@ -151,14 +163,20 @@ export class NightlyMemory {
       }
       for (const thread of await this.threads(agentId)) {
         signal.throwIfAborted()
-        const saved = await this.thread(agentId, thread, signal)
+        const saved = await this.thread(agentId, thread, night, signal)
         if (saved === 'stopped') break
-        changed ||= saved === 'cards'
+        if (typeof saved !== 'object') continue
+        changed ||= saved.memories !== null
+        // Embedded now, so the next thread of the night finds them.
+        await embedNow(this.db, this.installationId, this.options.embedding, 'memories', saved.memories ?? []).catch(() => undefined)
+        await embedNow(this.db, this.installationId, this.options.embedding, 'lessons', saved.lessons ?? []).catch(() => undefined)
       }
       signal.throwIfAborted()
       await this.repickCore(agentId, changed, signal)
       // A provider that fails leaves rows waiting for the next night; the saved work stands and the night is finished.
       await embedPending(this.db, this.installationId, this.options.embedding, signal)
+      // Written whenever the top lessons differ from the file, so a write that failed heals on a later night.
+      if (this.options.identity) await rebuildLearned(this.db, this.options.identity, this.installationId, agentId).catch(() => undefined)
       await this.finish(agentId, night, null)
       return { outcome: 'finished' }
     } catch (error) {
@@ -210,9 +228,9 @@ export class NightlyMemory {
     return rows.map(row => ({ id: row.id, organizationId: row.context_kind === 'organization' ? row.context_id : null, organizationName: row.organization, processed: Number(row.processed) }))
   }
 
-  /** Processes one thread: model calls first, then one transaction saves its chunks, card changes, diary contribution
-   * and processed position. `stopped` means the agent stopped having memory; `gone` that the thread went away. */
-  private async thread(agentId: string, thread: Thread, signal: AbortSignal): Promise<'saved' | 'cards' | 'gone' | 'stopped' | 'empty'> {
+  /** Processes one thread: model calls first, then one transaction saves its chunks, memory and lesson changes, diary
+   * contribution and processed position. `stopped` means the agent stopped having memory; `gone` that the thread went away. */
+  private async thread(agentId: string, thread: Thread, night: string, signal: AbortSignal): Promise<Saved | 'gone' | 'stopped' | 'empty'> {
     const loaded = await this.load(agentId, thread)
     if (!loaded) return 'gone'
     const { kip, messages, last } = loaded
@@ -221,19 +239,20 @@ export class NightlyMemory {
     const upTo = fresh.at(-1)!.position
     const rewriteFrom = last?.from ?? thread.processed + 1
     const segment = messages.filter(message => message.position >= rewriteFrom && !message.progress && message.text)
-    const chunks = await this.chunks(agentId, thread, kip, segment, last, signal)
+    const chunks = await this.chunks(agentId, thread, kip.name, segment, last, signal)
     const spoken = fresh.filter(message => !message.progress && message.text)
     const context = messages.filter(message => message.position <= thread.processed && !message.progress && message.text).slice(-NIGHTLY.contextMessages)
-    const operations = await this.cardChanges(agentId, thread, context, spoken, signal)
+    const memories = await this.memoryChanges(agentId, thread, context, spoken, signal)
+    const lessons = await this.lessonChanges(agentId, kip, thread, context, spoken, signal)
     const days = await this.diary(agentId, thread, kip, spoken, chunks, signal)
-    return this.save(agentId, thread, { rewriteFrom, upTo, chunks, operations, days })
+    return this.save(agentId, thread, night, { rewriteFrom, upTo, chunks, memories, lessons, days })
   }
 
   /** The thread's messages from its last chunk, or from just before its unprocessed ones, up to the first draft. */
-  private async load(agentId: string, thread: Thread): Promise<{ kip: string; messages: Message[]; last: { from: number; title: string } | null } | null> {
+  private async load(agentId: string, thread: Thread): Promise<{ kip: PromptKip; messages: Message[]; last: { from: number; title: string } | null } | null> {
     return this.db.transaction(async client => {
       await client.query('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-      const kip = (await client.query<{ display_name: string }>('SELECT display_name FROM kipster.agents WHERE id=$1', [agentId])).rows[0]?.display_name
+      const kip = await kipOf(client, agentId)
       const exists = (await client.query('SELECT 1 FROM kipster.threads WHERE id=$1', [thread.id])).rows.length
       if (!kip || !exists) return null
       const last = (await client.query<{ from_position: string; title: string }>('SELECT from_position, title FROM kipster.thread_chunks WHERE thread_id=$1 ORDER BY from_position DESC LIMIT 1', [thread.id])).rows[0]
@@ -284,34 +303,77 @@ export class NightlyMemory {
     return { from: first.position, to: final.position, startedAt: first.at, endedAt: final.at < first.at ? first.at : final.at, title, text: `${header}\n\n${lines.join('\n\n')}` }
   }
 
-  /** Card changes proposed from the user's own new messages, each window compared with the nearest existing cards. */
-  private async cardChanges(agentId: string, thread: Thread, context: Message[], spoken: Message[], signal: AbortSignal): Promise<CardOperation[]> {
-    const operations: CardOperation[] = []
-    const added: PromptCard[] = []
+  /** Memory changes proposed from the person's own new messages, each window compared with the nearest existing
+   * memories and told the data tables the kip and the thread's workspace keep. */
+  private async memoryChanges(agentId: string, thread: Thread, context: Message[], spoken: Message[], signal: AbortSignal): Promise<MemoryOperation[]> {
+    const operations: MemoryOperation[] = []
+    const added: PromptMemory[] = []
     let earlier = context
+    let tables: PromptTable[] | undefined
     for (const window of windows(spoken, message => wordCount(promptText(message.text)))) {
-      const citable = window.filter(message => message.author === 'user')
+      const citable = window.filter(message => message.author === 'person')
       if (citable.length) {
+        tables ??= await taskTables(this.db, [{ kind: 'agent', ownerId: agentId }, ...(thread.organizationId ? [{ kind: 'organization' as const, ownerId: thread.organizationId }] : [])])
         const shown = [...earlier, ...window]
-        const prompt = promptMessages(shown, message => message.author === 'user' && window.includes(message), message => window.includes(message))
-        const nearest = new Map<string, Awaited<ReturnType<CardService['nearest']>>[number]>()
+        const prompt = promptMessages(shown, message => message.author === 'person' && window.includes(message), message => window.includes(message))
+        const nearest = new Map<string, Awaited<ReturnType<MemoryService['nearest']>>[number]>()
         for (const message of citable) {
-          for (const card of await this.cards.nearest({ text: message.text }, { organizationId: thread.organizationId }, NIGHTLY.nearestPerMessage)) {
+          for (const item of await this.memories.nearest({ text: message.text }, { organizationId: thread.organizationId }, NIGHTLY.nearestPerMessage)) {
             if (nearest.size >= NIGHTLY.nearestTotal) break
-            nearest.set(card.id, card)
+            nearest.set(item.id, item)
           }
         }
         const known = [...nearest.values()]
-        const cards: PromptCard[] = [
-          ...known.map((card, index) => ({ ref: `k${index + 1}`, type: card.type, subject: card.subject, statement: card.statement, details: card.details, confirmed: card.confirmed, changeable: card.organizationId === thread.organizationId })),
-          ...added.map((card, index) => ({ ...card, ref: `k${known.length + index + 1}`, changeable: false })),
+        const shownMemories: PromptMemory[] = [
+          ...known.map((item, index) => ({ ref: `k${index + 1}`, type: item.type, subject: item.subject, statement: item.statement, details: item.details, confirmed: item.confirmed, changeable: item.organizationId === thread.organizationId })),
+          ...added.map((item, index) => ({ ...item, ref: `k${known.length + index + 1}`, changeable: false })),
         ]
-        const ids = new Map(cards.slice(0, known.length).map((card, index) => [card.ref, known[index]!.id]))
-        const answer = parseCards(await this.ask(agentId, thread.id, 'cards', cardsPrompt(prompt, cards, dayLabel(window.at(-1)!.at)), signal), prompt, cards)
-        const byRef = new Map(prompt.map((message, index) => [message.ref, shown[index]!]))
+        const ids = new Map(shownMemories.slice(0, known.length).map((item, index) => [item.ref, known[index]!.id]))
+        const answer = parseMemories(await this.ask(agentId, thread.id, 'memories', memoriesPrompt(prompt, shownMemories, tables, dayLabel(window.at(-1)!.at)), signal), prompt, shownMemories)
+        const byRef = new Map(prompt.map((item, index) => [item.ref, shown[index]!]))
         for (const change of answer.changes) {
-          operations.push({ change: { ...change, card: change.card ? ids.get(change.card)! : null }, sources: change.sources.map(ref => ({ threadId: thread.id, messageId: byRef.get(ref)!.id })) })
-          if (change.action !== 'update') added.push({ ref: '', type: change.type, subject: change.subject, statement: change.statement, details: change.details, confirmed: change.confirmed, changeable: false })
+          operations.push({ change: { ...change, targets: change.targets.map(ref => ids.get(ref)!) }, sources: change.sources.map(ref => ({ threadId: thread.id, messageId: byRef.get(ref)!.id })) })
+          if (change.action === 'add' || change.action === 'merge') added.push({ ref: '', type: change.type, subject: change.subject, statement: change.statement, details: change.details, confirmed: change.confirmed, changeable: false })
+        }
+      }
+      earlier = window.slice(-NIGHTLY.contextMessages)
+    }
+    return operations
+  }
+
+  /** Lesson changes proposed from the new messages the person and other kips wrote, each window compared with the kip's
+   * lessons nearest to them and its current top lessons, so a stale top lesson can be updated or retired. */
+  private async lessonChanges(agentId: string, kip: PromptKip, thread: Thread, context: Message[], spoken: Message[], signal: AbortSignal): Promise<LessonOperation[]> {
+    const operations: LessonOperation[] = []
+    const added: PromptLesson[] = []
+    const others = (message: Message) => message.authorId !== agentId && message.author !== 'other'
+    let earlier = context
+    let top: Lesson[] | undefined
+    for (const window of windows(spoken, message => wordCount(promptText(message.text)))) {
+      const citable = window.filter(others)
+      if (citable.length) {
+        top ??= await this.lessons.top(agentId, LESSONS.learned)
+        const shown = [...earlier, ...window]
+        const prompt = promptMessages(shown, message => others(message) && window.includes(message), message => window.includes(message))
+        const nearest = new Map<string, Lesson>()
+        for (const message of citable) {
+          for (const item of await this.lessons.nearest(message.text, [agentId], LESSONS.nearestPerMessage)) {
+            if (nearest.size >= LESSONS.nearestTotal) break
+            nearest.set(item.id, item)
+          }
+        }
+        for (const item of top) nearest.set(item.id, item)
+        const known = [...nearest.values()].sort((a, b) => b.confirmations - a.confirmations)
+        const shownLessons: PromptLesson[] = [
+          ...known.map((item, index) => ({ ref: `l${index + 1}`, statement: item.statement, confirmations: item.confirmations, changeable: true })),
+          ...added.map((item, index) => ({ ...item, ref: `l${known.length + index + 1}` })),
+        ]
+        const ids = new Map(known.map((item, index) => [`l${index + 1}`, item.id]))
+        const answer = parseLessons(await this.ask(agentId, thread.id, 'lessons', lessonsPrompt(kip, thread.organizationName, prompt, shownLessons, dayLabel(window.at(-1)!.at)), signal), prompt, shownLessons)
+        const byRef = new Map(prompt.map((item, index) => [item.ref, shown[index]!]))
+        for (const change of answer.changes) {
+          operations.push({ change: { ...change, targets: change.targets.map(ref => ids.get(ref)!) }, sources: change.sources.map(ref => ({ threadId: thread.id, messageId: byRef.get(ref)!.id })) })
+          if (change.action === 'add' || change.action === 'merge') added.push({ ref: '', statement: change.statement, confirmations: 1, changeable: false })
         }
       }
       earlier = window.slice(-NIGHTLY.contextMessages)
@@ -321,7 +383,7 @@ export class NightlyMemory {
 
   /** New diary summaries for each day the thread's new messages cover, built on each day's current page in the thread's
    * own context. A day whose page owes a rebuild gets no summary (null): the rebuild covers this thread too. */
-  private async diary(agentId: string, thread: Thread, kip: string, spoken: Message[], chunks: ChunkRow[], signal: AbortSignal): Promise<Map<string, string | null>> {
+  private async diary(agentId: string, thread: Thread, kip: PromptKip, spoken: Message[], chunks: ChunkRow[], signal: AbortSignal): Promise<Map<string, string | null>> {
     const byDay = new Map<string, Message[]>()
     for (const message of spoken) byDay.set(localDay(message.at), [...byDay.get(localDay(message.at)) ?? [], message])
     if (!byDay.size) return new Map()
@@ -336,7 +398,7 @@ export class NightlyMemory {
       const days = [...grouped.entries()].map(([day, messages]) => ({ day, label: dayLabel(messages[0]!.at), summary: summaries.get(day) ?? null, messages: promptMessages(messages, () => false) }))
       const answer = parseDiary(await this.ask(agentId, thread.id, 'diary', diaryPrompt(kip, days), signal), days.map(day => day.day))
       for (const day of days) {
-        summaries.set(day.day, answer.get(day.day) ?? summaries.get(day.day) ?? `${kip}: ${chunks.find(chunk => localDay(chunk.startedAt) === day.day)?.title ?? derivedTitle(grouped.get(day.day)!)}`)
+        summaries.set(day.day, answer.get(day.day) ?? summaries.get(day.day) ?? `${kip.name}: ${chunks.find(chunk => localDay(chunk.startedAt) === day.day)?.title ?? derivedTitle(grouped.get(day.day)!)}`)
       }
     }
     return new Map([...byDay.keys()].map(day => [day, owed.has(day) ? null : summaries.get(day)!]))
@@ -357,7 +419,7 @@ export class NightlyMemory {
    */
   private async rebuild(agentId: string, page: OwedPage, signal: AbortSignal): Promise<'saved' | 'stopped' | 'gone'> {
     const [year, month, date] = page.day.split('-').map(Number) as [number, number, number]
-    const kip = (await this.db.query<{ display_name: string }>('SELECT display_name FROM kipster.agents WHERE id=$1', [agentId])).rows[0]?.display_name
+    const kip = await kipOf(this.db, agentId)
     if (!kip) return 'gone'
     const rows = (await this.db.query<MessageRow & { thread_id: string }>(`SELECT m.thread_id, ${messageColumns}
        FROM kipster.messages m JOIN kipster.threads t ON t.id=m.thread_id JOIN kipster.direct_chats c ON c.id=t.chat_id
@@ -377,7 +439,7 @@ export class NightlyMemory {
       for (const window of windows(messages, item => wordCount(promptText(item.text)))) {
         const days = [{ day: page.day, label: dayLabel(window[0]!.at), summary, messages: promptMessages(window, () => false) }]
         const answer = parseDiary(await this.ask(agentId, threadId, 'diary', diaryPrompt(kip, days), signal), [page.day])
-        summary = answer.get(page.day) ?? summary ?? `${kip}: ${derivedTitle(window)}`
+        summary = answer.get(page.day) ?? summary ?? `${kip.name}: ${derivedTitle(window)}`
       }
     }
     return this.db.transaction(async client => {
@@ -400,8 +462,9 @@ export class NightlyMemory {
   }
 
   /** Saves a thread's results and advances its processed position in one transaction, while this incarnation still runs
-   * the agent, the agent has memory, the thread exists and no one processed it meanwhile. */
-  private async save(agentId: string, thread: Thread, result: { rewriteFrom: number; upTo: number; chunks: ChunkRow[]; operations: CardOperation[]; days: Map<string, string | null> }): Promise<'saved' | 'cards' | 'gone' | 'stopped'> {
+   * the agent, the agent has memory, the thread exists and no one processed it meanwhile. Returns the memories and
+   * lessons written, null for none changed. */
+  private async save(agentId: string, thread: Thread, night: string, result: { rewriteFrom: number; upTo: number; chunks: ChunkRow[]; memories: MemoryOperation[]; lessons: LessonOperation[]; days: Map<string, string | null> }): Promise<Saved | 'gone' | 'stopped'> {
     return this.db.transaction(async client => {
       await client.query('SELECT 1 FROM kipster.execution_permits WHERE installation_id=$1 FOR SHARE', [this.installationId])
       const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
@@ -417,13 +480,24 @@ export class NightlyMemory {
         await client.query(`INSERT INTO kipster.thread_chunks(id, installation_id, thread_id, agent_id, organization_id, from_position, to_position, started_at, ended_at, title, text)
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [randomUUID(), this.installationId, thread.id, agentId, thread.organizationId, chunk.from, chunk.to, chunk.startedAt, chunk.endedAt, chunk.title, chunk.text])
       }
-      let cards = false
-      for (const { change, sources } of result.operations) {
+      let memories: string[] | null = null
+      for (const { change, sources } of result.memories) {
         const input = { type: change.type, subject: change.subject, statement: change.statement, details: change.details, confirmed: change.confirmed }
-        if (change.action === 'add') { await this.cards.create({ ...input, organizationId: thread.organizationId }, sources, client); cards = true }
-        else if (change.action === 'update') cards = await this.cards.update(change.card!, input, sources, client) || cards
-        else cards = await this.cards.replace(change.card!, input, sources, client) !== null || cards
+        const target = change.targets[0]!
+        if (change.action === 'add') (memories ??= []).push(await this.memories.create({ ...input, organizationId: thread.organizationId }, sources, client))
+        else if (change.action === 'update') { if (await this.memories.update(target, input, sources, client)) (memories ??= []).push(target) }
+        else if (change.action === 'merge') { const id = await this.memories.merge(change.targets, input, sources, client); if (id) (memories ??= []).push(id) }
+        else if (await this.memories.retire(target, sources, client)) memories ??= []
       }
+      let lessons: string[] | null = null
+      for (const { change, sources } of result.lessons) {
+        const target = change.targets[0]!
+        if (change.action === 'add') (lessons ??= []).push(await this.lessons.create(agentId, { statement: change.statement, organizationId: thread.organizationId }, sources, night, client))
+        else if (change.action === 'update') { if (await this.lessons.update(agentId, target, { statement: change.statement }, sources, night, client)) (lessons ??= []).push(target) }
+        else if (change.action === 'merge') { const id = await this.lessons.merge(agentId, change.targets, { statement: change.statement }, sources, night, client); if (id) (lessons ??= []).push(id) }
+        else if (await this.lessons.retire(agentId, target, sources, client)) lessons ??= []
+      }
+      if (lessons) await this.lessons.enforceCap(agentId, client)
       // The page of the thread's own context. A page owing a rebuild stays owed and gains the thread, which the rebuild covers.
       for (const [day, summary] of result.days) {
         await client.query(`INSERT INTO kipster.diary(agent_id, day, organization_id, installation_id, summary, thread_ids) VALUES ($1,$2::date,$6,$3,$4,ARRAY[$5::uuid])
@@ -433,46 +507,53 @@ export class NightlyMemory {
       }
       await client.query(`INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,$3)
         ON CONFLICT (thread_id) DO UPDATE SET processed_position=EXCLUDED.processed_position, updated_at=now()`, [thread.id, this.installationId, result.upTo])
-      // The core cards are re-picked after changed cards, by this run or, when it fails, a later one.
-      if (cards) await client.query('UPDATE kipster.memory_nights SET repick=true, updated_at=now() WHERE agent_id=$1', [agentId])
-      return cards ? 'cards' : 'saved'
+      // The core memories are re-picked after changed memories, by this run or, when it fails, a later one.
+      if (memories) await client.query('UPDATE kipster.memory_nights SET repick=true, updated_at=now() WHERE agent_id=$1', [agentId])
+      return { memories, lessons }
     })
   }
 
-  /** Ends core marks on replaced and organization cards, then re-picks the core cards among current installation cards:
-   * every one while they fit the core card count, otherwise the model ranks them and Core keeps the count. */
+  /** Ends core marks on ended and organization memories, then re-picks the core memories among current installation
+   * memories: every one while they fit the core memory count, otherwise the model ranks them and Core keeps the count. */
   private async repickCore(agentId: string, changed: boolean, signal: AbortSignal): Promise<void> {
-    const { coreCardCount: count } = await memorySettings(this.db, this.installationId)
-    const cleared = await this.db.query('UPDATE kipster.cards SET core=false WHERE installation_id=$1 AND core AND (valid_to IS NOT NULL OR organization_id IS NOT NULL)', [this.installationId])
+    const { coreMemoryCount: count } = await memorySettings(this.db, this.installationId)
+    const cleared = await this.db.query('UPDATE kipster.memories SET core=false WHERE installation_id=$1 AND core AND (valid_to IS NOT NULL OR organization_id IS NOT NULL)', [this.installationId])
     const state = (await this.db.query<{ core: string; room: boolean }>(`SELECT count(*) FILTER (WHERE core) AS core,
-        bool_or(NOT core AND valid_to IS NULL AND organization_id IS NULL) AS room FROM kipster.cards WHERE installation_id=$1`, [this.installationId])).rows[0]!
+        bool_or(NOT core AND valid_to IS NULL AND organization_id IS NULL) AS room FROM kipster.memories WHERE installation_id=$1`, [this.installationId])).rows[0]!
     const core = Number(state.core)
-    // Re-pick after card changes, or when the core set no longer fits the count.
+    // Re-pick after memory changes, or when the core set no longer fits the count.
     if (!changed && !cleared.rowCount && core <= count && !(core < count && state.room)) return
     const candidates = (await this.db.query<{ id: string; type: string; subject: string; statement: string; details: Record<string, unknown>; confirmed: boolean }>(
-      `SELECT id, type, subject, statement, details, confirmed FROM kipster.cards WHERE installation_id=$1 AND valid_to IS NULL AND organization_id IS NULL
+      `SELECT id, type, subject, statement, details, confirmed FROM kipster.memories WHERE installation_id=$1 AND valid_to IS NULL AND organization_id IS NULL
        ORDER BY core DESC, confirmed DESC, updated_at DESC, id LIMIT $2`, [this.installationId, NIGHTLY.coreCandidates])).rows
     let chosen: string[]
-    if (candidates.length <= count) chosen = candidates.map(card => card.id)
+    if (candidates.length <= count) chosen = candidates.map(item => item.id)
     else {
-      const cards: PromptCard[] = candidates.map((card, index) => ({ ref: `k${index + 1}`, type: card.type, subject: card.subject, statement: card.statement, details: card.details, confirmed: card.confirmed, changeable: true }))
-      const refs = parseCore(await this.ask(agentId, null, 'core', corePrompt(cards, count), signal), cards, count)
+      const shown: PromptMemory[] = candidates.map((item, index) => ({ ref: `k${index + 1}`, type: item.type, subject: item.subject, statement: item.statement, details: item.details, confirmed: item.confirmed, changeable: true }))
+      const refs = parseCore(await this.ask(agentId, null, 'core', corePrompt(shown, count), signal), shown, count)
       chosen = refs.map(ref => candidates[Number(ref.slice(1)) - 1]!.id)
     }
     await this.db.transaction(async client => {
       const owned = await client.query('SELECT 1 FROM kipster.memory_nights WHERE agent_id=$1 AND owner=$2 FOR UPDATE', [agentId, this.options.incarnation])
       if (!owned.rows.length) throw new NightlyDeferred('Another process runs this agent now')
-      // Cards may change while the model ranks them. A chosen card replaced meanwhile passes its place to its current
-      // replacement; ended, deleted and organization cards are never core.
-      await client.query('SELECT 1 FROM kipster.cards WHERE installation_id=$1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [this.installationId, chosen])
-      const current = (await client.query<{ id: string }>(`WITH RECURSIVE chain(id) AS (SELECT id FROM kipster.cards WHERE installation_id=$1 AND id = ANY($2::uuid[])
-          UNION SELECT c.replaced_by FROM chain JOIN kipster.cards c ON c.id=chain.id WHERE c.replaced_by IS NOT NULL)
-        SELECT c.id FROM chain JOIN kipster.cards c ON c.id=chain.id WHERE c.installation_id=$1 AND c.valid_to IS NULL AND c.organization_id IS NULL`,
+      // Memories may change while the model ranks them. A chosen memory replaced meanwhile passes its place to its current
+      // replacement; ended, deleted and organization memories are never core.
+      await client.query('SELECT 1 FROM kipster.memories WHERE installation_id=$1 AND id = ANY($2::uuid[]) ORDER BY id FOR UPDATE', [this.installationId, chosen])
+      const current = (await client.query<{ id: string }>(`WITH RECURSIVE chain(id) AS (SELECT id FROM kipster.memories WHERE installation_id=$1 AND id = ANY($2::uuid[])
+          UNION SELECT c.replaced_by FROM chain JOIN kipster.memories c ON c.id=chain.id WHERE c.replaced_by IS NOT NULL)
+        SELECT c.id FROM chain JOIN kipster.memories c ON c.id=chain.id WHERE c.installation_id=$1 AND c.valid_to IS NULL AND c.organization_id IS NULL`,
       [this.installationId, chosen])).rows.map(row => row.id)
-      await client.query(`UPDATE kipster.cards SET core = (id = ANY($2::uuid[]) AND valid_to IS NULL AND organization_id IS NULL)
+      await client.query(`UPDATE kipster.memories SET core = (id = ANY($2::uuid[]) AND valid_to IS NULL AND organization_id IS NULL)
         WHERE installation_id=$1 AND (core OR id = ANY($2::uuid[]))`, [this.installationId, current])
     })
   }
+}
+
+/** The kip whose memory a run builds: its name and whether it is the admin kip. */
+async function kipOf(client: Postgres | SqlClient, agentId: string): Promise<PromptKip | null> {
+  const row = (await client.query<{ display_name: string; admin: boolean }>(`SELECT a.display_name, EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin
+    FROM kipster.agents a WHERE a.id=$1`, [agentId])).rows[0]
+  return row ? { name: row.display_name, admin: row.admin } : null
 }
 
 /** The messages as the model sees them, with refs `m1`, `m2`… in order. */
@@ -480,9 +561,9 @@ function promptMessages(messages: readonly Message[], citable: (message: Message
   return messages.map((message, index) => ({ ref: `m${index + 1}`, author: message.author, name: message.name, time: `${dayLabel(message.at)} ${clock(message.at)}`, text: promptText(message.text), citable: citable(message), fresh: fresh(message) }))
 }
 
-/** A title from the first user line of the messages, for a chunk the model did not name. */
+/** A title from the person's first line in the messages, for a chunk the model did not name. */
 function derivedTitle(messages: readonly Message[]): string {
-  const first = (messages.find(message => message.author === 'user') ?? messages[0])?.text.split('\n').find(line => line.trim())?.trim() ?? 'Conversation'
+  const first = (messages.find(message => message.author === 'person') ?? messages[0])?.text.split('\n').find(line => line.trim())?.trim() ?? 'Conversation'
   return first.length > 80 ? `${first.slice(0, 79).trimEnd()}…` : first
 }
 

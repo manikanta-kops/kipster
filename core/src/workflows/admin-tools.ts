@@ -10,11 +10,11 @@ import type { UpdatesService } from '../modules/updates/public.js'
 import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
 import { updateChannel, updateInstall, updateMode, updatePluginsInstall } from '../protocol/updates.js'
-import { memoryCardUpdate } from '../protocol/memory.js'
+import { lessonUpdate, memoryUpdate } from '../protocol/memory.js'
 import { pluginAccountRename } from '../protocol/plugins.js'
 import { PluginControlClient, PluginRouteError } from '../plugins/client.js'
 import type { PluginServerEndpoint } from '../plugins/supervisor.js'
-import { deleteCard, editCard, listCards, readCard } from './memory-cards.js'
+import { deleteLesson, deleteMemory, editLesson, editMemory, listLessons, listMemories, readLesson, readMemory } from './memory-items.js'
 import { array, boolean, boundedInteger, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
 
 /** What the administration tools need from the dispatcher that runs the calling attempt. */
@@ -41,8 +41,8 @@ const areas = {
   settings: 'Execution settings of kips and workspaces: adapter, model, effort and options.',
   adapters: 'Execution adapters and the models they offer.',
   permissions: 'What kips may do without asking the person: supervised, auto-accept edits, auto or full access, and the actions the person always allows.',
-  learning: 'Memory: on or off and the nightly sleep time, for the installation and each kip; the nightly model; how many core cards every turn loads and how many cards and thread chunks a turn\'s search adds.',
-  memory: 'Memory cards: the facts about the person every kip shares, learned each night from what the person said. Read, edit or delete them; messages stay.',
+  learning: 'Memory: on or off and the nightly sleep time, for the installation and each kip; the nightly model; how many core memories every turn loads and how many memories and thread chunks a turn\'s search adds.',
+  memory: 'Memories, the facts about the person every kip shares, and lessons, how each kip should do its work; both learned each night from conversations. Read, edit or delete them; messages stay.',
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core and Kipster Plugins: channel, automatic or notify mode, checks, installs and pins.',
   plugins: 'Kipster Plugins: the services kips can use, signing in to them, and the signed-in accounts with their names and the default account of each plugin.',
@@ -316,12 +316,12 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'learning.get': operation({
     area: 'learning', kind: 'read', input: none,
-    description: 'Read the memory settings: the switch and default sleep time of the installation, the switch and sleep time of each kip, the nightly model (null runs the nightly memory steps with the admin kip\'s model), coreCardCount (cards loaded on every turn) and searchCardCount and searchChunkCount (cards and thread chunks a turn\'s memory search adds). A kip has memory while both switches are on; available tells whether meaning search has an embedding provider.',
+    description: 'Read the memory settings: the switch and default sleep time of the installation, the switch and sleep time of each kip, the nightly model (null runs the nightly memory steps with the admin kip\'s model), coreMemoryCount (memories loaded on every turn) and searchMemoryCount and searchChunkCount (memories and thread chunks a turn\'s memory search adds). A kip has memory while both switches are on; available tells whether meaning search has an embedding provider.',
     run: ({ host, caller }) => host.learning.get(caller),
   }),
   'learning.set': operation({
     area: 'learning', kind: 'write', input: fields({}, learningUpdate),
-    description: 'Change the installation\'s memory settings; only the given fields change. enabled turns memory on or off; sleepTime is the default time of the nightly run ("HH:MM", local time); nightlyModel is { adapterId, modelId, effort? } from adapters.list for the nightly run, or null for Kip\'s model; coreCardCount (0-200, default 60) is how many core cards every turn loads; searchCardCount (0-50, default 10) and searchChunkCount (0-30, default 6) are how many cards and thread chunks a turn\'s memory search adds.',
+    description: 'Change the installation\'s memory settings; only the given fields change. enabled turns memory on or off; sleepTime is the default time of the nightly run ("HH:MM", local time); nightlyModel is { adapterId, modelId, effort? } from adapters.list for the nightly run, or null for the admin kip\'s model; coreMemoryCount (0-200, default 60) is how many core memories every turn loads; searchMemoryCount (0-50, default 10) and searchChunkCount (0-30, default 6) are how many memories and thread chunks a turn\'s memory search adds.',
     run: ({ host, caller, args }) => host.learning.setInstallation(caller, args, host.catalog()),
   }),
   'learning.agent_set': operation({
@@ -329,25 +329,45 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     description: "Turn memory on or off for one kip, or set its own sleep time (\"HH:MM\"); a null sleepTime uses the installation default.",
     run: ({ host, caller, args }) => { const { agentId, ...update } = args; return host.learning.setAgent(caller, agentId, update) },
   }),
-  'memory.cards_list': operation({
+  'memory.memories_list': operation({
     area: 'memory', kind: 'read', input: fields({ ended: optional(boolean()), limit: optional(boundedInteger(1, 200)), cursor: optional(id) }),
-    description: 'List memory cards of the installation and every workspace, newest first, each with its type, subject, statement, details, confirmed (the person said it) or inferred, core (loaded on every turn), organizationId (null for an installation card), valid dates and source messages. ended true also lists replaced cards. limit is 1-200 (default 50); pass nextCursor as cursor for the next page.',
-    run: async ({ host, caller, args }) => ({ version: 1, ...await listCards(host.db, caller, args) }),
+    description: 'List memories of the installation and every workspace, newest first, each with its type, subject, statement, details, confirmed (the person said it) or inferred, core (loaded on every turn), organizationId (null for an installation memory), valid dates and source messages. ended true also lists replaced and retired memories. limit is 1-200 (default 50); pass nextCursor as cursor for the next page.',
+    run: async ({ host, caller, args }) => ({ version: 1, ...await listMemories(host.db, caller, args) }),
   }),
-  'memory.card_get': operation({
-    area: 'memory', kind: 'read', input: fields({ cardId: id }),
-    description: 'Read one memory card with its source messages.',
-    run: async ({ host, caller, args }) => ({ version: 1, card: await readCard(host.db, caller, args.cardId) }),
+  'memory.memory_get': operation({
+    area: 'memory', kind: 'read', input: fields({ memoryId: id }),
+    description: 'Read one memory with its source messages.',
+    run: async ({ host, caller, args }) => ({ version: 1, memory: await readMemory(host.db, caller, args.memoryId) }),
   }),
-  'memory.card_update': operation({
-    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }, memoryCardUpdate),
-    description: 'Correct a current memory card when the person asks: type, subject, statement or details (a JSON object); omitted fields are unchanged. The card becomes confirmed. A replaced card cannot be edited; edit its replacement. A repeat with the same operationId changes nothing and returns the card as it is now.',
-    run: async ({ host, caller, operationId, args }) => { const { cardId, ...edit } = args; return recorded(operationId, { version: 1, ...await editCard(host.db, caller, cardId, edit, operationId) }) },
+  'memory.memory_update': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ memoryId: id }, memoryUpdate),
+    description: 'Correct a current memory when the person asks: type, subject, statement or details (a JSON object); omitted fields are unchanged. The memory becomes confirmed. A replaced or retired memory cannot be edited; edit its replacement. A repeat with the same operationId changes nothing and returns the memory as it is now.',
+    run: async ({ host, caller, operationId, args }) => { const { memoryId, ...edit } = args; return recorded(operationId, { version: 1, ...await editMemory(host.db, caller, memoryId, edit, operationId) }) },
   }),
-  'memory.card_delete': operation({
-    area: 'memory', kind: 'write', receipt: true, input: fields({ cardId: id }),
-    description: 'Delete a memory card the person wants forgotten, with its sources and embedding. The messages it was learned from stay. deleted is false when it was already gone; a repeat with the same operationId returns the first outcome.',
-    run: async ({ host, caller, operationId, args }) => recorded(operationId, { version: 1, ...await deleteCard(host.db, caller, args.cardId, operationId) }),
+  'memory.memory_delete': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ memoryId: id }),
+    description: 'Delete a memory the person wants forgotten, with its sources and embedding. The messages it was learned from stay. deleted is false when it was already gone; a repeat with the same operationId returns the first outcome.',
+    run: async ({ host, caller, operationId, args }) => recorded(operationId, { version: 1, ...await deleteMemory(host.db, caller, args.memoryId, operationId) }),
+  }),
+  'memory.lessons_list': operation({
+    area: 'memory', kind: 'read', input: fields({ agentId: optional(id), ended: optional(boolean()), limit: optional(boundedInteger(1, 200)), cursor: optional(id) }),
+    description: 'List lessons, of one kip with agentId or of every kip, newest first, each with its statement, agentId, organizationId (the workspace it was learned in, or null), confirmations (nights it came up), lastConfirmedNight, valid dates and source messages. A kip\'s 10 most confirmed lessons are the Learned section of its identity.md. ended true also lists merged and retired lessons. limit is 1-200 (default 50); pass nextCursor as cursor for the next page.',
+    run: async ({ host, caller, args }) => ({ version: 1, ...await listLessons(host.db, caller, args) }),
+  }),
+  'memory.lesson_get': operation({
+    area: 'memory', kind: 'read', input: fields({ lessonId: id }),
+    description: 'Read one lesson with its source messages.',
+    run: async ({ host, caller, args }) => ({ version: 1, lesson: await readLesson(host.db, caller, args.lessonId) }),
+  }),
+  'memory.lesson_update': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ lessonId: id }, lessonUpdate),
+    description: 'Reword a current lesson when the person asks; its confirmations stay, and the kip\'s Learned section is written again. A merged or retired lesson cannot be edited. A repeat with the same operationId changes nothing and returns the lesson as it is now.',
+    run: async ({ host, caller, operationId, args }) => { const { lessonId, statement } = args; return recorded(operationId, { version: 1, ...await editLesson(host.db, host.home.identity, caller, lessonId, statement, operationId) }) },
+  }),
+  'memory.lesson_delete': operation({
+    area: 'memory', kind: 'write', receipt: true, input: fields({ lessonId: id }),
+    description: 'Delete a lesson the person wants forgotten, with its sources and embedding; the kip\'s Learned section is written again. The messages it was learned from stay. deleted is false when it was already gone; a repeat with the same operationId returns the first outcome.',
+    run: async ({ host, caller, operationId, args }) => recorded(operationId, { version: 1, ...await deleteLesson(host.db, host.home.identity, caller, args.lessonId, operationId) }),
   }),
   'interface.get': operation({
     area: 'interface', kind: 'read', input: none,

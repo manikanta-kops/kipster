@@ -11,7 +11,7 @@ import { createAdapter } from '../dist/index.js'
 const allowedEnvironment = /^(__CF_USER_TEXT_ENCODING|HOME|CODEX_HOME|OPENAI_API_KEY|OPENAI_BASE_URL|PATH|LANG|LC_[A-Z]+|TZ|TMPDIR|USER|LOGNAME|SHELL|TERM|SSL_CERT_(FILE|DIR)|CODEX_CA_CERTIFICATE|(HTTPS?|NO|ALL)_PROXY|(https?|no|all)_proxy)$/
 const profile = ['features.apps=false', 'features.plugins=false', 'features.shell_tool=false', 'features.unified_exec=false', 'features.image_generation=false', 'features.view_image=false', 'web_search="disabled"']
 const output = { topics: [{ start: 'm1', title: 'Office hours' }] }
-const cardChanges = { changes: [{ action: 'add', card: null, type: 'fact', subject: 'office', statement: 'The Amsterdam office opens at nine', details: [{ key: 'opens', value: '09:00' }], confirmed: true, sources: ['m1'] }] }
+const memoryChanges = { changes: [{ action: 'add', memories: [], type: 'fact', subject: 'office', statement: 'The Amsterdam office opens at nine', details: [{ key: 'opens', value: '09:00' }], confirmed: true, sources: ['m1'] }] }
 const diaryPage = { days: [{ day: '2026-10-12', summary: 'Talked about office hours.' }] }
 // A scripted App Server. Its behavior after turn/start comes from the mode file, read at launch.
 async function fixture() {
@@ -50,7 +50,7 @@ readline.createInterface({input:process.stdin}).on('line',line=>{const x=JSON.pa
   item('item/started',{type:'userMessage',id:'input'});
   item('item/completed',{type:'reasoning',id:'reasoning'});
   if(mode==='ok')message('answer',${JSON.stringify(JSON.stringify(output))});
-  if(mode==='cards')message('answer',${JSON.stringify(JSON.stringify(cardChanges))});
+  if(mode==='memories')message('answer',${JSON.stringify(JSON.stringify(memoryChanges))});
   if(mode==='diary')message('answer',${JSON.stringify(JSON.stringify(diaryPage))});
   if(mode==='malformed')message('answer','Here is what I found: nothing');
   if(mode==='multiple'){message('first','{"topics":[]}');message('second','{"topics":[]}')}
@@ -155,30 +155,30 @@ test('a nightly memory step runs as an isolated, tool-free, ephemeral thread and
   } finally { await f.cleanup() }
 })
 
-const cardsSchema = { type: 'object', additionalProperties: false, required: ['changes'], properties: { changes: { type: 'array', maxItems: 30 } } }
-const cardsStep = { kind: 'maintenance', runId: 'cards-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'memory', step: 'cards', instructions: 'Kipster memory, nightly step "cards".\n\nExisting cards:\n(none)\n\nConversation:\n\n[m1] Owner (user, new, citable), Mon 12 Oct 2026 09:14:\nThe Amsterdam office opens at nine.', outputSchema: cardsSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
+const memoriesSchema = { type: 'object', additionalProperties: false, required: ['changes'], properties: { changes: { type: 'array', maxItems: 30 } } }
+const memoriesStep = { kind: 'maintenance', runId: 'memories-run', attemptId: 'attempt-2', organizationId: null, agentId: 'agent', maintenance: { task: 'memory', step: 'memories', instructions: 'Kipster memory, nightly step "memories".\n\nExisting memories:\n(none)\n\nConversation:\n\n[m1] Owner (person, new, citable), Mon 12 Oct 2026 09:14:\nThe Amsterdam office opens at nine.', outputSchema: memoriesSchema, settings: { adapterId: 'codex-cli', modelId: 'test-model', effort: 'low' } } }
 
 test('every nightly step runs in the same isolated thread with the schema Core supplies', async () => {
   const f = await fixture()
   try {
-    await f.mode('cards')
+    await f.mode('memories')
     const adapter = f.adapter()
     await adapter.readiness()
-    const events = await collect(await adapter.execute(cardsStep))
+    const events = await collect(await adapter.execute(memoriesStep))
     assert.deepEqual(events.map(event => event.kind), ['provider', 'text', 'ended'])
-    assert.deepEqual(JSON.parse(events[1].text), cardChanges, 'the result reaches Core unchanged')
+    assert.deepEqual(JSON.parse(events[1].text), memoryChanges, 'the result reaches Core unchanged')
     const calls = (await f.records()).filter(record => record.method && !record.launch)
     const thread = calls.findLast(record => record.method === 'thread/start').params
     assert.equal(thread.ephemeral, true)
     assert.equal('dynamicTools' in thread, false)
     const turn = calls.findLast(record => record.method === 'turn/start').params
-    assert.deepEqual(turn.input, [{ type: 'text', text: cardsStep.maintenance.instructions }])
+    assert.deepEqual(turn.input, [{ type: 'text', text: memoriesStep.maintenance.instructions }])
     assert.equal(turn.model, 'test-model')
     assert.equal(turn.effort, 'low')
-    assert.deepEqual(turn.outputSchema, cardsSchema, 'Core supplies the output schema')
+    assert.deepEqual(turn.outputSchema, memoriesSchema, 'Core supplies the output schema')
     await until(() => gone(events[0].processId), 'process exit')
     await f.mode('diary')
-    const diary = { ...cardsStep, attemptId: 'attempt-3', maintenance: { ...cardsStep.maintenance, step: 'diary', outputSchema: { type: 'object' } } }
+    const diary = { ...memoriesStep, attemptId: 'attempt-3', maintenance: { ...memoriesStep.maintenance, step: 'diary', outputSchema: { type: 'object' } } }
     const page = await collect(await adapter.execute(diary))
     assert.deepEqual(JSON.parse(page[1].text), diaryPage)
     await until(() => gone(page[0].processId), 'process exit')
@@ -191,8 +191,8 @@ test('the first memory engine\'s tasks and unknown steps fail before any launch'
     const adapter = f.adapter()
     await adapter.readiness()
     const launches = (await f.records()).filter(record => record.launch).length
-    for (const [attemptId, maintenance] of [['old-1', { ...cardsStep.maintenance, task: 'extract' }], ['old-2', { ...cardsStep.maintenance, task: 'consolidate' }], ['old-3', { ...cardsStep.maintenance, task: 'identity' }], ['unknown-step', { ...cardsStep.maintenance, step: 'summarize' }]]) {
-      assert.deepEqual(await collect(await adapter.execute({ ...cardsStep, attemptId, maintenance })), [{ kind: 'failed', attemptId, confirmedEnded: true, message: 'Unsupported maintenance task' }])
+    for (const [attemptId, maintenance] of [['old-1', { ...memoriesStep.maintenance, task: 'extract' }], ['old-2', { ...memoriesStep.maintenance, task: 'consolidate' }], ['old-3', { ...memoriesStep.maintenance, task: 'identity' }], ['unknown-step', { ...memoriesStep.maintenance, step: 'summarize' }]]) {
+      assert.deepEqual(await collect(await adapter.execute({ ...memoriesStep, attemptId, maintenance })), [{ kind: 'failed', attemptId, confirmedEnded: true, message: 'Unsupported maintenance task' }])
     }
     assert.equal((await f.records()).filter(record => record.launch).length, launches)
   } finally { await f.cleanup() }

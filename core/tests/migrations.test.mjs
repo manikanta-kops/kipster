@@ -35,14 +35,14 @@ async function database(t) {
   return { db, connectionString: url.href, home }
 }
 
-const embedded = { thread_chunks: ['embedding'], cards: ['embedding'], diary: ['embedding'] }
+const embedded = { thread_chunks: ['embedding'], memories: ['embedding'], lessons: ['embedding'], diary: ['embedding'] }
 
-/** The Kip memory schema of decision record 10 is present. */
+/** The Kip memory schema of decision records 10 and 13 is present. */
 async function assertMemorySchema(db) {
-  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='kipster' AND (table_name LIKE 'memory%' OR table_name LIKE 'maintenance%' OR table_name IN ('thread_chunks','cards','card_sources','diary','embedding_profiles','embedding_generations')) ORDER BY table_name")).rows.map(row => row.table_name)
-  assert.deepEqual(tables, ['card_sources', 'cards', 'diary', 'embedding_generations', 'embedding_profiles', 'memory_calls', 'memory_nights', 'memory_thread_state', 'thread_chunks'])
-  const owned = (await db.query("SELECT table_name FROM information_schema.columns WHERE table_schema='kipster' AND column_name='installation_id' AND is_nullable='NO' AND table_name IN ('memory_thread_state','thread_chunks','cards','card_sources','diary','memory_nights','memory_calls') ORDER BY table_name")).rows.map(row => row.table_name)
-  assert.deepEqual(owned, ['card_sources', 'cards', 'diary', 'memory_calls', 'memory_nights', 'memory_thread_state', 'thread_chunks'])
+  const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='kipster' AND (table_name LIKE 'memory%' OR table_name LIKE 'maintenance%' OR table_name IN ('thread_chunks','memories','memory_sources','lessons','lesson_sources','diary','embedding_profiles','embedding_generations')) ORDER BY table_name")).rows.map(row => row.table_name)
+  assert.deepEqual(tables, ['diary', 'embedding_generations', 'embedding_profiles', 'lesson_sources', 'lessons', 'memories', 'memory_calls', 'memory_nights', 'memory_sources', 'memory_thread_state', 'thread_chunks'])
+  const owned = (await db.query("SELECT table_name FROM information_schema.columns WHERE table_schema='kipster' AND column_name='installation_id' AND is_nullable='NO' AND table_name IN ('memory_thread_state','thread_chunks','memories','memory_sources','lessons','lesson_sources','diary','memory_nights','memory_calls') ORDER BY table_name")).rows.map(row => row.table_name)
+  assert.deepEqual(owned, ['diary', 'lesson_sources', 'lessons', 'memories', 'memory_calls', 'memory_nights', 'memory_sources', 'memory_thread_state', 'thread_chunks'])
   for (const [table, columns] of Object.entries(embedded)) for (const column of columns) {
     const row = (await db.query(`SELECT format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS required FROM pg_attribute a WHERE a.attrelid=$1::regclass AND a.attname=$2`, [`kipster.${table}`, column])).rows[0]
     assert.deepEqual(row, { type: 'vector(768)', required: false }, `${table}.${column}`)
@@ -50,8 +50,8 @@ async function assertMemorySchema(db) {
     assert.deepEqual(model, { required: false }, `${table}.embedding_model`)
   }
   const hnsw = (await db.query("SELECT tablename FROM pg_indexes WHERE schemaname='kipster' AND indexdef LIKE '%USING hnsw (embedding vector_cosine_ops)%' ORDER BY tablename")).rows.map(row => row.tablename)
-  assert.deepEqual(hnsw, ['cards', 'diary', 'thread_chunks'])
-  const current = (await db.query("SELECT indexdef FROM pg_indexes WHERE schemaname='kipster' AND indexname IN ('cards_current','cards_core') ORDER BY indexname")).rows.map(row => row.indexdef)
+  assert.deepEqual(hnsw, ['diary', 'lessons', 'memories', 'thread_chunks'])
+  const current = (await db.query("SELECT indexdef FROM pg_indexes WHERE schemaname='kipster' AND indexname IN ('memories_current','memories_core') ORDER BY indexname")).rows.map(row => row.indexdef)
   assert.match(current[0], /WHERE \(\(valid_to IS NULL\) AND core\)/)
   assert.match(current[1], /WHERE \(valid_to IS NULL\)/)
   // A diary page belongs to one context; a null summary marks a page owing a rebuild.
@@ -95,7 +95,19 @@ test('a populated base-branch database upgrades with this branch and Core reads 
   t.diagnostic(`Base migrations read from git ${ref}; ${base.length} applied before seeding.`)
   await fixture.db.migrate(base)
   const { ids, settings, parts } = await seed(fixture.db)
+  // A card and a nightly call of the base schema become a memory and a `memories` call.
+  const card = randomUUID()
+  await fixture.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,confirmed,core) VALUES ($1,$2,'preference','user','Vegetarian',true,true)`, [card, ids.installationId])
+  await fixture.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [card, ids.installationId, ids.threadId, ids.messageId])
+  const call = randomUUID()
+  await fixture.db.query(`INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'settled')`, [call, ids.installationId])
+  await fixture.db.query(`INSERT INTO kipster.memory_calls(id,installation_id,step,state) VALUES ($1,$2,'cards','completed')`, [call, ids.installationId])
+  await fixture.db.query('UPDATE kipster.installations SET core_card_count=12 WHERE id=$1', [ids.installationId])
   await fixture.db.migrate(current)
+  assert.deepEqual((await fixture.db.query('SELECT m.statement, m.core, s.thread_id, s.message_id FROM kipster.memories m JOIN kipster.memory_sources s ON s.memory_id=m.id WHERE m.id=$1', [card])).rows,
+    [{ statement: 'Vegetarian', core: true, thread_id: ids.threadId, message_id: ids.messageId }])
+  assert.deepEqual((await fixture.db.query('SELECT step FROM kipster.memory_calls WHERE id=$1', [call])).rows, [{ step: 'memories' }])
+  assert.deepEqual((await fixture.db.query('SELECT core_memory_count FROM kipster.installations WHERE id=$1', [ids.installationId])).rows, [{ core_memory_count: 12 }])
   const runtime = await openRuntime({ ...fixture, names: { owner: 'New name', organization: 'New name', rootAgent: 'New name' } })
   try {
     assert.deepEqual(runtime.bootstrap, { installationId: ids.installationId, ownerId: ids.ownerId, organizationId: ids.organizationId, rootAgentId: ids.rootAgentId })

@@ -1,11 +1,14 @@
 import type { Postgres, SqlClient } from '../../platform/postgres/public.js'
+import type { IdentityFiles } from '../../platform/home/public.js'
 import type { EmbeddingProfile } from '../vectors/public.js'
-import { CardService, embedCards, scopeSql, scopeValue, type CardScope } from './cards.js'
+import { MemoryService, scopeSql, scopeValue, type MemoryScope } from './memories.js'
+import { LESSONS, LessonService, rebuildLearned } from './lessons.js'
+import { embedNow } from './embed.js'
 import { memorySettings } from './settings.js'
 import { MEMORY_READ, memoryAccess, readThread, recentThreads, searchMemory, type MemoryRange, type ThreadScope } from './search.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-/** Most cards `forget_memory` deletes for one query, and candidates it returns instead when more match. */
+/** Most memories and lessons `forget_memory` deletes for one query, and candidates it returns instead when more match. */
 export const FORGET_LIMITS = { matches: 20, candidates: 50, query: 200 } as const
 
 /** The run a memory tool call belongs to: its agent, context, thread and trigger message, and whether its agent has memory on. */
@@ -62,15 +65,16 @@ async function agentArgument(client: Postgres | SqlClient, run: MemoryRun, value
  * threads and the current organization's. */
 const threadScope = (run: MemoryRun, agents: string[] | null, exclude: string | null = null): ThreadScope =>
   run.admin ? { agents, organizations: 'all', exclude } : { agents: [run.agentId], organizations: { organizationId: run.organizationId }, exclude }
-/** Cards a run's tools may see: every card for the admin kip; installation cards plus the current organization's for another kip. */
-const cardScope = (run: MemoryRun): CardScope => run.admin ? 'all' : { organizationId: run.organizationId }
+/** Memories a run's tools may see: every memory for the admin kip; installation memories plus the current organization's for another kip. */
+const memoryScope = (run: MemoryRun): MemoryScope => run.admin ? 'all' : { organizationId: run.organizationId }
 
 /**
- * The memory tools of an execution (decision record 10, section 6), bound to its current attempt: `search_memory`,
+ * The memory tools of an execution (decision records 10 and 13), bound to its current attempt: `search_memory`,
  * `list_recent_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has
- * memory off, except `read_thread` of the source thread of a linked thread (decision record 11, rule 7).
+ * memory off, except `read_thread` of the source thread of a linked thread (decision record 11, rule 7). Forgetting a
+ * lesson rewrites the kip's Learned section in `identity`.
  */
-export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | undefined, attemptId: string, incarnation: string, name: string, input: Record<string, unknown>): Promise<unknown> {
+export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | undefined, identity: IdentityFiles | undefined, attemptId: string, incarnation: string, name: string, input: Record<string, unknown>): Promise<unknown> {
   const run = await boundRun(db, attemptId, incarnation)
   if (!run.memory && name !== 'read_thread') throw new Error('Memory is off for this kip')
   if (name === 'search_memory') {
@@ -80,7 +84,7 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     if (range.from && range.to && range.from >= range.to) throw new Error(`Invalid ${name} arguments: from must be before to`)
     const agents = await agentArgument(db, run, input.agent, name)
     const settings = await memorySettings(db, run.installationId)
-    return searchMemory(db, run.installationId, embedding, { query, range, cards: cardScope(run), threads: threadScope(run, agents, run.threadId), cardCount: settings.searchCardCount, itemCount: settings.searchChunkCount, timeoutMs: MEMORY_READ.toolEmbedMs })
+    return searchMemory(db, run.installationId, embedding, { query, range, memories: memoryScope(run), threads: threadScope(run, agents, run.threadId), memoryCount: settings.searchMemoryCount, lessonCount: LESSONS.search, itemCount: settings.searchChunkCount, timeoutMs: MEMORY_READ.toolEmbedMs })
   }
   if (name === 'list_recent_threads') {
     fields(input, ['agent'], name)
@@ -100,40 +104,56 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
   }
   if (name === 'save_memory') {
     fields(input, ['statement', 'type', 'subject', 'details'], name)
-    const cards = new CardService(db, run.installationId, embedding)
-    // The card is confirmed: the user said it in the message this run answers. CardService checks the fields, and that
-    // the source is a person's message in the card's context.
-    const cardId = await cards.create({ type: input.type as string, subject: input.subject as string, statement: input.statement as string, details: input.details as Record<string, unknown> | undefined, confirmed: true, organizationId: run.organizationId },
+    const memories = new MemoryService(db, run.installationId, embedding)
+    // The memory is confirmed: the person said it in the message this run answers. MemoryService checks the fields, and
+    // that the source is a person's message in the memory's context.
+    const memoryId = await memories.create({ type: input.type as string, subject: input.subject as string, statement: input.statement as string, details: input.details as Record<string, unknown> | undefined, confirmed: true, organizationId: run.organizationId },
       [{ threadId: run.threadId, messageId: run.triggerMessageId }])
-    // Best effort: a card left unembedded is embedded by the next nightly run.
-    const embedded = await embedCards(db, run.installationId, embedding, [cardId], MEMORY_READ.toolEmbedMs).catch(() => ({ embedded: 0, failed: true }))
-    return { card: await cards.get(cardId), embedded: embedded.embedded > 0 }
+    // Best effort: a memory left unembedded is embedded by the next nightly run.
+    const embedded = await embedNow(db, run.installationId, embedding, 'memories', [memoryId], MEMORY_READ.toolEmbedMs).catch(() => ({ embedded: 0, failed: true }))
+    return { memory: await memories.get(memoryId), embedded: embedded.embedded > 0 }
   }
   if (name === 'forget_memory') {
-    fields(input, ['cardId', 'query'], name)
-    if ((input.cardId === undefined) === (input.query === undefined)) throw new Error(`Invalid ${name} arguments: give cardId or query`)
-    const scope = cardScope(run)
-    return db.transaction(async client => {
-      if (input.cardId !== undefined) {
-        const id = text(input, 'cardId', name, 36)!
-        const found = uuid.test(id) ? (await client.query<Forgotten>(`SELECT c.id, c.type, c.subject, c.statement, c.valid_to IS NULL AS current FROM kipster.cards c
+    fields(input, ['memoryId', 'lessonId', 'query'], name)
+    if ([input.memoryId, input.lessonId, input.query].filter(value => value !== undefined).length !== 1) throw new Error(`Invalid ${name} arguments: give memoryId, lessonId or query`)
+    const scope = memoryScope(run)
+    const result = await db.transaction(async client => {
+      if (input.memoryId !== undefined) {
+        const id = text(input, 'memoryId', name, 36)!
+        const found = uuid.test(id) ? (await client.query<ForgottenMemory>(`SELECT c.id, c.type, c.subject, c.statement, c.valid_to IS NULL AS current FROM kipster.memories c
           WHERE c.id=$1 AND c.installation_id=$2 AND ${scopeSql(scope, '$3')} FOR UPDATE`, [id, run.installationId, scopeValue(scope)])).rows : []
-        if (!found.length) throw new Error('Card not found')
-        await new CardService(db, run.installationId).delete([id], client)
-        return { deleted: found }
+        if (!found.length) throw new Error('Memory not found')
+        await new MemoryService(db, run.installationId).delete([id], client)
+        return { deleted: found, lessons: [] as ForgottenLesson[] }
+      }
+      if (input.lessonId !== undefined) {
+        const id = text(input, 'lessonId', name, 36)!
+        const found = uuid.test(id) ? (await client.query<ForgottenLesson>(`SELECT l.id, l.statement, l.valid_to IS NULL AS current FROM kipster.lessons l
+          WHERE l.id=$1 AND l.installation_id=$2 AND l.agent_id=$3 FOR UPDATE`, [id, run.installationId, run.agentId])).rows : []
+        if (!found.length) throw new Error('Lesson not found')
+        await new LessonService(db, run.installationId).delete([id], client)
+        return { deleted: [] as ForgottenMemory[], lessons: found }
       }
       const query = text(input, 'query', name, FORGET_LIMITS.query)!.trim()
-      const matches = (await client.query<Forgotten>(`SELECT c.id, c.type, c.subject, c.statement, c.valid_to IS NULL AS current FROM kipster.cards c
+      const matches = (await client.query<ForgottenMemory>(`SELECT c.id, c.type, c.subject, c.statement, c.valid_to IS NULL AS current FROM kipster.memories c
         WHERE c.installation_id=$1 AND ${scopeSql(scope, '$2')} AND (strpos(lower(c.statement), lower($3)) > 0 OR strpos(lower(c.subject), lower($3)) > 0)
         ORDER BY c.updated_at DESC, c.id LIMIT $4 FOR UPDATE`, [run.installationId, scopeValue(scope), query, FORGET_LIMITS.candidates + 1])).rows
-      if (matches.length > FORGET_LIMITS.matches) {
-        return { deleted: [], refused: `More than ${FORGET_LIMITS.matches} cards match; none were deleted. Forget the ones you mean by cardId.`, candidates: matches.slice(0, FORGET_LIMITS.candidates), hasMore: matches.length > FORGET_LIMITS.candidates }
+      const lessons = (await client.query<ForgottenLesson>(`SELECT l.id, l.statement, l.valid_to IS NULL AS current FROM kipster.lessons l
+        WHERE l.installation_id=$1 AND l.agent_id=$2 AND strpos(lower(l.statement), lower($3)) > 0
+        ORDER BY l.updated_at DESC, l.id LIMIT $4 FOR UPDATE`, [run.installationId, run.agentId, query, FORGET_LIMITS.candidates + 1])).rows
+      if (matches.length + lessons.length > FORGET_LIMITS.matches) {
+        return { deleted: [], lessons: [], refused: `More than ${FORGET_LIMITS.matches} memories and lessons match; none were deleted. Forget the ones you mean by memoryId or lessonId.`,
+          candidates: matches.slice(0, FORGET_LIMITS.candidates), lessonCandidates: lessons.slice(0, FORGET_LIMITS.candidates), hasMore: matches.length > FORGET_LIMITS.candidates || lessons.length > FORGET_LIMITS.candidates }
       }
-      await new CardService(db, run.installationId).delete(matches.map(row => row.id), client)
-      return { deleted: matches }
+      await new MemoryService(db, run.installationId).delete(matches.map(row => row.id), client)
+      await new LessonService(db, run.installationId).delete(lessons.map(row => row.id), client)
+      return { deleted: matches, lessons }
     })
+    if (result.lessons.length && identity) await rebuildLearned(db, identity, run.installationId, run.agentId).catch(() => undefined)
+    return result
   }
   throw new Error('Unsupported memory tool')
 }
 
-type Forgotten = { id: string; type: string; subject: string; statement: string; current: boolean }
+type ForgottenMemory = { id: string; type: string; subject: string; statement: string; current: boolean }
+type ForgottenLesson = { id: string; statement: string; current: boolean }

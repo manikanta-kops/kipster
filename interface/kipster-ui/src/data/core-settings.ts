@@ -5,8 +5,9 @@ import type {
   ExecutionSettings,
   LearningSettings,
   LearningUpdate,
-  MemoryCard,
-  MemoryCardUpdate,
+  LessonRecord,
+  MemoryRecord,
+  MemoryUpdate,
   SettingsPatch,
   SettingsRecord as CoreSettingsRecord,
 } from '@kipster/core/protocol'
@@ -53,10 +54,14 @@ export type Learning = Omit<LearningSettings, 'version' | 'agents'> & {
 }
 /** A change of the installation's memory settings; omitted fields are unchanged. */
 export type LearningChange = Omit<LearningUpdate, 'version'>
-export type { MemoryCard } from '@kipster/core/protocol'
-/** A person's edit of a card; omitted fields are unchanged. */
-export type MemoryCardEdit = Omit<MemoryCardUpdate, 'version'>
-export type MemoryCardPage = { cards: MemoryCard[]; nextCursor: string | null }
+/** A fact about the person every kip shares. */
+export type Memory = MemoryRecord
+/** How one kip should do its work, kept for that kip in every workspace. */
+export type Lesson = LessonRecord
+/** A person's edit of a memory; omitted fields are unchanged. */
+export type MemoryEdit = Omit<MemoryUpdate, 'version'>
+export type MemoryPage = { memories: Memory[]; nextCursor: string | null }
+export type LessonPage = { lessons: Lesson[]; nextCursor: string | null }
 export type Directory = {
   organizations: Pick<DirectoryOrganization, 'id' | 'name' | 'lifecycle'>[]
   agents: Pick<DirectoryAgent, 'id' | 'name' | 'lifecycle' | 'admin'>[]
@@ -302,7 +307,17 @@ export function parseLearning(value: unknown): Learning {
 
 const timestamp = (value: unknown) =>
   typeof value === 'string' && Number.isFinite(Date.parse(value))
-export function parseMemoryCard(value: unknown): MemoryCard {
+function parseSources(value: unknown) {
+  return list(value, (source) => {
+    check(
+      record(source) &&
+        typeof source.threadId === 'string' &&
+        typeof source.messageId === 'string',
+    )
+    return { threadId: source.threadId, messageId: source.messageId }
+  })
+}
+export function parseMemory(value: unknown): Memory {
   check(
     record(value) &&
       typeof value.id === 'string' &&
@@ -319,31 +334,52 @@ export function parseMemoryCard(value: unknown): MemoryCard {
       (value.replacedBy === null || typeof value.replacedBy === 'string') &&
       Array.isArray(value.sources),
   )
-  return {
-    ...value,
-    sources: list(value.sources, (source) => {
-      check(
-        record(source) &&
-          typeof source.threadId === 'string' &&
-          typeof source.messageId === 'string',
-      )
-      return { threadId: source.threadId, messageId: source.messageId }
-    }),
-  } as MemoryCard
+  return { ...value, sources: parseSources(value.sources) } as Memory
 }
-export function parseMemoryCardPage(value: unknown): MemoryCardPage {
+export function parseMemoryPage(value: unknown): MemoryPage {
   check(
     record(value) &&
       (value.nextCursor === null || typeof value.nextCursor === 'string'),
   )
   return {
-    cards: list(value.cards, parseMemoryCard),
+    memories: list(value.memories, parseMemory),
     nextCursor: value.nextCursor,
   }
 }
-function parseMemoryCardResult(value: unknown): MemoryCard {
+function parseMemoryResult(value: unknown): Memory {
   check(record(value))
-  return parseMemoryCard(value.card)
+  return parseMemory(value.memory)
+}
+export function parseLesson(value: unknown): Lesson {
+  check(
+    record(value) &&
+      typeof value.id === 'string' &&
+      typeof value.agentId === 'string' &&
+      (value.organizationId === null ||
+        typeof value.organizationId === 'string') &&
+      typeof value.statement === 'string' &&
+      Number.isSafeInteger(value.confirmations) &&
+      typeof value.lastConfirmedNight === 'string' &&
+      timestamp(value.validFrom) &&
+      (value.validTo === null || timestamp(value.validTo)) &&
+      (value.replacedBy === null || typeof value.replacedBy === 'string') &&
+      Array.isArray(value.sources),
+  )
+  return { ...value, sources: parseSources(value.sources) } as Lesson
+}
+export function parseLessonPage(value: unknown): LessonPage {
+  check(
+    record(value) &&
+      (value.nextCursor === null || typeof value.nextCursor === 'string'),
+  )
+  return {
+    lessons: list(value.lessons, parseLesson),
+    nextCursor: value.nextCursor,
+  }
+}
+function parseLessonResult(value: unknown): Lesson {
+  check(record(value))
+  return parseLesson(value.lesson)
 }
 
 export function parseDirectory(value: unknown): Directory {
@@ -698,44 +734,83 @@ export class CoreSettingsClient {
     const result = parseAgentLearning(v)
     return result
   }
-  /** Cards newest first, replaced ones too when `ended`. */
-  async memoryCards(
+  /** Memories newest first, replaced and retired ones too when `ended`. */
+  async memories(
     page: { ended: boolean; cursor?: string | null },
     signal: AbortSignal,
   ) {
     const query = new URLSearchParams({ ended: String(page.ended) })
     if (page.cursor) query.set('cursor', page.cursor)
-    return parseMemoryCardPage(
-      await this.request('GET', `/v1/memory/cards?${query}`, signal),
+    return parseMemoryPage(
+      await this.request('GET', `/v1/memory/memories?${query}`, signal),
     )
   }
-  async memoryCard(cardId: string, signal: AbortSignal) {
-    return parseMemoryCardResult(
+  async memory(memoryId: string, signal: AbortSignal) {
+    return parseMemoryResult(
       await this.request(
         'GET',
-        `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+        `/v1/memory/memories/${encodeURIComponent(memoryId)}`,
         signal,
       ),
     )
   }
-  async saveMemoryCard(
-    cardId: string,
-    edit: MemoryCardEdit,
-    signal: AbortSignal,
-  ) {
-    return parseMemoryCardResult(
+  async saveMemory(memoryId: string, edit: MemoryEdit, signal: AbortSignal) {
+    return parseMemoryResult(
       await this.request(
         'PUT',
-        `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+        `/v1/memory/memories/${encodeURIComponent(memoryId)}`,
         signal,
         { version: 1, ...edit },
       ),
     )
   }
-  async deleteMemoryCard(cardId: string, signal: AbortSignal) {
+  async deleteMemory(memoryId: string, signal: AbortSignal) {
     const v = await this.request(
       'DELETE',
-      `/v1/memory/cards/${encodeURIComponent(cardId)}`,
+      `/v1/memory/memories/${encodeURIComponent(memoryId)}`,
+      signal,
+    )
+    check(record(v) && typeof v.deleted === 'boolean')
+    return v.deleted
+  }
+  /** Lessons newest first, of one kip or every kip, merged and retired ones too when `ended`. */
+  async lessons(
+    page: { ended: boolean; agentId?: string | null; cursor?: string | null },
+    signal: AbortSignal,
+  ) {
+    const query = new URLSearchParams({
+      ended: String(page.ended),
+      limit: '200',
+    })
+    if (page.agentId) query.set('agentId', page.agentId)
+    if (page.cursor) query.set('cursor', page.cursor)
+    return parseLessonPage(
+      await this.request('GET', `/v1/memory/lessons?${query}`, signal),
+    )
+  }
+  async lesson(lessonId: string, signal: AbortSignal) {
+    return parseLessonResult(
+      await this.request(
+        'GET',
+        `/v1/memory/lessons/${encodeURIComponent(lessonId)}`,
+        signal,
+      ),
+    )
+  }
+  async saveLesson(lessonId: string, statement: string, signal: AbortSignal) {
+    return parseLessonResult(
+      await this.request(
+        'PUT',
+        `/v1/memory/lessons/${encodeURIComponent(lessonId)}`,
+        signal,
+        { version: 1, statement },
+      ),
+    )
+  }
+  async deleteLesson(lessonId: string, signal: AbortSignal) {
+    const v = await this.request(
+      'DELETE',
+      `/v1/memory/lessons/${encodeURIComponent(lessonId)}`,
       signal,
     )
     check(record(v) && typeof v.deleted === 'boolean')

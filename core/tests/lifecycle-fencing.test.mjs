@@ -131,7 +131,7 @@ const writers = {
     // The task write runs in its own transaction after the namespace is provisioned; an uncommitted
     // receipt with the same call ID pauses it right before its commit, after its guard.
     barrier: (run, callId, ctx) => [`INSERT INTO task_data.receipts(attempt_id, call_id, actor_id, owner_kind, owner_id, operation, payload_hash, result) VALUES ($1,$2,$3,'agent',$3,'held','held','{}')`, [run.attemptId, callId, ctx.scout]],
-    write: (ctx, run, key, prepared, callId) => ctx.dispatcher.structuredTool(run.attemptId, callId, { operation: 'create_table', target: { kind: 'agent', ownerId: ctx.scout }, table: `t_${key}`, columns: [{ name: 'title', type: 'text' }] }),
+    write: (ctx, run, key, prepared, callId) => ctx.dispatcher.structuredTool(run.attemptId, callId, { operation: 'create_table', description: 'Test table', target: { kind: 'agent', ownerId: ctx.scout }, table: `t_${key}`, columns: [{ name: 'title', type: 'text' }] }),
     landed: (ctx, key) => count(ctx.db, `SELECT count(*)::int AS n FROM pg_catalog.pg_tables WHERE tablename=$1`, [`t_${key}`]),
   },
   'text publication': {

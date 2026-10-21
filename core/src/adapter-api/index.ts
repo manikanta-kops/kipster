@@ -106,14 +106,15 @@ export interface TextExecutionContext {
 type MaintenanceSettings = { readonly adapterId: string; readonly modelId: string; readonly effort?: string; readonly options?: Readonly<Record<string, unknown>> }
 
 /**
- * One step of memory's nightly run: write a thread's chunk boundaries (`chunks`), propose card changes (`cards`),
- * write diary pages (`diary`) or rank the core cards (`core`). Least privilege: no provider IDs, paths, history,
+ * One step of memory's nightly run: write a thread's chunk boundaries (`chunks`), propose changes to the memories
+ * about the person (`memories`) or to a kip's lessons (`lessons`), write diary pages (`diary`) or rank the core
+ * memories (`core`). Least privilege: no provider IDs, paths, history,
  * identity material, tools or memory beyond what `instructions` contains. Send `instructions` as the user turn of a
  * tool-free, session-free turn and return the structured answer as one final text event.
  */
 export interface MemoryPayload {
   readonly task: 'memory'
-  readonly step: 'chunks' | 'cards' | 'diary' | 'core'
+  readonly step: 'chunks' | 'memories' | 'lessons' | 'diary' | 'core'
   /** Versioned Core template with the input it names by short refs. */
   readonly instructions: string
   /** JSON Schema of the expected output, limited to the supplied refs. Core validates every result again. */

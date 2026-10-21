@@ -140,9 +140,9 @@ export const interactionResponseReceipt = union(
 export const nightlyModel = object({ adapterId: boundedString(1, 200), modelId: boundedString(1, 200), effort: optional(boundedString(1, 200)) })
 const nightlyModelRead = object({ adapterId: nonempty(), modelId: nonempty(), effort: optional(nonempty()) }, false)
 /** Changes the installation's memory settings: the switch, the default sleep time, the nightly model (null for the admin kip's)
- * and the counts of core cards and of cards and thread chunks from a turn's search. Omitted fields are unchanged. */
+ * and the counts of core memories and of memories and thread chunks from a turn's search. Omitted fields are unchanged. */
 export const learningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(clockTime()), nightlyModel: optional(nullable(nightlyModel)),
-  coreCardCount: optional(boundedInteger(0, 200)), searchCardCount: optional(boundedInteger(0, 50)), searchChunkCount: optional(boundedInteger(0, 30)) })
+  coreMemoryCount: optional(boundedInteger(0, 200)), searchMemoryCount: optional(boundedInteger(0, 50)), searchChunkCount: optional(boundedInteger(0, 30)) })
 export type LearningUpdate = Infer<typeof learningUpdate>
 /** Changes an agent's learning switch, its sleep time (null follows the installation default), or both. */
 export const agentLearningUpdate = object({ version: literal(1), enabled: optional(boolean()), sleepTime: optional(nullable(clockTime())) })
@@ -152,7 +152,7 @@ export const agentLearning = object(agentLearningFields, false)
 export const agentLearningResult = object({ version: literal(1), ...agentLearningFields }, false)
 export const learningSettings = object({ version: literal(1), enabled: boolean(), sleepTime: clockTime(), revision: integer(), available: boolean(), agents: array(agentLearning),
   // Core sends these; they are optional so a client also reads a Core that predates them.
-  nightlyModel: optional(nullable(nightlyModelRead)), coreCardCount: optional(integer()), searchCardCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
+  nightlyModel: optional(nullable(nightlyModelRead)), coreMemoryCount: optional(integer()), searchMemoryCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
 export type LearningSettings = Infer<typeof learningSettings>
 export const identityFileName = union(literal('soul.md'), literal('identity.md'))
 export const identityWrite = object({ version: literal(1), content: string(), expectedSha256: nonempty() })
@@ -165,7 +165,7 @@ export const identityBackups = object({ version: literal(1), agentId: id, file: 
 export type IdentityBackups = Infer<typeof identityBackups>
 /** An installation change also carries its nightly model and counts. */
 export const learningChange = object({ target: union(literal('installation'), literal('agent')), enabled: boolean(), sleepTime: nullable(clockTime()),
-  nightlyModel: optional(nullable(nightlyModelRead)), coreCardCount: optional(integer()), searchCardCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
+  nightlyModel: optional(nullable(nightlyModelRead)), coreMemoryCount: optional(integer()), searchMemoryCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
 /** An agent's identity file was saved or restored; read the file again for its content. */
 export const identityChange = object({ agentId: id, file: identityFileName, sha256: nonempty() }, false)
 /** An organization's instructions were saved; read them again for their content. */
@@ -205,7 +205,7 @@ export const textEvent = union(
 export type TextEvent = Infer<typeof textEvent>
 
 /** Features this Core offers. Flags newer than `voiceRecording` are absent from a Core that predates them; `plugins` then reads as false. */
-const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memoryCards: optional(boolean()),
+const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memories: optional(boolean()),
   /** Kipster Plugins are ready: the `/v1/plugins` routes answer instead of returning 503 `plugins-unavailable`. */
   plugins: optional(boolean()),
   /** A text submission may carry `viewingOrganizationId`, the workspace the person has open. */

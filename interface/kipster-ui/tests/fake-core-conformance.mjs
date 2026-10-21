@@ -655,23 +655,23 @@ test('settings, effective inheritance, adapters, learning and identity files con
     {
       version: 1,
       nightlyModel: { adapterId: adapter.id, modelId: adapter.models[0].id },
-      coreCardCount: 12,
-      searchCardCount: 0,
+      coreMemoryCount: 12,
+      searchMemoryCount: 0,
       searchChunkCount: 30,
     },
   )
   assert.deepEqual(
     [
       memory.nightlyModel,
-      memory.coreCardCount,
-      memory.searchCardCount,
+      memory.coreMemoryCount,
+      memory.searchMemoryCount,
       memory.searchChunkCount,
     ],
     [{ adapterId: adapter.id, modelId: adapter.models[0].id }, 12, 0, 30],
   )
   for (const change of [
-    { coreCardCount: 201 },
-    { searchCardCount: -1 },
+    { coreMemoryCount: 201 },
+    { searchMemoryCount: -1 },
     { searchChunkCount: 1.5 },
   ])
     assert.equal(
@@ -733,64 +733,64 @@ test('settings, effective inheritance, adapters, learning and identity files con
   }
 })
 
-test('memory cards list, read, edit and delete like Core', async (t) => {
+test('memories list, read, edit and delete like Core', async (t) => {
   const { json, request } = harness(t)
   const refused = async (path, method, body, status, code) => {
     const response = await request(path, method, body)
     assert.equal(response.status, status, `${method} ${path}`)
     assert.equal(protocol.stableError.parse(await response.json()).code, code)
   }
-  assert.equal((await json('/v1/bootstrap')).capabilities.memoryCards, true)
-  const current = await json('/v1/memory/cards', protocol.memoryCardPage)
-  assert.ok(current.cards.length)
-  assert.ok(current.cards.every((card) => card.validTo === null))
-  assert.ok(current.cards.some((card) => card.organizationId !== null))
-  const all = await json('/v1/memory/cards?ended=true', protocol.memoryCardPage)
-  const replaced = all.cards.find((card) => card.validTo !== null)
+  assert.equal((await json('/v1/bootstrap')).capabilities.memories, true)
+  const current = await json('/v1/memory/memories', protocol.memoryPage)
+  assert.ok(current.memories.length)
+  assert.ok(current.memories.every((item) => item.validTo === null))
+  assert.ok(current.memories.some((item) => item.organizationId !== null))
+  const all = await json('/v1/memory/memories?ended=true', protocol.memoryPage)
+  const replaced = all.memories.find((item) => item.validTo !== null)
   assert.ok(replaced?.replacedBy)
   const seen = []
   let cursor = null
   do {
     const page = await json(
-      `/v1/memory/cards?${query({ ended: true, limit: 2, cursor })}`,
-      protocol.memoryCardPage,
+      `/v1/memory/memories?${query({ ended: true, limit: 2, cursor })}`,
+      protocol.memoryPage,
     )
-    seen.push(...page.cards.map((card) => card.id))
+    seen.push(...page.memories.map((item) => item.id))
     cursor = page.nextCursor
   } while (cursor)
   assert.deepEqual(
     seen,
-    all.cards.map((card) => card.id),
+    all.memories.map((item) => item.id),
   )
   for (const filter of ['ended=yes', 'limit=0', 'limit=201', 'cursor=nope'])
     await refused(
-      `/v1/memory/cards?${filter}`,
+      `/v1/memory/memories?${filter}`,
       'GET',
       undefined,
       400,
       'invalid',
     )
 
-  const inferred = current.cards.find((card) => !card.confirmed)
-  const path = `/v1/memory/cards/${inferred.id}`
-  assert.deepEqual((await json(path, protocol.memoryCardResult)).card, inferred)
+  const inferred = current.memories.find((item) => !item.confirmed)
+  const path = `/v1/memory/memories/${inferred.id}`
+  assert.deepEqual((await json(path, protocol.memoryResult)).memory, inferred)
   const edited = (
-    await json(path, protocol.memoryCardResult, 'PUT', {
+    await json(path, protocol.memoryResult, 'PUT', {
       version: 1,
       statement: '  A corrected statement ',
       details: { note: 'checked' },
     })
-  ).card
+  ).memory
   assert.equal(edited.statement, 'A corrected statement')
   assert.deepEqual(edited.details, { note: 'checked' })
   assert.equal(edited.confirmed, true)
   assert.deepEqual(
     (
-      await json(path, protocol.memoryCardResult, 'PUT', {
+      await json(path, protocol.memoryResult, 'PUT', {
         version: 1,
         statement: 'A corrected statement',
       })
-    ).card,
+    ).memory,
     edited,
   )
   for (const body of [
@@ -803,24 +803,112 @@ test('memory cards list, read, edit and delete like Core', async (t) => {
   ])
     await refused(path, 'PUT', body, 400, 'invalid')
   await refused(
-    `/v1/memory/cards/${replaced.id}`,
+    `/v1/memory/memories/${replaced.id}`,
     'PUT',
     { version: 1, statement: 'Changed' },
     409,
     'conflict',
   )
   await refused(
-    `/v1/memory/cards/${randomUUID()}`,
+    `/v1/memory/memories/${randomUUID()}`,
     'GET',
     undefined,
     404,
     'not-found',
   )
 
-  const removed = await json(path, protocol.memoryCardRemoval, 'DELETE')
-  assert.deepEqual(removed, { version: 1, cardId: inferred.id, deleted: true })
+  const removed = await json(path, protocol.memoryRemoval, 'DELETE')
+  assert.deepEqual(removed, {
+    version: 1,
+    memoryId: inferred.id,
+    deleted: true,
+  })
   assert.equal(
-    (await json(path, protocol.memoryCardRemoval, 'DELETE')).deleted,
+    (await json(path, protocol.memoryRemoval, 'DELETE')).deleted,
+    false,
+  )
+  await refused(path, 'GET', undefined, 404, 'not-found')
+})
+
+test('lessons list, read, reword and delete like Core', async (t) => {
+  const { json, request } = harness(t)
+  const refused = async (path, method, body, status, code) => {
+    const response = await request(path, method, body)
+    assert.equal(response.status, status, `${method} ${path}`)
+    assert.equal(protocol.stableError.parse(await response.json()).code, code)
+  }
+  const current = await json('/v1/memory/lessons', protocol.lessonPage)
+  assert.ok(current.lessons.length)
+  assert.ok(current.lessons.every((item) => item.validTo === null))
+  assert.ok(current.lessons.some((item) => item.organizationId !== null))
+  const all = await json('/v1/memory/lessons?ended=true', protocol.lessonPage)
+  const merged = all.lessons.find((item) => item.validTo !== null)
+  assert.ok(merged?.replacedBy)
+  const kip = current.lessons[0].agentId
+  const own = await json(
+    `/v1/memory/lessons?${query({ agentId: kip })}`,
+    protocol.lessonPage,
+  )
+  assert.ok(own.lessons.every((item) => item.agentId === kip))
+  const seen = []
+  let cursor = null
+  do {
+    const page = await json(
+      `/v1/memory/lessons?${query({ ended: true, limit: 2, cursor })}`,
+      protocol.lessonPage,
+    )
+    seen.push(...page.lessons.map((item) => item.id))
+    cursor = page.nextCursor
+  } while (cursor)
+  assert.deepEqual(
+    seen,
+    all.lessons.map((item) => item.id),
+  )
+  for (const filter of ['ended=yes', 'limit=0', 'limit=201', 'cursor=nope'])
+    await refused(
+      `/v1/memory/lessons?${filter}`,
+      'GET',
+      undefined,
+      400,
+      'invalid',
+    )
+
+  const lesson = current.lessons[0]
+  const path = `/v1/memory/lessons/${lesson.id}`
+  assert.deepEqual((await json(path, protocol.lessonResult)).lesson, lesson)
+  const edited = (
+    await json(path, protocol.lessonResult, 'PUT', {
+      version: 1,
+      statement: '  A  reworded lesson ',
+    })
+  ).lesson
+  assert.equal(edited.statement, 'A reworded lesson')
+  assert.equal(edited.confirmations, lesson.confirmations)
+  for (const body of [
+    { version: 1 },
+    { version: 1, statement: '' },
+    { version: 1, statement: 'x'.repeat(1001) },
+    { statement: 'No version' },
+  ])
+    await refused(path, 'PUT', body, 400, 'invalid')
+  await refused(
+    `/v1/memory/lessons/${merged.id}`,
+    'PUT',
+    { version: 1, statement: 'Changed' },
+    409,
+    'conflict',
+  )
+  await refused(
+    `/v1/memory/lessons/${randomUUID()}`,
+    'GET',
+    undefined,
+    404,
+    'not-found',
+  )
+  const removed = await json(path, protocol.lessonRemoval, 'DELETE')
+  assert.deepEqual(removed, { version: 1, lessonId: lesson.id, deleted: true })
+  assert.equal(
+    (await json(path, protocol.lessonRemoval, 'DELETE')).deleted,
     false,
   )
   await refused(path, 'GET', undefined, 404, 'not-found')

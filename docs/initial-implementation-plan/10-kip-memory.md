@@ -3,6 +3,8 @@
 Status: agreed direction, 2026-10-12. It replaces the memory engine in
 `core/src/modules/memory/` and its tools. The old engine is deleted without
 compatibility code: no installation depends on it yet.
+[Decision block 13](./13-memories-and-lessons.md) renames cards to memories,
+adds per-kip lessons and changes the nightly actions.
 
 Memory lets every kip (code: agent) recall what the user said in other threads
 and on other days. The raw conversation stays the source of truth. Once a night,
@@ -118,8 +120,9 @@ messages, using Kip's model unless the nightly-model setting names another:
 7. Advance a thread's `processed_position` only after its results are saved.
 
 A thread's chunks, card changes, sources, diary contribution and processed
-position are saved in one transaction. Delegated (internal) threads and progress
-notes are not conversation and are left out. Each model call is ordinary work
+position are saved in one transaction. Linked threads between kips are ordinary
+threads and are processed like any other; progress notes are not conversation
+and are left out. Each model call is ordinary work
 with an execution permit, one at a time per installation, and never takes the
 last free permit while a user turn waits for one.
 

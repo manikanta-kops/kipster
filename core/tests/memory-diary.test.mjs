@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
-import { CardService, deleteOrganizationMemory, removeThreadMemory, searchMemory, turnMemory } from '../dist/modules/memory/public.js'
+import { MemoryService, deleteOrganizationMemory, removeThreadMemory, searchMemory, turnMemory } from '../dist/modules/memory/public.js'
 import { acceptText, removeThreads, resolveDirectChat } from '../dist/modules/conversations/public.js'
 import { addMembership, createAgent, createOrganization } from '../dist/modules/administration/public.js'
 import { organizationDeletionSteps } from '../dist/workflows/organization-deletion.js'
@@ -42,7 +42,7 @@ function embedder(state, calls) {
 function nightly(context) {
   const { step, instructions } = context.maintenance
   if (step === 'chunks') return { topics: [{ start: 'm1', title: 'Topic' }] }
-  if (step === 'cards') return { changes: [] }
+  if (step === 'memories' || step === 'lessons') return { changes: [] }
   if (step === 'core') return { core: [] }
   const days = instructions.split('\n\n---\n\n').map(block => block.match(/Day (\d{4}-\d\d-\d\d) \([^)]*\)\nCurrent summary: (.*)\nNew messages:\n([\s\S]*)$/)).filter(Boolean)
   return { days: days.map(([, date, current, messages]) => ({ day: date, summary: [current === '(none)' ? `Diary of ${date}:` : current, ...(messages.match(/\b[A-Z]{4,}\d+\b/g) ?? [])].join(' ') })) }
@@ -218,7 +218,7 @@ test('a deleted thread leaves nothing in the diary, and the next night rebuilds 
   const query = 'ALPHAGONE111 BRAVOSTAY222 moving flights'
   const prompt = await turnMemory(ctx.db, ctx.runtime.embedding, { installationId: ctx.installationId, agentId: ctx.kip, organizationId: null, threadId: randomUUID(), query })
   assert.ok(!prompt.sections.join('\n').includes('ALPHAGONE111'))
-  const widest = await searchMemory(ctx.db, ctx.installationId, ctx.runtime.embedding, { query, cards: 'all', threads: { agents: null, organizations: 'all' }, cardCount: 10, itemCount: 30, timeoutMs: 5000 })
+  const widest = await searchMemory(ctx.db, ctx.installationId, ctx.runtime.embedding, { query, memories: 'all', threads: { agents: null, organizations: 'all' }, memoryCount: 10, lessonCount: 0, itemCount: 30, timeoutMs: 5000 })
   assert.equal(widest.status, 'ok')
   assert.deepEqual(ctx.diaryItems(widest), [], 'a page owing a rebuild is not searched')
   assert.ok(!JSON.stringify(widest).includes('ALPHAGONE111'))
@@ -264,7 +264,7 @@ test('deleting an organization deletes its diary pages; the kip\'s other pages s
 test('rows waiting for an embedding are embedded by a later night without new messages, and a failing provider is no failure', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
   const unembedded = async () => Object.fromEntries((await ctx.rows(`SELECT 'thread_chunks' AS t, count(*) FILTER (WHERE embedding IS NULL)::int AS n FROM kipster.thread_chunks
-    UNION ALL SELECT 'cards', count(*) FILTER (WHERE embedding IS NULL)::int FROM kipster.cards
+    UNION ALL SELECT 'memories', count(*) FILTER (WHERE embedding IS NULL)::int FROM kipster.memories
     UNION ALL SELECT 'diary', count(*) FILTER (WHERE embedding IS NULL)::int FROM kipster.diary`)).map(row => [row.t, row.n]))
   const nightRow = async () => (await ctx.rows('SELECT night::text AS night, failures, failure, retry_at FROM kipster.memory_nights WHERE agent_id=$1', [ctx.kip]))[0]
 
@@ -273,7 +273,7 @@ test('rows waiting for an embedding are embedded by a later night without new me
   const threadId = await ctx.thread(ctx.kip, null, 'Garden party PARTY777')
   await ctx.night(at('01:30', '2026-10-13'))
   assert.equal(Number((await ctx.rows('SELECT processed_position FROM kipster.memory_thread_state WHERE thread_id=$1', [threadId]))[0].processed_position), 1)
-  assert.deepEqual(await unembedded(), { thread_chunks: 1, cards: 0, diary: 1 })
+  assert.deepEqual(await unembedded(), { thread_chunks: 1, memories: 0, diary: 1 })
   assert.deepEqual(await nightRow(), { night: '2026-10-13', failures: 0, failure: null, retry_at: null })
   // No retry within the night.
   const attempts = ctx.embeddingCalls.length
@@ -284,24 +284,24 @@ test('rows waiting for an embedding are embedded by a later night without new me
   await ctx.night(at('01:30', '2026-10-14'))
   assert.ok(ctx.embeddingCalls.length > attempts, 'the pending rows were tried again')
   assert.deepEqual(await nightRow(), { night: '2026-10-14', failures: 0, failure: null, retry_at: null })
-  assert.deepEqual(await unembedded(), { thread_chunks: 1, cards: 0, diary: 1 })
+  assert.deepEqual(await unembedded(), { thread_chunks: 1, memories: 0, diary: 1 })
 
   // The provider recovers: the next night embeds them, with no new message and no model call.
   ctx.embeddingState.fail = false
   const calls = ctx.calls.length
   await ctx.night(at('01:30', '2026-10-15'))
-  assert.deepEqual(await unembedded(), { thread_chunks: 0, cards: 0, diary: 0 })
+  assert.deepEqual(await unembedded(), { thread_chunks: 0, memories: 0, diary: 0 })
   assert.equal(ctx.calls.length, calls)
 
-  // A card edited through CardService on a processed installation is embedded again by the next night.
-  const cards = new CardService(ctx.db, ctx.installationId)
+  // A card edited through MemoryService on a processed installation is embedded again by the next night.
+  const cards = new MemoryService(ctx.db, ctx.installationId)
   const card = await cards.create({ type: 'fact', subject: 'user', statement: 'Hosts a garden party', organizationId: null }, [])
   await ctx.night(at('01:30', '2026-10-16'))
-  assert.deepEqual(await unembedded(), { thread_chunks: 0, cards: 0, diary: 0 })
+  assert.deepEqual(await unembedded(), { thread_chunks: 0, memories: 0, diary: 0 })
   assert.equal(await cards.update(card, { statement: 'Hosts a garden party every June' }, []), true)
-  assert.deepEqual(await unembedded(), { thread_chunks: 0, cards: 1, diary: 0 })
+  assert.deepEqual(await unembedded(), { thread_chunks: 0, memories: 1, diary: 0 })
   await ctx.night(at('01:30', '2026-10-17'))
-  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.memories WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
   assert.equal(ctx.calls.length, calls, 'embedding needs no model call')
   assert.deepEqual(await nightRow(), { night: '2026-10-17', failures: 0, failure: null, retry_at: null })
 })
@@ -310,22 +310,22 @@ test('an edited card is embedded at the next sleep time of any kip, Kip first wh
   const ctx = await setup(t)
   await ctx.db.query(`UPDATE kipster.agents SET sleep_time = CASE WHEN id=$1 THEN '03:00'::time ELSE '01:00'::time END WHERE id = ANY($2::uuid[])`, [ctx.kip, [ctx.kip, ctx.scout]])
   const nights = async () => Object.fromEntries((await ctx.rows('SELECT agent_id, night::text AS night, started_at IS NOT NULL AS ran FROM kipster.memory_nights')).map(row => [row.agent_id === ctx.kip ? 'kip' : 'scout', { night: row.night, ran: row.ran }]))
-  const cards = new CardService(ctx.db, ctx.installationId)
-  const search = () => searchMemory(ctx.db, ctx.installationId, ctx.runtime.embedding, { query: 'garden party June', cards: 'all', threads: { agents: null, organizations: 'all' }, cardCount: 10, itemCount: 30, timeoutMs: 5000 })
+  const cards = new MemoryService(ctx.db, ctx.installationId)
+  const search = () => searchMemory(ctx.db, ctx.installationId, ctx.runtime.embedding, { query: 'garden party June', memories: 'all', threads: { agents: null, organizations: 'all' }, memoryCount: 10, lessonCount: 0, itemCount: 30, timeoutMs: 5000 })
   const card = await cards.create({ type: 'fact', subject: 'user', statement: 'Hosts a garden party', organizationId: null }, [])
 
   // Both sleep times begin together: Kip runs for the card alone, Scout's night is recorded idle.
   await ctx.night(at('03:30', '2026-10-13'))
   assert.deepEqual(await nights(), { kip: { night: '2026-10-13', ran: true }, scout: { night: '2026-10-13', ran: false } })
-  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.memories WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
 
   // Edited after the night: Scout's sleep time comes first and embeds it, so search finds the edit before Kip's.
   assert.equal(await cards.update(card, { statement: 'Hosts a garden party every June' }, []), true)
-  assert.deepEqual((await search()).cards, [])
+  assert.deepEqual((await search()).memories, [])
   await ctx.night(at('01:30', '2026-10-14'))
   assert.deepEqual(await nights(), { kip: { night: '2026-10-13', ran: true }, scout: { night: '2026-10-14', ran: true } })
-  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
-  assert.deepEqual((await search()).cards.map(found => found.statement), ['Hosts a garden party every June'])
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.memories WHERE id=$1', [card]), [{ embedding_model: 'fake-gemma' }])
+  assert.deepEqual((await search()).memories.map(found => found.statement), ['Hosts a garden party every June'])
   // Kip's sleep time then finds nothing waiting.
   const attempts = ctx.embeddingCalls.length
   await ctx.night(at('03:30', '2026-10-14'))
@@ -337,7 +337,7 @@ test('without an embedding provider nothing is attempted and nights with only un
   const ctx = await setup(t, { embedding: false })
   await ctx.thread(ctx.kip, null, 'No provider NOPROVIDER888')
   await ctx.night(at('01:30', '2026-10-13'))
-  await new CardService(ctx.db, ctx.installationId).create({ type: 'fact', subject: 'user', statement: 'Waits for a provider', organizationId: null }, [])
+  await new MemoryService(ctx.db, ctx.installationId).create({ type: 'fact', subject: 'user', statement: 'Waits for a provider', organizationId: null }, [])
   const calls = ctx.calls.length
   const [ran] = await ctx.rows('SELECT started_at FROM kipster.memory_nights WHERE agent_id=$1', [ctx.kip])
   assert.ok(ran.started_at, 'the first night ran')
@@ -345,5 +345,5 @@ test('without an embedding provider nothing is attempted and nights with only un
   assert.equal(ctx.calls.length, calls)
   // The night is recorded idle: no run started, nothing failed, and the rows still wait.
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failures, failure, started_at FROM kipster.memory_nights WHERE agent_id=$1', [ctx.kip]), [{ night: '2026-10-14', failures: 0, failure: null, started_at: ran.started_at }])
-  assert.deepEqual(await ctx.rows(`SELECT (SELECT count(*)::int FROM kipster.diary WHERE embedding IS NULL) AS diary, (SELECT count(*)::int FROM kipster.cards WHERE embedding IS NULL) AS cards`), [{ diary: 1, cards: 1 }])
+  assert.deepEqual(await ctx.rows(`SELECT (SELECT count(*)::int FROM kipster.diary WHERE embedding IS NULL) AS diary, (SELECT count(*)::int FROM kipster.memories WHERE embedding IS NULL) AS cards`), [{ diary: 1, cards: 1 }])
 })

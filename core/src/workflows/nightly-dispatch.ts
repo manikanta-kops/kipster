@@ -54,7 +54,7 @@ export class NightlyDispatch {
 
   constructor(private readonly host: NightlyHost) {
     const { runtime } = host
-    this.memory = new NightlyMemory({ db: runtime.db, installationId: runtime.bootstrap.installationId, embedding: runtime.embedding, clock: runtime.clock, incarnation: host.incarnation, model: request => this.call(request) })
+    this.memory = new NightlyMemory({ db: runtime.db, installationId: runtime.bootstrap.installationId, embedding: runtime.embedding, identity: runtime.home.identity, clock: runtime.clock, incarnation: host.incarnation, model: request => this.call(request) })
   }
 
   start(): void {
