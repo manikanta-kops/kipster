@@ -15,3 +15,15 @@ Licensed under the MIT License; the downloaded release includes its LICENSE file
 EmbeddingGemma 2 by Google DeepMind (https://huggingface.co/google/embeddinggemma-2),
 as the Q8_0 GGUF file from https://huggingface.co/ggml-org/embeddinggemma-2-GGUF
 Licensed under the Apache License, Version 2.0.
+
+For local transcription the installer downloads, into the Kipster home, a model
+and a decoder that it does not include.
+
+Parakeet Ultra by Moondream, a post-trained NVIDIA parakeet-tdt-0.6b-v3, as the
+Q8_0 GGUF file from https://huggingface.co/handy-computer/parakeet-ultra-gguf
+Licensed under the Creative Commons Attribution 4.0 International License.
+
+FFmpeg (https://ffmpeg.org), portable build 8.1.3-1 by Jellyfin
+(https://github.com/jellyfin/jellyfin-ffmpeg), downloaded unmodified and run as a
+separate program. Licensed GPL-3.0-or-later; corresponding source:
+https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.3-1

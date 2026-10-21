@@ -29,7 +29,7 @@ class ArtifactContentUnavailableError extends Error {}
 
 const mimeTypes: Record<string, string> = {
   mp3: 'audio/mpeg', m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', flac: 'audio/flac', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg',
-  webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime',
+  aif: 'audio/aiff', aiff: 'audio/aiff', webm: 'video/webm', mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', mkv: 'video/x-matroska', avi: 'video/x-msvideo',
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', heic: 'image/heic',
   pdf: 'application/pdf', txt: 'text/plain', log: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
   json: 'application/json', html: 'text/html', htm: 'text/html', css: 'text/css', xml: 'application/xml', yaml: 'application/yaml', yml: 'application/yaml',

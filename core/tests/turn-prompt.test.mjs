@@ -8,13 +8,13 @@ const owner = { kind: 'person', id: 'owner', name: 'Factory Owner' }
 test('Core renders the turn: history, the current message and its files', () => {
   const prompt = turnPrompt({ ...base, triggerMessageId: 'current', input: [
     { messageId: 'old', text: '', author: owner, parts: [{ kind: 'file', artifactId: 'gone', purpose: 'attachment', name: 'history.txt', mimeType: 'text/plain', size: 10, availability: 'unavailable' }] },
-    { messageId: 'voice', text: '', author: owner, parts: [{ kind: 'file', artifactId: 'note', purpose: 'voice_note', name: 'note.m4a', mimeType: 'audio/mp4', size: 20, availability: 'available', readablePath: '/files/note.m4a', transcription: { status: 'succeeded', provider: 'spokenly', text: 'Call me back' } }] },
+    { messageId: 'voice', text: '', author: owner, parts: [{ kind: 'file', artifactId: 'note', purpose: 'voice_note', name: 'note.wav', mimeType: 'audio/wav', size: 20, availability: 'available', readablePath: '/files/note.wav', transcription: { status: 'succeeded', provider: 'transcribe-cpp', text: 'Call me back' } }] },
     { messageId: 'current', text: 'Look at this', author: owner, parts: [{ kind: 'text', text: 'Look at this' }, { kind: 'file', artifactId: 'photo', purpose: 'attachment', name: 'photo.png', mimeType: 'image/png', size: 30, availability: 'available', readablePath: '/files/photo.png' }] },
   ] })
   assert.equal(prompt, [
     'Kipster conversation history (canonical, ordered):',
     '[old] Factory Owner (the person): [part 1 file; artifact gone; name "history.txt"; MIME text/plain; 10 bytes; content unavailable] The saved file cannot be read. Do not claim to have read its contents.',
-    '[voice] Factory Owner (the person): [part 1 voice note; artifact note; name "note.m4a"; MIME audio/mp4; 20 bytes; readable path "/files/note.m4a"] Machine transcript (derived user content, may contain errors): "Call me back"',
+    '[voice] Factory Owner (the person): [part 1 voice note; artifact note; name "note.wav"; MIME audio/wav; 20 bytes; readable path "/files/note.wav"] Machine transcript (derived user content, may contain errors): "Call me back"',
     '',
     'Current message [current] from Factory Owner (the person):',
     '[part 1 text]',

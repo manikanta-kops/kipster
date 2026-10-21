@@ -3,7 +3,6 @@
 "@kipster/installer": patch
 "@kipster/claude-cli": patch
 "@kipster/codex-cli": patch
-"@kipster/transcription-spokenly": patch
 ---
 
 Include the Apache 2.0 `LICENSE` and `NOTICE` files in the published package.

@@ -10,7 +10,7 @@ const names = scope => executionTools(scope).map(tool => tool.name)
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
-  assert.deepEqual(base, ['message_user', 'transcribe_voice_note', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc', 'create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
+  assert.deepEqual(base, ['message_user', 'transcribe_media', 'list_kips', 'get_kip', 'message_kip', 'create_rich_doc', 'list_rich_docs', 'read_rich_doc', 'edit_rich_doc', 'delete_rich_doc', 'create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
   const full = names(all)
   assert.deepEqual(full.filter(name => !base.includes(name)), ['copy_attachment_to_workspace', 'manage_data_tables', 'manage_vector_collections', 'list_admin_operations', 'run_admin_operation'])
   for (const tool of executionTools(all)) {
@@ -68,15 +68,20 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
 test('every offered tool name reaches its Core handler', async () => {
   const seen = []
   const record = method => async (...args) => { seen.push([method, ...args.filter(arg => typeof arg === 'string' && /[._]/.test(arg))]); return { status: 'pending', interactionId: 'card' } }
-  const dispatcher = Object.fromEntries(['messageUserTool', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool', 'routineTool'].map(method => [method, record(method)]))
+  const dispatcher = Object.fromEntries(['messageUserTool', 'askToolInteraction', 'structuredTool', 'vectorTool', 'copyArtifactTool', 'transcribeTool', 'transcribePathTool', 'agentTool', 'adminTool', 'documentTool', 'memoryTool', 'routineTool'].map(method => [method, record(method)]))
   const host = textPublicationHost(dispatcher)
-  const valid = { message_user: { text: 'Hi', priority: 'normal' }, transcribe_voice_note: { artifactId: 'a' }, copy_attachment_to_workspace: { artifactId: 'a' } }
+  const valid = { message_user: { text: 'Hi', priority: 'normal' }, transcribe_media: { artifactId: 'a' }, copy_attachment_to_workspace: { artifactId: 'a' } }
   const offered = names({ ...all, memory: true })
   for (const name of offered) await host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: valid[name] ?? {} })
   const routed = Object.fromEntries(seen.map(([method, ...rest], index) => [offered[index], [method, rest.at(-1)]]))
   assert.equal(routed.message_user[0], 'messageUserTool')
   assert.deepEqual(routed.read_thread, ['memoryTool', 'read_thread'])
   assert.deepEqual(routed.message_kip, ['agentTool', 'agents.message'])
+  assert.equal(routed.transcribe_media[0], 'transcribeTool')
+  seen.length = 0
+  await host.invokeTool({ attemptId: 'attempt', callId: 'call', name: 'transcribe_media', arguments: { path: '/tmp/talk.mp4' } })
+  assert.deepEqual(seen, [['transcribePathTool', '/tmp/talk.mp4']])
+  for (const args of [{}, { artifactId: 'a', path: '/tmp/talk.mp4' }, { path: 1 }]) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name: 'transcribe_media', arguments: args }), /artifactId or path/)
   for (const name of ['delegate_to_kip', 'check_kip_task', 'post_chat_message']) await assert.rejects(host.invokeTool({ attemptId: 'attempt', callId: 'call', name, arguments: {} }), /Unsupported Kipster tool/)
   // Questions and approvals by name are only an adapter's way to show a provider's own.
   const question = { prompt: 'Pick', options: [{ id: 'a', label: 'A' }], freeText: false }

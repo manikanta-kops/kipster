@@ -27,7 +27,7 @@ const element = {
 const conversation = [
   tool('message_user', 'Send the person a message in this conversation. It is the only way to reach them: your final reply is not shown. priority normal notifies them; silent adds the message without a notification. Send text, attachments, an element, or any of them together. With an element, end your turn after the call.',
     { text: { type: 'string', description: 'Markdown.' }, priority: { type: 'string', enum: ['silent', 'normal'] }, attachments: attachments(true), element }, ['priority']),
-  tool('transcribe_voice_note', 'Transcribe a registered audio artifact in this conversation on explicit request. Returns derived text or an unavailable status; do not infer speech from failure.', { artifactId: text }, ['artifactId']),
+  tool('transcribe_media', 'Turn speech in an audio or video file into text. Use it whenever you need the words from a recording: to transcribe it, summarize it, take notes, or answer questions about it. Works with any common format, such as voice notes, MP3, M4A, WAV, MP4 and MOV.', { artifactId: { type: 'string', description: 'The artifact ID of an attached file.' }, path: { type: 'string', description: 'The absolute path of any other audio or video file on this computer.' } }),
 ]
 const copyToOrganization = tool('copy_attachment_to_workspace', 'Explicitly publish an independent organization-owned copy of one agent-owned artifact created in this attempt. Available only in an organization conversation. Returns a new artifact ID.', { artifactId: text }, ['artifactId'])
 const workspaceId = (description: string) => ({ type: 'string', description })

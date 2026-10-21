@@ -12,6 +12,7 @@ import {
   isolatedEnvironment,
   replaceEnvironment,
 } from '../isolation.mjs'
+import { transcriptionOptions } from './transcription-model.mjs'
 import { filesPerMessage, fixtureDirectory, fixtureFiles } from './files.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -22,10 +23,14 @@ const {
 const home = checkoutHome(root, 'instance/home')
 await mkdir(home, { recursive: true, mode: 0o700 })
 replaceEnvironment(isolatedEnvironment(home))
+const modelOptions = await transcriptionOptions(home)
 // Tester preparation may omit check; setup alone only installs dependencies.
 // Build every required asset in this disposable checkout, in production mode.
 for (const args of [
   ['run', 'build', '-w', 'core'],
+  ...(modelOptions
+    ? [['run', 'build', '-w', 'adapters/transcription-transcribe-cpp']]
+    : []),
   ['exec', '-w', 'core', '--', 'tsc', '-p', 'tsconfig.fixture.json'],
   ['run', 'build', '-w', 'interface/kipster-ui'],
 ]) {
@@ -114,22 +119,26 @@ async function close(code = 0) {
 process.once('SIGTERM', () => void close())
 process.once('SIGINT', () => void close())
 try {
-  const transcription = {
-    id: 'fixture-transcription',
-    contractMajor: 1,
-    inputTypes: ['audio/*'],
-    async readiness() {
-      return { ready: true }
-    },
-    async transcribe() {
-      return {
-        status: 'unavailable',
-        reason: 'provider-error',
-        provider: this.id,
+  const transcription = modelOptions
+    ? (
+        await import('@kipster/transcription-transcribe-cpp')
+      ).createTranscriptionProvider(modelOptions)
+    : {
+        id: 'fixture-transcription',
+        contractMajor: 1,
+        inputTypes: ['audio/*'],
+        async readiness() {
+          return { ready: true }
+        },
+        async transcribe() {
+          return {
+            status: 'unavailable',
+            reason: 'provider-error',
+            provider: this.id,
+          }
+        },
+        async close() {},
       }
-    },
-    async close() {},
-  }
   // The package's fixture service and test catalogue stand in for real services.
   // Plugins are optional: a failure leaves them off and the instance running.
   try {
@@ -401,12 +410,42 @@ try {
           ended()
           return
         }
+        const media = context.input
+          .at(-1)
+          .parts.find(
+            (part) =>
+              part.purpose === 'attachment' &&
+              /^(audio|video)\//.test(part.mimeType),
+          )
+        const local = /transcribe the file at (\/\S+)/i.exec(text)
+        if (local) {
+          const result = await handle.callTool(
+            `fixture-transcribe-${randomUUID()}`,
+            'transcribe_media',
+            { path: local[1] },
+          )
+          await reply(
+            `Fixture transcribed ${local[1]}; status ${result.status}; ${result.status === 'succeeded' ? `transcript ${result.text}` : `reason ${result.reason ?? 'none'}`}`,
+          )
+          return
+        }
+        if (media && /transcribe/i.test(text)) {
+          const result = await handle.callTool(
+            `fixture-transcribe-${randomUUID()}`,
+            'transcribe_media',
+            { artifactId: media.artifactId },
+          )
+          await reply(
+            `Fixture transcribed ${media.name}; status ${result.status}; ${result.status === 'succeeded' ? `transcript ${result.text}` : `reason ${result.reason ?? 'none'}`}`,
+          )
+          return
+        }
         const voice = context.input
           .at(-1)
           .parts.find((part) => part.purpose === 'voice_note')
         await reply(
           voice
-            ? `Fixture received voice_note; original ${voice.availability}; transcription ${voice.transcription.status}; caption ${text}`
+            ? `Fixture received voice_note; original ${voice.availability}; transcription ${voice.transcription.status}; transcript ${voice.transcription.status === 'succeeded' ? voice.transcription.text : ''}; caption ${text}`
             : `Fixture reply: ${text}`,
         )
       }
@@ -494,6 +533,11 @@ try {
         })
         response.once('close', () => proxy.destroy())
         request.pipe(proxy)
+        return
+      }
+      if (url.pathname === '/__fixture/transcription') {
+        response.writeHead(200, { 'Content-Type': 'application/json' })
+        response.end(JSON.stringify({ provider: transcription.id }))
         return
       }
       if (url.pathname === '/health') {

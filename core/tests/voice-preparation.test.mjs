@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import {mkdtemp,rm} from 'node:fs/promises'
+import {mkdtemp,rm,writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {randomUUID,createHash} from 'node:crypto'
@@ -176,6 +176,36 @@ test('agent tool transcribes ordinary audio only on an authorized current attemp
   const denied=await dispatcher.transcribeTool(attemptId,'call-2',randomUUID());assert.equal(denied.status,'unavailable');assert.equal(provider.calls.length,1)
   release();await until(async()=>(await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1',[saved.runId])).rows[0]?.state,x=>x==='completed')
   const obsolete=await dispatcher.transcribeTool(attemptId,'call-3',upload.artifact.id);assert.equal(obsolete.status,'unavailable')
+ }finally{await dispatcher?.close();await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(home,{recursive:true,force:true})}
+})
+
+test('agent tool transcribes a local file by absolute path only during a running attempt', {skip:noDatabase},async()=>{
+ const admin=new Postgres(adminUrl),database=`kipstervoice_${randomUUID().replaceAll('-','')}`;await admin.query(`CREATE DATABASE "${database}"`)
+ const url=new URL(adminUrl);url.pathname=`/${database}`;const home=await mkdtemp(join(tmpdir(),'kipster-voice-path-'))
+ let runtime,dispatcher
+ try{
+  const provider=transcription({status:'succeeded',text:'downloaded talk',provider:'fixture-transcription'})
+  runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Root'},transcription:provider})
+  const actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId},context={kind:'installation',installationId:actor.installationId}
+  const {chatId}=await resolveDirectChat(runtime.db,actor,context,runtime.bootstrap.rootAgentId)
+  await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1',[runtime.bootstrap.rootAgentId,JSON.stringify({adapterId:'test-adapter',modelId:'test-model'})])
+  const saved=await acceptText(runtime.db,runtime.jobs,runtime.artifacts,actor,{version:1,submissionId:randomUUID(),scope:{installationId:actor.installationId,callerId:actor.personId},target:{context,chatId},mode:'root',parts:[{kind:'text',text:'Transcribe the talk you downloaded'}]})
+  let release;const done=new Promise(resolve=>{release=resolve})
+  const adapter={id:'test-adapter',version:'1',contractMajor:1,async execute(ctx){return {events:(async function*(){await done;yield {kind:'ended',attemptId:ctx.attemptId,confirmed:true}})(),async cancel(){return {acknowledged:true,confirmedEnded:true}},async reconcile(){return 'ended'}}},async close(){}}
+  dispatcher=new TextDispatcher(runtime,adapter);await dispatcher.start()
+  const attemptId=await until(async()=>(await runtime.db.query('SELECT state,current_attempt_id FROM kipster.text_runs WHERE id=$1',[saved.runId])).rows[0],x=>x?.state==='running').then(x=>x.current_attempt_id)
+  const video=join(home,'Talk.MP4'),notes=join(home,'notes.txt')
+  await writeFile(video,'video bytes');await writeFile(notes,'text')
+  assert.deepEqual(await dispatcher.transcribePathTool(attemptId,'call-1',video),{status:'succeeded',text:'downloaded talk',provider:'fixture-transcription'})
+  assert.deepEqual(provider.calls.map(({path,mimeType,size})=>({path,mimeType,size})),[{path:video,mimeType:'video/mp4',size:11}])
+  for(const path of ['Talk.MP4',join(home,'missing.mp3'),home,notes]){
+   const result=await dispatcher.transcribePathTool(attemptId,'call-2',path)
+   assert.deepEqual(result,{status:'unavailable',reason:'invalid-input',provider:'fixture-transcription'})
+  }
+  assert.equal(provider.calls.length,1)
+  release();await until(async()=>(await runtime.db.query('SELECT state FROM kipster.text_runs WHERE id=$1',[saved.runId])).rows[0]?.state,x=>x==='completed')
+  assert.equal((await dispatcher.transcribePathTool(attemptId,'call-3',video)).reason,'cancelled')
+  assert.equal(provider.calls.length,1)
  }finally{await dispatcher?.close();await runtime?.close();await admin.query(`DROP DATABASE "${database}" WITH (FORCE)`);await admin.close();await rm(home,{recursive:true,force:true})}
 })
 

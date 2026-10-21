@@ -173,7 +173,8 @@ test('the bell counts what needs you and shows a quiet dot for unread replies', 
       },
     })
   }
-  const reply = state.notifications.find((n: any) => n.kind === 'completed')
+  const reply = state.notifications.find((n: any) => n.kind === 'message')
+  expect(reply).toBeDefined()
   await demo(page, '/notification', {
     notification: { ...reply, id: crypto.randomUUID(), read: false },
   })

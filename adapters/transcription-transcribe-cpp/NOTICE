@@ -1,0 +1,31 @@
+Kipster
+Copyright 2026 Mani Koppala and Kipster contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for details.
+
+transcribe.cpp (https://github.com/handy-computer/transcribe.cpp)
+Copyright (c) 2026 The transcribe.cpp authors
+Licensed under the MIT License; distributed through transcribe-cpp and its
+platform-specific native packages.
+
+ggml (https://github.com/ggml-org/ggml)
+Copyright (c) 2023-2026 The ggml authors
+Licensed under the MIT License; included by transcribe.cpp.
+
+koffi (https://github.com/Koromix/koffi, https://koffi.dev/)
+Copyright (C) 2026 Niels Martignène
+Licensed under the MIT License.
+
+Parakeet Ultra by Moondream, a post-trained NVIDIA parakeet-tdt-0.6b-v3, CC-BY-4.0
+https://huggingface.co/moondream/Parakeet-Ultra
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+GGUF distribution: https://huggingface.co/handy-computer/parakeet-ultra-gguf
+License: https://creativecommons.org/licenses/by/4.0/
+The package includes no model; the Kipster installer downloads it separately.
+
+FFmpeg (https://ffmpeg.org), portable build 8.1.3-1 by Jellyfin
+(https://github.com/jellyfin/jellyfin-ffmpeg), licensed GPL-3.0-or-later.
+The package includes no FFmpeg; the Kipster installer downloads the unmodified
+release binary separately and runs it as a separate program. Corresponding source:
+https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.3-1

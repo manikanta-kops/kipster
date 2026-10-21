@@ -12,6 +12,7 @@ import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
 import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, templates, unregister, writeServices } from './services.mjs'
 import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeRuntime } from './backend.mjs'
 import { embeddingPackage, embeddingRuntime, installEmbeddingRuntime, withEmbedding } from './embedding.mjs'
+import { transcriptionPackage, transcriptionRuntime, installTranscriptionRuntime, withTranscription } from './transcription.mjs'
 import { pluginsPackage, withPlugins } from './plugins.mjs'
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url))
@@ -45,7 +46,7 @@ export function managedConfiguration(config, home) {
     return { ...adapter, root: current, entry: entry.entry }
   }) }
   for (const kind of ['embedding', 'transcription', 'plugins']) if (config[kind]) {
-    const entry = reference(config[kind].module, { embedding: 'embedding-llama-cpp', transcription: 'transcription-spokenly', plugins: 'plugins' }[kind])
+    const entry = reference(config[kind].module, { embedding: 'embedding-llama-cpp', transcription: 'transcription-transcribe-cpp', plugins: 'plugins' }[kind])
     names.add(entry.name); result[kind] = { ...config[kind], module: join(current, entry.entry) }
   }
   if (names.has('@kipster/core') || names.has('@kipster/installer') || names.has('@kipster/ui')) throw new Error('Configure adapter packages, not Core, the installer or the app, as providers.')
@@ -65,7 +66,7 @@ async function within(path, root) {
   return canonical
 }
 export class Installer {
-  constructor(home, settings, config, { onStep, platformCheck = prerequisites, registerServices = register, unregisterServices = unregister, app = {}, embedding = {} } = {}) {
+  constructor(home, settings, config, { onStep, platformCheck = prerequisites, registerServices = register, unregisterServices = unregister, app = {}, embedding = {}, transcription = {} } = {}) {
     this.home = home; this.settings = settings; this.config = withManagedUpdates(config); this.onStep = onStep; this.platformCheck = platformCheck
     this.env = runtimeEnvironment(config)
     this.registerServices = registerServices
@@ -74,6 +75,7 @@ export class Installer {
     this.unregisterServices = unregisterServices
     // Tests substitute a loopback runtime; null means no runtime for this platform.
     this.embedding = { manifest: embedding.manifest === undefined ? embeddingRuntime : embedding.manifest, platform: embedding.platform ?? process.platform, arch: embedding.arch ?? process.arch }
+    this.transcription = { manifest: transcription.manifest === undefined ? transcriptionRuntime : transcription.manifest, platform: transcription.platform ?? process.platform, arch: transcription.arch ?? process.arch }
     if (settings.pgBin) this.env.PATH = settings.pgBin + ':' + this.env.PATH
     const maintenanceURL = settings.maintenanceDatabaseUrl ?? config.databaseUrl
     if (databaseEndpoint(maintenanceURL) !== databaseEndpoint(config.databaseUrl)) throw new Error('Maintenance login must connect to the same database endpoint as host.json.')
@@ -124,8 +126,8 @@ export class Installer {
   }
   async persist(journal) { await save(this.journalPath, journal) }
   /**
-   * Adds the embedding runtime and the plugin server once their packages are on the channel;
-   * a missing embedding runtime only disables search.
+   * Adds local models and the plugin server once their packages are on the channel;
+   * unavailable models leave their optional features off.
    */
   async channelConfiguration(selectedChannel) {
     const latest = await this.catalog.read(`${selectedChannel}.json`)
@@ -139,8 +141,21 @@ export class Installer {
       await appendFile(join(this.home, 'logs/installer-error.log'), `${new Date().toISOString()} ${report}\n`, { mode: 0o600 }).catch(() => {})
       embedding = { config: this.config, report }
     }
-    const plugins = withPlugins(embedding.config, this.home, released(pluginsPackage))
-    return { config: plugins.config, reports: { ...(embedding.report ? { embedding: embedding.report } : {}), ...(plugins.report ? { plugins: plugins.report } : {}) } }
+    let transcription
+    try {
+      transcription = await withTranscription(
+        embedding.config, this.home, released(transcriptionPackage),
+        () => installTranscriptionRuntime(this.home, this.transcription),
+      )
+    } catch (failure) {
+      const report = `The transcription model could not be installed, so local transcription stays unavailable: ${safeError(failure, this.config, this.settings, this.env)}`
+      console.error(report)
+      await appendFile(join(this.home, 'logs/installer-error.log'), `${new Date().toISOString()} ${report}\n`, { mode: 0o600 }).catch(() => {})
+      const { transcription: _transcription, ...config } = embedding.config
+      transcription = { config, report }
+    }
+    const plugins = withPlugins(transcription.config, this.home, released(pluginsPackage))
+    return { config: plugins.config, reports: { ...(embedding.report ? { embedding: embedding.report } : {}), ...(transcription.report ? { transcription: transcription.report } : {}), ...(plugins.report ? { plugins: plugins.report } : {}) } }
   }
   async stage(journal, files) {
     const staged = join(journal.work, 'release')

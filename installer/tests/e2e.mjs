@@ -46,10 +46,10 @@ async function installedStatus(home, config) {
 }
 
 test('macOS CLI installs and updates locally built Core/adapter tarballs without system registration', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' || noDatabase, timeout: 180000 }, async t => {
-  await run('npm', ['run', 'build', '-w', 'adapters/codex-cli', '-w', 'adapters/transcription-spokenly'], { cwd: repository })
+  await run('npm', ['run', 'build', '-w', 'adapters/codex-cli'], { cwd: repository })
   const home = await directory(t, 'kpi-e2e-'), { database: db, databaseUrl } = await database(t)
-  // The CLI cannot substitute the embedding runtime, so its package stays unreleased here.
-  const catalog = await catalogs(t, { real: true, versions: ['0.0.0', '0.0.1'], adapters: ['codex-cli', 'transcription-spokenly'] })
+  // The CLI cannot substitute local models, so their packages stay unreleased here.
+  const catalog = await catalogs(t, { real: true, versions: ['0.0.0', '0.0.1'], adapters: ['codex-cli'] })
   const executable = await codex(t)
   await mkdir(join(home, 'fixture-codex'), { mode: 0o700 })
   const { config, path, maintenancePath } = await configuration(t, home, databaseUrl, { adapters: [{ id: 'codex-cli', root: home, entry: 'node_modules/@kipster/codex-cli/dist/index.js', config: { executable, codexHome: join(home, 'fixture-codex') } }] })
@@ -116,7 +116,7 @@ test('macOS CLI installs and updates locally built Core/adapter tarballs without
 })
 
 test('real macOS Core first-install failures restore home and database and then retry successfully', { skip: process.platform !== 'darwin' || process.arch !== 'arm64' || noDatabase, timeout: 240000 }, async t => {
-  const catalog = await catalogs(t, { real: true, versions: ['0.0.0'], adapters: ['codex-cli', 'transcription-spokenly'] }), executable = await codex(t), app = { source: await testApp(t), requireTeam: false }
+  const catalog = await catalogs(t, { real: true, versions: ['0.0.0'], adapters: ['codex-cli'] }), executable = await codex(t), app = { source: await testApp(t), requireTeam: false }
   for (const stage of ['download', 'service registration', 'Core setup', 'health check']) await t.test(stage, async t => {
     const home = await directory(t, 'kpi-e2e-retry-'), { database: db, databaseUrl } = await database(t)
     await mkdir(join(home, 'fixture-codex'), { mode: 0o700 })
