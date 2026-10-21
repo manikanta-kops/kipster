@@ -783,13 +783,14 @@ export async function drive(
           response.url().endsWith('/v1/text/submissions') &&
           response.request().method() === 'POST',
       )
+      const voiceFeed = page.locator('.feed-message').filter({
+        has: page.getByRole('region', { name: 'Voice preparation' }),
+      })
+      const before = await voiceFeed.count()
       await page.getByRole('button', { name: 'Send message' }).first().click()
       const receipt = await (await accepted).json()
-      await page
-        .locator('.feed-message')
-        .filter({
-          has: page.getByRole('region', { name: 'Voice preparation' }),
-        })
+      await expect(voiceFeed).toHaveCount(before + 1)
+      await voiceFeed
         .last()
         .getByRole('button', { name: /^Open thread:/ })
         .press('Enter')
