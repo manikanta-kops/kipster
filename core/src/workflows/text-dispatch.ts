@@ -1,6 +1,6 @@
 import { administrationReceipts } from '../modules/administration/public.js'
 import { attachmentsInput, messageUserInput, type Attachment, type MessageUserInput } from './message-input.js'
-import { continuationPrompt, turnPrompt } from './turn-prompt.js'
+import { continuationPrompt, turnPrompt, type Trigger } from './turn-prompt.js'
 import { organizationDeletionSteps } from './organization-deletion.js'
 import { createHash, randomUUID } from 'node:crypto'
 import { stat } from 'node:fs/promises'
@@ -28,6 +28,8 @@ import { createDocument, documentCard, documentCreation, documentInput, document
 import type { MessagePart } from '../protocol/text.js'
 import { MAX_FILES_PER_MESSAGE, mimeTypeFor, requireMessageFileLimit, type AttachedFile, type FileAttachment } from '../modules/artifacts/public.js'
 import { NightlyDispatch } from './nightly-dispatch.js'
+import { RoutineDispatch } from './routine-dispatch.js'
+import { routineRunFacts, routineTool } from '../modules/routines/public.js'
 import { memoryTool, settleInterruptedMemoryCalls, turnMemory } from '../modules/memory/public.js'
 
 /** An unavailable adapter that work selects is probed again at most this often. */
@@ -37,7 +39,7 @@ const CANCELLATION_DELIVERY_MS = 5000
 
 export interface ControlInput { operationId: string; context: Context; chatId: string; threadId: string; runId: string; attemptId?: string; action: 'stop'|'resume'|'retry'|'cancel-queued'|'steer' }
 export interface ControlReceipt { version: 1; operationId: string; outcome: 'accepted'|'unsupported'|'rejected'; reason: string; runId: string; threadId: string; state: string }
-export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterStartupRecovery?(): Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void>; nightlyFailed?(error: unknown): void | Promise<void> }
+export interface DispatchHooks { afterClaim?(runId: string): Promise<void>; afterIssue?(attemptId: string): Promise<void>; afterOutput?(messageId: string): Promise<void>; beforeVoiceClaimLock?(runId:string):Promise<void>; beforeVoiceSettleLock?(runId:string):Promise<void>; beforeToolClaimLock?(runId:string):Promise<void>; beforeToolSettleLock?(runId:string):Promise<void>; afterStartupRecovery?(): Promise<void>; coordinatorLock?(state: 'lost' | 'retry-failed' | 'restored', error?: unknown): void | Promise<void>; afterOperationStep?(operationId: string, step: string, outcome: StepOutcome): Promise<void>; nightlyFailed?(error: unknown): void | Promise<void>; routinesFailed?(error: unknown): void | Promise<void> }
 const transcriptionFailures=new Set(['unavailable','timeout','cancelled','invalid-input','output-limit','provider-error'])
 function normalizedTranscription(value:unknown,provider:string):{status:'succeeded'|'no-speech';text:string;provider:string}|{status:'unavailable';reason:string;provider:string}{
   const row=value&&typeof value==='object'&&!Array.isArray(value)?value as Record<string,unknown>:{}
@@ -68,14 +70,15 @@ const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(part
 const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['message_kip', 'agents.message']])
 const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
 const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+const routineTools = new Set(['create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 
 /**
  * Who the kip is, from its current name and role, so a renamed kip knows its new name. The admin kip also learns the
  * workspace the person has open, unless the conversation is already in it.
  */
-async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; trigger: 'person' | 'kip' | 'answer'; viewing?: { id: string; name: string } }> {
-  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null; trigger: 'person' | 'kip' | 'answer' | null }>(`SELECT a.display_name AS name,t.trigger_kind AS trigger,
+async function kipFacts(db: Postgres | SqlClient, installationId: string, agentId: string, organizationId: string | null, runId: string): Promise<{ admin: boolean; line: string; trigger: Trigger; viewing?: { id: string; name: string } }> {
+  const row = (await db.query<{ name: string; admin: boolean; workspace: string | null; admin_name: string | null; viewing_id: string | null; viewing_name: string | null; trigger: Trigger | null }>(`SELECT a.display_name AS name,t.trigger_kind AS trigger,
       EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin,
       (SELECT o.display_name FROM kipster.organizations o WHERE o.id=$3::uuid) AS workspace,
       (SELECT g.display_name FROM kipster.agents g JOIN kipster.agent_roles r ON r.agent_id=g.id AND r.role='root-admin' WHERE g.installation_id=$1 AND kipster.live_agent(g.id) ORDER BY g.id LIMIT 1) AS admin_name,
@@ -105,7 +108,7 @@ async function linkedThreadLine(db: Postgres, threadId: string): Promise<string>
   return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation; answer them with message_kip to ${row.name} (recipientId ${row.sender_agent_id}), and the answer goes back there. If a message lacks a detail you need, read that conversation with read_thread. Answer a message the person writes here to the person, with message_user.`
 }
 
-export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'transcribePathTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool'>>): AdapterHost {
+export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'transcribePathTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool' | 'routineTool'>>): AdapterHost {
   return {
     now: () => new Date().toISOString(),
     async invokeTool(request) {
@@ -131,6 +134,7 @@ export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUse
       if ((request.name === 'list_admin_operations' || request.name === 'run_admin_operation') && dispatcher.adminTool) return dispatcher.adminTool(request.attemptId, request.callId, request.name, args)
       if ((request.name === 'search_plugin_tools' || request.name === 'run_plugin_tool') && dispatcher.pluginTool) return dispatcher.pluginTool(request.attemptId, request.callId, request.name, args)
       if (memoryTools.has(request.name) && dispatcher.memoryTool) return dispatcher.memoryTool(request.attemptId, request.callId, request.name, args)
+      if (routineTools.has(request.name) && dispatcher.routineTool) return dispatcher.routineTool(request.attemptId, request.callId, request.name, args)
       if (request.name === 'manage_data_tables') return dispatcher.structuredTool(request.attemptId, request.callId, args)
       if (request.name === 'manage_vector_collections') return dispatcher.vectorTool(request.attemptId, request.callId, args)
       const documentOperation = documentOperations.get(request.name)
@@ -217,6 +221,8 @@ export class TextDispatcher {
   private readonly reprobes = new Map<string, Promise<void>>()
   /** Memory's nightly run, while this process coordinates. */
   private readonly nightly: NightlyDispatch
+  /** Routine runs, while this process coordinates. */
+  private readonly routines: RoutineDispatch
   /** `hostCatalog`, when given, is the catalog of a direct adapter; otherwise its readiness report supplies it. */
   constructor(private readonly runtime: Runtime, private readonly adapter: TextExecutionAdapter | AdapterRegistry, private readonly hooks: DispatchHooks = {}, private readonly hostCatalog: Catalog | null = null) {
     this.operations = new OperationEngine(runtime, hooks, () => this.deliverCancellations())
@@ -229,6 +235,7 @@ export class TextDispatcher {
       lockCapacity: client => lockCapacity(client, runtime.bootstrap.installationId),
       onError: error => { void Promise.resolve().then(() => this.hooks.nightlyFailed?.(error)).catch(() => undefined) },
     })
+    this.routines = new RoutineDispatch(runtime, () => this.coordinating && !this.stopped, error => { void Promise.resolve().then(() => this.hooks.routinesFailed?.(error)).catch(() => undefined) })
     this.operations.register('agent.delete', agentDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
     this.operations.register('organization.delete', organizationDeletionSteps({ runtime, forgetProviderState: (adapterId, threadIds) => this.forgetProviderState(adapterId, threadIds) }))
   }
@@ -406,6 +413,9 @@ export class TextDispatcher {
   /** Runs the due nightly memory runs now instead of at the next timer tick; resolves when they stopped. */
   nightlyTick(): Promise<void> { return this.nightly.tick() }
 
+  /** Starts the due routine runs now instead of at the next timer wake-up; resolves when they started. */
+  routinesTick(): Promise<void> { return this.routines.tick() }
+
   /** Asks the adapter to cancel an attempt this process drives, once at a time, and records the answer. */
   private requestCancel(attemptId: string): void {
     const handle = this.handles.get(attemptId)
@@ -448,6 +458,7 @@ export class TextDispatcher {
     this.started = true
     await this.coordinate()
     this.nightly.start()
+    this.routines.start()
     // Runs whether or not this process coordinates: it drives its own attempts either way.
     this.cancellationTimer = setInterval(() => { void this.deliverCancellations().catch(() => undefined) }, CANCELLATION_DELIVERY_MS)
     this.cancellationTimer.unref?.()
@@ -758,7 +769,8 @@ export class TextDispatcher {
         WHERE a.id=(SELECT id FROM kipster.attempts WHERE intent_id=$1 AND id<>$2 ORDER BY generation DESC LIMIT 1) AND a.state='settled'
           AND EXISTS (SELECT 1 FROM kipster.interactions x WHERE x.attempt_id=a.id AND x.state='settled')`, [runId, attempt.id])).rows[0]?.provider_metadata
       const resume = typeof previous?.threadId === 'string' && typeof previous.providerStateScope === 'string' ? { threadId: previous.threadId, providerStateScope: previous.providerStateScope, prompt: continuationPrompt(prepared) } : undefined
-      execution = { ...prepared, prompt: turnPrompt(prepared, { trigger: kip.trigger, ...(kip.viewing ? { viewing: kip.viewing } : {}) }), ...(resume ? { resume } : {}) }
+      const routine = kip.trigger === 'routine' ? await routineRunFacts(this.runtime.db, runId) : null
+      execution = { ...prepared, prompt: turnPrompt(prepared, { trigger: kip.trigger, ...(kip.viewing ? { viewing: kip.viewing } : {}), ...(routine ? { routine } : {}) }), ...(resume ? { resume } : {}) }
     } catch (error) {
       route?.release(attempt.id)
       await this.settle(attempt, 'failed', error instanceof Error ? error.message : 'Preparation failed', true)
@@ -893,6 +905,10 @@ export class TextDispatcher {
   async structuredTool(attemptId:string,callId:string,args:unknown):Promise<unknown> {
     if (!this.runtime.structured) throw new Error('Task-data service is not configured')
     return this.runtime.structured.invoke(attemptId,this.incarnation,callId,args)
+  }
+  /** Routine tools of every kip. */
+  async routineTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+    return routineTool(this.runtime.db, attemptId, this.incarnation, callId, name, args, this.runtime.clock())
   }
   /** Memory tools, for an agent with memory on. */
   async memoryTool(attemptId: string, _callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -1173,11 +1189,12 @@ export class TextDispatcher {
     if (this.startPromise) await this.startPromise.catch(() => undefined)
     for(const controller of this.voiceControllers.values())controller.abort()
     for(const controller of this.toolControllers.values())controller.abort()
-    if (!this.started) { await this.nightly.close(); return }
+    if (!this.started) { await this.nightly.close(); await this.routines.close(); return }
     this.coordinating = false
     try {
       // The nightly call in flight is cancelled and settles itself; one left over is failed by the next recovery.
       await this.bounded(this.nightly.close(), 15000)
+      await this.bounded(this.routines.close(), 15000)
       await this.fenceOwnedOnClose()
       await this.bounded(Promise.allSettled([this.runtime.jobs.stopWork(), this.operations.stop(), this.adapter.close(), ...this.active]), 2000)
     } finally {

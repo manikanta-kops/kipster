@@ -21,6 +21,8 @@ import { IdentityConflictError, MAX_IDENTITY_BYTES, type IdentityFileName } from
 import { RefusedError } from '../../platform/errors/public.js'
 import { DocumentConflictError } from '../../modules/documents/public.js'
 import { documentRoute } from './documents.js'
+import { routineRoute } from './routines.js'
+import { readRoutineSettings, writeRoutineSettings } from '../../modules/routines/public.js'
 import { pluginCallback, pluginRoute } from './plugins.js'
 import { PluginControlClient, PluginRouteError } from '../../plugins/client.js'
 import { pluginPaths } from '../../protocol/plugins.js'
@@ -234,6 +236,12 @@ export async function startTextServer(runtime: Runtime, actor: TrustedActor, opt
         if (reply && 'bytes' in reply) { response.writeHead(reply.status, reply.headers); response.end(reply.bytes); return }
         if (reply) { json(response, reply.status, reply.body); return }
       }
+      if (path === '/v1/routines' || path.startsWith('/v1/routines/')) {
+        const reply = await routineRoute(runtime, actor, request.method ?? '', path, url.searchParams, () => body(request))
+        if (reply) { json(response, 200, reply); return }
+      }
+      if (path === '/v1/settings/routines' && request.method === 'GET') { json(response, 200, await readRoutineSettings(runtime.db, actor)); return }
+      if (path === '/v1/settings/routines' && request.method === 'PUT') { json(response, 200, await writeRoutineSettings(runtime.db, actor, await body(request))); return }
       if (request.method === 'GET' && path === '/v1/directory') { json(response, 200, await readDirectory(runtime.db, actor)); return }
       const plugin = await pluginRoute(plugins, request.method ?? '', path, url.searchParams, () => body(request), acceptsHost)
       if (plugin) { json(response, 200, plugin); return }

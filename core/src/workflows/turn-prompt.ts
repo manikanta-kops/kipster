@@ -19,13 +19,27 @@ function historyLabel(message: Message): string {
   return author
 }
 
-/** What the current message is and, for one from a kip or an answer, how to reply. */
-function currentHeader(message: Message | undefined, trigger: 'person' | 'kip' | 'answer'): string {
+/** What started a turn: a person's message, a kip's message, a kip's answer or a routine's run. */
+export type Trigger = 'person' | 'kip' | 'answer' | 'routine'
+/**
+ * The routine a run belongs to: its name, scheduled time as the person reads it, whether it started late, and its
+ * previous runs newest first with what each sent the person (null when nothing).
+ */
+export interface RoutineFacts { name: string; scheduledFor: string; late: boolean; earlier: { scheduledFor: string; state: 'started' | 'skipped'; threadId: string | null; sent: string | null }[] }
+
+function earlierRuns(runs: RoutineFacts['earlier']): string {
+  const line = (run: RoutineFacts['earlier'][number]) => `- ${run.scheduledFor}${run.threadId ? `, thread ${run.threadId}` : ''}: ${run.state === 'skipped' ? 'skipped, past the daily limit' : run.sent === null ? 'sent nothing' : `sent ${JSON.stringify(run.sent)}`}`
+  return `Earlier runs of this routine (newest first), so you build on them instead of repeating them:\n${runs.map(line).join('\n')}\nRead a run in full with read_thread.`
+}
+
+/** What the current message is and, for one from a kip, an answer or a routine, how to reply. */
+function currentHeader(message: Message | undefined, trigger: Trigger, routine?: RoutineFacts): string {
   const id = `[${message?.messageId ?? 'unknown'}]`
   if (!message) return `Current message ${id}:`
   const author = authorLabel(message.author)
   const sender = `${message.author.name} (recipientId ${message.author.id})`
   if (trigger === 'kip') return `Current message ${id}, a message from ${author} sent to you with message_kip. Answer it with message_kip to ${sender}; the answer goes back into its conversation:`
+  if (trigger === 'routine' && routine) return `Current message ${id}: the instructions of your routine ${JSON.stringify(routine.name)}, run for ${routine.scheduledFor}${routine.late ? ', late because Kipster was off or the computer was asleep at that time' : ''}. The person is not watching. Do the work, then send the result with message_user only when it is worth telling: priority normal when they should see it now, silent when it can wait, no message when there is nothing to report. Ask the person something only if you cannot continue without them:`
   if (trigger === 'answer') return `Current message ${id}, an answer from ${author} to your earlier message_kip message. Tell the person with message_user if they need to know, or end your turn without a message. Message ${sender} again only when you need more from it:`
   return `Current message ${id} from ${author}:`
 }
@@ -64,16 +78,18 @@ export function continuationPrompt(context: Omit<TextExecutionContext, 'prompt' 
 /**
  * Renders the turn's user input that every adapter sends: memory sections, the history of the thread with each
  * message's author, the workspace the person has open when the admin kip should know it, the current message with who
- * wrote it and what started the turn (`trigger`, the person by default), and the run's saved context.
+ * wrote it and what started the turn (`trigger`, the person by default; a routine's run names its routine), and the run's
+ * saved context.
  */
-export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>, { trigger = 'person', viewing }: { trigger?: 'person' | 'kip' | 'answer'; viewing?: { id: string; name: string } } = {}): string {
+export function turnPrompt(context: Omit<TextExecutionContext, 'prompt'>, { trigger = 'person', viewing, routine }: { trigger?: Trigger; viewing?: { id: string; name: string }; routine?: RoutineFacts } = {}): string {
   const current = context.input.find(message => message.messageId === context.triggerMessageId)
   const history = context.input.filter(message => message.messageId !== context.triggerMessageId)
   const sections = [
     ...(context.memory ?? []),
     ...(history.length ? [`Kipster conversation history${context.threadId ? ` of thread ${context.threadId}` : ''} (canonical, ordered):\n${history.map(message => `[${message.messageId}] ${historyLabel(message)}: ${describe(message)}`).join('\n')}`] : []),
     ...(viewing ? [`The person has the ${viewing.name} workspace open (workspaceId ${viewing.id}).`] : []),
-    `${currentHeader(current, trigger)}\n${describe(current)}`,
+    ...(trigger === 'routine' && routine?.earlier.length ? [earlierRuns(routine.earlier)] : []),
+    `${currentHeader(current, trigger, routine)}\n${describe(current)}`,
   ]
   if (context.interactions?.length) sections.push(interactionsSection(context.interactions))
   if (context.administrationReceipts?.receipts.length) sections.push(receiptsSection(context.administrationReceipts))
