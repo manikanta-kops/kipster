@@ -135,7 +135,10 @@ track?"; the kip sees the goal and its table and queries it.
 
 ## 6. Protocol and administration
 
-A clean break, before the first beta:
+A clean break, before the first beta, that raises the protocol to 4. Clients
+of protocols 1 to 3 no longer see the `memoryCards` capability, so they hide
+their Memory view.
+
 
 - `/v1/memory/cards` becomes `/v1/memory/memories`; `/v1/memory/lessons` lists
   lessons (optionally of one kip) and `/v1/memory/lessons/{id}` reads, edits

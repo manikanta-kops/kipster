@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":3,"oldest":1},
+  "protocol": {"current":4,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
