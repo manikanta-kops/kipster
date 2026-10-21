@@ -188,7 +188,7 @@ function partsText(parts: unknown[], transcripts: Record<string, string> = {}): 
 export interface TurnMemory { instructions: string; sections: string[] }
 
 /**
- * The memory of one turn (decision records 10 and 13), or null while the agent has memory off. The prompt sees only
+ * The memory of one turn (decision records 10 and 14), or null while the agent has memory off. The prompt sees only
  * the agent's own chunks, diary pages and lessons, its installation threads plus the current organization's, and
  * installation memories plus the current organization's, for the admin kip too. Core memories change only when memories
  * do, so the instructions stay byte-identical between turns.

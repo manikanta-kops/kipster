@@ -3,7 +3,7 @@
 Status: agreed direction, 2026-10-12. It replaces the memory engine in
 `core/src/modules/memory/` and its tools. The old engine is deleted without
 compatibility code: no installation depends on it yet.
-[Decision block 13](./13-memories-and-lessons.md) renames cards to memories,
+[Decision block 14](./14-memories-and-lessons.md) renames cards to memories,
 adds per-kip lessons and changes the nightly actions.
 
 Memory lets every kip (code: agent) recall what the user said in other threads

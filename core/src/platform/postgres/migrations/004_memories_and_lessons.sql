@@ -1,4 +1,4 @@
--- Cards are renamed memories, and every kip learns lessons about its own work (decision record 13).
+-- Cards are renamed memories, and every kip learns lessons about its own work (decision record 14).
 
 ALTER TABLE kipster.cards RENAME TO memories;
 ALTER TABLE kipster.memories RENAME CONSTRAINT cards_pkey TO memories_pkey;

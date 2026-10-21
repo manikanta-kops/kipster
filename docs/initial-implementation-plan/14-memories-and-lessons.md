@@ -1,4 +1,4 @@
-# Decision block 13: Memories and lessons
+# Decision block 14: Memories and lessons
 
 Status: agreed direction, 2026-10-21. It refines
 [decision block 10](./10-kip-memory.md): cards are renamed memories, and each
@@ -52,7 +52,7 @@ Finance folder").
 
 ## 2. Storage
 
-Migration 003 renames and adds:
+Migration 004 renames and adds:
 
 ```text
 memories          (was cards)         type, subject, statement, details, confirmed,

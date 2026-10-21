@@ -20,7 +20,7 @@ export interface Lesson {
   sources: MessageSource[]
 }
 
-/** Lesson bounds (decision record 13). */
+/** Lesson bounds (decision record 14). */
 export const LESSONS = {
   /** Current lessons a kip keeps; past it the nightly run retires the least confirmed. */
   cap: 400,

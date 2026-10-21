@@ -37,7 +37,7 @@ async function database(t) {
 
 const embedded = { thread_chunks: ['embedding'], memories: ['embedding'], lessons: ['embedding'], diary: ['embedding'] }
 
-/** The Kip memory schema of decision records 10 and 13 is present. */
+/** The Kip memory schema of decision records 10 and 14 is present. */
 async function assertMemorySchema(db) {
   const tables = (await db.query("SELECT table_name FROM information_schema.tables WHERE table_schema='kipster' AND (table_name LIKE 'memory%' OR table_name LIKE 'maintenance%' OR table_name IN ('thread_chunks','memories','memory_sources','lessons','lesson_sources','diary','embedding_profiles','embedding_generations')) ORDER BY table_name")).rows.map(row => row.table_name)
   assert.deepEqual(tables, ['diary', 'embedding_generations', 'embedding_profiles', 'lesson_sources', 'lessons', 'memories', 'memory_calls', 'memory_nights', 'memory_sources', 'memory_thread_state', 'thread_chunks'])

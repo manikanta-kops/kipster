@@ -69,7 +69,7 @@ const threadScope = (run: MemoryRun, agents: string[] | null, exclude: string | 
 const memoryScope = (run: MemoryRun): MemoryScope => run.admin ? 'all' : { organizationId: run.organizationId }
 
 /**
- * The memory tools of an execution (decision records 10 and 13), bound to its current attempt: `search_memory`,
+ * The memory tools of an execution (decision records 10 and 14), bound to its current attempt: `search_memory`,
  * `list_recent_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has
  * memory off, except `read_thread` of the source thread of a linked thread (decision record 11, rule 7). Forgetting a
  * lesson rewrites the kip's Learned section in `identity`.

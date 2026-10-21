@@ -4,7 +4,7 @@
 
 - Global soul.md and identity.md files.
 - Editable identity guidance, compare-and-swap writes, backups and restore.
-- Kip memory (decision records 10 and 13), stored in Core: the Settings Memory section and its Memories and Lessons views.
+- Kip memory (decision records 10 and 14), stored in Core: the Settings Memory section and its Memories and Lessons views.
 
 ## How to get to it (user point of view)
 

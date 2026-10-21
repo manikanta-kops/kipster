@@ -466,6 +466,106 @@
         "viewingOrganizationId": {"type":"optional","of":{"type":"string","min":1}}
       }
     },
+    "routineCreate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "context": {"ref":"context"},
+        "chatId": {"type":"string","min":1},
+        "name": {"type":"string","min":1,"max":200},
+        "instructions": {"type":"string","min":1,"max":16000},
+        "triggers": {"type":"array","items":{"ref":"routineTrigger"}},
+        "timeZone": {"type":"optional","of":{"type":"string","min":1,"max":100}}
+      }
+    },
+    "routineRunStart": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"operationId":{"type":"string","min":1,"max":200}}
+    },
+    "routineSettingsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"dailyRunLimit":{"type":"integer","min":1,"max":1000}}
+    },
+    "routineTrigger": {
+      "type": "union",
+      "of": [
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {"type":{"type":"literal","value":"once"},"at":{"type":"string","min":16,"max":16}}
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "type": {"type":"literal","value":"every"},
+            "minutes": {"type":"integer","min":1,"max":1440},
+            "from": {"type":"optional","of":{"type":"string","format":"clock-time"}},
+            "until": {"type":"optional","of":{"type":"string","format":"clock-time"}},
+            "days": {
+              "type": "optional",
+              "of": {
+                "type": "array",
+                "items": {
+                  "type": "union",
+                  "of": [
+                    {"type":"literal","value":"sun"},
+                    {"type":"literal","value":"mon"},
+                    {"type":"literal","value":"tue"},
+                    {"type":"literal","value":"wed"},
+                    {"type":"literal","value":"thu"},
+                    {"type":"literal","value":"fri"},
+                    {"type":"literal","value":"sat"}
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "exact": true,
+          "fields": {
+            "type": {"type":"literal","value":"times"},
+            "times": {"type":"array","items":{"type":"string","format":"clock-time"}},
+            "days": {
+              "type": "optional",
+              "of": {
+                "type": "array",
+                "items": {
+                  "type": "union",
+                  "of": [
+                    {"type":"literal","value":"sun"},
+                    {"type":"literal","value":"mon"},
+                    {"type":"literal","value":"tue"},
+                    {"type":"literal","value":"wed"},
+                    {"type":"literal","value":"thu"},
+                    {"type":"literal","value":"fri"},
+                    {"type":"literal","value":"sat"}
+                  ]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "routineUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "name": {"type":"optional","of":{"type":"string","min":1,"max":200}},
+        "instructions": {"type":"optional","of":{"type":"string","min":1,"max":16000}},
+        "triggers": {"type":"optional","of":{"type":"array","items":{"ref":"routineTrigger"}}},
+        "timeZone": {"type":"optional","of":{"type":"string","min":1,"max":100}},
+        "enabled": {"type":"optional","of":{"type":"boolean"}}
+      }
+    },
     "settingsPatch": {
       "type": "object",
       "exact": true,
@@ -729,7 +829,8 @@
         "createdAt": {"type":"string","format":"utc-timestamp"},
         "startedBy": {"type":"optional","of":{"type":"string","min":1}},
         "linkedFrom": {"type":"optional","of":{"ref":"threadLinkedFrom"}},
-        "links": {"type":"optional","of":{"type":"array","items":{"ref":"threadLink"}}}
+        "links": {"type":"optional","of":{"type":"array","items":{"ref":"threadLink"}}},
+        "routine": {"type":"optional","of":{"ref":"threadRoutine"}}
       }
     },
     "approvalGrant": {
@@ -2203,6 +2304,92 @@
         "error": {"ref":"stableError"}
       }
     },
+    "routine": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1},
+        "chatId": {"type":"string","min":1},
+        "contextKind": {
+          "type": "union",
+          "of": [{"type":"literal","value":"installation"},{"type":"literal","value":"organization"}]
+        },
+        "contextId": {"type":"string","min":1},
+        "name": {"type":"string","min":1},
+        "instructions": {"type":"string","min":1},
+        "triggers": {"type":"array","items":{"type":"unknown"}},
+        "timeZone": {"type":"string","min":1},
+        "enabled": {"type":"boolean"},
+        "nextRunAt": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}},
+        "lastRun": {"type":"nullable","of":{"ref":"routineRun"}},
+        "createdBy": {"type":"string","min":1},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"},
+        "revision": {"type":"integer","min":0}
+      }
+    },
+    "routineList": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"routines":{"type":"array","items":{"ref":"routine"}}}
+    },
+    "routineRemoval": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "routineId": {"type":"string","min":1},
+        "deleted": {"type":"boolean"}
+      }
+    },
+    "routineResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"routine":{"ref":"routine"}}
+    },
+    "routineRun": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "scheduledFor": {"type":"string","format":"utc-timestamp"},
+        "startedAt": {"type":"string","format":"utc-timestamp"},
+        "state": {
+          "type": "union",
+          "of": [
+            {"type":"literal","value":"started"},
+            {"type":"literal","value":"skipped"},
+            {"type":"string"}
+          ]
+        },
+        "late": {"type":"boolean"},
+        "threadId": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "routineRunList": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "routineId": {"type":"string","min":1},
+        "runs": {"type":"array","items":{"ref":"routineRun"}}
+      }
+    },
+    "routineRunResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "routineId": {"type":"string","min":1},
+        "run": {"ref":"routineRun"}
+      }
+    },
+    "routineSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"dailyRunLimit":{"type":"integer","min":0}}
+    },
     "settingsRecord": {
       "type": "object",
       "exact": false,
@@ -2819,6 +3006,11 @@
       "type": "object",
       "exact": false,
       "fields": {"threadId":{"type":"string","min":1},"chatId":{"type":"string","min":1}}
+    },
+    "threadRoutine": {
+      "type": "object",
+      "exact": false,
+      "fields": {"id":{"type":"nullable","of":{"type":"string","min":1}},"name":{"type":"string"}}
     },
     "threadSnapshot": {
       "type": "object",

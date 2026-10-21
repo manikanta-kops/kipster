@@ -15,6 +15,8 @@ import { pluginAccountRename } from '../protocol/plugins.js'
 import { PluginControlClient, PluginRouteError } from '../plugins/client.js'
 import type { PluginServerEndpoint } from '../plugins/supervisor.js'
 import { deleteLesson, deleteMemory, editLesson, editMemory, listLessons, listMemories, readLesson, readMemory } from './memory-items.js'
+import { readRoutineSettings, writeRoutineSettings } from '../modules/routines/public.js'
+import { routineSettingsWrite } from '../protocol/routines.js'
 import { array, boolean, boundedInteger, boundedString, literal, nonempty, object, optional, record, union, type Infer, type Schema, type WireShape } from '../protocol/schema.js'
 
 /** What the administration tools need from the dispatcher that runs the calling attempt. */
@@ -46,6 +48,7 @@ const areas = {
   interface: 'How the app looks and alerts: colour palette, light or dark theme, desktop notifications and their kinds, in-app banners, the app icon badge.',
   updates: 'Software updates of Kipster Core and Kipster Plugins: channel, automatic or notify mode, checks, installs and pins.',
   plugins: 'Kipster Plugins: the services kips can use, signing in to them, and the signed-in accounts with their names and the default account of each plugin.',
+  routines: 'Routines, work kips do on their own on a schedule: the most routine runs one kip starts a day. Kips create and change routines with their routine tools.',
   operations: 'The state and result of an earlier change, by its operationId.',
 } as const
 type Area = keyof typeof areas
@@ -463,6 +466,16 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     area: 'plugins', kind: 'write', input: fields({ accountId: id }),
     description: 'Sign out and remove an account the person no longer wants kips to use. revoked tells whether the service confirmed revoking its access; the account is removed either way.',
     run: ({ host, args }) => viaPlugins(host, client => client.removeAccount(args.accountId)),
+  }),
+  'routines.settings_get': operation({
+    area: 'routines', kind: 'read', input: none,
+    description: 'Read dailyRunLimit, the most routine runs one kip starts a day across its routines. Runs past it are skipped and recorded.',
+    run: ({ host, caller }) => readRoutineSettings(host.db, caller),
+  }),
+  'routines.settings_set': operation({
+    area: 'routines', kind: 'write', input: fields({}, routineSettingsWrite),
+    description: 'Set dailyRunLimit, the most routine runs one kip starts a day across its routines: 1 to 1000. The default is 50.',
+    run: ({ host, caller, args }) => writeRoutineSettings(host.db, caller, { version: 1, ...args }),
   }),
   'operations.get': operation({
     area: 'operations', kind: 'read', input: fields({ operationId: boundedString(1, 200) }),

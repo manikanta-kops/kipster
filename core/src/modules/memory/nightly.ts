@@ -79,7 +79,7 @@ type LessonOperation = { change: LessonChange; sources: MessageSource[] }
 interface Saved { memories: string[] | null; lessons: string[] | null }
 
 /**
- * The nightly memory run of one installation (decision records 10 and 13). At each kip's sleep time, for every kip
+ * The nightly memory run of one installation (decision records 10 and 14). At each kip's sleep time, for every kip
  * with memory on and new messages, it writes thread chunks, changes the shared memories and the kip's lessons, writes
  * diary pages, re-picks the core memories, embeds what changed and writes the kip's top lessons into its identity.md. A
  * thread's results and its processed position are saved in one transaction, so a failure leaves the thread for the next

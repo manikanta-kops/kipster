@@ -602,7 +602,7 @@ test('the catalog lists every operation by area and describes its arguments', { 
   const ctx = await setup(t)
   const run = await ctx.start()
   const listing = await run.tool('list', 'list_admin_operations', {})
-  assert.deepEqual(listing.areas.map(area => area.area), ['directory', 'organizations', 'agents', 'identity', 'memberships', 'groups', 'settings', 'adapters', 'permissions', 'learning', 'memory', 'interface', 'updates', 'plugins', 'operations'])
+  assert.deepEqual(listing.areas.map(area => area.area), ['directory', 'organizations', 'agents', 'identity', 'memberships', 'groups', 'settings', 'adapters', 'permissions', 'learning', 'memory', 'interface', 'updates', 'plugins', 'routines', 'operations'])
   const listed = listing.areas.flatMap(area => area.operations.map(item => item.operation))
   for (const name of toolNames) assert.ok(listed.includes(name.slice('admin.'.length)), name)
   for (const name of ['identity.set', 'learning.agent_set', 'interface.set', 'updates.install', 'updates.plugins_install', 'updates.settings_set']) assert.ok(listed.includes(name), name)
