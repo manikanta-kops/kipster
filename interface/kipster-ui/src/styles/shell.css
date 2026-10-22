@@ -142,13 +142,12 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 17px;
+  font-size: var(--text-title-2);
   font-weight: 700;
-  letter-spacing: -0.03em;
 }
 .kip-name .kip-wait {
   display: block;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 500;
   letter-spacing: 0;
   color: var(--label-3);
@@ -165,7 +164,7 @@
   background: #000;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.14);
   color: var(--kip-tone);
-  font: 600 10px/1 var(--font-mono);
+  font: 600 var(--text-footnote)/1 var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -279,12 +278,12 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 500;
   color: var(--label-3);
 }
 .agent-line {
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   white-space: nowrap;
   overflow: hidden;
@@ -309,7 +308,7 @@
   height: 28px;
   padding: 0 12px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-2);
   background: var(--fill);
@@ -342,7 +341,7 @@
   gap: 7px;
   margin: 0;
   padding: 10px 10px 4px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   letter-spacing: 0;
   color: var(--label-3);
@@ -362,7 +361,7 @@
 }
 .sidebar-empty {
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   line-height: 1.55;
   color: var(--label-3);
 }
@@ -429,8 +428,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
-  letter-spacing: -0.01em;
+  font-size: var(--text-footnote);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -468,7 +466,7 @@
   align-items: center;
   gap: 8px;
   margin: 4px 8px 6px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -533,7 +531,7 @@
   border-radius: 9px;
   color: var(--on-tint);
   background: var(--tint);
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -553,7 +551,7 @@
   min-height: 38px;
   padding: 4px 4px 4px 8px;
   border-radius: 12px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   line-height: 1.35;
   color: var(--label-2);
   background: var(--fill);
@@ -626,12 +624,12 @@
   white-space: nowrap;
 }
 .profile-context strong {
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   line-height: 17px;
 }
 .profile-context span {
-  font-size: 12px;
+  font-size: var(--text-callout);
   line-height: 16px;
   color: var(--label-3);
 }
@@ -748,7 +746,7 @@
   height: 44px;
   padding: 0 16px 0 12px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--label-2);
 }
@@ -770,7 +768,7 @@
   border-radius: 10px;
   color: #fff;
   background: var(--wait);
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 700;
   line-height: 1;
   font-variant-numeric: tabular-nums;
@@ -815,7 +813,7 @@
   margin: 4px 0 2px;
   padding: 4px 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-2);
   background: var(--sheen), var(--glass-thin);
@@ -895,7 +893,7 @@
 .read-only-note {
   padding: 13px 18px;
   border-radius: 22px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.45;
   text-align: center;
   color: var(--label-2);
@@ -953,14 +951,13 @@
   border-bottom: 0.5px solid var(--sep);
 }
 .pane-header p {
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .pane-header h2 {
-  font-size: 17px;
+  font-size: var(--text-title-2);
   font-weight: 650;
   line-height: 1.3;
-  letter-spacing: -0.02em;
   overflow-wrap: anywhere;
 }
 .pane-header .thread-eyebrow {
@@ -968,11 +965,10 @@
   font-weight: 500;
 }
 .thread-expanded .pane-header h2 {
-  font-size: 22px;
+  font-size: var(--text-title-1);
 }
 .pane-header h1 {
-  font-size: 20px;
-  letter-spacing: -0.02em;
+  font-size: var(--text-title-1);
 }
 .header-actions {
   display: flex;
@@ -1053,12 +1049,11 @@
   height: 44px;
 }
 .workspace-state h1 {
-  font-size: 24px;
-  letter-spacing: -0.02em;
+  font-size: var(--text-large-title);
 }
 .workspace-state p {
   max-width: 46ch;
-  font-size: 14px;
+  font-size: var(--text-body);
   line-height: 1.65;
   color: var(--label-2);
 }

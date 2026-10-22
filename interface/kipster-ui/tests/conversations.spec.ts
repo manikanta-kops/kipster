@@ -275,7 +275,7 @@ test('safe markdown and stream finalization retain identity and unknown content 
     parts: [
       {
         kind: 'text',
-        text: '**Final output**\n\n- one\n- two\n\n```js\n<script>alert(1)</script>\n```\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))',
+        text: '## Plan\n\n**Final output** and *emphasis*\n\n- one\n- two\n\n```js\n<script>alert(1)</script>\n```\n\n| Name | Value |\n| --- | --- |\n| Kip | Ready |\n\nRaw <b>html</b> stays text.\n\n[Safe](https://example.com) [Unsafe](javascript:alert(1))',
       },
       { kind: 'text', text: 'After previous part' },
     ],
@@ -286,6 +286,15 @@ test('safe markdown and stream finalization retain identity and unknown content 
     0,
   )
   await expect(pane.locator('a[href^="javascript:"]')).toHaveCount(0)
+  await expect(
+    pane.getByRole('heading', { name: 'Plan', level: 2 }),
+  ).toBeVisible()
+  await expect(pane.locator('.markdown em')).toHaveText('emphasis')
+  await expect(pane.getByRole('cell', { name: 'Ready' })).toBeVisible()
+  await expect(pane.locator('.markdown b')).toHaveCount(0)
+  await expect(pane.getByText('Raw <b>html</b> stays text.')).toBeVisible()
+  await expect(pane.locator('script')).toHaveCount(0)
+  await expect(pane.getByText('Unsafe (javascript:alert(1))')).toBeVisible()
   await expect(pane.getByRole('link', { name: 'Safe' })).toHaveAttribute(
     'href',
     'https://example.com',

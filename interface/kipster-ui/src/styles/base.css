@@ -20,15 +20,18 @@ html,
 body {
   height: 100%;
 }
+/* Author display rules must not reveal elements marked hidden. */
+[hidden] {
+  display: none !important;
+}
 body {
   margin: 0;
   /* Includes floating UI portalled beside the app root. */
   -webkit-user-select: none;
   user-select: none;
   min-width: 360px;
-  font-size: 14px;
+  font-size: var(--text-body);
   line-height: 1.45;
-  letter-spacing: -0.006em;
 }
 /* Content opts back in; controls inside it remain app chrome. */
 :where(input, textarea, [contenteditable='true']) {
@@ -68,9 +71,8 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: 25px;
+  font-size: var(--text-large-title);
   font-weight: 600;
-  letter-spacing: -0.7px;
 }
 button,
 input,
@@ -422,7 +424,7 @@ body::after {
   z-index: 80;
   padding: 5px 10px;
   border-radius: 9px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;

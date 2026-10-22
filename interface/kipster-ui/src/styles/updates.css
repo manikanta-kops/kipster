@@ -11,7 +11,7 @@
   box-shadow:
     inset 0 0 0 0.5px #ffffff32,
     0 2px 7px #00000020;
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 550;
   text-align: left;
 }
@@ -36,7 +36,7 @@
 }
 .update-confirmation-body {
   padding: 8px 22px 22px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.6;
 }
 .update-confirmation-body p {

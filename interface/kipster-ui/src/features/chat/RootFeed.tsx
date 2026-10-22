@@ -6,13 +6,7 @@ import { quickFade } from '../../app/motion'
 import { KipBody } from '../../components/Kip'
 import { Message, Avatar } from './Message'
 import { listNames } from './kip-names'
-import {
-  formatTime,
-  type Thread,
-  type WorkspaceData,
-  type Chat,
-  type Agent,
-} from './model'
+import { type Thread, type WorkspaceData, type Chat, type Agent } from './model'
 export function RootFeed({
   work,
   chat,
@@ -160,17 +154,6 @@ export function RootFeed({
                           <span className="reply-count">
                             {`${replyCount} ${replyCount === 1 ? 'reply' : 'replies'}`}
                           </span>
-                          {replyCount > 0 && (
-                            <span className="reply-description">
-                              Last reply
-                              {item.lastReplyAuthor
-                                ? ` by ${item.lastReplyAuthor}`
-                                : ''}
-                              {item.lastMessageAt
-                                ? ` ${formatTime(item.lastMessageAt)}`
-                                : ''}
-                            </span>
-                          )}
                         </>
                       )}
                     </button>

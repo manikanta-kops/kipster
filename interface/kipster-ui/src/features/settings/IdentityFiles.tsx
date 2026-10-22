@@ -215,7 +215,7 @@ function Document({ text }: { text: string }) {
   return source ? (
     <pre className="set-source">{text}</pre>
   ) : (
-    <Markdown text={text} headings className="set-markdown" />
+    <Markdown text={text} className="set-markdown" />
   )
 }
 

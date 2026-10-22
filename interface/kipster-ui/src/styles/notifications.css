@@ -102,7 +102,7 @@
 }
 .inbox-section {
   margin: 10px 10px 4px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--label-3);
@@ -173,7 +173,7 @@
   min-width: 0;
 }
 .note-title {
-  font-size: 13.5px;
+  font-size: var(--text-body);
   line-height: 1.35;
   color: var(--label);
 }
@@ -183,7 +183,7 @@
 .note-body,
 .banner-body {
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.4;
   color: var(--label-2);
   display: -webkit-box;
@@ -194,7 +194,7 @@
 }
 .note-meta {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   white-space: nowrap;
   overflow: hidden;
@@ -211,7 +211,7 @@
   margin: -2px 0 10px 53px;
   padding: 0 12px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   background: var(--fill-2);
   transition: background-color 0.15s;
@@ -308,7 +308,7 @@
   align-items: center;
   gap: 5px;
   min-width: 0;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 650;
 }
 .banner-tag i {

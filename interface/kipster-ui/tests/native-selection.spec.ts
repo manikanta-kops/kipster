@@ -1,5 +1,5 @@
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { startDemo } from './demo.ts'
+import { openRichDoc, startDemo } from './demo.ts'
 
 async function selectionStyle(locator: Locator, value: 'none' | 'text') {
   await expect(locator).toHaveCSS('user-select', value)
@@ -67,7 +67,7 @@ test('sidebar, filters, workspace switcher, top pill and empty state are chrome'
   await selectionStyle(page.locator('.empty-state p').first(), 'none')
 })
 
-test('message paragraphs, lists, links, inline code, fenced code and pipe tables stay selectable', async ({
+test('message paragraphs, lists, links, inline code, fenced code and tables stay selectable', async ({
   page,
 }) => {
   const input = page.getByRole('textbox', { name: 'Start a new thread' })
@@ -76,18 +76,20 @@ test('message paragraphs, lists, links, inline code, fenced code and pipe tables
     'Copy this message text with `inline code` and [a link](https://example.com).\n\n- A copyable list item\n\n```ts\nconst selection = true\n```\n\n| Name | Value |\n| --- | --- |\n| Kip | Copyable |',
   )
   await page.getByRole('button', { name: 'Send message', exact: true }).click()
+  // The feed previews three lines; the thread shows the whole message.
+  await page
+    .locator('.feed-message')
+    .filter({ hasText: 'Copy this message text' })
+    .locator('.message-text')
+    .click()
   const message = page
-    .locator('.feed .markdown')
+    .locator('.thread-scroll .markdown')
     .filter({ hasText: 'const selection = true' })
     .last()
   await expect(message).toBeVisible()
-  for (const selector of ['p', 'li', 'a', 'p code', 'pre', 'pre code'])
+  for (const selector of ['p', 'li', 'a', 'p code', 'pre', 'pre code', 'td'])
     await selectionStyle(message.locator(selector).first(), 'text')
-  // Chat's small renderer keeps GFM pipe tables as literal paragraph content.
-  await selectionStyle(
-    message.locator('p').filter({ hasText: '| Name | Value |' }),
-    'text',
-  )
+  await expect(message.getByRole('cell', { name: 'Copyable' })).toBeVisible()
   expect(await dragText(page, message.locator('p').first())).toContain('Copy')
   expect(await dragText(page, message.locator('pre code'))).toContain(
     'selection',
@@ -97,9 +99,7 @@ test('message paragraphs, lists, links, inline code, fenced code and pipe tables
 test('rich doc edit and revision text, code and rendered tables can be selected and copied', async ({
   page,
 }) => {
-  await page
-    .getByRole('button', { name: 'Rich docs: v1 plan, needs you' })
-    .click()
+  await openRichDoc(page, 'Rich docs: v1 plan')
   const doc = page.getByRole('region', { name: 'Rich doc: Rich docs: v1 plan' })
   const field = doc.locator('[data-block="scope-text"][data-field="text"]')
   await selectionStyle(field, 'text')
