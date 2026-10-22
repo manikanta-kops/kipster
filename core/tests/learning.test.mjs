@@ -26,7 +26,7 @@ async function until(read, predicate, label) {
 }
 const count = async (db, sql, params = []) => Number((await db.query(sql, params)).rows[0].n)
 
-async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
+async function setup(t, { embedding = true, hooks = {}, executionLimit, memoryOff = true } = {}) {
   const admin = new Postgres(adminUrl)
   const database = `kipster_learning_${randomUUID().replaceAll('-', '')}`
   await admin.query(`CREATE DATABASE "${database}"`)
@@ -37,6 +37,8 @@ async function setup(t, { embedding = true, hooks = {}, executionLimit } = {}) {
   const actor = { installationId: runtime.bootstrap.installationId, personId: runtime.bootstrap.ownerId }
   const context = { kind: 'installation', installationId: actor.installationId }
   const agentId = runtime.bootstrap.rootAgentId
+  // A new installation starts with memory on; the switch tests start from off, as if the person had never turned it on.
+  if (memoryOff) await runtime.db.query('UPDATE kipster.installations SET learning_enabled=false')
   await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1', [agentId, JSON.stringify({ adapterId: 'deterministic-fixture', modelId: 'fixture-model' })])
   const { chatId } = await resolveDirectChat(runtime.db, actor, context, agentId)
   const executions = []
@@ -84,12 +86,12 @@ const memoryDefaults = { nightlyModel: null, coreMemoryCount: 60, searchMemoryCo
 const memoryRows = ctx => count(ctx.db, `SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.memories) + (SELECT count(*) FROM kipster.diary)
   + (SELECT count(*) FROM kipster.memory_thread_state) AS n`)
 
-test('memory is off for the installation and on for each agent by default', { skip: noDatabase }, async t => {
-  const ctx = await setup(t)
+test('memory is on for a new installation and for each agent', { skip: noDatabase }, async t => {
+  const ctx = await setup(t, { memoryOff: false })
   await ctx.dispatcher.start()
   assert.deepEqual(await ctx.runtime.learning.get(ctx.actor), {
-    enabled: false, sleepTime: '01:00', revision: 0, available: true,
-    agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: false }],
+    enabled: true, sleepTime: '01:00', revision: 0, available: true,
+    agents: [{ agentId: ctx.agentId, enabled: true, sleepTime: null, revision: 0, effective: true }],
     ...memoryDefaults,
   })
   await completeTextRun(ctx, 'The team meets on Tuesdays')

@@ -67,7 +67,7 @@ async function environment({ limit = 8, memory = false } = {}) {
   e.writer = await create('Writer', e.playground)
   e.scout = await create('Scout', e.studio)
   await e.ok('POST', `/v1/organizations/${e.studio}/memberships`, { version: 1, operationId: randomUUID(), agentId: e.writer })
-  if (memory) await runtime.learning.setInstallation(e.actor, { enabled: true })
+  await runtime.learning.setInstallation(e.actor, { enabled: !!memory })
   e.installation = { kind: 'installation', installationId: e.installationId }
   e.in = organizationId => ({ kind: 'organization', organizationId })
   e.contextOf = agentId => agentId === e.john ? e.installation : agentId === e.scout ? e.in(e.studio) : e.in(e.playground)

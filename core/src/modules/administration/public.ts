@@ -178,7 +178,8 @@ export async function bootstrap(db: Postgres, home: Home, names: { owner: string
     const afterLock = (await client.query<BootstrapRow>('SELECT * FROM kipster.bootstrap')).rows[0]
     if (afterLock) return bootstrapIds(afterLock)
     const installationId = randomUUID(), ownerId = randomUUID(), organizationId = randomUUID(), rootAgentId = randomUUID()
-    await client.query('INSERT INTO kipster.installations(id) VALUES ($1)', [installationId])
+    // A new installation starts with memory on.
+    await client.query('INSERT INTO kipster.installations(id, learning_enabled) VALUES ($1, true)', [installationId])
     await client.query('INSERT INTO kipster.people VALUES ($1,$2,$3)', [ownerId, installationId, names.owner])
     await client.query('INSERT INTO kipster.agents(id, installation_id, display_name, description) VALUES ($1,$2,$3,$4)', [rootAgentId, installationId, names.rootAgent, starter?.rootAgent.description ?? ''])
     await client.query('INSERT INTO kipster.agent_roles VALUES ($1,$2)', [rootAgentId, 'root-admin'])
