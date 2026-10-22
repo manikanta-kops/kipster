@@ -646,7 +646,7 @@ called after the supervisor gave up starts the server again. `status` and
 
 ## Database migrations
 
-Migrations are forward-only. `001_kipster.sql` in `src/platform/postgres/migrations`
+Migrations are forward-only. `001_baseline.sql` in `src/platform/postgres/migrations`
 holds the whole schema as of the last squash. A file merged into `next` is
 shipped: never edit, delete, move or renumber it. Every schema change or fix adds
 `NNN_name.sql` in the owning module's migrations directory, with a unique

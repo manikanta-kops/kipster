@@ -19,9 +19,11 @@ CREATE TABLE kipster.installations (
   learning_revision bigint NOT NULL DEFAULT 0 CHECK (learning_revision >= 0),
   sleep_time time(0) NOT NULL DEFAULT '01:00',
   nightly_model jsonb CHECK (nightly_model IS NULL OR jsonb_typeof(nightly_model) = 'object'),
-  core_card_count integer NOT NULL DEFAULT 60 CHECK (core_card_count BETWEEN 0 AND 200),
-  search_card_count integer NOT NULL DEFAULT 10 CHECK (search_card_count BETWEEN 0 AND 50),
-  search_chunk_count integer NOT NULL DEFAULT 6 CHECK (search_chunk_count BETWEEN 0 AND 30)
+  core_memory_count integer NOT NULL DEFAULT 60 CHECK (core_memory_count BETWEEN 0 AND 200),
+  search_memory_count integer NOT NULL DEFAULT 10 CHECK (search_memory_count BETWEEN 0 AND 50),
+  search_chunk_count integer NOT NULL DEFAULT 6 CHECK (search_chunk_count BETWEEN 0 AND 30),
+  -- The most routine runs one kip starts a day, across its routines.
+  routine_daily_limit integer NOT NULL DEFAULT 50 CHECK (routine_daily_limit BETWEEN 1 AND 1000)
 );
 
 CREATE TABLE kipster.people (
@@ -197,7 +199,7 @@ CREATE TABLE kipster.messages (
 -- started the run. The admin kip reads it to act in that workspace. It stays a plain ID: the
 -- workspace may be deleted later, and the run then simply has none.
 --
--- `trigger_kind` is what started the run: a person's message, a kip's message or a kip's answer.
+-- `trigger_kind` is what started the run: a person's message, a kip's message, a kip's answer or a routine.
 -- A person's run starts a chain at depth 0; runs started by its messages and answers share its
 -- chain and its responsible person. `answered_at` is set once the answer of a kip-started run went
 -- back, or could not.
@@ -219,14 +221,15 @@ CREATE TABLE kipster.text_runs (
   continuation_interaction_id uuid,
   cancel_delivery text NOT NULL DEFAULT 'none' CHECK (cancel_delivery IN ('none','requested','acknowledged','uncertain','confirmed-ended','not-needed')),
   viewing_organization_id uuid,
-  trigger_kind text NOT NULL DEFAULT 'person' CHECK (trigger_kind IN ('person','kip','answer')),
+  trigger_kind text NOT NULL DEFAULT 'person' CHECK (trigger_kind IN ('person','kip','answer','routine')),
   chain_root_id uuid NOT NULL,
   chain_depth integer NOT NULL DEFAULT 0 CHECK (chain_depth BETWEEN 0 AND 16),
   responsible_person_id uuid NOT NULL REFERENCES kipster.people(id),
   answered_at timestamptz
 );
 
-CREATE INDEX text_runs_chain ON kipster.text_runs(chain_root_id) WHERE trigger_kind='answer';
+-- A chain's budget counts its kip messages and answers as the runs they start.
+CREATE INDEX text_runs_chain ON kipster.text_runs(chain_root_id) WHERE trigger_kind IN ('kip','answer');
 
 -- This row is the shared admission lock for text and memory work. `update_request_id` gates
 -- admission across Core restarts until the updater reports a terminal result.
@@ -391,13 +394,16 @@ CREATE TABLE kipster.notifications (
   kind text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   read_at timestamptz,
-  CONSTRAINT notifications_kind_check CHECK (kind IN ('completed','failed','recovery-needed','interaction')),
   interaction_id uuid REFERENCES kipster.interactions(id),
   -- Reading a notification or settling, cancelling or superseding its interaction
   -- takes the next revision and publishes the whole record.
   revision bigint NOT NULL DEFAULT 1,
   -- A cleared notification is gone for clients; the row stays so it keeps its identity and is never created again.
-  cleared_at timestamptz
+  cleared_at timestamptz,
+  -- A `message` notification names the kip's message_user message with normal priority (decision record 12).
+  message_id uuid REFERENCES kipster.messages(id),
+  CONSTRAINT notifications_kind_check CHECK (kind IN ('failed','recovery-needed','interaction','message')),
+  CONSTRAINT notifications_message_check CHECK ((kind = 'message') = (message_id IS NOT NULL))
 );
 
 -- A chat is present while its agent is not being deleted and, for an organization chat, while the
@@ -413,9 +419,11 @@ CREATE FUNCTION kipster.chat_present(chat uuid) RETURNS boolean LANGUAGE sql STA
       AND (c.context_kind = 'installation' OR o.lifecycle NOT IN ('deleting', 'deleted')))
 $$;
 
-CREATE UNIQUE INDEX notifications_terminal_identity ON kipster.notifications(run_id,kind) WHERE interaction_id IS NULL;
+CREATE UNIQUE INDEX notifications_terminal_identity ON kipster.notifications(run_id,kind) WHERE interaction_id IS NULL AND message_id IS NULL;
 
 CREATE UNIQUE INDEX notifications_interaction_identity ON kipster.notifications(interaction_id) WHERE interaction_id IS NOT NULL;
+
+CREATE UNIQUE INDEX notifications_message_identity ON kipster.notifications(message_id) WHERE message_id IS NOT NULL;
 
 CREATE INDEX notifications_chronological ON kipster.notifications (installation_id, recipient_id, created_at, id);
 
@@ -767,10 +775,10 @@ CREATE TABLE kipster.thread_chunks (
   UNIQUE (thread_id, from_position)
 );
 
--- Facts about the user, shared by every agent of the installation. A card
--- learned in an organization thread carries that organization. A replaced
--- card keeps its row, ends at valid_to and names its replacement.
-CREATE TABLE kipster.cards (
+-- Memories: facts about the user, shared by every agent of the installation. A
+-- memory learned in an organization thread carries that organization. A replaced
+-- memory keeps its row, ends at valid_to and names its replacement.
+CREATE TABLE kipster.memories (
   id uuid PRIMARY KEY,
   installation_id uuid NOT NULL REFERENCES kipster.installations(id),
   type text NOT NULL CHECK (type <> ''),
@@ -782,23 +790,54 @@ CREATE TABLE kipster.cards (
   organization_id uuid REFERENCES kipster.organizations(id) ON DELETE CASCADE,
   valid_from timestamptz NOT NULL DEFAULT now(),
   valid_to timestamptz,
-  replaced_by uuid REFERENCES kipster.cards(id) ON DELETE SET NULL,
+  replaced_by uuid REFERENCES kipster.memories(id) ON DELETE SET NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   embedding vector(768),
   embedding_model text,
-  CHECK (valid_to IS NULL OR valid_to >= valid_from),
-  CHECK (embedding IS NULL OR embedding_model IS NOT NULL)
+  CONSTRAINT memories_valid_check CHECK (valid_to IS NULL OR valid_to >= valid_from),
+  CONSTRAINT memories_embedding_check CHECK (embedding IS NULL OR embedding_model IS NOT NULL)
 );
 
--- The user messages each card was learned from. A card left with no source is
+-- The user messages each memory was learned from. A memory left with no source is
 -- deleted with the thread that removed its last one.
-CREATE TABLE kipster.card_sources (
-  card_id uuid NOT NULL REFERENCES kipster.cards(id) ON DELETE CASCADE,
+CREATE TABLE kipster.memory_sources (
+  memory_id uuid NOT NULL REFERENCES kipster.memories(id) ON DELETE CASCADE,
   installation_id uuid NOT NULL REFERENCES kipster.installations(id),
   thread_id uuid NOT NULL REFERENCES kipster.threads(id) ON DELETE CASCADE,
   message_id uuid NOT NULL REFERENCES kipster.messages(id) ON DELETE CASCADE,
-  PRIMARY KEY (card_id, message_id)
+  PRIMARY KEY (memory_id, message_id)
+);
+
+-- A lesson: how one kip should do its work, learned from the person's and other kips' messages. It belongs to the kip
+-- in every workspace; `organization_id` is the workspace it was learned in. `confirmations` counts the nights it came
+-- up, at most one per night (`last_confirmed_night`). An ended lesson keeps its row with `valid_to`, and `replaced_by`
+-- when a merge took its place.
+CREATE TABLE kipster.lessons (
+  id uuid PRIMARY KEY,
+  installation_id uuid NOT NULL REFERENCES kipster.installations(id),
+  agent_id uuid NOT NULL REFERENCES kipster.agents(id) ON DELETE CASCADE,
+  organization_id uuid REFERENCES kipster.organizations(id) ON DELETE CASCADE,
+  statement text NOT NULL CHECK (statement <> ''),
+  confirmations integer NOT NULL DEFAULT 1 CHECK (confirmations >= 1),
+  last_confirmed_night date NOT NULL,
+  valid_from timestamptz NOT NULL DEFAULT now(),
+  valid_to timestamptz,
+  replaced_by uuid REFERENCES kipster.lessons(id) ON DELETE SET NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  embedding vector(768),
+  embedding_model text,
+  CONSTRAINT lessons_valid_check CHECK (valid_to IS NULL OR valid_to >= valid_from),
+  CONSTRAINT lessons_embedding_check CHECK (embedding IS NULL OR embedding_model IS NOT NULL)
+);
+
+CREATE TABLE kipster.lesson_sources (
+  lesson_id uuid NOT NULL REFERENCES kipster.lessons(id) ON DELETE CASCADE,
+  installation_id uuid NOT NULL REFERENCES kipster.installations(id),
+  thread_id uuid NOT NULL REFERENCES kipster.threads(id) ON DELETE CASCADE,
+  message_id uuid NOT NULL REFERENCES kipster.messages(id) ON DELETE CASCADE,
+  PRIMARY KEY (lesson_id, message_id)
 );
 
 -- One page per agent, day and context: a short summary and its threads. The
@@ -824,20 +863,27 @@ CREATE TABLE kipster.diary (
 );
 
 CREATE INDEX thread_chunks_embedding ON kipster.thread_chunks USING hnsw (embedding vector_cosine_ops);
-CREATE INDEX cards_embedding ON kipster.cards USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX memories_embedding ON kipster.memories USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX lessons_embedding ON kipster.lessons USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX diary_embedding ON kipster.diary USING hnsw (embedding vector_cosine_ops);
 
 CREATE INDEX thread_chunks_agent ON kipster.thread_chunks(agent_id, started_at);
 CREATE INDEX thread_chunks_organization ON kipster.thread_chunks(organization_id) WHERE organization_id IS NOT NULL;
 CREATE INDEX thread_chunks_installation_day ON kipster.thread_chunks(installation_id, started_at);
 CREATE INDEX thread_chunks_unembedded ON kipster.thread_chunks(installation_id) WHERE embedding IS NULL;
-CREATE INDEX cards_current ON kipster.cards(installation_id, organization_id) WHERE valid_to IS NULL;
-CREATE INDEX cards_core ON kipster.cards(installation_id) WHERE valid_to IS NULL AND core;
-CREATE INDEX cards_organization ON kipster.cards(organization_id) WHERE organization_id IS NOT NULL;
-CREATE INDEX cards_replaced_by ON kipster.cards(replaced_by) WHERE replaced_by IS NOT NULL;
-CREATE INDEX cards_unembedded ON kipster.cards(installation_id) WHERE embedding IS NULL;
-CREATE INDEX card_sources_thread ON kipster.card_sources(thread_id);
-CREATE INDEX card_sources_message ON kipster.card_sources(message_id);
+CREATE INDEX memories_current ON kipster.memories(installation_id, organization_id) WHERE valid_to IS NULL;
+CREATE INDEX memories_core ON kipster.memories(installation_id) WHERE valid_to IS NULL AND core;
+CREATE INDEX memories_organization ON kipster.memories(organization_id) WHERE organization_id IS NOT NULL;
+CREATE INDEX memories_replaced_by ON kipster.memories(replaced_by) WHERE replaced_by IS NOT NULL;
+CREATE INDEX memories_unembedded ON kipster.memories(installation_id) WHERE embedding IS NULL;
+CREATE INDEX memory_sources_thread ON kipster.memory_sources(thread_id);
+CREATE INDEX memory_sources_message ON kipster.memory_sources(message_id);
+CREATE INDEX lessons_current ON kipster.lessons(agent_id, confirmations DESC, last_confirmed_night DESC) WHERE valid_to IS NULL;
+CREATE INDEX lessons_organization ON kipster.lessons(organization_id) WHERE organization_id IS NOT NULL;
+CREATE INDEX lessons_replaced_by ON kipster.lessons(replaced_by) WHERE replaced_by IS NOT NULL;
+CREATE INDEX lessons_unembedded ON kipster.lessons(installation_id) WHERE embedding IS NULL;
+CREATE INDEX lesson_sources_thread ON kipster.lesson_sources(thread_id);
+CREATE INDEX lesson_sources_message ON kipster.lesson_sources(message_id);
 CREATE INDEX diary_installation_day ON kipster.diary(installation_id, day);
 CREATE INDEX diary_threads ON kipster.diary USING gin (thread_ids);
 CREATE INDEX diary_unembedded ON kipster.diary(installation_id) WHERE embedding IS NULL;
@@ -848,7 +894,7 @@ CREATE INDEX diary_owed ON kipster.diary(agent_id) WHERE summary IS NULL;
 -- or gave up; a later sleep day is due. A failed run is tried again after
 -- `retry_at` and given up after a few failures; its threads keep their
 -- processed position, so the next night catches them up. `repick` is set
--- when a run changed cards and cleared once the core cards are re-picked, so
+-- when a run changed memories and cleared once the core memories are re-picked, so
 -- a failed re-pick is caught up even when no thread waits. `owner` is the Core
 -- incarnation running the agent now: only that incarnation saves results or
 -- records the run's outcome.
@@ -873,7 +919,7 @@ CREATE TABLE kipster.memory_calls (
   installation_id uuid NOT NULL REFERENCES kipster.installations(id),
   agent_id uuid REFERENCES kipster.agents(id) ON DELETE SET NULL,
   thread_id uuid REFERENCES kipster.threads(id) ON DELETE SET NULL,
-  step text NOT NULL CHECK (step IN ('chunks','cards','diary','core')),
+  step text NOT NULL CHECK (step IN ('chunks','memories','lessons','diary','core')),
   state text NOT NULL DEFAULT 'running' CHECK (state IN ('running','completed','failed')),
   failure text,
   created_at timestamptz NOT NULL DEFAULT now(),
@@ -907,7 +953,10 @@ CREATE TABLE kipster.interface_preferences (
   notify_failures boolean,
   notify_replies boolean,
   in_app_banners boolean,
-  dock_badge boolean
+  dock_badge boolean,
+  -- Which threads a chat's feed shows, the same in every chat and window: all, those the person started, those other
+  -- kips started, or routine runs.
+  thread_filter text CHECK (thread_filter IN ('all', 'you', 'kips', 'routines'))
 );
 
 -- What kips may do without asking, for the whole installation. Without a row the mode is `auto`.
@@ -1166,3 +1215,48 @@ CREATE TABLE kipster.plugin_tool_approvals (
   used_at timestamptz
 );
 CREATE INDEX plugin_tool_approvals_run ON kipster.plugin_tool_approvals(run_id, call_key) WHERE used_at IS NULL;
+
+-- Routines ------------------------------------------------------------------
+
+-- Routines (decision record 13): work a kip does on its own when a trigger fires. Each run starts a new thread in
+-- `chat_id`, the kip's chat with the person it acts for. `next_run_at` is null once no trigger fires again.
+-- `request_key` makes a repeated create request return the first routine.
+CREATE TABLE kipster.routines (
+  id uuid PRIMARY KEY,
+  installation_id uuid NOT NULL REFERENCES kipster.installations(id),
+  chat_id uuid NOT NULL REFERENCES kipster.direct_chats(id) ON DELETE CASCADE,
+  agent_id uuid NOT NULL REFERENCES kipster.agents(id),
+  person_id uuid NOT NULL REFERENCES kipster.people(id),
+  created_by uuid NOT NULL,
+  name text NOT NULL CHECK (length(name) BETWEEN 1 AND 200),
+  instructions text NOT NULL CHECK (length(instructions) BETWEEN 1 AND 16000),
+  triggers jsonb NOT NULL CHECK (jsonb_typeof(triggers) = 'array'),
+  time_zone text NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  next_run_at timestamptz,
+  request_key text UNIQUE,
+  revision bigint NOT NULL DEFAULT 1,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX routines_due ON kipster.routines(next_run_at) WHERE enabled AND next_run_at IS NOT NULL;
+CREATE INDEX routines_agent ON kipster.routines(agent_id);
+
+-- One row per scheduled time: `started` with the thread it started, or `skipped` past the kip's daily limit. A time
+-- runs once. "Run now" uses the time it was asked; its `request_key` makes a repeated request start nothing new.
+-- A run keeps its routine's name, so its thread stays marked after the routine is deleted.
+CREATE TABLE kipster.routine_runs (
+  id uuid PRIMARY KEY,
+  routine_id uuid REFERENCES kipster.routines(id) ON DELETE SET NULL,
+  routine_name text NOT NULL,
+  agent_id uuid NOT NULL REFERENCES kipster.agents(id),
+  scheduled_for timestamptz NOT NULL,
+  started_at timestamptz NOT NULL DEFAULT now(),
+  state text NOT NULL CHECK (state IN ('started','skipped')),
+  late boolean NOT NULL DEFAULT false,
+  thread_id uuid REFERENCES kipster.threads(id) ON DELETE SET NULL,
+  request_key text UNIQUE,
+  UNIQUE (routine_id, scheduled_for)
+);
+CREATE INDEX routine_runs_agent_day ON kipster.routine_runs(agent_id, started_at) WHERE state = 'started';
+CREATE INDEX routine_runs_thread ON kipster.routine_runs(thread_id) WHERE thread_id IS NOT NULL;
