@@ -289,6 +289,8 @@ test('identity restore uses the current hash, shows conflicts and archived read-
       data = { version: 1, cursor: 'cursor', agents: [], organizations: [] }
     } else if (path === '/v1/execution-adapters')
       data = { version: 1, cursor: 'cursor', revision: 1, adapters: [] }
+    else if (path === '/v1/settings/permissions')
+      data = { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] }
     else if (path === '/v1/settings/learning')
       data = {
         version: 1,
@@ -297,6 +299,10 @@ test('identity restore uses the current hash, shows conflicts and archived read-
         sleepTime: '01:00',
         revision: 1,
         agents: [],
+        nightlyModel: null,
+        coreMemoryCount: 60,
+        searchMemoryCount: 10,
+        searchChunkCount: 6,
       }
     else if (path === '/v1/directory')
       data = {

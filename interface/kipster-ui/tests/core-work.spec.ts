@@ -637,27 +637,18 @@ test('notification actions batch IDs, skip refusals and fall back to single read
   await withFetch(
     async (url, init) => {
       posts.push({ url, body: JSON.parse(String(init?.body)) })
-      return url.endsWith('/n1/read')
-        ? json(404, { version: 1, code: 'gone', message: 'Gone' })
-        : json(200, { version: 1, status: 'read', notificationIds: [] })
+      return json(200, { version: 1, status: 'read', notificationIds: [] })
     },
     async () => {
-      const batch = createNotificationClient('http://core.test', true)
-      await batch.read(ids, signal)
-      await batch.clear(['n0'], signal)
-      const single = createNotificationClient('http://core.test', false)
-      expect(single.canClear).toBe(false)
-      await single.read(['n0', 'n1', 'n2'], signal)
-      await single.clear(['n0'], signal)
+      const client = createNotificationClient('http://core.test')
+      await client.read(ids, signal)
+      await client.clear(['n0'], signal)
     },
   )
   expect(posts.map((p) => p.url)).toEqual([
     'http://core.test/v1/notifications/read',
     'http://core.test/v1/notifications/read',
     'http://core.test/v1/notifications/clear',
-    'http://core.test/v1/notifications/n0/read',
-    'http://core.test/v1/notifications/n1/read',
-    'http://core.test/v1/notifications/n2/read',
   ])
   expect(posts[0].body).toEqual({
     version: 1,
@@ -667,8 +658,7 @@ test('notification actions batch IDs, skip refusals and fall back to single read
   await expect(
     withFetch(
       async () => json(503, { version: 1, code: 'unavailable', message: '' }),
-      () =>
-        createNotificationClient('http://core.test', true).read(ids, signal),
+      () => createNotificationClient('http://core.test').read(ids, signal),
     ),
   ).rejects.toThrow()
 })
@@ -678,7 +668,8 @@ test('inbox entries say who did what, with the excerpt and where', () => {
     id: 'done',
     threadId: 'thread',
     runId: 'run',
-    kind: 'completed',
+    kind: 'message',
+    messageId: 'summary',
     read: false,
     revision: 1,
     createdAt,

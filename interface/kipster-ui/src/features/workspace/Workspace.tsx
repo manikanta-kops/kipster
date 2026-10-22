@@ -814,8 +814,7 @@ export function Workspace({
               knownNotices.current.add(note.id)
             setNotices((old) => mergeAppNotices(old, snap.notifications))
             setAppReady(true)
-            if (identity.capabilities?.documents)
-              void documents.refresh(abort.signal).catch(() => undefined)
+            void documents.refresh(abort.signal).catch(() => undefined)
             cursor = snap.cursor
           }
           setConnection('')
@@ -878,10 +877,7 @@ export function Workspace({
                 applicationUpdates.publish({ kind: 'connection', message: '' })
                 softwareUpdates.connectionRestored()
                 // Read the shared interface choices again; this window's own fill those Core never saved.
-                if (
-                  interfacePreferences &&
-                  identity.capabilities?.interfacePreferences
-                ) {
+                if (interfacePreferences) {
                   const own = (key: string) =>
                     platform?.preferences.get(key) ?? null
                   const alerts = own(
@@ -1365,7 +1361,7 @@ export function Workspace({
             : agentLabel(directory, items.at(-1)!.authorId)
           : undefined,
       participantIds: [...new Set(items.map((m) => m.authorId))],
-      startedBy: summary.startedBy ?? items[0]?.authorId,
+      startedBy: summary.startedBy,
       linkedFrom: summary.linkedFrom,
       links: summary.links,
     }
@@ -1518,8 +1514,7 @@ export function Workspace({
           ...(threadId ? { threadId } : {}),
         }}
         viewingOrganizationId={
-          context.kind === 'installation' &&
-          identity.capabilities?.viewingWorkspace === true
+          context.kind === 'installation'
             ? (nav.organizationId ?? undefined)
             : undefined
         }
@@ -1608,9 +1603,7 @@ export function Workspace({
     : []
   const notifications = useNotifications({
     endpoint: client.endpoint,
-    actions: identity
-      ? identity.capabilities?.notificationActions === true
-      : undefined,
+    connected: !!identity,
     scope,
     items: inbox,
     arrivals,
@@ -2040,7 +2033,6 @@ export function Workspace({
       e.operation.target.threadId !== selected &&
       !['accepted', 'rejected'].includes(e.state),
   )
-  const docsEnabled = identity.capabilities?.documents === true
   const documentsContext = {
     store: documents,
     scope: identity,
@@ -2062,7 +2054,7 @@ export function Workspace({
     <WorkspaceContext.Provider
       value={{
         ...mediaWorkspace,
-        documents: docsEnabled ? documentsContext : null,
+        documents: documentsContext,
       }}
     >
       <QueryClientProvider client={queries}>
@@ -2388,7 +2380,7 @@ export function Workspace({
             </div>
           </main>
           <AnimatePresence initial={false} mode="popLayout">
-            {openDoc && docsEnabled ? (
+            {openDoc ? (
               <DocPane
                 key={`doc:${openDoc}`}
                 id={openDoc}
@@ -2557,9 +2549,7 @@ export function Workspace({
               softwareUpdates={softwareUpdates}
               initialTab={settingsInitialTab}
               versions={identity}
-              permissionModes={identity.capabilities?.permissionModes === true}
-              memories={identity.capabilities?.memories === true}
-              plugins={identity.capabilities?.plugins === true}
+              plugins={identity.capabilities.plugins}
               manage={
                 <Management
                   data={view}

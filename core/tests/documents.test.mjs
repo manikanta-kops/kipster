@@ -110,7 +110,6 @@ test('a kip writes a doc, the user answers, edits, comments and submits, and the
   assert.deepEqual(first.current.blocks.map(block => block.type), ['heading', 'paragraph', 'question', 'checklist'])
   assert.deepEqual(first.current.changes.added, first.current.blocks.map(block => block.id))
   assert.deepEqual(documentList.parse(await ctx.ok('GET', '/v1/documents')).documents.map(entry => entry.id), [id])
-  assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.documents, true)
 
   const [heading, paragraph, question, checklist] = first.current.blocks
   const blocks = [

@@ -15,13 +15,11 @@ export type AdapterFactory<Host, Adapter> = (host: Host, config?: Readonly<Recor
 export interface ToolDefinition {
   readonly name: string
   readonly description: string
-  readonly inputSchema: Readonly<Record<string, unknown>>
   /**
-   * Core no longer sets it; the values stay so released adapters keep compiling. A call whose result has
-   * `status: 'pending'` and an `interactionId`, such as `message_user` with an element, leaves the run waiting on the
-   * person's answer once the provider turn ends. A provider turn may leave one interaction pending.
+   * A call whose result has `status: 'pending'` and an `interactionId`, such as `message_user` with an element,
+   * leaves the run waiting on the person's answer once the provider turn ends.
    */
-  readonly waits?: 'question' | 'approval' | 'child'
+  readonly inputSchema: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -216,7 +214,7 @@ export type ExecutionEvent =
    * progress note or the answer. Text executions do not show it: a kip reaches the person with
    * `message_user`. Maintenance executions return their answer this way. */
   | { readonly kind: 'text'; readonly attemptId: string; readonly messageId: string; readonly text: string; readonly final: boolean; readonly phase?: 'progress' | 'answer' }
-  | { readonly kind: 'waiting'; readonly attemptId: string; readonly for: 'question' | 'approval' | 'child'; readonly interactionId: string }
+  | { readonly kind: 'waiting'; readonly attemptId: string; readonly for: 'question' | 'approval'; readonly interactionId: string }
   | { readonly kind: 'ended'; readonly attemptId: string; readonly confirmed: true }
   | { readonly kind: 'failed'; readonly attemptId: string; readonly confirmedEnded: boolean; readonly message: string }
 export interface ExecutionHandle {

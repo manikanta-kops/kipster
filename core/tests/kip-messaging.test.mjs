@@ -181,12 +181,7 @@ scenario('1. the admin kip asks while you wait: the answer lands in your thread 
   // Kip messages, answers and finished turns notify nobody; the woken sender's message to the person does.
   assert.deepEqual((await e.notifications(sent.threadId)), [])
   assert.deepEqual((await e.notifications(asked.threadId)).map(row => [row.kind, row.run_id]), [['message', answerRun.id]])
-  const snapshot = await e.snapshot(asked.threadId)
-  assert.deepEqual(snapshot.delegations, [])
-  for (const event of (await readEvents(e.db, { kind: 'thread', installationId: e.installationId, callerId: e.ownerId, threadId: asked.threadId }, `t:${asked.threadId}:0`, 1000)).events) {
-    textEvent.parse(event)
-    assert.notEqual(event.type, 'delegation-changed')
-  }
+  for (const event of (await readEvents(e.db, { kind: 'thread', installationId: e.installationId, callerId: e.ownerId, threadId: asked.threadId }, `t:${asked.threadId}:0`, 1000)).events) textEvent.parse(event)
   // Summary events of the source thread show it waiting, then answered.
   const summaries = (await readEvents(e.db, { kind: 'application', installationId: e.installationId, callerId: e.ownerId }, `a:${e.installationId}:0`, 1000)).events
     .filter(event => event.type === 'thread-summary' && event.resourceId === asked.threadId).map(event => appThreadSummary.parse(event.data).links?.[0]?.waiting)

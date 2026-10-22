@@ -34,18 +34,10 @@ export type Bootstrap = Scope & {
   rootAgentId: string
   coreVersion: string
   protocol: ProtocolRange
-  capabilities?: {
+  capabilities: {
     voiceRecording: boolean
-    interfacePreferences?: boolean
-    notificationActions?: boolean
-    documents?: boolean
-    permissionModes?: boolean
-    /** Core lists, reads, edits and deletes memories and lessons. */
-    memories?: boolean
-    /** Kipster Plugins are ready; absent from Cores that predate them. */
-    plugins?: boolean
-    /** Core accepts the open workspace with a message. */
-    viewingWorkspace?: boolean
+    /** Kipster Plugins are ready. */
+    plugins: boolean
   }
 }
 export type Summary = {
@@ -530,18 +522,9 @@ export class TextClient {
         typeof data.coreVersion === 'string' &&
         data.coreVersion !== '' &&
         isProtocolRange(data.protocol) &&
-        (data.capabilities === undefined ||
-          (record(data.capabilities) &&
-            typeof data.capabilities.voiceRecording === 'boolean' &&
-            ['undefined', 'boolean'].includes(
-              typeof data.capabilities.notificationActions,
-            ) &&
-            ['undefined', 'boolean'].includes(
-              typeof data.capabilities.documents,
-            ) &&
-            ['undefined', 'boolean'].includes(
-              typeof data.capabilities.memories,
-            ))),
+        record(data.capabilities) &&
+        typeof data.capabilities.voiceRecording === 'boolean' &&
+        typeof data.capabilities.plugins === 'boolean',
     )
     return data as Bootstrap
   }

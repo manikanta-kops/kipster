@@ -238,6 +238,10 @@ test('adapter and learning merges ignore older revisions', () => {
     sleepTime: '02:30',
     revision: 5,
     available: true,
+    nightlyModel: null,
+    coreMemoryCount: 60,
+    searchMemoryCount: 10,
+    searchChunkCount: 6,
     agents: {
       scout: {
         agentId: 'scout',

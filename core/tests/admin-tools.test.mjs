@@ -704,7 +704,6 @@ test('saving workspace instructions or an identity file over HTTP publishes a ch
 test('the permission mode is saved in Core, published, and given to the next execution of every kip', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const cursor = (await ctx.ok('GET', '/v1/directory')).cursor
-  assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.permissionModes, true)
   assert.deepEqual(await ctx.ok('GET', '/v1/settings/permissions'), { version: 1, revision: 0, mode: 'auto', alwaysAllowed: [] })
 
   const first = await ctx.start()

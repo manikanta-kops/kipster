@@ -392,7 +392,6 @@ test('notifications preview the message, the failure or the question', { skip: n
 
 test('batch read and clear act on the caller\'s notifications only', { skip: noDatabase, timeout: 90000 }, async t => {
   const ctx = await setup(t)
-  assert.equal((await ctx.ok('GET', '/v1/bootstrap')).capabilities.notificationActions, true)
   const org = await ctx.organization('Acme')
   const { agent } = await ctx.agent('Scout', org.id)
   const chatId = await ctx.chat(org.id, agent.id)

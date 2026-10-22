@@ -300,8 +300,6 @@ class CodexAdapter implements MaintenanceCapableAdapter {
       owned.turnId = string(object(turn.turn).id)
       if (!owned.turnId) throw new Error('Codex turn ID is missing')
       queue.push({ kind: 'provider', attemptId: context.attemptId, threadId: owned.threadId, turnId: owned.turnId, processId: rpc.process.pid!, providerStateScope: 'shared-codex-home', workingDirectory: context.workingDirectory, modelId: model, ...(context.settings?.effort ? { effort: context.settings.effort } : {}) })
-      let requestedInteraction = false
-      let repeatedInteraction = false
       let yielding = false
       const texts = new Map<string, string>()
       const finalized = new Set<string>()
@@ -370,18 +368,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
             try {
               const tool = tools.find(item => item.name === string(params.tool))
               if (!tool) throw new Error('Unsupported tool or invalid arguments')
-              if (tool.waits === 'question' || tool.waits === 'approval') {
-                if (requestedInteraction) { repeatedInteraction = true; throw new Error('Only one interaction is supported per provider turn') }
-                requestedInteraction = true
-              }
               const result = await this.host.invokeTool({ attemptId: context.attemptId, callId, name: tool.name, arguments: args })
-              const saved = object(result)
-              if (tool.waits === 'question' || tool.waits === 'approval') {
-                if (saved.status !== 'pending' || !string(saved.interactionId)) throw new Error('Interaction was not recorded')
-                queue.push({ kind: 'waiting', attemptId: context.attemptId, for: tool.waits, interactionId: string(saved.interactionId)! })
-              } else if (tool.waits === 'child' && !['completed', 'failed', 'cancelled', 'recovery-needed'].includes(String(saved.state))) {
-                queue.push({ kind: 'waiting', attemptId: context.attemptId, for: 'child', interactionId: string(saved.id) ?? callId })
-              }
               await rpc.respond(message.id as number | string, { contentItems: [{ type: 'inputText', text: JSON.stringify(result) }], success: true })
             } catch (error) { await rpc.respond(message.id as number | string, { contentItems: [{ type: 'inputText', text: String(error) }], success: false }).catch(() => undefined) }
           })()
@@ -406,8 +393,7 @@ class CodexAdapter implements MaintenanceCapableAdapter {
         } else if (method === 'turn/completed' && string(object(params.turn).id) === owned.turnId) {
           owned.ended = true
           const status = string(object(params.turn).status)
-          if (status === 'completed' && repeatedInteraction) queue.push({ kind: 'failed', attemptId: context.attemptId, confirmedEnded: true, message: 'Provider repeated an interaction request in one turn' })
-          else if (status === 'completed') queue.push({ kind: 'ended', attemptId: context.attemptId, confirmed: true })
+          if (status === 'completed') queue.push({ kind: 'ended', attemptId: context.attemptId, confirmed: true })
           else queue.push({ kind: 'failed', attemptId: context.attemptId, confirmedEnded: true, message: `Codex turn ${status ?? 'ended'}` })
           queue.finish()
           rpc.listeners.delete(onMessage)

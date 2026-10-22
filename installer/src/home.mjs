@@ -1,5 +1,4 @@
-import { cp, lstat, open, readdir, rename, rm } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
+import { cp, lstat, open, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { exists, json, privateDirectory, save, syncDirectory } from './files.mjs'
 
@@ -43,13 +42,3 @@ export async function restoreHome(home, work) {
   await syncDirectory(home)
 }
 
-/** Older installers restored only the database; preserve their orphaned home. */
-export async function preserveFailedHome(home) {
-  const backup = join(home, 'backups', 'failed-install-home-' + randomUUID())
-  await privateDirectory(backup)
-  for (const name of paths) if (await exists(join(home, name))) {
-    await rename(join(home, name), join(backup, name))
-    await syncDirectory(backup); await syncDirectory(home)
-  }
-  return backup
-}

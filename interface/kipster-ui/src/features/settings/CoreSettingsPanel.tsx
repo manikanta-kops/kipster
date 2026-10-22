@@ -164,8 +164,6 @@ export function CoreSettingsPanel({
   versions,
   updates,
   softwareUpdates,
-  permissionModes = false,
-  memories = false,
   plugins = false,
   initialTab,
   appearance,
@@ -191,10 +189,6 @@ export function CoreSettingsPanel({
   versions?: { coreVersion: string; protocol: ProtocolRange }
   updates?: ApplicationUpdates
   softwareUpdates?: SoftwareUpdates
-  /** Core advertises the permission mode setting. */
-  permissionModes?: boolean
-  /** Core advertises the memory and lesson actions. */
-  memories?: boolean
   /** Core reports Kipster Plugins ready. */
   plugins?: boolean
   initialTab?: 'workspace' | 'updates' | 'plugins'
@@ -209,7 +203,7 @@ export function CoreSettingsPanel({
   const platform = useContext(PlatformContext)
   const docs = useDocumentsContext()
   const client = useMemo(() => new CoreSettingsClient(endpoint), [endpoint])
-  const settings = useCoreSettings(client, scope, updates, permissionModes)
+  const settings = useCoreSettings(client, scope, updates)
   const pluginsClient = useMemo(() => createPluginsClient(endpoint), [endpoint])
   const journalScope = JSON.stringify([
     client.endpoint,
@@ -228,7 +222,7 @@ export function CoreSettingsPanel({
     organization: true,
     adapters: true,
     plugins,
-    permissions: permissionModes,
+    permissions: true,
     learning: true,
     connection: !!changeConnection,
     archive: !!lifecycle,
@@ -409,34 +403,26 @@ export function CoreSettingsPanel({
         case 'adapter':
           return <AdapterPage settings={settings} adapterId={frame.adapterId} />
         case 'memories':
-          return (
-            memories && <MemoriesPage client={client} directory={directory} />
-          )
+          return <MemoriesPage client={client} directory={directory} />
         case 'memory':
           return (
-            memories && (
-              <MemoryPage
-                key={frame.memoryId}
-                client={client}
-                directory={directory}
-                memoryId={frame.memoryId}
-              />
-            )
+            <MemoryPage
+              key={frame.memoryId}
+              client={client}
+              directory={directory}
+              memoryId={frame.memoryId}
+            />
           )
         case 'lessons':
-          return (
-            memories && <LessonsPage client={client} directory={directory} />
-          )
+          return <LessonsPage client={client} directory={directory} />
         case 'lesson':
           return (
-            memories && (
-              <LessonPage
-                key={frame.lessonId}
-                client={client}
-                directory={directory}
-                lessonId={frame.lessonId}
-              />
-            )
+            <LessonPage
+              key={frame.lessonId}
+              client={client}
+              directory={directory}
+              lessonId={frame.lessonId}
+            />
           )
         case 'instructions':
           return (
@@ -536,9 +522,7 @@ export function CoreSettingsPanel({
           )
         )
       case 'learning':
-        return (
-          <LearningPage settings={settings} look={look} memories={memories} />
-        )
+        return <LearningPage settings={settings} look={look} />
     }
   }
 

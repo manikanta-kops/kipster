@@ -16,12 +16,9 @@ type State = 'idle' | 'saving' | { error: string }
 export function LearningPage({
   settings,
   look,
-  memories,
 }: {
   settings: Settings
   look: (agentId: string) => KipLook
-  /** Core advertises the memory and lesson actions. */
-  memories: boolean
 }) {
   const learning = settings.learning!
   const directory: Directory = settings.directory!
@@ -104,28 +101,22 @@ export function LearningPage({
           Not saved: {state.error}
         </p>
       )}
-      {learning.coreMemoryCount !== undefined && (
-        <>
-          <NightlyModel settings={settings} />
-          <MemoryCounts settings={settings} learning={learning} />
-        </>
-      )}
-      {memories && (
-        <Block>
-          <Row
-            label="Memories"
-            sub="What your kips remember about you. Read, correct or delete it."
-            chevron
-            onClick={() => push({ kind: 'memories', title: 'Memories' })}
-          />
-          <Row
-            label="Lessons"
-            sub="What each kip learned about doing its work."
-            chevron
-            onClick={() => push({ kind: 'lessons', title: 'Lessons' })}
-          />
-        </Block>
-      )}
+      <NightlyModel settings={settings} />
+      <MemoryCounts settings={settings} learning={learning} />
+      <Block>
+        <Row
+          label="Memories"
+          sub="What your kips remember about you. Read, correct or delete it."
+          chevron
+          onClick={() => push({ kind: 'memories', title: 'Memories' })}
+        />
+        <Row
+          label="Lessons"
+          sub="What each kip learned about doing its work."
+          chevron
+          onClick={() => push({ kind: 'lessons', title: 'Lessons' })}
+        />
+      </Block>
       {agents.length > 0 && (
         <Block
           label="Kips"

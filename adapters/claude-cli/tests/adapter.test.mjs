@@ -31,7 +31,7 @@ async function fixture(t) {
 }
 const tools = [
   { name: 'notes_echo', description: 'Echo a note.', inputSchema: { type: 'object', properties: { note: { type: 'string' } }, required: ['note'] } },
-  { name: 'ask_user_question', description: 'Ask.', inputSchema: { type: 'object' }, waits: 'question' },
+  { name: 'ask_user_question', description: 'Ask.', inputSchema: { type: 'object' } },
 ]
 const context = (f, extra = {}) => ({ runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', workingDirectory: f.home, instructions: 'You are Kip.', prompt: 'Core prompt', tools, settings: { adapterId: 'claude-cli', modelId: 'opus', effort: 'high' }, triggerMessageId: 'm1', input: [{ messageId: 'm1', text: 'Hi' }], ...extra })
 async function collect(handle) { const events = []; for await (const event of handle.events) events.push(event); return events }
@@ -183,17 +183,6 @@ test('AskUserQuestion becomes a Core question whose saved answer reaches Claude'
   const decision = (await f.records()).findLast(record => record.decision).decision
   assert.equal(decision.behavior, 'allow')
   assert.deepEqual(decision.updatedInput.answers, { 'Which city?': 'Rome' })
-})
-
-test('a repeated interaction request in one turn is refused and fails the attempt visibly', async t => {
-  const f = await fixture(t)
-  await ready(f)
-  await f.mode('repeat')
-  const events = await collect(await f.adapter.execute(context(f)))
-  assert.equal(f.calls.length, 1)
-  assert.equal(events.filter(event => event.kind === 'waiting').length, 1)
-  assert.equal((await f.records()).find(record => record.second).second.isError, true)
-  assert.match(events.at(-1).message, /repeated an interaction/)
 })
 
 test('a failed turn and a cancelled turn end visibly with confirmed process exit', async t => {

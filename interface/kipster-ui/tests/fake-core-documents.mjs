@@ -87,10 +87,8 @@ const answer = (blocks) =>
       : b,
   )
 
-test('bootstrap advertises docs and the seeded doc reads as the contract', async (t) => {
+test('the seeded doc reads as the contract', async (t) => {
   const { json, detail, summary, path } = await seeded(t)
-  const bootstrap = await json('/v1/bootstrap')
-  assert.equal(bootstrap.capabilities.documents, true)
   assert.equal(summary.turn, 'user')
   assert.equal(summary.currentRevision, 3)
   assert.equal(summary.pendingQuestions, 3)

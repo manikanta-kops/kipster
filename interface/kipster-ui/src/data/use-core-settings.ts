@@ -50,15 +50,13 @@ export function useCoreSettings(
   client: CoreSettingsClient,
   scope: Scope,
   updates?: ApplicationUpdates,
-  permissionModes = false,
 ) {
   const queries = useQueryClient()
   const [saved, setSaved] = useState<SavedSettings | null>(null)
   const [permissions, setPermissions] = useState<Permissions | null>(null)
   const readPermissions = useCallback(
-    (signal: AbortSignal) =>
-      permissionModes ? client.permissions(signal) : Promise.resolve(null),
-    [client, permissionModes],
+    (signal: AbortSignal) => client.permissions(signal),
+    [client],
   )
   const keepPermissions = (next: Permissions | null) =>
     setPermissions(newer(next))

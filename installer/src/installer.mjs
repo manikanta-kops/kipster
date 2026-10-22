@@ -8,7 +8,7 @@ import { atomic, canonicalHome, exists, json, locked, point, privateDirectory, s
 import { Database, databaseEndpoint } from './database.mjs'
 import { run } from './process.mjs'
 import { safeError } from './diagnostics.mjs'
-import { snapshotHome, restoreHome, preserveFailedHome } from './home.mjs'
+import { snapshotHome, restoreHome } from './home.mjs'
 import { health, hostCLI, hostCommand, recoverOwnership, register, runtimeEnvironment, stop, templates, unregister, writeServices } from './services.mjs'
 import { installApp, installedApp, packagedApp, readRuntime, restoreApp, validateNode, writeRuntime } from './backend.mjs'
 import { embeddingPackage, embeddingRuntime, installEmbeddingRuntime, withEmbedding } from './embedding.mjs'
@@ -555,13 +555,6 @@ export async function install(options, hooks) {
     const current = await installer.current()
     if (current) return { ...await Installer.open(home, hooks).then(existing => existing.status()), alreadyInstalled: true }
     await installer.database.check()
-    if (await exists(join(installer.directory, 'first-install-failed.json')) && await exists(join(home, 'installation.json'))) {
-      const hasBootstrap = await installer.database.query("SELECT to_regclass('kipster.bootstrap') IS NOT NULL") === 't'
-      if (!hasBootstrap || await installer.database.query('SELECT count(*) FROM kipster.bootstrap') === '0') {
-        const backup = await preserveFailedHome(home)
-        console.log(`Preserved home files from an earlier failed install at ${backup}.`)
-      }
-    }
     const target = options.version ?? (await installer.catalog.read(settings.channel + '.json'))['@kipster/core']?.version
     await save(join(home, 'updater.json'), settings)
     await save(join(home, 'host.json'), installer.config)

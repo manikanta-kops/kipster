@@ -201,55 +201,6 @@ test('the nightly model and the memory counts are saved in Core', async ({
     .toBeNull()
 })
 
-test('a Core without memories shows the Memory switch and sleep time, but no Memories, Lessons or memory counts', async ({
-  page,
-}) => {
-  await page.route('**/v1/bootstrap', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    delete body.capabilities.memories
-    await route.fulfill({ response, json: body })
-  })
-  // An older Core's learning settings have no nightly model or counts.
-  await page.route('**/v1/settings/learning', async (route) => {
-    const response = await route.fetch()
-    const {
-      nightlyModel: _model,
-      coreMemoryCount: _core,
-      searchMemoryCount: _cards,
-      searchChunkCount: _chunks,
-      ...body
-    } = await response.json()
-    await route.fulfill({ response, json: body })
-  })
-  const reads: string[] = []
-  page.on('request', (request) => {
-    if (request.url().includes('/v1/memory/')) reads.push(request.url())
-  })
-  await startDemo(page)
-  await openMemory(page)
-  const learn = page.getByRole('switch', { name: 'Learn from conversations' })
-  await expect(learn).toBeVisible()
-  await expect(page.getByLabel('Default sleep time')).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Memories/ })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: /^Lessons/ })).toHaveCount(0)
-  await expect(
-    page.getByRole('combobox', { name: 'Nightly model' }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('spinbutton', { name: 'Core memories' }),
-  ).toHaveCount(0)
-
-  const enabled = (await coreJson(page, '/v1/settings/learning')).enabled
-  await learn.click()
-  await expect
-    .poll(async () => (await coreJson(page, '/v1/settings/learning')).enabled)
-    .toBe(!enabled)
-  expect(reads).toEqual([])
-  // Finish in-flight settings reads before Playwright disposes their responses.
-  await page.unrouteAll({ behavior: 'wait' })
-})
-
 test('a Core advertising memories offers Memories, which lists them', async ({
   page,
 }) => {

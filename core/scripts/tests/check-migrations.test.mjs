@@ -97,7 +97,7 @@ test('parallel 014 additions pass separately, then fail on the push after the se
 
 test('a squash into one new 001 file passes; partial squashes and squashes into a shipped path fail', async t => {
   const f = fixture(t)
-  const squashed = 'core/src/platform/postgres/migrations/001_kipster.sql'
+  const squashed = 'core/src/platform/postgres/migrations/001_baseline.sql'
   rmSync(path.join(f.root, first))
   rmSync(path.join(f.root, last))
   f.write(squashed, 'CREATE SCHEMA kipster;\nCREATE TABLE kipster.identity(id int);\n')

@@ -572,40 +572,6 @@ test('an Updates row groups its thread and clears it in one go', async ({
   await expect(page.getByText('You’re all caught up')).toHaveCount(0)
 })
 
-test('without batch actions, Clear is hidden and reads go one by one', async ({
-  page,
-}) => {
-  await page.route('**/v1/bootstrap', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    delete body.capabilities.notificationActions
-    await route.fulfill({ response, json: body })
-  })
-  const single: string[] = []
-  const batch: string[] = []
-  page.on('request', (r) => {
-    if (/\/v1\/notifications\/[^/]+\/read$/.test(r.url())) single.push(r.url())
-    if (/\/v1\/notifications\/(read|clear)$/.test(r.url())) batch.push(r.url())
-  })
-  await startDemo(page)
-  await openInbox(page)
-  await expect(
-    page.getByRole('button', { name: 'Mark all read', exact: true }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Clear all', exact: true }),
-  ).toHaveCount(0)
-  await expect(page.locator('.note .clear-x')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Mark all read', exact: true }).click()
-  await expect
-    .poll(async () =>
-      (await demo(page, '/inspect')).notifications.every((n: any) => n.read),
-    )
-    .toBe(true)
-  expect(single).toHaveLength(8)
-  expect(batch).toHaveLength(0)
-})
-
 test('a failed read is sent again and never answers a question', async ({
   page,
 }) => {

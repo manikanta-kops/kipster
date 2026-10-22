@@ -315,7 +315,7 @@ const chunks = (ids: string[]) =>
  * attempt; other failures throw and the caller sends the same IDs again. Without batch
  * actions, reads go one by one and nothing can be cleared.
  */
-export function createNotificationClient(endpoint: string, batch: boolean) {
+export function createNotificationClient(endpoint: string) {
   const send = async (path: string, body: unknown, signal: AbortSignal) => {
     try {
       return await post(endpoint, path, body, signal)
@@ -324,25 +324,15 @@ export function createNotificationClient(endpoint: string, batch: boolean) {
     }
   }
   return {
-    canClear: batch,
     async read(ids: string[], signal: AbortSignal) {
-      if (batch)
-        for (const notificationIds of chunks(ids))
-          await send(
-            '/v1/notifications/read',
-            { version: 1, notificationIds },
-            signal,
-          )
-      else
-        for (const id of ids)
-          await send(
-            `/v1/notifications/${encodeURIComponent(id)}/read`,
-            { version: 1 },
-            signal,
-          )
+      for (const notificationIds of chunks(ids))
+        await send(
+          '/v1/notifications/read',
+          { version: 1, notificationIds },
+          signal,
+        )
     },
     async clear(ids: string[], signal: AbortSignal) {
-      if (!batch) return
       for (const notificationIds of chunks(ids))
         await send(
           '/v1/notifications/clear',
@@ -378,7 +368,7 @@ export function inboxItems(input: {
     const kind =
       n.kind === 'interaction'
         ? (interaction?.kind ?? 'question')
-        : n.kind === 'completed' || n.kind === 'message'
+        : n.kind === 'message'
           ? 'completion'
           : n.kind === 'failed'
             ? 'failure'

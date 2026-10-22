@@ -11,8 +11,7 @@ export type InterfaceChange = Partial<Omit<InterfaceChoices, 'revision'>>
 /**
  * The installation's interface choices as Core keeps them, so Kip and every
  * window share one palette, theme and desktop alert setting. It stays empty
- * until the connected Core advertises them; windows then use their own saved
- * choices.
+ * until Core's choices are read.
  */
 export class InterfacePreferences {
   private readonly client: CoreSettingsClient
@@ -21,7 +20,7 @@ export class InterfacePreferences {
   constructor(endpoint: string) {
     this.client = new CoreSettingsClient(endpoint)
   }
-  /** Core's choices, or null while Core does not keep them. */
+  /** Core's choices, or null until they are read. */
   get value() {
     return this.current
   }
@@ -56,17 +55,10 @@ export class InterfacePreferences {
     )
     if (Object.keys(missing).length) await this.save(missing, signal)
   }
-  /** Saves the choices Core keeps; an older Core may keep only some, or none. */
+  /** Saves the given choices in Core. */
   async save(change: InterfaceChange, signal = AbortSignal.timeout(15000)) {
-    const current = this.current
-    if (!current) return
-    const kept = Object.fromEntries(
-      Object.entries(change).filter(
-        ([key]) => current[key as keyof InterfaceChange] !== undefined,
-      ),
-    )
-    if (!Object.keys(kept).length) return
-    this.accept(await this.client.saveInterfacePreferences(kept, signal))
+    if (!this.current || !Object.keys(change).length) return
+    this.accept(await this.client.saveInterfacePreferences(change, signal))
   }
 }
 

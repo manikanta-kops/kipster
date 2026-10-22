@@ -125,9 +125,7 @@ Planner and Researcher are workspace kips; John is the admin kip.
 
 Additions, following [decision block 5, section 5.1.7](./05-kipster-protocol.md).
 Core always sends the new fields once kip messaging runs; they are optional in
-the schemas so the change stays additive. The one non-additive change, the
-optional `delegations` list below, raises the protocol to 3 while Core keeps
-serving protocols 1 and 2.
+the schemas so the change stays additive.
 
 - A thread summary (`appThreadSummary`) gains:
   - `startedBy`: the author of the thread's first message, the person or a kip.
@@ -148,9 +146,7 @@ serving protocols 1 and 2.
     the sender. Clients recognise it because its `authorId` equals the thread's
     `linkedFrom.agentId`.
 - The thread snapshot's `delegations` list and the `delegation-changed` event
-  are deprecated, and clients ignore them. The list is optional from protocol
-  3. Clients of protocols 1 and 2 require it, so Core keeps sending it, empty
-  once delegation is gone, while it serves them.
+  are removed.
 
 ## 5. Not in this version
 

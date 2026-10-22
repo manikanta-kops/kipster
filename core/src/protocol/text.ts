@@ -85,9 +85,9 @@ export const interactionState = union(literal('pending'), literal('settled'), li
 /**
  * An interaction notification carries its interaction's current state; each change takes the next revision.
  * `preview` is a short single-line excerpt: the message's text, the failure reason or the interaction prompt. A
- * `message` notification names the kip's message in `messageId`; `completed` is no longer sent.
+ * `message` notification names the kip's message in `messageId`.
  */
-export const notification = object({ id, threadId: id, runId: id, kind: union(literal('completed'), literal('failed'), literal('recovery-needed'),literal('interaction'),literal('message')), interactionId: optional(id), interactionState: optional(interactionState), messageId: optional(id), read: boolean(), revision: integer(), createdAt: utcTimestamp(), preview: optional(string()) }, false)
+export const notification = object({ id, threadId: id, runId: id, kind: union(literal('failed'), literal('recovery-needed'),literal('interaction'),literal('message')), interactionId: optional(id), interactionState: optional(interactionState), messageId: optional(id), read: boolean(), revision: integer(), createdAt: utcTimestamp(), preview: optional(string()) }, false)
 /** Reads or clears up to 200 distinct notifications of the caller. */
 export const notificationBatch = object({ version: optional(literal(1)), notificationIds: array(id) })
 export type NotificationBatch = Infer<typeof notificationBatch>
@@ -115,16 +115,7 @@ export const interactionAnswer = union(
   object({kind:literal('decline'),comment:optional(string())}),
 )
 export const threadInteraction = object({ id, version:literal(1), runId:id, attemptId:id, kind:union(literal('question'),literal('approval')), proposalId:optional(id), proposal:optional(nonempty()), prompt:string(), options:array(object({id,label:nonempty()})), freeText:boolean(), grant:optional(approvalGrant), state:interactionState, revision:integer(), sourceAgentId:optional(id), response:optional(object({operationId:id,actorId:id,answer:interactionAnswer,acceptedAt:utcTimestamp()})) }, false)
-/**
- * Deprecated by kip messaging (decision record 11): clients ignore it and `delegation-changed`.
- * `parentRunId` and `childRunId` are null once the agent that ran that side was permanently deleted.
- */
-export const threadDelegation = object({id,parentRunId:nullable(id),childRunId:nullable(id),senderAgentId:id,recipientAgentId:id,originThreadId:id,depth:integer(),ordinal:integer(),request:string(),state:union(literal('queued'),literal('running'),literal('waiting'),literal('completed'),literal('failed'),literal('cancelled'),literal('recovery-needed')),failure:optional(string()),revision:integer()},false)
-/**
- * `delegations` is deprecated and optional from protocol 3. Clients of protocols 1 and 2 require it, so
- * Core keeps sending it while it serves them (decision records 5.1.7 and 11).
- */
-export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), delegations:optional(array(threadDelegation)), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
+export const threadSnapshot = object({ version: literal(1), scope: object({ kind: literal('thread'), installationId: id, callerId: id, threadId: id }), cursor: id, messages: array(threadMessage), work: array(threadWork), interactions:array(threadInteraction), next: nullable(object({ afterMessagePosition: nullable(integer()), afterWorkPosition: nullable(integer()) })) }, false)
 export type AppSnapshot = Infer<typeof appSnapshot>
 export type ThreadSnapshot = Infer<typeof threadSnapshot>
 export const controlCommand = object({version:literal(1),operationId:id,context,chatId:id,threadId:id,runId:id,attemptId:optional(nullable(id)),action:union(literal('stop'),literal('resume'),literal('retry'),literal('cancel-queued'),literal('steer'))})
@@ -154,8 +145,7 @@ const agentLearningFields = { agentId: id, enabled: boolean(), sleepTime: nullab
 export const agentLearning = object(agentLearningFields, false)
 export const agentLearningResult = object({ version: literal(1), ...agentLearningFields }, false)
 export const learningSettings = object({ version: literal(1), enabled: boolean(), sleepTime: clockTime(), revision: integer(), available: boolean(), agents: array(agentLearning),
-  // Core sends these; they are optional so a client also reads a Core that predates them.
-  nightlyModel: optional(nullable(nightlyModelRead)), coreMemoryCount: optional(integer()), searchMemoryCount: optional(integer()), searchChunkCount: optional(integer()) }, false)
+  nightlyModel: nullable(nightlyModelRead), coreMemoryCount: integer(), searchMemoryCount: integer(), searchChunkCount: integer() }, false)
 export type LearningSettings = Infer<typeof learningSettings>
 export const identityFileName = union(literal('soul.md'), literal('identity.md'))
 export const identityWrite = object({ version: literal(1), content: string(), expectedSha256: nonempty() })
@@ -181,7 +171,6 @@ export const textEvent = union(
   object({ ...eventBase, type: literal('message-final'), data: threadMessage }, false),
   object({ ...eventBase, type: literal('work-changed'), data: threadWork }, false),
   object({ ...eventBase, type: literal('interaction-changed'), data: threadInteraction }, false),
-  object({ ...eventBase, type: literal('delegation-changed'), data: threadDelegation }, false),
   object({ ...eventBase, type: literal('thread-summary'), data: appThreadSummary }, false),
   object({ ...eventBase, type: literal('notification'), data: notification }, false),
   object({ ...eventBase, type: literal('notification-removed'), data: object({ id, threadId: id }) }, false),
@@ -207,16 +196,10 @@ export const textEvent = union(
 )
 export type TextEvent = Infer<typeof textEvent>
 
-/** Features this Core offers. Flags newer than `voiceRecording` are absent from a Core that predates them; `plugins` then reads as false. */
-const bootstrapFlags = object({ voiceRecording: boolean(), updates: optional(boolean()), interfacePreferences: optional(boolean()), notificationActions: optional(boolean()), documents: optional(boolean()), permissionModes: optional(boolean()), memories: optional(boolean()),
+/** Features that depend on this installation. */
+export const bootstrapCapabilities = object({ voiceRecording: boolean(),
   /** Kipster Plugins are ready: the `/v1/plugins` routes answer instead of returning 503 `plugins-unavailable`. */
-  plugins: optional(boolean()),
-  /** A text submission may carry `viewingOrganizationId`, the workspace the person has open. */
-  viewingWorkspace: optional(boolean()) }, false)
-export const bootstrapCapabilities: Schema<Omit<Infer<typeof bootstrapFlags>, 'plugins'> & { plugins: boolean }> = { describe: () => bootstrapFlags.describe(), parse(value, path = '$') {
-  const parsed = bootstrapFlags.parse(value, path)
-  return { ...parsed, plugins: parsed.plugins ?? false }
-} }
+  plugins: boolean() }, false)
 export type BootstrapCapabilities = Infer<typeof bootstrapCapabilities>
 /** `GET /v1/bootstrap`: who the caller is, the protocol numbers this Core serves and its capabilities. */
 export const bootstrap = object({ version: literal(1), coreVersion: nonempty(), protocol: object({ current: boundedInteger(1, 1000000), oldest: boundedInteger(1, 1000000) }, false),

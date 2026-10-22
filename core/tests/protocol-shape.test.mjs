@@ -65,3 +65,12 @@ test('a raised protocol allows breaking changes while the previous number is sti
   assert.deepEqual([raised.raised, raised.problems, raised.changes.length], [true, [], 3])
   assert.match(verdict(before, snapshot({ ...breaking, protocolRange: { current: 2, oldest: 2 } })).problems[0], /keep serving protocol 1/)
 })
+
+test('a reset to protocol 1 allows breaking changes; any other lowering does not', () => {
+  const four = snapshot({ ...base, protocolRange: { current: 4, oldest: 1 } })
+  const breaking = { ...base, item: object({ id: nonempty() }, false) }
+  const reset = verdict(four, snapshot({ ...breaking, protocolRange: { current: 1, oldest: 1 } }))
+  assert.deepEqual([reset.reset, reset.problems, reset.changes.length], [true, [], 3])
+  assert.deepEqual(verdict(four, snapshot({ ...breaking, protocolRange: { current: 2, oldest: 1 } })).problems, ['item.state: removed', 'item.note: removed', 'item.tags: removed'])
+  assert.equal(verdict(snapshot(base), snapshot({ ...breaking, protocolRange: { current: 1, oldest: 1 } })).reset, false, 'protocol 1 to 1 is no reset')
+})
