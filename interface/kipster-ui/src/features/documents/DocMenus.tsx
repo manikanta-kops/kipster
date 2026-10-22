@@ -22,22 +22,27 @@ export function SelectionPill({
   range: Range
   formatting: boolean
   onClose: () => void
-  onComment: () => void
+  onComment: (range: Range) => void
 }) {
   const [link, setLink] = useState(false)
   const [url, setUrl] = useState('https://')
+  // Formatting replaces the selected nodes, which detaches the original range;
+  // the pill follows the selection the browser leaves on the new nodes.
+  const [current, setCurrent] = useState(range)
   const restore = () => {
     const selection = getSelection()
     selection?.removeAllRanges()
-    selection?.addRange(range)
+    selection?.addRange(current)
   }
   const format = (command: string, value?: string) => {
     restore()
     document.execCommand(command, false, value)
+    const selection = getSelection()
+    if (selection?.rangeCount) setCurrent(selection.getRangeAt(0).cloneRange())
   }
   return (
     <Floating
-      anchor={() => range.getBoundingClientRect()}
+      anchor={() => current.getBoundingClientRect()}
       placement="above"
       align="center"
       onClose={onClose}
@@ -52,7 +57,7 @@ export function SelectionPill({
             event.preventDefault()
             if (/^https?:\/\/\S+\.\S+/.test(url.trim())) {
               const field =
-                range.startContainer.parentElement?.closest<HTMLElement>(
+                current.startContainer.parentElement?.closest<HTMLElement>(
                   '.doc-field',
                 )
               field?.focus({ preventScroll: true })
@@ -99,7 +104,11 @@ export function SelectionPill({
               <span className="sep" />
             </>
           )}
-          <button type="button" className="pill-comment" onClick={onComment}>
+          <button
+            type="button"
+            className="pill-comment"
+            onClick={() => onComment(current)}
+          >
             <Icon name="comment" size={16} weight="fill" />
             Comment
           </button>

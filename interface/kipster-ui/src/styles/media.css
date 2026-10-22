@@ -104,7 +104,7 @@
 }
 .file-row {
   padding: 8px 14px 8px 8px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 500;
 }
 .artifact-name,
@@ -115,13 +115,13 @@
   padding-right: 4px;
 }
 .artifact-name strong {
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 500;
   line-height: 1.3;
 }
 .artifact-name small,
 .file-row small {
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 400;
   color: var(--label-3);
 }
@@ -139,7 +139,7 @@
 .artifact-card > small,
 .artifact-meta {
   padding: 0 6px 2px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 .artifact-error {
@@ -148,7 +148,7 @@
   align-items: center;
   gap: 4px 8px;
   padding: 6px 6px 2px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--danger);
 }
 .artifact-error button {
@@ -196,7 +196,7 @@
 .text-preview pre {
   margin: 0;
   color: var(--label);
-  font: 12px/1.45 var(--font-mono);
+  font: var(--text-callout)/1.45 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   tab-size: 4;
@@ -207,7 +207,7 @@
 }
 .text-preview small {
   padding: 0 6px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 
@@ -289,7 +289,7 @@
 }
 .voice-time {
   min-width: 32px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
@@ -348,7 +348,7 @@
   min-width: 0;
   display: grid;
   gap: 2px;
-  font-size: 13px;
+  font-size: var(--text-body);
   overflow-wrap: anywhere;
 }
 .pending-name {
@@ -359,7 +359,7 @@
   text-overflow: ellipsis;
 }
 .pending-info small {
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 .pending-media.ready .pending-info > small:first-of-type {
@@ -430,7 +430,7 @@
 .pending-actions button {
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   white-space: nowrap;
   color: var(--tint);
@@ -445,7 +445,7 @@
   height: 14px;
 }
 .media-error {
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--danger);
   overflow-wrap: anywhere;
 }
@@ -510,7 +510,7 @@
 .pending-media.voice .pending-name {
   padding-left: 42px;
   color: var(--label-3);
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
 }
 .pending-media.voice .voice-note {
   padding: 0;
@@ -520,7 +520,7 @@
   min-width: 40px;
 }
 .pending-media.voice .voice-time {
-  font-size: 11px;
+  font-size: var(--text-subheadline);
 }
 .pending-actions .pending-rerecord {
   padding: 0;
@@ -538,7 +538,7 @@
 }
 .preparation-card summary {
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 @media (max-width: 600px) {
@@ -577,12 +577,12 @@
   box-shadow: var(--edge), var(--drop);
 }
 .file-drop-card strong {
-  font-size: 14.5px;
+  font-size: var(--text-title-3);
   font-weight: 600;
   color: var(--label);
 }
 .file-drop-card small {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .file-drop-icon {

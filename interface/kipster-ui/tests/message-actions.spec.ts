@@ -218,19 +218,6 @@ test('without Core message times only copy shows, and an empty row is omitted', 
   ).toHaveCount(0)
 })
 
-test('feed root shows the row on hover', async ({ page }) => {
-  await startDemo(page)
-  await away(page)
-  const card = page.locator('.feed-message').filter({ hasText: title })
-  const actions = card.locator('.message-actions')
-  await expect(actions).toHaveCSS('opacity', '0')
-  await card.hover()
-  await expect(actions).toHaveCSS('opacity', '1')
-  await expect(
-    actions.getByRole('button', { name: 'Copy message', exact: true }),
-  ).toBeVisible()
-})
-
 test('captures hover row screenshots in light and dark themes', async ({
   page,
 }) => {
@@ -254,4 +241,30 @@ test('captures hover row screenshots in light and dark themes', async ({
       })
     }
   }
+})
+
+test('the feed previews an opening message in three lines without the copy row', async ({
+  page,
+}) => {
+  await startDemo(page)
+  const text = Array.from(
+    { length: 12 },
+    (_, i) => `Sentence ${i + 1} of a long opening message.`,
+  ).join(' ')
+  const input = page.getByRole('textbox', { name: 'Start a new thread' })
+  await input.fill(text)
+  await input.press('Enter')
+  const card = page.locator('.feed-message').filter({ hasText: 'Sentence 1 ' })
+  await card.hover()
+  await expect(card.locator('.message-actions')).toHaveCount(0)
+  const preview = card.locator('.message-text')
+  const size = await preview.evaluate((node) => ({
+    lines: node.clientHeight / parseFloat(getComputedStyle(node).lineHeight),
+    clipped: node.scrollHeight > node.clientHeight,
+  }))
+  expect(Math.round(size.lines)).toBe(3)
+  expect(size.clipped).toBe(true)
+  await card.click()
+  const pane = page.getByRole('region', { name: /^Thread: Sentence 1 / })
+  await expect(pane.locator('.message-actions').first()).toBeAttached()
 })

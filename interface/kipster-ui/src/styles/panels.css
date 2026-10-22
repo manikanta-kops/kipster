@@ -83,13 +83,12 @@
   min-width: 0;
 }
 .panel-title h2 {
-  font-size: 19px;
+  font-size: var(--text-title-1);
   font-weight: 650;
-  letter-spacing: -0.02em;
   line-height: 1.25;
 }
 .panel-title p {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 :is(.panel-header, .management-header) > .icon-button {
@@ -109,7 +108,7 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   white-space: nowrap;
   transition:
@@ -153,7 +152,7 @@
 :is(.panel, .management-dialog) .primary-button {
   min-height: 32px;
   padding: 6px 16px;
-  font-size: 13px;
+  font-size: var(--text-body);
   white-space: nowrap;
 }
 .primary-button.danger {
@@ -187,7 +186,7 @@
   padding: 7px 12px;
   border: 0;
   border-radius: 10px;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 400;
   line-height: 1.45;
   color: var(--label);
@@ -256,7 +255,7 @@
   margin: 12px 0 0;
   padding: 9px 14px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.5;
   overflow-wrap: anywhere;
   background: color-mix(in oklab, var(--tone) 10%, transparent);
@@ -302,7 +301,7 @@ ul.settings-callout {
 .settings-footnote {
   margin-top: 26px;
   padding: 0 14px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   line-height: 1.5;
   color: var(--label-3);
 }
@@ -313,7 +312,7 @@ footer.settings-footnote {
 }
 footer.settings-footnote .text-button {
   margin-left: -8px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
 }
 
 /* Management sections */
@@ -335,7 +334,7 @@ footer.settings-footnote .text-button {
   place-items: center;
   padding: 4px 14px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 550;
   white-space: nowrap;
   color: var(--label-2);
@@ -385,7 +384,7 @@ footer.settings-footnote .text-button {
   padding: 16px 12px 8px 20px;
 }
 .inbox-panel .panel-title h2 {
-  font-size: 16px;
+  font-size: var(--text-title-3);
 }
 .inbox-body {
   min-height: 0;
@@ -412,12 +411,12 @@ footer.settings-footnote .text-button {
   box-shadow: inset 0 0 0 0.5px color-mix(in oklab, var(--run) 34%, transparent);
 }
 .inbox-empty h3 {
-  font-size: 15px;
+  font-size: var(--text-title-3);
   font-weight: 650;
 }
 .inbox-empty p {
   max-width: 30ch;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.5;
   color: var(--label-3);
 }
@@ -455,28 +454,27 @@ footer.settings-footnote .text-button {
   min-width: 0;
 }
 .management-eyebrow {
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--label-3);
 }
 .management-header h2 {
-  font-size: 19px;
+  font-size: var(--text-title-1);
   font-weight: 650;
-  letter-spacing: -0.02em;
   line-height: 1.25;
 }
 .management-dialog small {
   display: block;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   line-height: 1.5;
   color: var(--label-3);
   overflow-wrap: anywhere;
 }
 .management-header small {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-subheadline);
 }
 .management-tabs {
   flex: none;
@@ -503,21 +501,20 @@ footer.settings-footnote .text-button {
 }
 .management-body h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: var(--text-title-3);
   font-weight: 650;
-  letter-spacing: -0.01em;
 }
 .management-body h4 {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 20px 0 8px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 .management-body p {
   margin: 6px 0 14px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.55;
 }
 .management-help,
@@ -530,7 +527,7 @@ footer.settings-footnote .text-button {
   align-items: baseline;
   gap: 6px;
   margin: 14px 0;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-2);
 }
@@ -545,7 +542,7 @@ footer.settings-footnote .text-button {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 500;
   color: var(--label);
   cursor: pointer;
@@ -649,16 +646,16 @@ ul.management-list {
 }
 .management-identity strong {
   display: block;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 .management-identity small:first-of-type {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-subheadline);
 }
 .management-identity p {
   margin: 3px 0 2px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-2);
 }
 .management-row > :is(button, .order-actions) {
@@ -755,7 +752,7 @@ ul.management-list {
   display: flex;
   align-items: center;
   gap: 9px;
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 650;
 }
 .management-recovery strong::before {
@@ -790,7 +787,7 @@ ul.management-list {
   gap: 8px;
   padding: 9px 14px;
   border-radius: 12px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   color: var(--run-ink);
   background: color-mix(in oklab, var(--run) 10%, transparent);
@@ -805,7 +802,7 @@ ul.management-list {
   flex: none;
   padding: 11px 24px 13px;
   border-top: 0.5px solid var(--sep);
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   line-height: 1.5;
   color: var(--label-3);
 }
@@ -829,19 +826,18 @@ ul.management-list {
   animation: panel-in 0.5s var(--spring) both;
 }
 .state-card h1 {
-  font-size: 21px;
+  font-size: var(--text-title-1);
   font-weight: 650;
-  letter-spacing: -0.02em;
 }
 .state-card p {
-  font-size: 13.5px;
+  font-size: var(--text-body);
   line-height: 1.55;
   color: var(--label-2);
   overflow-wrap: anywhere;
 }
 .state-card small {
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 .state-mark {
@@ -1044,7 +1040,7 @@ ul.management-list {
   border-radius: 14px;
   background: var(--group-fill);
   box-shadow: inset 0 0 0 0.5px var(--group-edge);
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .compatibility-versions div {
   display: flex;
@@ -1081,7 +1077,7 @@ ul.management-list {
   gap: 8px;
   align-items: center;
   margin-bottom: 16px;
-  font-size: 12px;
+  font-size: var(--text-callout);
 }
 .history-pages button {
   padding: 8px;

@@ -1265,7 +1265,7 @@ export function DocPane({
           range={popover.range}
           formatting={popover.field.isContentEditable}
           onClose={() => setPopover(null)}
-          onComment={() => startComment(popover.range, popover.field)}
+          onComment={(range) => startComment(range, popover.field)}
         />
       )}
       {popover?.kind === 'new-comment' && (

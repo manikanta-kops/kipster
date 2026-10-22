@@ -49,7 +49,6 @@ import {
   type ThreadFilterValue,
 } from '../chat/ThreadFilter'
 import { DocPane } from '../documents/DocPane'
-import { DocsSection } from '../documents/DocCard'
 import { DocumentStore } from '../documents/store'
 import {
   DocumentClient,
@@ -2134,11 +2133,6 @@ export function Workspace({
                   <span className="sidebar-label">Settings</span>
                 </button>
               </div>
-            }
-            documents={
-              docsEnabled ? (
-                <DocsSection organizationId={nav.organizationId} />
-              ) : null
             }
             data={view}
             organizationId={nav.organizationId}

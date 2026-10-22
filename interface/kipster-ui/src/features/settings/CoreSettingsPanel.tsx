@@ -20,12 +20,14 @@ import type { SoftwareUpdates } from '../../data/software-updates'
 import type { Scope } from '../../data/text'
 import { useCoreSettings } from '../../data/use-core-settings'
 import { createPluginsClient } from '../../data/plugins'
+import { useDocumentsContext } from '../documents/store'
 import { Icon } from '../../components/Icon'
 import { NotificationSettings } from '../notifications/NotificationSettings'
 import { ArchiveSettings } from '../workspace/LifecyclePanel'
 import { AdapterPage, AdaptersPage } from './AdaptersSettings'
 import { AppearanceSettings } from './AppearanceSettings'
 import { ConnectionSettings } from './ConnectionSettings'
+import { DocsPage } from './DocsSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { BackupPage, BackupsPage, IdentityFilePage } from './IdentityFiles'
 import type { KipLook } from './KipAvatar'
@@ -47,6 +49,7 @@ type PageId =
   | 'general'
   | 'updates'
   | 'kips'
+  | 'docs'
   | 'organization'
   | 'adapters'
   | 'plugins'
@@ -93,6 +96,12 @@ const pages: Record<
     icon: 'users',
     hue: 'var(--hue-iris)',
     words: 'agents model effort identity soul files next run',
+  },
+  docs: {
+    label: 'Rich docs',
+    icon: 'doc',
+    hue: 'var(--hue-amber)',
+    words: 'documents review revisions comments questions',
   },
   organization: {
     label: 'Organization',
@@ -198,6 +207,7 @@ export function CoreSettingsPanel({
   close: () => void
 }) {
   const platform = useContext(PlatformContext)
+  const docs = useDocumentsContext()
   const client = useMemo(() => new CoreSettingsClient(endpoint), [endpoint])
   const settings = useCoreSettings(client, scope, updates, permissionModes)
   const pluginsClient = useMemo(() => createPluginsClient(endpoint), [endpoint])
@@ -214,6 +224,7 @@ export function CoreSettingsPanel({
     general: !!platform?.app,
     updates: !!(softwareUpdates || versions),
     kips: true,
+    docs: !!docs,
     organization: true,
     adapters: true,
     plugins,
@@ -231,6 +242,7 @@ export function CoreSettingsPanel({
       'Workspace',
       [
         'kips',
+        'docs',
         'organization',
         'adapters',
         'plugins',
@@ -457,6 +469,16 @@ export function CoreSettingsPanel({
         return <UpdatesPage updates={softwareUpdates} versions={versions} />
       case 'plugins':
         return <PluginsPage client={pluginsClient} />
+      case 'docs':
+        return (
+          docs && (
+            <DocsPage
+              docs={docs}
+              organizationId={organizationId}
+              close={close}
+            />
+          )
+        )
       case 'connection':
         return (
           changeConnection && (
