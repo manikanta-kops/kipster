@@ -157,8 +157,6 @@ inspection. Keep the journal and backup when recovery reports a failure.
 A failed first install restores the original database and Core home files and keeps startup held;
 retry `install` with the same home and configuration to finish setup. It reuses
 already registered identical jobs and refuses to overwrite a differing job.
-Retries also preserve orphaned Core home files left by older failed installers
-under `backups/failed-install-home-*` before setting up an empty database again.
 Setup failures include their cause in stderr, `updates/status.json`, and
 `logs/installer-error.log`, with database URLs and credentials redacted.
 

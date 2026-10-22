@@ -125,14 +125,10 @@ test('real macOS Core first-install failures restore home and database and then 
     await mkdir(join(home, 'system'), { mode: 0o700 })
     await writeFile(join(home, 'system/instructions.md'), 'Authored system instructions', { mode: 0o600 })
     const options = { home, config: path, maintenanceConfig: maintenancePath, catalog: catalog.base, noLaunchd: stage !== 'service registration', healthTimeout: 1000 }
-    const legacy = stage === 'service registration' ? await directory(t, 'kpi-legacy-home-') : null
     let failing = true
     const hooks = { app,
       registerServices: async () => {
-        if (failing) {
-          for (const name of ['installation.json', 'agents', 'organizations', 'system']) await cp(join(home, name), join(legacy, name), { recursive: true })
-          throw new Error('Login service registration timed out.')
-        }
+        if (failing) throw new Error('Login service registration timed out.')
       },
       onStep: async step => {
         if (step === 'migrating' && stage === 'Core setup' && failing) { await rm(join(home, 'system/instructions.md')); await symlink('/dev/null', join(home, 'system/instructions.md')) }
@@ -150,16 +146,8 @@ test('real macOS Core first-install failures restore home and database and then 
     const status = await json(join(home, 'updates/status.json'))
     assert.deepEqual(updaterStatusFile.parse(status), status)
     if (stage === 'Core setup') assert.match(status.error, /Unsafe home file/)
-    // Reproduce a failed install left by the shipped installer, which restored
-    // its database but retained Core's home. The retry must preserve and repair it.
-    if (legacy) for (const name of ['installation.json', 'agents', 'organizations', 'system']) await cp(join(legacy, name), join(home, name), { recursive: true })
     failing = false; file.url = url
     await install(options, hooks)
-    if (legacy) {
-      const saved = (await readdir(join(home, 'backups'))).find(name => name.startsWith('failed-install-home-'))
-      assert.ok(saved)
-      assert.deepEqual(await json(join(home, 'backups', saved, 'installation.json')), await json(join(legacy, 'installation.json')))
-    }
     await available(config)
     await installedStatus(home, config)
     await Installer.open(home, { ...hooks, unregisterServices: async () => {} }).then(installer => installer.uninstall())
