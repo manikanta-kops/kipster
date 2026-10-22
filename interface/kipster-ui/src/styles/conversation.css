@@ -24,10 +24,9 @@
 }
 .message-meta strong {
   font-weight: 600;
-  letter-spacing: -0.01em;
 }
 .message-meta time {
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
@@ -35,7 +34,7 @@
   align-self: center;
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   line-height: 16px;
   color: var(--label-3);
@@ -44,13 +43,13 @@
 .message-text {
   margin-top: 3px;
   max-width: 64ch;
-  font-size: 14.5px;
+  font-size: var(--text-reading);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 .unsupported-part {
   margin-top: 4px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   font-style: italic;
 }
@@ -63,9 +62,18 @@
   margin-top: 6px;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   background: var(--fill);
+}
+
+/* The feed previews a thread's opening message; the thread shows all of it. */
+.feed-message .message-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
 }
 
 /* Markdown */
@@ -79,12 +87,66 @@
 .markdown > :last-child {
   margin-bottom: 0;
 }
-.markdown p,
-.markdown li {
-  white-space: pre-wrap;
-}
 .markdown strong {
   font-weight: 650;
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 14px 0 6px;
+  font-weight: 650;
+  line-height: 1.3;
+  color: var(--label);
+}
+.markdown > :is(h1, h2, h3, h4, h5, h6):first-child {
+  margin-top: 0;
+}
+.markdown h1 {
+  font-size: var(--text-title-2);
+}
+.markdown h2 {
+  font-size: var(--text-title-3);
+}
+.markdown :is(h3, h4, h5, h6) {
+  font-size: inherit;
+}
+.markdown hr {
+  height: 0;
+  margin: 12px 0;
+  border: 0;
+  border-top: 0.5px solid var(--sep);
+}
+.markdown li > :is(ul, ol) {
+  margin-top: 3px;
+}
+.markdown li > p {
+  margin: 0;
+}
+.markdown li:has(> input[type='checkbox']) {
+  list-style: none;
+}
+.markdown li > input[type='checkbox'] {
+  margin: 0 6px 0 -18px;
+  vertical-align: -1px;
+}
+.markdown-table {
+  overflow-x: auto;
+}
+.markdown table {
+  border-collapse: collapse;
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+}
+.markdown :is(th, td) {
+  padding: 5px 12px 5px 0;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 0.5px solid var(--sep);
+}
+.markdown th {
+  font-weight: 600;
+  color: var(--label-2);
+}
+.markdown tr:last-child td {
+  border-bottom: 0;
 }
 .markdown a {
   color: var(--tint);
@@ -119,7 +181,7 @@
   overflow-x: auto;
   padding: 10px 13px;
   border-radius: 12px;
-  font: 500 12.5px/1.6 var(--font-mono);
+  font: 500 var(--text-callout)/1.6 var(--font-mono);
   white-space: pre;
   background: var(--fill);
   box-shadow: inset 0 0 0 0.5px var(--sep);
@@ -148,7 +210,7 @@
   background: var(--tint);
   animation: caret-blink 1s steps(2) infinite;
 }
-.markdown.streaming > pre:last-child::after {
+.markdown.streaming > :is(pre, .markdown-table):last-child::after {
   display: none;
 }
 @keyframes caret-blink {
@@ -168,7 +230,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -182,18 +244,18 @@
   animation: spin 0.9s linear infinite;
 }
 .preparation-card small {
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 .preparation-card p {
   margin-top: 3px;
-  font-size: 14px;
+  font-size: var(--text-reading);
   line-height: 1.5;
   color: var(--label-2);
   white-space: pre-wrap;
 }
 .preparation-card:is(.no-speech, .unavailable) p {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 @keyframes spin {
@@ -220,7 +282,7 @@
   margin-left: -4px;
   padding: 2px 10px 2px 4px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   text-align: left;
   transition: background-color 0.15s;
@@ -271,7 +333,7 @@
   min-height: 22px;
   padding: 2px 9px 2px 8px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   white-space: nowrap;
   color: var(--label-3);
@@ -316,7 +378,7 @@
   align-items: center;
   gap: 10px;
   margin: 6px 0;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .date-divider::before,
@@ -348,7 +410,7 @@
   font-size: 12px;
 }
 .thread-scroll .message-text {
-  font-size: 14px;
+  font-size: var(--text-reading);
 }
 .thread-reply {
   padding: 8px 0;
@@ -362,7 +424,7 @@
   flex-wrap: wrap;
   gap: 6px;
   margin: 5px 0 0 40px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .feed-message .queue-message-status {
@@ -370,7 +432,7 @@
 }
 @media (min-width: 1200px) {
   .thread-expanded .thread-scroll .message-text {
-    font-size: 15px;
+    font-size: var(--text-title-3);
   }
 }
 
@@ -426,13 +488,12 @@
   height: 100%;
 }
 .empty-state h2 {
-  font-size: 22px;
+  font-size: var(--text-title-1);
   font-weight: 650;
-  letter-spacing: -0.02em;
 }
 .empty-state p {
   margin-top: 8px;
-  font-size: 14px;
+  font-size: var(--text-body);
   line-height: 1.6;
   color: var(--label-2);
 }
@@ -455,7 +516,7 @@
   gap: 6px;
   padding: 6px 14px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--tint);
   background: var(--sheen), var(--glass-thick);
@@ -519,7 +580,7 @@
   outline: 0;
   resize: none;
   field-sizing: content;
-  font-size: 14.5px;
+  font-size: var(--text-reading);
   line-height: 22px;
   color: var(--label);
   caret-color: var(--tint);
@@ -680,7 +741,7 @@
 }
 .rec-note {
   flex: 1;
-  font-size: 13px;
+  font-size: var(--text-body);
   color: var(--label-2);
 }
 .rec-cancel {
@@ -714,7 +775,7 @@
   height: 15px;
 }
 .voice-control .media-error {
-  font-size: 12px;
+  font-size: var(--text-callout);
 }
 .composer:has(.voice-control [role='alert']) {
   flex-wrap: wrap;
@@ -735,7 +796,7 @@
   margin: 0 0 6px;
   padding: 6px 6px 6px 14px;
   border-radius: 16px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.4;
   color: var(--label-2);
   background: var(--sheen), var(--glass-thick);
@@ -775,7 +836,7 @@
 .connection-notice,
 .submission-recovery:not(:empty) {
   border-radius: 16px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.45;
   color: var(--label-2);
   background: var(--sheen), var(--glass-thick);
@@ -855,7 +916,7 @@
 }
 .recovery-target {
   padding-left: 15px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   overflow-wrap: anywhere;
 }
@@ -1017,7 +1078,7 @@
 
 /* Kip messaging: linked threads, sent cards, answers and waiting */
 .role-label {
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -1029,7 +1090,7 @@
   height: 20px;
   padding: 0 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 650;
   color: var(--label-2);
   background: var(--fill-2);
@@ -1039,7 +1100,7 @@
   align-items: center;
   gap: 5px;
   margin-top: 5px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 550;
   color: var(--label-3);
   text-align: left;
@@ -1067,7 +1128,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 650;
   color: var(--label-2);
 }
@@ -1078,7 +1139,7 @@
   justify-content: space-between;
   gap: 4px 8px;
   margin-top: 2px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -1086,7 +1147,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 650;
   color: var(--tint);
 }
@@ -1104,7 +1165,7 @@
   height: 26px;
   padding: 0 10px 0 4px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label);
   background: var(--fill-2);
@@ -1138,7 +1199,7 @@
   margin: 14px 0 6px;
   padding: 10px 12px;
   border-radius: 16px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.4;
   color: var(--label-2);
   background: var(--fill);
@@ -1157,7 +1218,7 @@
   align-items: baseline;
   gap: 8px;
   margin: 6px 0 4px 40px;
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.45;
   color: var(--label-3);
 }
@@ -1175,7 +1236,7 @@
 .feed-filter-empty {
   justify-self: center;
   padding: 40px 20px;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   color: var(--label-3);
   text-align: center;
 }

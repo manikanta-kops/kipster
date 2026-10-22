@@ -74,15 +74,28 @@ export function Message({
   const lastTextPart = message.parts.findLastIndex(
     (part) => part.type === 'text',
   )
+  const firstTextPart = message.parts.findIndex((part) => part.type === 'text')
   const content = message.parts.map((part, index) => {
-    if (part.type === 'text')
+    if (part.type === 'text') {
+      // The feed previews all the text as one block, so the line limit applies once.
+      if (placement === 'feed' && index !== firstTextPart) return null
       return (
         <Markdown
           key={index}
-          text={part.text}
-          streaming={message.status === 'draft' && index === lastTextPart}
+          text={
+            placement === 'feed'
+              ? message.parts
+                  .flatMap((p) => (p.type === 'text' ? [p.text] : []))
+                  .join('\n\n')
+              : part.text
+          }
+          streaming={
+            message.status === 'draft' &&
+            (placement === 'feed' || index === lastTextPart)
+          }
         />
       )
+    }
     if (part.type === 'removed')
       return (
         <p className="removed-part" key={index}>
@@ -253,7 +266,9 @@ export function Message({
           </section>
         ))}
         {trail}
-        <MessageActions message={message} isSelf={isSelf} />
+        {placement === 'thread' && (
+          <MessageActions message={message} isSelf={isSelf} />
+        )}
       </div>
     </div>
   )

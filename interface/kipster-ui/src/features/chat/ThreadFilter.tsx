@@ -15,7 +15,7 @@ export const isThreadFilter = (value: unknown): value is ThreadFilterValue =>
   typeof value === 'string' && Object.hasOwn(filterLabels, value)
 
 /**
- * The feed's thread filter, next to the theme toggle. Hovering or keyboard focus opens its
+ * The feed's thread filter, next to the theme toggle. A click or the arrow keys open its
  * menu; Core keeps the choice, so every chat and window shows the same threads.
  */
 export function ThreadFilter({
@@ -30,14 +30,10 @@ export function ThreadFilter({
   senders: ReactNode
   onChange: (value: ThreadFilterValue) => void
 }) {
-  const [hover, setHover] = useState(false)
-  const [focused, setFocused] = useState(false)
-  const open = hover || focused
+  const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const menu = useRef<HTMLDivElement>(null)
-  // Focus returning to the trigger after a choice does not reopen the menu.
-  const quiet = useRef(false)
   const menuId = useId()
   const headingId = useId()
   const items = () =>
@@ -46,13 +42,8 @@ export function ThreadFilter({
         [],
     )
   const close = (restoreFocus: boolean) => {
-    setHover(false)
-    setFocused(false)
-    if (restoreFocus) {
-      quiet.current = true
-      trigger.current?.focus()
-      quiet.current = false
-    }
+    setOpen(false)
+    if (restoreFocus) trigger.current?.focus()
   }
   useEffect(() => {
     if (!open) return
@@ -63,7 +54,7 @@ export function ThreadFilter({
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [open])
   const enter = (index: 'first' | 'last' | 'checked') => {
-    setFocused(true)
+    setOpen(true)
     requestAnimationFrame(() => {
       const all = items()
       const checked = all.findIndex(
@@ -129,11 +120,9 @@ export function ThreadFilter({
     <div
       ref={root}
       className={`thread-filter ${value === 'all' ? '' : 'on'}`}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
       onBlur={(event) => {
         const next = event.relatedTarget as Node | null
-        if (!next || !root.current?.contains(next)) setFocused(false)
+        if (next && !root.current?.contains(next)) setOpen(false)
       }}
     >
       <div className="capsule mat thin">
@@ -148,11 +137,7 @@ export function ThreadFilter({
           aria-haspopup="menu"
           aria-expanded={open}
           aria-controls={menuId}
-          onFocus={(event) => {
-            if (!quiet.current && event.currentTarget.matches(':focus-visible'))
-              setFocused(true)
-          }}
-          onClick={() => setFocused((was) => !was || hover)}
+          onClick={() => setOpen((was) => !was)}
           onKeyDown={onTriggerKey}
         >
           <Icon name="slider" />
@@ -165,9 +150,7 @@ export function ThreadFilter({
               aria-label="Show all threads"
               onClick={() => {
                 onChange('all')
-                quiet.current = true
-                trigger.current?.focus()
-                quiet.current = false
+                close(true)
               }}
             >
               <Icon name="close" size={12} />

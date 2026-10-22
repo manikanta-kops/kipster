@@ -9,12 +9,18 @@ import { createPortal } from 'react-dom'
 import { motion, useReducedMotion } from 'motion/react'
 
 export type Anchor = Element | (() => DOMRect | null)
-const rectOf = (anchor: Anchor) =>
-  typeof anchor === 'function'
-    ? anchor()
-    : anchor.isConnected
-      ? anchor.getBoundingClientRect()
-      : null
+const rectOf = (anchor: Anchor) => {
+  const rect =
+    typeof anchor === 'function'
+      ? anchor()
+      : anchor.isConnected
+        ? anchor.getBoundingClientRect()
+        : null
+  // A range whose nodes left the page measures as an empty box at the origin.
+  return rect && (rect.width || rect.height || rect.top || rect.left)
+    ? rect
+    : null
+}
 
 /**
  * A small surface beside an anchor: above or below it, kept inside the window, following it

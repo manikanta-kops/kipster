@@ -582,3 +582,37 @@ test('late save acknowledgement preserves another tab’s newer persisted draft'
   await openSettings(other)
   await effortIs(other, 'Low')
 })
+
+test('a click on the backdrop closes Settings, and a drag that starts inside does not', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(dialog(page)).toBeVisible()
+  const search = (await dialog(page)
+    .getByRole('searchbox', { name: 'Search settings' })
+    .boundingBox())!
+  await page.mouse.move(search.x + 10, search.y + search.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(8, 450, { steps: 8 })
+  await page.mouse.up()
+  await expect(dialog(page)).toBeVisible()
+  await page.mouse.click(8, 450)
+  await expect(dialog(page)).toBeHidden()
+})
+
+test('Rich docs in Settings lists the docs and opens one', async ({ page }) => {
+  await startDemo(page)
+  await expect(page.locator('.sidebar').getByText('Rich docs')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  await dialog(page)
+    .getByRole('button', { name: 'Rich docs', exact: true })
+    .click()
+  const row = dialog(page).getByRole('button', { name: /^Rich docs: v1 plan/ })
+  await expect(row).toContainText('Needs you')
+  await row.click()
+  await expect(dialog(page)).toBeHidden()
+  await expect(
+    page.getByRole('region', { name: 'Rich doc: Rich docs: v1 plan' }),
+  ).toBeVisible()
+})
