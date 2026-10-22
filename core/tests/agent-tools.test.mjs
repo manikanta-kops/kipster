@@ -26,7 +26,12 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.deepEqual(Object.keys(messageUser.properties.attachments.items.properties), ['path', 'artifactId', 'documentId'])
   assert.deepEqual(messageUser.properties.element.properties.type.enum, ['choice', 'approval'])
   assert.deepEqual(Object.keys(executionTools(all).find(tool => tool.name === 'message_kip').inputSchema.properties.attachments.items.properties), ['path', 'artifactId'])
-  assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  // The admin kip lists and reads every kip's threads with memory off too; only memory-on adds the other memory tools.
+  assert.deepEqual(names({ ...all, admin: true }).filter(name => !full.includes(name)), ['list_threads', 'read_thread'])
+  assert.deepEqual(names({ ...all, admin: true, linked: true }), names({ ...all, admin: true }))
+  assert.deepEqual(names({ ...all, admin: true, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.match(memoryGuidance, /list_threads with notSearchable true/)
   assert.match(memoryGuidance, /search_memory/)
   // A linked thread offers read_thread for its source thread with memory off, and once with memory on.
   assert.deepEqual(names({ ...all, linked: true }).filter(name => !full.includes(name)), ['read_thread'])
@@ -55,13 +60,15 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
   const admin = { organization: false, structured: false, vectors: false, administration: true, memory: true, admin: true }
   const member = { organization: true, structured: false, vectors: false, administration: false, memory: true }
   assert.deepEqual(executionTools(admin).find(tool => tool.name === 'copy_attachment_to_workspace').inputSchema.required, ['artifactId', 'workspaceId'])
-  for (const [tool, name] of [['message_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_recent_threads', 'agent']]) {
+  for (const [tool, name] of [['message_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_threads', 'agentId']]) {
     assert.ok(field(admin, tool, name), `${tool}.${name} for the admin kip`)
     assert.equal(field(member, tool, name), undefined, `${tool}.${name} only for the admin kip`)
   }
   assert.equal(field(member, 'copy_attachment_to_workspace', 'workspaceId'), undefined)
   assert.match(executionTools(admin).find(tool => tool.name === 'list_kips').description, /every kip with the workspaces/)
   assert.match(toolGuidance({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
+  assert.match(toolGuidance({ organization: false, admin: true }), /what other kips are doing or have done, list their threads with list_threads/)
+  assert.doesNotMatch(toolGuidance({ organization: true }), /list_threads/)
   for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + toolGuidance(scope), /\bKip\b/)
 })
 

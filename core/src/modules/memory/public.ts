@@ -13,6 +13,6 @@ export type { MemoryStep } from './prompts.js'
 export { openMemoryCall, recordMemoryRoute, settleMemoryCall, settleInterruptedMemoryCalls } from './calls.js'
 /** The host's embedding readiness probe uses this. */
 export { boundedEmbed } from '../vectors/public.js'
-export { turnMemory, searchMemory, recentThreads, readThread, coreMemories, unprocessedCount, memoryAccess, MEMORY_READ } from './search.js'
-export type { TurnMemory, ThreadScope, MemoryRange, MemoryItem, SearchResult, RecentThread, ThreadMessage, ThreadPage } from './search.js'
+export { turnMemory, searchMemory, listThreads, readThread, coreMemories, unprocessedCount, memoryAccess, MEMORY_READ } from './search.js'
+export type { TurnMemory, ThreadScope, MemoryRange, MemoryItem, SearchResult, ThreadSummary, ThreadWork, ThreadFilter, ThreadMessage, ThreadPage } from './search.js'
 export { memoryTool, FORGET_LIMITS } from './tools.js'

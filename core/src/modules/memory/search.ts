@@ -13,8 +13,8 @@ export const MEMORY_READ = {
   toolEmbedMs: 10000,
   /** Longest query sent for embedding, in characters. */
   queryChars: 20000,
-  /** Most threads `list_recent_threads` lists, and characters of each first line. */
-  recentThreads: 30,
+  /** Most threads `list_threads` lists, and characters of each first line. */
+  listThreads: 30,
   firstLine: 200,
   /** Most messages, and characters of message text, in one `read_thread` page. A page always holds at least one
    * whole message. */
@@ -111,34 +111,49 @@ export async function coreMemories(client: Postgres | SqlClient, installationId:
     ORDER BY c.created_at, c.id LIMIT $2`, [installationId, limit])).rows.map(memory)
 }
 
-export interface RecentThread { threadId: string; agentId: string; agentName: string; organizationId: string | null; startedAt: string; lastMessageAt: string; processedPosition: number; firstLine: string }
+/** What a thread's work is doing: running (or starting), queued, waiting for the person's answer or approval, or idle. */
+export type ThreadWork = 'running' | 'queued' | 'waiting' | 'idle'
+export interface ThreadSummary { threadId: string; agentId: string; agentName: string; organizationId: string | null; startedAt: string; lastMessageAt: string; processedPosition: number; work: ThreadWork; firstLine: string }
+/** Which threads `listThreads` lists: those with a final message in `range`, and with `notSearchable` only those the nightly run has not processed. */
+export interface ThreadFilter { range: MemoryRange; notSearchable: boolean }
 
-const recentSql = (select: string, tail: string) => `SELECT ${select} FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id JOIN kipster.agents a ON a.id=c.agent_id
+const threadsSql = (select: string, tail: string, notSearchable: boolean) => `SELECT ${select} FROM kipster.threads t JOIN kipster.direct_chats c ON c.id=t.chat_id JOIN kipster.agents a ON a.id=c.agent_id
   LEFT JOIN kipster.memory_thread_state s ON s.thread_id=t.id
   WHERE c.installation_id=$1 AND ($2::uuid[] IS NULL OR c.agent_id = ANY($2::uuid[]))
     AND ($3::text = 'all' OR c.context_kind='installation' OR c.context_id::text = $3::text) AND ($4::uuid IS NULL OR t.id <> $4::uuid)
-    AND ${unprocessedThreadCondition('t.id', 'c')} ${tail}`
+    AND ${notSearchable ? unprocessedThreadCondition('t.id', 'c') : `(c.context_kind = 'installation' OR kipster.live_organization(c.context_id))
+      AND EXISTS (SELECT 1 FROM kipster.messages fm WHERE fm.thread_id=t.id AND fm.final)`} ${tail}`
 
 /** How many threads in `scope` have messages the nightly run has not processed yet. */
 export async function unprocessedCount(client: Postgres | SqlClient, installationId: string, scope: ThreadScope): Promise<number> {
-  return Number((await client.query<{ count: string }>(recentSql('count(*) AS count', ''), [installationId, ...threadScopeValues(scope)])).rows[0]!.count)
+  return Number((await client.query<{ count: string }>(threadsSql('count(*) AS count', '', true), [installationId, ...threadScopeValues(scope)])).rows[0]!.count)
 }
 
-/** Threads in `scope` with messages the nightly run has not processed, latest activity first, with their first line. */
-export async function recentThreads(client: Postgres | SqlClient, installationId: string, scope: ThreadScope): Promise<{ threads: RecentThread[]; hasMore: boolean }> {
-  const rows = (await client.query<{ id: string; agent_id: string; agent_name: string; context_kind: string; context_id: string; started_at: Date; last_at: Date; processed: string | null; first: unknown[] | null }>(recentSql(
-    `t.id, c.agent_id, a.display_name AS agent_name, c.context_kind, c.context_id, s.processed_position AS processed,
+const active = `SELECT 1 FROM kipster.text_runs r WHERE r.thread_id=t.id AND r.state`
+const workSql = `CASE
+    WHEN EXISTS (SELECT 1 FROM kipster.interactions i JOIN kipster.text_runs r ON r.id=i.run_id WHERE r.thread_id=t.id AND i.state='pending') THEN 'waiting'
+    WHEN EXISTS (${active} IN ('preparing','running','waiting','cancellation-requested')) THEN 'running'
+    WHEN EXISTS (${active}='queued') THEN 'queued'
+    ELSE 'idle' END`
+
+/** Threads in `scope` that match `filter`, latest activity first, with their first line and what their work is doing. */
+export async function listThreads(client: Postgres | SqlClient, installationId: string, scope: ThreadScope, filter: ThreadFilter): Promise<{ threads: ThreadSummary[]; hasMore: boolean }> {
+  const rows = (await client.query<{ id: string; agent_id: string; agent_name: string; context_kind: string; context_id: string; started_at: Date; last_at: Date; processed: string | null; work: ThreadWork; first: unknown[] | null }>(threadsSql(
+    `t.id, c.agent_id, a.display_name AS agent_name, c.context_kind, c.context_id, s.processed_position AS processed, ${workSql} AS work,
        (SELECT min(m.created_at) FROM kipster.messages m WHERE m.thread_id=t.id) AS started_at,
        (SELECT max(m.created_at) FROM kipster.messages m WHERE m.thread_id=t.id AND m.final) AS last_at,
        (SELECT m.parts FROM kipster.messages m WHERE m.thread_id=t.id ORDER BY m.position LIMIT 1) AS first`,
-    'ORDER BY last_at DESC, t.id LIMIT $5'), [installationId, ...threadScopeValues(scope), MEMORY_READ.recentThreads + 1])).rows
+    `AND (($6::timestamptz IS NULL AND $7::timestamptz IS NULL) OR EXISTS (SELECT 1 FROM kipster.messages rm WHERE rm.thread_id=t.id AND rm.final
+        AND ($6::timestamptz IS NULL OR rm.created_at >= $6) AND ($7::timestamptz IS NULL OR rm.created_at < $7)))
+     ORDER BY last_at DESC NULLS LAST, t.id LIMIT $5`, filter.notSearchable),
+    [installationId, ...threadScopeValues(scope), MEMORY_READ.listThreads + 1, filter.range.from, filter.range.to])).rows
   return {
-    threads: rows.slice(0, MEMORY_READ.recentThreads).map(row => ({
+    threads: rows.slice(0, MEMORY_READ.listThreads).map(row => ({
       threadId: row.id, agentId: row.agent_id, agentName: row.agent_name, organizationId: row.context_kind === 'organization' ? row.context_id : null,
-      startedAt: row.started_at.toISOString(), lastMessageAt: row.last_at.toISOString(), processedPosition: Number(row.processed ?? 0),
+      startedAt: row.started_at.toISOString(), lastMessageAt: row.last_at.toISOString(), processedPosition: Number(row.processed ?? 0), work: row.work,
       firstLine: (partsText(row.first ?? []).split('\n').find(line => line.trim()) ?? '').trim().slice(0, MEMORY_READ.firstLine),
     })),
-    hasMore: rows.length > MEMORY_READ.recentThreads,
+    hasMore: rows.length > MEMORY_READ.listThreads,
   }
 }
 
@@ -205,7 +220,7 @@ export async function turnMemory(db: Postgres, embedding: EmbeddingProfile | und
   }
   const unprocessed = await unprocessedCount(db, turn.installationId, { ...scope })
   if (unprocessed > 0) {
-    sections.push(`${unprocessed === 1 ? '1 thread since last night is' : `${unprocessed} threads since last night are`} not searchable yet. If search does not answer, read them with \`list_recent_threads\`.${access.admin ? ' Other kips\' recent threads are available through the same tool.' : ''}`)
+    sections.push(`${unprocessed === 1 ? '1 thread is' : `${unprocessed} threads are`} not searchable yet. If search does not answer, list them with \`list_threads\` and \`notSearchable: true\`.`)
   }
   const core = await coreMemories(db, turn.installationId, settings.coreMemoryCount)
   return { instructions: core.length ? `Core memory: memories about the person, shared by every kip. A memory's ID works with forget_memory.\n${core.map(item => memoryLine(item)).join('\n')}` : '', sections }

@@ -31,6 +31,7 @@ Read an operation with `list_admin_operations` before you call it for the first 
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 | plugins, connections, integrations, connect my GitHub or Notion, accounts | plugins and their signed-in accounts | `plugins` |
 | routines, schedules, recurring tasks, reminders | routines and their daily run limit | `routines` and the routine tools |
+| what kips are doing, their chats, recent work | threads and their work | `list_threads` and `read_thread` |
 
 ## How to work
 
@@ -120,6 +121,11 @@ kip's chat. Create, change, pause and delete routines with `create_routine`, `ed
 `delete_routine`; with `agentId` they act on any kip's routines. `routines.settings_get` and `routines.settings_set`
 read and change `dailyRunLimit`, the most runs one kip starts a day across its routines (default 50); runs past it are
 skipped and recorded.
+
+**What kips are doing.** `list_threads` lists every kip's threads, latest first, with each thread's work: running,
+queued, waiting for the person, or idle. Pass `agentId` for one kip and `from` and `to` for a time range, such as today
+for what is happening now. Read the threads that matter with `read_thread`, then summarize them for the person. This
+works with memory on or off.
 
 **Data tables and vector collections.** You may read and change any workspace's data tables and vector collections
 and any kip's own ones: set `target` in `manage_data_tables` or `manage_vector_collections` to

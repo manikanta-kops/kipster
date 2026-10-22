@@ -5,7 +5,7 @@ import { MemoryService, scopeSql, scopeValue, type MemoryScope } from './memorie
 import { LESSONS, LessonService, rebuildLearned } from './lessons.js'
 import { embedNow } from './embed.js'
 import { memorySettings } from './settings.js'
-import { MEMORY_READ, memoryAccess, readThread, recentThreads, searchMemory, type MemoryRange, type ThreadScope } from './search.js'
+import { MEMORY_READ, listThreads, memoryAccess, readThread, searchMemory, type MemoryRange, type ThreadScope } from './search.js'
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 /** Most memories and lessons `forget_memory` deletes for one query, and candidates it returns instead when more match. */
@@ -70,13 +70,13 @@ const memoryScope = (run: MemoryRun): MemoryScope => run.admin ? 'all' : { organ
 
 /**
  * The memory tools of an execution (decision records 10 and 14), bound to its current attempt: `search_memory`,
- * `list_recent_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has
- * memory off, except `read_thread` of the source thread of a linked thread (decision record 11, rule 7). Forgetting a
- * lesson rewrites the kip's Learned section in `identity`.
+ * `list_threads`, `read_thread`, `save_memory` and `forget_memory`. Refused while the agent has memory off, except
+ * `list_threads` and `read_thread` of the admin kip, which oversees every kip, and `read_thread` of the source thread of
+ * a linked thread (decision record 11, rule 7). Forgetting a lesson rewrites the kip's Learned section in `identity`.
  */
 export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | undefined, identity: IdentityFiles | undefined, attemptId: string, incarnation: string, name: string, input: Record<string, unknown>): Promise<unknown> {
   const run = await boundRun(db, attemptId, incarnation)
-  if (!run.memory && name !== 'read_thread') throw new Error('Memory is off for this kip')
+  if (!run.memory && name !== 'read_thread' && !(run.admin && name === 'list_threads')) throw new Error('Memory is off for this kip')
   if (name === 'search_memory') {
     fields(input, ['query', 'from', 'to', 'agent'], name)
     const query = text(input, 'query', name, MEMORY_READ.queryChars)!
@@ -86,9 +86,12 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const settings = await memorySettings(db, run.installationId)
     return searchMemory(db, run.installationId, embedding, { query, range, memories: memoryScope(run), threads: threadScope(run, agents, run.threadId), memoryCount: settings.searchMemoryCount, lessonCount: LESSONS.search, itemCount: settings.searchChunkCount, timeoutMs: MEMORY_READ.toolEmbedMs })
   }
-  if (name === 'list_recent_threads') {
-    fields(input, ['agent'], name)
-    return recentThreads(db, run.installationId, threadScope(run, await agentArgument(db, run, input.agent, name), run.threadId))
+  if (name === 'list_threads') {
+    fields(input, ['agentId', 'from', 'to', 'notSearchable'], name)
+    const range: MemoryRange = { from: instant(input.from, 'from', name, false), to: instant(input.to, 'to', name, true) }
+    if (range.from && range.to && range.from >= range.to) throw new Error(`Invalid ${name} arguments: from must be before to`)
+    if (input.notSearchable !== undefined && typeof input.notSearchable !== 'boolean') throw new Error(`Invalid ${name} arguments: notSearchable must be true or false`)
+    return listThreads(db, run.installationId, threadScope(run, await agentArgument(db, run, input.agentId, name), run.threadId), { range, notSearchable: input.notSearchable === true })
   }
   if (name === 'read_thread') {
     fields(input, ['threadId', 'fromPosition', 'toPosition'], name)
@@ -96,9 +99,9 @@ export async function memoryTool(db: Postgres, embedding: EmbeddingProfile | und
     const from = position(input, 'fromPosition', name) ?? 1, to = position(input, 'toPosition', name) ?? null
     if (to !== null && to < from) throw new Error(`Invalid ${name} arguments: toPosition must not be before fromPosition`)
     // A kip may also read the thread the messages of its linked thread come from, and only that one; with memory off,
-    // that is the only thread it may read.
-    const source = (!run.admin || !run.memory) && uuid.test(threadId) && (await db.query('SELECT 1 FROM kipster.kip_links WHERE linked_thread_id=$1 AND source_thread_id=$2', [run.threadId, threadId])).rows.length > 0
-    const page = uuid.test(threadId) && (source || run.memory) ? await readThread(db, run.installationId, source ? { agents: null, organizations: 'all' } : threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
+    // that is the only thread it may read. The admin kip reads every thread.
+    const source = !run.admin && uuid.test(threadId) && (await db.query('SELECT 1 FROM kipster.kip_links WHERE linked_thread_id=$1 AND source_thread_id=$2', [run.threadId, threadId])).rows.length > 0
+    const page = uuid.test(threadId) && (source || run.memory || run.admin) ? await readThread(db, run.installationId, source ? { agents: null, organizations: 'all' } : threadScope(run, run.admin ? null : [run.agentId]), threadId, from, to) : null
     if (!page) throw new Error('Thread not found')
     return page
   }

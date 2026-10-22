@@ -115,7 +115,7 @@ test('with memory on, kips run turns with the memory tools and sections, none of
   const [execution] = ctx.executions
   assert.deepEqual(execution.context.memory, ['Memory search found nothing for the current message.'])
   const tools = execution.context.tools.map(tool => tool.name)
-  assert.deepEqual(tools.filter(name => ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.deepEqual(tools.filter(name => ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
   assert.ok(tools.includes('manage_vector_collections'))
   assert.equal(await memoryRows(ctx), 0)
 })
