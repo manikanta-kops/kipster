@@ -230,6 +230,8 @@ export type InterfaceChoices = {
   palette: string | null
   theme: string | null
   desktopNotifications: boolean | null
+  /** Which threads every chat's feed shows; undefined when the connected Core does not keep it. */
+  threadFilter?: string | null
 } & Partial<Record<(typeof notificationChoices)[number], boolean | null>>
 export function parseInterfaceChoices(value: unknown): InterfaceChoices {
   check(
@@ -244,13 +246,19 @@ export function parseInterfaceChoices(value: unknown): InterfaceChoices {
           value[name] === undefined ||
           value[name] === null ||
           typeof value[name] === 'boolean',
-      ),
+      ) &&
+      (value.threadFilter === undefined ||
+        value.threadFilter === null ||
+        typeof value.threadFilter === 'string'),
   )
   return {
     revision: value.revision,
     palette: value.palette,
     theme: value.theme,
     desktopNotifications: value.desktopNotifications,
+    ...(value.threadFilter === undefined
+      ? {}
+      : { threadFilter: value.threadFilter }),
     ...Object.fromEntries(
       notificationChoices.flatMap((name) =>
         value[name] === undefined ? [] : [[name, value[name]]],

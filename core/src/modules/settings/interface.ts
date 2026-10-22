@@ -7,6 +7,7 @@ type Choice = Exclude<keyof InterfacePreferences, 'version' | 'revision'>
 const columns: Record<Choice, string> = {
   palette: 'palette', theme: 'theme', desktopNotifications: 'desktop_notifications', notifyNeeds: 'notify_needs',
   notifyFailures: 'notify_failures', notifyReplies: 'notify_replies', inAppBanners: 'in_app_banners', dockBadge: 'dock_badge',
+  threadFilter: 'thread_filter',
 }
 const choices = Object.keys(columns) as Choice[]
 type Row = { revision: string } & Record<string, string | boolean | null>

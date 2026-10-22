@@ -16,6 +16,7 @@ import {
   protocolRange,
   threadLink,
   threadLinkedFrom,
+  threadRoutine,
 } from '@kipster/core/protocol'
 import { createAdministration, DEMO_IDS } from './admin.ts'
 import { createFakeMedia } from './media.ts'
@@ -1093,6 +1094,8 @@ export function createFakeCore(
             thread.summary.startedBy = text(input.startedBy)
           if (input.linkedFrom !== undefined)
             thread.summary.linkedFrom = threadLinkedFrom.parse(input.linkedFrom)
+          if (input.routine !== undefined)
+            thread.summary.routine = threadRoutine.parse(input.routine)
           if (input.links !== undefined) {
             if (!Array.isArray(input.links)) throw new Error('Invalid links')
             thread.summary.links = input.links.map((link) =>

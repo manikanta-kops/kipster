@@ -95,19 +95,23 @@ test('a populated base-branch database upgrades with this branch and Core reads 
   t.diagnostic(`Base migrations read from git ${ref}; ${base.length} applied before seeding.`)
   await fixture.db.migrate(base)
   const { ids, settings, parts } = await seed(fixture.db)
-  // A card and a nightly call of the base schema become a memory and a `memories` call.
-  const card = randomUUID()
-  await fixture.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,confirmed,core) VALUES ($1,$2,'preference','user','Vegetarian',true,true)`, [card, ids.installationId])
-  await fixture.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [card, ids.installationId, ids.threadId, ids.messageId])
-  const call = randomUUID()
-  await fixture.db.query(`INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'settled')`, [call, ids.installationId])
-  await fixture.db.query(`INSERT INTO kipster.memory_calls(id,installation_id,step,state) VALUES ($1,$2,'cards','completed')`, [call, ids.installationId])
-  await fixture.db.query('UPDATE kipster.installations SET core_card_count=12 WHERE id=$1', [ids.installationId])
+  // A base that still has cards: a card and a nightly call become a memory and a `memories` call.
+  const cards = (await fixture.db.query("SELECT to_regclass('kipster.cards') IS NOT NULL AS present")).rows[0].present
+  const card = randomUUID(), call = randomUUID()
+  if (cards) {
+    await fixture.db.query(`INSERT INTO kipster.cards(id,installation_id,type,subject,statement,confirmed,core) VALUES ($1,$2,'preference','user','Vegetarian',true,true)`, [card, ids.installationId])
+    await fixture.db.query('INSERT INTO kipster.card_sources(card_id,installation_id,thread_id,message_id) VALUES ($1,$2,$3,$4)', [card, ids.installationId, ids.threadId, ids.messageId])
+    await fixture.db.query(`INSERT INTO kipster.work_intents(id,installation_id,state) VALUES ($1,$2,'settled')`, [call, ids.installationId])
+    await fixture.db.query(`INSERT INTO kipster.memory_calls(id,installation_id,step,state) VALUES ($1,$2,'cards','completed')`, [call, ids.installationId])
+    await fixture.db.query('UPDATE kipster.installations SET core_card_count=12 WHERE id=$1', [ids.installationId])
+  }
   await fixture.db.migrate(current)
-  assert.deepEqual((await fixture.db.query('SELECT m.statement, m.core, s.thread_id, s.message_id FROM kipster.memories m JOIN kipster.memory_sources s ON s.memory_id=m.id WHERE m.id=$1', [card])).rows,
-    [{ statement: 'Vegetarian', core: true, thread_id: ids.threadId, message_id: ids.messageId }])
-  assert.deepEqual((await fixture.db.query('SELECT step FROM kipster.memory_calls WHERE id=$1', [call])).rows, [{ step: 'memories' }])
-  assert.deepEqual((await fixture.db.query('SELECT core_memory_count FROM kipster.installations WHERE id=$1', [ids.installationId])).rows, [{ core_memory_count: 12 }])
+  if (cards) {
+    assert.deepEqual((await fixture.db.query('SELECT m.statement, m.core, s.thread_id, s.message_id FROM kipster.memories m JOIN kipster.memory_sources s ON s.memory_id=m.id WHERE m.id=$1', [card])).rows,
+      [{ statement: 'Vegetarian', core: true, thread_id: ids.threadId, message_id: ids.messageId }])
+    assert.deepEqual((await fixture.db.query('SELECT step FROM kipster.memory_calls WHERE id=$1', [call])).rows, [{ step: 'memories' }])
+    assert.deepEqual((await fixture.db.query('SELECT core_memory_count FROM kipster.installations WHERE id=$1', [ids.installationId])).rows, [{ core_memory_count: 12 }])
+  }
   const runtime = await openRuntime({ ...fixture, names: { owner: 'New name', organization: 'New name', rootAgent: 'New name' } })
   try {
     assert.deepEqual(runtime.bootstrap, { installationId: ids.installationId, ownerId: ids.ownerId, organizationId: ids.organizationId, rootAgentId: ids.rootAgentId })

@@ -646,12 +646,14 @@ test('learning, interface, identity and update reads and writes match their HTTP
 
   // Interface
   assert.deepEqual(await run.tool('look', 'admin.interface.get'), await ctx.ok('GET', '/v1/settings/interface'))
-  assert.deepEqual(await run.tool('look-0', 'admin.interface.get'), { version: 1, revision: 0, palette: null, theme: null, desktopNotifications: null, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: null, dockBadge: null })
+  assert.deepEqual(await run.tool('look-0', 'admin.interface.get'), { version: 1, revision: 0, palette: null, theme: null, desktopNotifications: null, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: null, dockBadge: null, threadFilter: null })
   const dark = await run.tool('dark', 'admin.interface.set', { theme: 'dark', desktopNotifications: true, inAppBanners: true })
-  assert.deepEqual(dark, { version: 1, revision: 1, palette: null, theme: 'dark', desktopNotifications: true, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: true, dockBadge: null })
+  assert.deepEqual(dark, { version: 1, revision: 1, palette: null, theme: 'dark', desktopNotifications: true, notifyNeeds: null, notifyFailures: null, notifyReplies: null, inAppBanners: true, dockBadge: null, threadFilter: null })
   assert.deepEqual(await run.tool('dark-again', 'admin.interface.set', { theme: 'dark' }), dark, 'saving the current value changes nothing')
   assert.deepEqual(await ctx.ok('PUT', '/v1/settings/interface', { version: 1, palette: 'pine' }), { ...dark, revision: 2, palette: 'pine' })
   await assert.rejects(run.tool('bad-theme', 'admin.interface.set', { theme: 'sepia' }), /Invalid wire value/)
+  assert.deepEqual(await run.tool('routines-only', 'admin.interface.set', { threadFilter: 'routines' }), { ...dark, revision: 3, palette: 'pine', threadFilter: 'routines' })
+  assert.equal((await ctx.call('PUT', '/v1/settings/interface', { version: 1, threadFilter: 'mine' })).status, 400)
   await assert.rejects(run.tool('no-change', 'admin.interface.set', {}), /no change given/)
   assert.equal((await ctx.call('PUT', '/v1/settings/interface', { version: 1, palette: 'neon' })).status, 400)
 
@@ -680,7 +682,7 @@ test('learning, interface, identity and update reads and writes match their HTTP
   // Every change reached the application stream.
   const types = (await ctx.events(cursor)).map(event => event.type)
   for (const type of ['learning-changed', 'interface-changed', 'identity-changed', 'updates-changed']) assert.ok(types.includes(type), type)
-  assert.equal(types.filter(type => type === 'interface-changed').length, 2)
+  assert.equal(types.filter(type => type === 'interface-changed').length, 3)
   assert.equal(types.filter(type => type === 'identity-changed').length, 3)
   const receipts = (await ctx.db.query("SELECT kind, actor_kind FROM kipster.admin_operations WHERE kind='updates.settings'")).rows
   assert.deepEqual(receipts, [{ kind: 'updates.settings', actor_kind: 'agent' }])

@@ -406,7 +406,7 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
   await expect(item('All threads').locator('.filter-count')).toHaveText('3')
   await expect(item('From other kips').locator('.filter-count')).toHaveText('1')
   await expect(item('From other kips').locator('.avatar.kip')).toHaveCount(1)
-  // Another chat starts unfiltered; Atlas's chat has no thread from another kip.
+  // The choice holds in every chat; Atlas's chat has no thread from another kip.
   await item('From other kips').click()
   await expect(feed(page)).toHaveCount(1)
   await organization(page).selectOption(DEMO_IDS.organization)
@@ -415,16 +415,54 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
     .getByRole('button', { name: 'Atlas', exact: true })
     .first()
     .click()
-  await page.locator('.thread-filter').hover()
-  await expect(item('All threads')).toHaveAttribute('aria-checked', 'true')
-  await expect(item('From other kips').locator('.filter-count')).toHaveText('0')
-  await item('From other kips').click()
   await expect(page.locator('.feed-filter-empty')).toHaveText(
     'No kip has messaged Atlas yet.',
   )
+  await page.locator('.thread-filter').hover()
+  await expect(item('From other kips')).toHaveAttribute('aria-checked', 'true')
+  await expect(item('From other kips').locator('.filter-count')).toHaveText('0')
 })
 
-test('the filter menu works from the keyboard and is not saved', async ({
+test('routine runs have their own filter, and Core keeps the choice', async ({
+  page,
+}) => {
+  await openAdmin(page)
+  await expect(feed(page)).toHaveCount(3)
+  const run = (await threadOf(page, plans)).summary
+  await demo(page, '/summary', {
+    threadId: run.threadId,
+    routine: { id: crypto.randomUUID(), name: 'Weekly plans' },
+  })
+  const menu = page.getByRole('menu', { name: 'Show threads' })
+  const item = (name: string) =>
+    menu.getByRole('menuitemradio', { name: new RegExp(`^${name}`) })
+  await page.locator('.thread-filter').hover()
+  await expect(item('All threads').locator('.filter-count')).toHaveText('3')
+  // A routine run counts only under Routines, though the person started it.
+  await expect(item('Started by you').locator('.filter-count')).toHaveText('1')
+  await expect(item('Routines').locator('.filter-count')).toHaveText('1')
+  await item('Routines').click()
+  await expect(feed(page)).toHaveCount(1)
+  await expect(card(page, plans)).toBeVisible()
+  await page.reload()
+  await openAdmin(page)
+  await expect(feed(page)).toHaveCount(1)
+  await expect(page.locator('.thread-filter .capsule')).toContainText(
+    'Routines',
+  )
+  // Atlas has run no routine.
+  await organization(page).selectOption(DEMO_IDS.organization)
+  await page
+    .locator('#workspace-sidebar')
+    .getByRole('button', { name: 'Atlas', exact: true })
+    .first()
+    .click()
+  await expect(page.locator('.feed-filter-empty')).toHaveText(
+    'Atlas hasn’t run a routine yet.',
+  )
+})
+
+test('the filter menu works from the keyboard and is kept', async ({
   page,
 }) => {
   await openAdmin(page)
@@ -471,11 +509,11 @@ test('the filter menu works from the keyboard and is not saved', async ({
   // Escape in the menu leaves the open thread alone.
   await shown(page, plans)
   await expect(feed(page)).toHaveCount(1)
-  // The filter is view state: a reload shows every thread again.
+  // Core keeps the choice: a reload shows the same threads.
   await page.reload()
   await openAdmin(page)
-  await expect(feed(page)).toHaveCount(3)
+  await expect(feed(page)).toHaveCount(1)
   await expect(
-    page.getByRole('button', { name: 'Filter threads', exact: true }),
+    page.getByRole('button', { name: 'Filter threads: From other kips' }),
   ).toBeVisible()
 })

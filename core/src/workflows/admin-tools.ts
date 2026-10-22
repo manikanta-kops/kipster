@@ -374,12 +374,12 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
   }),
   'interface.get': operation({
     area: 'interface', kind: 'read', input: none,
-    description: 'Read the colour palette, theme and notification choices every open Kipster window applies. null means the app default: desktop notifications, needs-you, failure and reply alerts and the badge on; in-app banners off.',
+    description: 'Read the colour palette, theme, notification choices and thread filter every open Kipster window applies. null means the app default: desktop notifications, needs-you, failure and reply alerts and the badge on; in-app banners off; all threads shown.',
     run: ({ host, caller }) => readInterfacePreferences(host.db, caller),
   }),
   'interface.set': operation({
     area: 'interface', kind: 'write', input: fields({}, interfacePreferencesWrite),
-    description: 'Change the colour palette, the theme (light, dark, or system to follow the computer), whether desktop notifications are on, which kinds alert (notifyNeeds: questions and approvals, notifyFailures, notifyReplies), inAppBanners for chats not on screen, or dockBadge, the count of items that need the person. Open windows apply it at once. Turning notifications on may still need the person to allow them once in the operating system.',
+    description: 'Change the colour palette, the theme (light, dark, or system to follow the computer), whether desktop notifications are on, which kinds alert (notifyNeeds: questions and approvals, notifyFailures, notifyReplies), inAppBanners for chats not on screen, or dockBadge, the count of items that need the person, or threadFilter, which threads the feed of every chat shows (all, you: started by the person, kips: started by other kips, routines: routine runs). Open windows apply it at once. Turning notifications on may still need the person to allow them once in the operating system.',
     run: ({ host, caller, args }) => writeInterfacePreferences(host.db, caller, { version: 1, ...args }),
   }),
   'updates.get': operation({

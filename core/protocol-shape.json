@@ -288,7 +288,8 @@
         "notifyFailures": {"type":"optional","of":{"type":"boolean"}},
         "notifyReplies": {"type":"optional","of":{"type":"boolean"}},
         "inAppBanners": {"type":"optional","of":{"type":"boolean"}},
-        "dockBadge": {"type":"optional","of":{"type":"boolean"}}
+        "dockBadge": {"type":"optional","of":{"type":"boolean"}},
+        "threadFilter": {"type":"optional","of":{"ref":"interfaceThreadFilter"}}
       }
     },
     "learningUpdate": {
@@ -1633,7 +1634,8 @@
         "notifyFailures": {"type":"nullable","of":{"type":"boolean"}},
         "notifyReplies": {"type":"nullable","of":{"type":"boolean"}},
         "inAppBanners": {"type":"nullable","of":{"type":"boolean"}},
-        "dockBadge": {"type":"nullable","of":{"type":"boolean"}}
+        "dockBadge": {"type":"nullable","of":{"type":"boolean"}},
+        "threadFilter": {"type":"nullable","of":{"type":"string"}}
       }
     },
     "interfacePreferencesRecord": {
@@ -1648,7 +1650,8 @@
         "notifyFailures": {"type":"nullable","of":{"type":"boolean"}},
         "notifyReplies": {"type":"nullable","of":{"type":"boolean"}},
         "inAppBanners": {"type":"nullable","of":{"type":"boolean"}},
-        "dockBadge": {"type":"nullable","of":{"type":"boolean"}}
+        "dockBadge": {"type":"nullable","of":{"type":"boolean"}},
+        "threadFilter": {"type":"nullable","of":{"type":"string"}}
       }
     },
     "kipAnswerPart": {
@@ -3286,6 +3289,15 @@
         {"type":"literal","value":"light"},
         {"type":"literal","value":"dark"},
         {"type":"literal","value":"system"}
+      ]
+    },
+    "interfaceThreadFilter": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"all"},
+        {"type":"literal","value":"you"},
+        {"type":"literal","value":"kips"},
+        {"type":"literal","value":"routines"}
       ]
     },
     "organizationLifecycle": {
