@@ -42,11 +42,11 @@ test('Core leaves out empty administration receipts', () => {
 })
 
 test('Core places memory sections before the history, which names its thread', () => {
-  const prompt = turnPrompt({ ...base, threadId: 'thread-1', memory: ['Memory search is unavailable this turn.', '2 threads since last night are not searchable yet.'], triggerMessageId: 'm', input: [{ messageId: 'p', text: 'Earlier', author: owner, parts: [{ kind: 'text', text: 'Earlier' }] }, { messageId: 'm', text: 'Hi', author: owner }] })
+  const prompt = turnPrompt({ ...base, threadId: 'thread-1', memory: ['Memory search is unavailable this turn.', '2 threads are not searchable yet.'], triggerMessageId: 'm', input: [{ messageId: 'p', text: 'Earlier', author: owner, parts: [{ kind: 'text', text: 'Earlier' }] }, { messageId: 'm', text: 'Hi', author: owner }] })
   assert.equal(prompt, [
     'Memory search is unavailable this turn.',
     '',
-    '2 threads since last night are not searchable yet.',
+    '2 threads are not searchable yet.',
     '',
     'Kipster conversation history of thread thread-1 (canonical, ordered):',
     '[p] Factory Owner (the person): Earlier',

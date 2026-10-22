@@ -69,7 +69,7 @@ const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(part
 // Agent and document tools keep their Core operation names.
 const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['message_kip', 'agents.message']])
 const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
-const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+const memoryTools = new Set(['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const routineTools = new Set(['create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 

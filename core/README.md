@@ -454,20 +454,20 @@ Every turn of an agent with memory on (`turnMemory`) gets, in order:
 
 1. The core memories at the end of the instructions: current installation memories marked core, oldest first, up to the core memory count. Organization memories are never core. The kip's top lessons come with its identity.md. The text holds no time of the turn, so it stays byte-identical until they change and provider prompt caches keep working.
 2. Before the history, as `memory` in the execution context and in its `prompt`: a meaning search for the user's message, embedded with `embeddingQuery` within 3 seconds. It shows the search memory count of nearest current memories, the kip's 3 nearest lessons, then the search chunk count of nearest thread chunks and diary pages ranked together, as whole items with their thread IDs and dates; only rows embedded with the current model count. The current thread's chunks are left out, and so is a diary page that covers only the current thread. Without a provider, or when embedding fails, one line says search is unavailable this turn.
-3. A line counting the agent's threads with messages the nightly run has not processed, pointing to `list_recent_threads`, left out at zero.
+3. A line counting the agent's threads with messages the nightly run has not processed, pointing to `list_threads` with `notSearchable: true`, left out at zero.
 4. The thread's history, which names the thread ID (`threadId` in the context).
 
 What a turn's prompt shows follows decision record 10, section 2: installation memories plus the current organization's, and only the agent's own lessons, chunks and diary pages of installation threads plus the current organization's. A diary page belongs to one context, so it names only threads of that context. Kip's prompt is scoped the same way.
 
-The memory tools (`memoryTool`) are offered only while the agent has memory on, and refuse calls once it is off:
+The memory tools (`memoryTool`) are offered only while the agent has memory on, and refuse calls once it is off. The admin kip keeps `list_threads` and `read_thread` with memory off, so it can always see what every kip is doing:
 
 - `search_memory(query, from?, to?, agent?)`: the same search, optionally within ISO dates (chunks by their time span, diary pages by day, memories by `valid_from` and `updated_at`), with the kip's nearest lessons (every kip's for the admin kip, or one kip's with `agent`). Without a provider it returns `{ status: 'unavailable', reason }`.
-- `list_recent_threads(agent?)`: up to 30 unprocessed threads, latest first, with ID, kip, times, processed position and first line.
+- `list_threads(agentId?, from?, to?, notSearchable?)`: up to 30 threads, latest activity first, with ID, kip, times, processed position, first line and work (`running`, `queued`, `waiting` for the person's answer or approval, or `idle`). `from` and `to` keep threads with a final message in that range; `notSearchable` keeps only threads with messages the nightly run has not processed.
 - `read_thread(threadId, fromPosition?, toPosition?)`: a page of final messages, at most 50 and about 60,000 characters; `nextPosition` continues.
 - `save_memory(statement, type, subject, details?)`: a confirmed memory in the current context (the organization of an organization thread), sourced to the message the run answers, embedded at once when the provider answers.
 - `forget_memory(memoryId | lessonId | query)`: deletes visible memories or the kip's own lessons, current or ended, with their sources and embeddings; messages stay. A query matches memories by statement or subject and the kip's lessons by statement, case-insensitively, and deletes at most 20 in all; with more matches it deletes none and returns the candidates. Forgetting a lesson rewrites the Learned section.
 
-A kip's tools see installation memories plus the current organization's, its own lessons, and its own threads in installation and current-organization chats; a linked thread belongs to the kip whose chat holds it, and a kip may also read the source thread of a linked thread its turn runs in. The admin kip sees every memory, every kip's lessons and every kip's threads through its tools, and only it gets `agent` to read one kip; from any other kip it is refused.
+A kip's tools see installation memories plus the current organization's, its own lessons, and its own threads in installation and current-organization chats; a linked thread belongs to the kip whose chat holds it, and a kip may also read the source thread of a linked thread its turn runs in. The admin kip sees every memory, every kip's lessons and every kip's threads through its tools, and only it gets `agent` (`agentId` in `list_threads`) to read one kip; from any other kip it is refused.
 
 ## Plugins
 
