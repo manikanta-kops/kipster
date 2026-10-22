@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { turnPrompt } from '../dist/workflows/turn-prompt.js'
+import { turnPrompt, continuationPrompt, replyReminder } from '../dist/workflows/turn-prompt.js'
 
 const base = { runId: 'run', attemptId: 'attempt', organizationId: null, agentId: 'agent', instructions: 'Core instructions' }
 const owner = { kind: 'person', id: 'owner', name: 'Factory Owner' }
@@ -20,6 +20,8 @@ test('Core renders the turn: history, the current message and its files', () => 
     '[part 1 text]',
     'Look at this',
     '[part 2 file; artifact photo; name "photo.png"; MIME image/png; 30 bytes; readable path "/files/photo.png"]',
+    '',
+    replyReminder,
   ].join('\n'))
 })
 
@@ -33,12 +35,13 @@ test('Core adds saved answers and receipts to the turn', () => {
   assert.match(sections[1], /Human choice/)
   assert.match(sections[2], /^Saved administration operation receipts/)
   assert.match(sections[2], /saved-agent/)
-  assert.equal(sections.length, 3)
+  assert.equal(sections[3], replyReminder, 'the reminder comes after the answers and receipts')
+  assert.equal(sections.length, 4)
 })
 
 test('Core leaves out empty administration receipts', () => {
   const prompt = turnPrompt({ ...base, triggerMessageId: 'm', input: [{ messageId: 'm', text: 'Hi', author: owner, parts: [{ kind: 'text', text: 'Hi' }] }], administrationReceipts: { receipts: [], hasMore: false } })
-  assert.equal(prompt, 'Current message [m] from Factory Owner (the person):\nHi')
+  assert.equal(prompt, `Current message [m] from Factory Owner (the person):\nHi\n\n${replyReminder}`)
 })
 
 test('Core places memory sections before the history, which names its thread', () => {
@@ -53,6 +56,8 @@ test('Core places memory sections before the history, which names its thread', (
     '',
     'Current message [m] from Factory Owner (the person):',
     'Hi',
+    '',
+    replyReminder,
   ].join('\n'))
 })
 
@@ -83,6 +88,8 @@ test('Core labels every history message with its author', () => {
     '',
     'Current message [now] from Factory Owner (the person):',
     'Thanks',
+    '',
+    replyReminder,
   ].join('\n'))
 })
 
@@ -99,9 +106,9 @@ test('Core says which kip a sent message went to and which kip an answer came fr
 
 test('the current message says who wrote it and, from a kip, how to answer', () => {
   const sections = (trigger, author) => turnPrompt({ ...base, triggerMessageId: 'now', input: [text('now', author, 'Body')] }, trigger ? { trigger } : {}).split('\n')
-  assert.deepEqual(sections(undefined, owner), ['Current message [now] from Factory Owner (the person):', 'Body'], 'a person started the turn by default')
-  assert.deepEqual(sections('person', john), ['Current message [now] from John (admin kip):', 'Body'])
-  assert.deepEqual(sections('person', planner), ['Current message [now] from Planner (kip in Playground):', 'Body'])
+  assert.deepEqual(sections(undefined, owner), ['Current message [now] from Factory Owner (the person):', 'Body', '', replyReminder], 'a person started the turn by default')
+  assert.deepEqual(sections('person', john), ['Current message [now] from John (admin kip):', 'Body', '', replyReminder])
+  assert.deepEqual(sections('person', planner), ['Current message [now] from Planner (kip in Playground):', 'Body', '', replyReminder])
   assert.deepEqual(sections('kip', john), ['Current message [now], a message from John (admin kip) sent to you with message_kip. Answer it with message_kip to John (recipientId john); the answer goes back into its conversation:', 'Body'])
   assert.deepEqual(sections('kip', planner), ['Current message [now], a message from Planner (kip in Playground) sent to you with message_kip. Answer it with message_kip to Planner (recipientId planner); the answer goes back into its conversation:', 'Body'])
   assert.deepEqual(sections('answer', planner), ['Current message [now], an answer from Planner (kip in Playground) to your earlier message_kip message. Tell the person with message_user if they need to know, or end your turn without a message. Message Planner (recipientId planner) again only when you need more from it:', 'Body'])
@@ -110,5 +117,13 @@ test('the current message says who wrote it and, from a kip, how to answer', () 
 
 test('the current message keeps the person\'s label in a linked thread', () => {
   const prompt = turnPrompt({ ...base, triggerMessageId: 'now', input: [text('in', john, 'Book a flight'), text('now', owner, 'Use the morning one')] }, { trigger: 'person' })
-  assert.equal(prompt, ['Kipster conversation history (canonical, ordered):', '[in] John (admin kip): Book a flight', '', 'Current message [now] from Factory Owner (the person):', 'Use the morning one'].join('\n'))
+  assert.equal(prompt, ['Kipster conversation history (canonical, ordered):', '[in] John (admin kip): Book a flight', '', 'Current message [now] from Factory Owner (the person):', 'Use the morning one', '', replyReminder].join('\n'))
+})
+
+test('only a turn the person waits on ends with the reminder to reply with message_user', () => {
+  const turn = trigger => turnPrompt({ ...base, triggerMessageId: 'now', input: [text('now', planner, 'Body')] }, { trigger, routine: { name: 'Daily', scheduledFor: '2026-10-22T08:00:00Z', late: false, earlier: [] } })
+  assert.ok(turn('person').endsWith(`\n\n${replyReminder}`))
+  for (const trigger of ['kip', 'answer', 'routine']) assert.ok(!turn(trigger).includes(replyReminder), `${trigger} turns have their own reply instructions`)
+  assert.ok(continuationPrompt({ ...base, input: [] }).endsWith(`\n\n${replyReminder}`), 'a run continued after the person answered ends with it too')
+  assert.match(replyReminder, /only what you send with the message_user tool/)
 })

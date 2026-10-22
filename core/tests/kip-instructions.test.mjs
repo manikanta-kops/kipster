@@ -24,6 +24,8 @@ test('the shared rules say what reaches the person, when to ask, what needs appr
   assert.match(text, /goes out to other people under the person's name, such as an email, a message, a post or a comment, needs their approval first/)
   assert.match(text, /Relevance alone is not a reason to interrupt/)
   assert.match(text, /Ending your turn without a message is a normal, good outcome/)
+  assert.match(text, /An answer to their question always goes through message_user\./)
+  assert.ok(text.indexOf('**The person sees only what you send with message_user.**') < text.indexOf('# How work reaches you'), 'the reply rule leads the instructions')
   assert.match(text, /- silent: .*\n- normal: the answer or result for what they asked/)
   assert.match(text, /give just enough context to act on it, and stop/)
   assert.match(text, /do not raise it again unless something new changes it/)
