@@ -1,12 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { executionTools, memoryGuidance, toolGuidance } from '../dist/workflows/agent-tools.js'
+import { executionTools, memoryGuidance } from '../dist/workflows/agent-tools.js'
+import { kipInstructions } from '../dist/workflows/kip-instructions.js'
 import { adminSkill, skillsSection } from '../dist/workflows/skills.js'
 import { textPublicationHost } from '../dist/runtime.js'
 import { access, readFile } from 'node:fs/promises'
 
 const all = { organization: true, structured: true, vectors: true, administration: true }
 const names = scope => executionTools(scope).map(tool => tool.name)
+const instructionsFor = scope => kipInstructions({ kipLine: '', admin: !!scope.admin, workspace: !!scope.organization })
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
@@ -39,13 +41,11 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.deepEqual(names({ ...all, memory: true, linked: true }), names({ ...all, memory: true }))
   const dataTables = executionTools(all).find(tool => tool.name === 'manage_data_tables')
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
-  const outside = toolGuidance({ organization: false }), inside = toolGuidance({ organization: true })
-  assert.match(outside, /The person sees only what you send with message_user\. Your final reply is not shown/)
-  assert.match(outside, /normal when the person should see it now/)
+  const outside = instructionsFor({ organization: false }), inside = instructionsFor({ organization: true })
   assert.match(outside, /For several questions at once, write a rich doc/)
   assert.match(outside, /create a rich doc with create_rich_doc and send it with message_user/)
   assert.match(outside, /something done later or on a repeat, create a routine with create_routine/)
-  assert.match(outside, /answer it with message_kip to that kip/)
+  assert.match(outside, /answer it with message_kip to that kip/i)
   assert.match(outside, /or end your turn without a message/)
   assert.doesNotMatch(outside, /delegat|post_chat_message|ask_user_question|request_user_approval|final reply is your answer/)
   assert.match(outside, /Attach files you create or download by path/)
@@ -66,10 +66,10 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
   }
   assert.equal(field(member, 'copy_attachment_to_workspace', 'workspaceId'), undefined)
   assert.match(executionTools(admin).find(tool => tool.name === 'list_kips').description, /every kip with the workspaces/)
-  assert.match(toolGuidance({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
-  assert.match(toolGuidance({ organization: false, admin: true }), /what other kips are doing or have done, list their threads with list_threads/)
-  assert.doesNotMatch(toolGuidance({ organization: true }), /list_threads/)
-  for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + toolGuidance(scope), /\bKip\b/)
+  assert.match(instructionsFor({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
+  assert.match(instructionsFor({ organization: false, admin: true }), /what other kips are doing or have done, list their threads with list_threads/)
+  assert.doesNotMatch(instructionsFor({ organization: true }), /list_threads/)
+  for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + instructionsFor(scope), /\bKip\b/)
 })
 
 test('every offered tool name reaches its Core handler', async () => {

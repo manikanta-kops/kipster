@@ -14,7 +14,7 @@ if (args[0] === 'auth') {
   process.exit(0)
 }
 const session = option('--session-id') ?? option('--resume') ?? '11111111-2222-4333-8444-555555555555'
-log({ launch: { argv: args, cwd: process.cwd(), env: process.env, pid: process.pid, instructions: option('--append-system-prompt-file') ? readFileSync(option('--append-system-prompt-file'), 'utf8') : undefined, mcp: option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')) : undefined, mcpMode: option('--mcp-config') ? statSync(option('--mcp-config')).mode & 0o777 : undefined } })
+log({ launch: { argv: args, cwd: process.cwd(), env: process.env, pid: process.pid, instructions: option('--system-prompt-file') ? readFileSync(option('--system-prompt-file'), 'utf8') : undefined, mcp: option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')) : undefined, mcpMode: option('--mcp-config') ? statSync(option('--mcp-config')).mode & 0o777 : undefined } })
 
 const config = option('--mcp-config') ? JSON.parse(readFileSync(option('--mcp-config'), 'utf8')).mcpServers : {}
 let rpc = 0

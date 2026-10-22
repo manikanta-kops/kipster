@@ -92,7 +92,7 @@ export class Home {
     }
     await this.directory(join(this.root, 'agents'))
     await this.directory(join(this.root, 'organizations'))
-    await this.seed(join(this.root, 'system', 'instructions.md'), '# Kipster system\n\nKipster calls its agents kips. The words mean the same thing: people may say either, and a kip is an agent.\n')
+    await this.seed(join(this.root, 'system', 'instructions.md'), '# Installation\n')
   }
   /** Creates the agent's home. Identity files that do not exist yet start with `files`, or with a heading. */
   async provisionAgent(id: string, files: Partial<Record<IdentityFileName, string>> = {}): Promise<void> {
