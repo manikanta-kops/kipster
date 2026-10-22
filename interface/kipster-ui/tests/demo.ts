@@ -61,3 +61,11 @@ export async function storageFault(
 export async function switchTheme(page: Page, mode: 'light' | 'dark') {
   await page.emulateMedia({ colorScheme: mode })
 }
+/** Opens a rich doc from the Rich docs page in Settings, which closes on the way. */
+export async function openRichDoc(page: Page, title: string) {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  await settings.getByRole('button', { name: 'Rich docs', exact: true }).click()
+  await settings.getByRole('button', { name: new RegExp(`^${title}`) }).click()
+  await expect(settings).toBeHidden()
+}

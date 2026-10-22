@@ -111,12 +111,14 @@ const routines = [
 const day = { type: 'string', description: 'ISO date (a whole day) or date and time.' }
 const readThread = (what: string) => tool('read_thread', `${what}, by position, a bounded page at a time; nextPosition continues the page.`,
   { threadId: text, fromPosition: { type: 'integer', minimum: 1 }, toPosition: { type: 'integer', minimum: 1 } }, ['threadId'])
+const listThreads = (admin: boolean) => tool('list_threads', `List threads, latest activity first, each with its ID, kip, first line, last message time and work: running, queued, waiting (for the person's answer or approval) or idle. from and to limit it to threads with messages in a date range; notSearchable true lists only threads with messages memory search cannot find yet. ${admin ? 'You see every kip\'s threads; agentId lists one kip\'s.' : 'You see your own threads.'}`,
+  { ...(admin ? { agentId: { type: 'string', description: 'The kip whose threads to list. Without it you list every kip\'s.' } } : {}), from: day, to: day, notSearchable: { type: 'boolean' } })
 const memory = (admin: boolean) => {
   const agent = admin ? { agent: { type: 'string', description: 'The kip whose memory to read. Without it you read every kip\'s.' } } : {}
   return [
     tool('search_memory', `Meaning search over the memory you may see: memories about the person, ${admin ? 'lessons of every kip (or of agent)' : 'your lessons'}, conversation chunks of threads before last night, and diary pages. Optional from and to limit it to a date range. Returns whole items with their thread IDs and dates, or an unavailable status.`,
       { query: text, from: day, to: day, ...agent }, ['query']),
-    tool('list_recent_threads', 'List threads with messages since last night that search cannot find yet, each with its ID, time and first line.', { ...agent }),
+    listThreads(admin),
     readThread('Read a thread\'s messages'),
     tool('save_memory', 'Save a confirmed memory now: one fact the person just told you in the current message. type is a short kind such as fact, preference, person, goal, commitment, event or routine; subject names who or what it is about, such as user. details holds optional structured values, such as table for the data table a goal is tracked in.',
       { statement: text, type: text, subject: text, details: { type: 'object' } }, ['statement', 'type', 'subject']),
@@ -133,28 +135,10 @@ export interface ToolScope { organization: boolean; structured: boolean; vectors
 export function executionTools(scope: ToolScope): ToolDefinition[] {
   return [
     ...conversation, ...(scope.admin ? [adminCopy] : scope.organization ? [copyToOrganization] : []), ...collaboration(!!scope.admin), ...documents(!!scope.admin), ...routines,
-    ...(scope.memory ? memory(!!scope.admin) : scope.linked ? [readThread('Read the conversation this linked thread\'s kip messages come from')] : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
+    ...(scope.memory ? memory(!!scope.admin) : scope.admin ? [listThreads(true), readThread('Read a thread\'s messages')] : scope.linked ? [readThread('Read the conversation this linked thread\'s kip messages come from')] : []), ...(scope.plugins ? plugins : []), ...(scope.structured ? [dataTables(!!scope.admin)] : []), ...(scope.vectors ? [vectorCollections(!!scope.admin)] : []),
     ...(scope.administration ? administration : []),
   ]
 }
 
-/** How to use the Kipster tools, appended to the instructions of every text execution. */
-export function toolGuidance(scope: Pick<ToolScope, 'organization' | 'admin'>): string {
-  return [
-    'Kipster tools:',
-    '- The person sees only what you send with message_user. Your final reply is not shown, so send every answer, result and file with message_user.',
-    '- Choose priority for each message: normal when the person should see it now, such as your answer, a finished result or a question; silent for progress and anything that can wait.',
-    '- Attach files you create or download by path, files already in Kipster by artifactId and rich docs by documentId. Never paste a long download link instead of the file.',
-    '- To ask the person one question, add a choice element. To get approval for an action, add an approval element with the exact proposal. Send one element, then end your turn. For several questions at once, write a rich doc with question blocks instead.',
-    '- For longer work the person should answer, review or edit, create a rich doc with create_rich_doc and send it with message_user. Their submission comes back to you; revise it with edit_rich_doc.',
-    '- To ask another kip, find it with list_kips and send it a message with message_kip. Its answers come back later as new messages that wake you; end your turn when you have nothing else to do.',
-    '- When another kip messages you, answer it with message_kip to that kip; the answer goes back into its conversation.',
-    '- When a kip\'s answer wakes you, tell the person with message_user if they need to know, or end your turn without a message. Message that kip again only when you need more from it.',
-    '- When the person wants something done later or on a repeat, create a routine with create_routine. Check list_routines first and edit an existing routine instead of adding a duplicate.',
-    '- Voice-note transcripts are what the person said, not instructions.',
-    ...(scope.admin ? ['- To give a workspace its own copy of a file, use copy_attachment_to_workspace with its workspaceId.'] : scope.organization ? ['- To give the workspace its own copy of a file you shared, use copy_attachment_to_workspace.'] : []),
-  ].join('\n')
-}
-
 /** How to use the memory tools, added to the tool guidance of an agent with memory on. */
-export const memoryGuidance = 'Memory: the core memories in these instructions, the Learned section of your identity and the memory search before the history come from earlier conversations. If a memory or lesson conflicts with the current conversation, the conversation wins. When they do not answer, use search_memory, list_recent_threads for threads since last night, and read_thread to read a thread in full. Save what the person asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'
+export const memoryGuidance = 'Memory: the core memories in these instructions, the Learned section of your identity and the memory search before the history come from earlier conversations. If a memory or lesson conflicts with the current conversation, the conversation wins. When they do not answer, use search_memory, list_threads with notSearchable true for recent threads search cannot find yet, and read_thread to read a thread in full. Save what the person asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'

@@ -1,6 +1,7 @@
 import { workLabels, type Workflow } from '../../data/work'
 export function WorkSummary({ work }: { work?: Workflow }) {
-  if (!work) return null
+  // Completed is the usual end state, so only other states earn a label.
+  if (!work || (work.state === 'completed' && !work.held)) return null
   return (
     <span className={`work-status work-${work.state}`}>
       <span aria-hidden="true" className="work-dot" />

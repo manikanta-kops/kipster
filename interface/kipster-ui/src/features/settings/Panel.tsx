@@ -111,24 +111,34 @@ export function Panel({
   }, [trigger])
   useEffect(() => {
     const dialog = ref.current
-    if (variant !== 'popover' || !dialog) return
-    const place = () => setAnchor(anchorTo(trigger))
-    // Clicks on the transparent backdrop land on the dialog itself, outside its box.
-    const lightDismiss = (event: MouseEvent) => {
-      if (event.target !== dialog) return
+    if (!dialog) return
+    // Clicks on the backdrop land on the dialog itself, outside its box. A press
+    // that starts inside, such as selecting text, must not close it on release.
+    const outside = (event: MouseEvent) => {
+      if (event.target !== dialog) return false
       const box = dialog.getBoundingClientRect()
-      if (
+      return (
         event.clientX < box.left ||
         event.clientX > box.right ||
         event.clientY < box.top ||
         event.clientY > box.bottom
       )
-        dismiss.current()
     }
-    window.addEventListener('resize', place)
+    let pressed = false
+    const press = (event: PointerEvent) => {
+      pressed = outside(event)
+    }
+    const lightDismiss = (event: MouseEvent) => {
+      if (pressed && outside(event)) dismiss.current()
+      pressed = false
+    }
+    const place = () => setAnchor(anchorTo(trigger))
+    if (variant === 'popover') window.addEventListener('resize', place)
+    dialog.addEventListener('pointerdown', press)
     dialog.addEventListener('click', lightDismiss)
     return () => {
       window.removeEventListener('resize', place)
+      dialog.removeEventListener('pointerdown', press)
       dialog.removeEventListener('click', lightDismiss)
     }
   }, [variant, trigger])

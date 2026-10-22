@@ -15,8 +15,9 @@ import { sealAttemptMessages, runContext, executionHistory, messageRecord, workR
 import { administrationRun, isLive, type TrustedActor } from '../modules/identity/public.js'
 import { administrationTool } from './admin-tools.js'
 import { pluginGuidance } from '../plugins/tools.js'
-import { executionTools, memoryGuidance, toolGuidance } from './agent-tools.js'
+import { executionTools, memoryGuidance } from './agent-tools.js'
 import { adminSkill, skillsSection } from './skills.js'
+import { kipInstructions } from './kip-instructions.js'
 import type { Context } from '../protocol/text.js'
 import { approvalGrantKeys, permissionModeFor, recordAdapters, resolveSettings, type Catalog } from '../modules/settings/public.js'
 import type { ExecutionAdapter } from '../protocol/admin.js'
@@ -69,7 +70,7 @@ const publicationPartsKey=(parts:readonly unknown[]):string=>JSON.stringify(part
 // Agent and document tools keep their Core operation names.
 const agentOperations = new Map([['list_kips', 'agents.list'], ['get_kip', 'agents.get'], ['message_kip', 'agents.message']])
 const documentOperations = new Map([['create_rich_doc', 'documents.create'], ['list_rich_docs', 'documents.list'], ['read_rich_doc', 'documents.read'], ['edit_rich_doc', 'documents.edit'], ['delete_rich_doc', 'documents.delete']])
-const memoryTools = new Set(['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+const memoryTools = new Set(['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
 const routineTools = new Set(['create_routine', 'edit_routine', 'list_routines', 'delete_routine'])
 const fileRequestHash=(request:unknown[]):string=>createHash('sha256').update(JSON.stringify(request)).digest('hex')
 
@@ -761,7 +762,7 @@ export class TextDispatcher {
       const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length, linked: !!linked })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = [resolved.instructions.system, kip.line, resolved.instructions.soul, resolved.instructions.identity, resolved.instructions.organization, toolGuidance({ organization: organizationId !== null, admin: kip.admin }), linked, memory ? memoryGuidance : '', plugins ? pluginGuidance(plugins) : '', skillsSection(administrationEnabled ? [adminSkill] : []), memory?.instructions ?? ''].filter(Boolean).join('\n\n')
+      const instructions = kipInstructions({ kipLine: kip.line, admin: kip.admin, workspace: organizationId !== null, system: resolved.instructions.system, soul: resolved.instructions.soul, identity: resolved.instructions.identity, organization: resolved.instructions.organization, linked, memoryGuidance: memory ? memoryGuidance : '', plugins: plugins ? pluginGuidance(plugins) : '', skills: skillsSection(administrationEnabled ? [adminSkill] : []), memories: memory?.instructions ?? null })
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.

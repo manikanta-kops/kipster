@@ -53,7 +53,7 @@ test('real PostgreSQL persistence, identity, jobs and settings', { skip: noDatab
     const death = await new Promise((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => resolve({ code, signal })) })
     assert.equal(death.signal, 'SIGKILL')
     assert.equal((await db.query('SELECT provisioned FROM kipster.agents')).rows[0].provisioned, false)
-    assert.equal(await readFile(join(homeDir, 'system', 'instructions.md'), 'utf8'), '# Kipster system\n\nKipster calls its agents kips. The words mean the same thing: people may say either, and a kip is an agent.\n')
+    assert.equal(await readFile(join(homeDir, 'system', 'instructions.md'), 'utf8'), '# Installation\n')
     await writeFile(join(homeDir, 'system', 'instructions.md'), 'authored system instructions\n')
     const [first, second] = await Promise.all([bootstrap(db, home, names), bootstrap(peer, home, names)])
     assert.deepEqual(first, second)

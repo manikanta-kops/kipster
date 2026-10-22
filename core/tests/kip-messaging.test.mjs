@@ -67,7 +67,7 @@ async function environment({ limit = 8, memory = false } = {}) {
   e.writer = await create('Writer', e.playground)
   e.scout = await create('Scout', e.studio)
   await e.ok('POST', `/v1/organizations/${e.studio}/memberships`, { version: 1, operationId: randomUUID(), agentId: e.writer })
-  if (memory) await runtime.learning.setInstallation(e.actor, { enabled: true })
+  await runtime.learning.setInstallation(e.actor, { enabled: !!memory })
   e.installation = { kind: 'installation', installationId: e.installationId }
   e.in = organizationId => ({ kind: 'organization', organizationId })
   e.contextOf = agentId => agentId === e.john ? e.installation : agentId === e.scout ? e.in(e.studio) : e.in(e.playground)
@@ -245,7 +245,7 @@ scenario('3. an FYI and a question back go through the same linked thread; nothi
   assert.deepEqual((await e.messages(first.threadId)).map(message => e.text(message)), ['FYI: the budget is approved.', 'Which project is it for?', 'Project Apollo.', 'Got it.'])
 })
 
-const memoryOnly = ['search_memory', 'list_recent_threads', 'save_memory', 'forget_memory']
+const memoryOnly = ['search_memory', 'list_threads', 'save_memory', 'forget_memory']
 const toolNames = turn => turn.context.tools.map(tool => tool.name)
 /** Memory is off unless a test turns it on: neither the installation nor any kip learns. */
 const memoryOff = async e => assert.deepEqual((await e.db.query('SELECT bool_or(learning_enabled) AS on FROM kipster.installations')).rows[0], { on: false })
@@ -257,7 +257,7 @@ async function readsOnlySource(turn, source, others) {
   assert.equal(page.threadId, source)
   for (const threadId of others) await assert.rejects(turn.call('read_thread', { threadId }), /^Error: Thread not found$/)
   await assert.rejects(turn.call('search_memory', { query: 'offsite' }), /Memory is off for this kip/)
-  await assert.rejects(turn.call('list_recent_threads', {}), /Memory is off for this kip/)
+  await assert.rejects(turn.call('list_threads', {}), /Memory is off for this kip/)
   await assert.rejects(turn.call('save_memory', { statement: 'The offsite is in Lisbon.', type: 'fact', subject: 'offsite' }), /Memory is off for this kip/)
   await assert.rejects(turn.call('forget_memory', { query: 'Lisbon' }), /Memory is off for this kip/)
   return page
@@ -290,13 +290,13 @@ scenario('4. kips in one workspace: the recipient reads the source thread, and o
   await woken.end()
 })
 
-scenario('4b. the admin kip as recipient with memory off reads the source thread, and only that one', {}, async e => {
+scenario('4b. the admin kip with memory off lists and reads every kip\'s threads, and the other memory tools stay off', {}, async e => {
   await memoryOff(e)
   const other = await e.say(e.planner, 'Another thread of Planner')
   const otherTurn = await e.run(other.runId); await otherTurn.end('Noted.'); await e.settled(other.runId, 'completed')
   const own = await e.say(e.john, 'A thread of the admin kip\'s own')
   const ownTurn = await e.run(own.runId)
-  assert.equal(toolNames(ownTurn).includes('read_thread'), false)
+  assert.deepEqual(toolNames(ownTurn).filter(name => name === 'read_thread' || memoryOnly.includes(name)), ['list_threads', 'read_thread'])
   await ownTurn.end('Noted.'); await e.settled(own.runId, 'completed')
   const asked = await e.say(e.planner, 'Ask John which budget applies to the offsite')
   const planner = await e.run(asked.runId)
@@ -304,8 +304,13 @@ scenario('4b. the admin kip as recipient with memory off reads the source thread
   await planner.end()
   const john = await e.run((await e.kipRun(sent.threadId)).id)
   assert.equal(john.context.agentId, e.john)
-  const page = await readsOnlySource(john, asked.threadId, [other.threadId, own.threadId])
-  assert.match(page.messages[0].text, /which budget applies to the offsite/)
+  assert.deepEqual(toolNames(john).filter(name => name === 'read_thread' || memoryOnly.includes(name)), ['list_threads', 'read_thread'])
+  assert.match((await john.call('read_thread', { threadId: asked.threadId })).messages[0].text, /which budget applies to the offsite/)
+  for (const thread of [other, own]) assert.equal((await john.call('read_thread', { threadId: thread.threadId })).threadId, thread.threadId)
+  const listed = (await john.call('list_threads', {})).threads.map(item => item.threadId)
+  for (const thread of [other, own, asked]) assert.ok(listed.includes(thread.threadId))
+  await assert.rejects(john.call('search_memory', { query: 'budget' }), /Memory is off for this kip/)
+  await assert.rejects(john.call('save_memory', { statement: 'The events budget applies.', type: 'fact', subject: 'offsite' }), /Memory is off for this kip/)
   await john.end('The events budget.')
   const woken = await e.run((await e.answerRun(asked.threadId)).id)
   await woken.end()
@@ -321,7 +326,7 @@ scenario('4c. with memory on, a linked recipient reads its own threads and the s
   const sent = await planner.send(e.researcher, 'Find three venues for the offsite.')
   await planner.end()
   const researcher = await e.run((await e.kipRun(sent.threadId)).id)
-  assert.deepEqual(toolNames(researcher).filter(name => name === 'read_thread' || memoryOnly.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.deepEqual(toolNames(researcher).filter(name => name === 'read_thread' || memoryOnly.includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
   assert.match(researcher.context.instructions, /read that conversation with read_thread/)
   assert.equal((await researcher.call('read_thread', { threadId: asked.threadId })).threadId, asked.threadId)
   assert.equal((await researcher.call('read_thread', { threadId: own.threadId })).threadId, own.threadId)

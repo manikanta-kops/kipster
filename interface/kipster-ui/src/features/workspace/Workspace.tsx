@@ -49,7 +49,6 @@ import {
   type ThreadFilterValue,
 } from '../chat/ThreadFilter'
 import { DocPane } from '../documents/DocPane'
-import { DocsSection } from '../documents/DocCard'
 import { DocumentStore } from '../documents/store'
 import {
   DocumentClient,
@@ -2127,7 +2126,6 @@ export function Workspace({
                 </button>
               </div>
             }
-            documents={<DocsSection organizationId={nav.organizationId} />}
             data={view}
             organizationId={nav.organizationId}
             selectedAgentId={nav.agentId}

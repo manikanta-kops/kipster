@@ -407,8 +407,9 @@ test('independent root work and background summaries survive organization naviga
   await expect(
     page
       .locator('.feed-message')
-      .filter({ hasText: 'Work acceptance scenario' }),
-  ).toContainText('Completed')
+      .filter({ hasText: 'Work acceptance scenario' })
+      .locator('.work-status'),
+  ).toHaveCount(0)
 })
 test('expired cursor resnapshot restores work and pending interaction without replaying commands', async ({
   page,
@@ -1035,4 +1036,21 @@ test('progress notes a kip writes while working sit in its work, not the convers
   await block.getByRole('button', { name: /Needs your answer/ }).click()
   await expect(block.locator('.work-step.progress-note')).toHaveCount(0)
   await expect(block.getByRole('button', { name: 'Send answer' })).toBeVisible()
+})
+test('a folded work block hides its answered questions until it opens', async ({
+  page,
+}) => {
+  const s = await setup(page)
+  await page.getByRole('radio', { name: 'Keep it focused' }).click()
+  await page.getByRole('button', { name: 'Send answer', exact: true }).click()
+  const answered = work(page).getByText('Recorded response', { exact: true })
+  await expect(answered).toBeVisible()
+  await patchWork(page, s.threadId, { state: 'completed', queueHold: false })
+  const title = work(page).getByRole('button', { name: /^Completed/ })
+  await expect(title).toHaveAttribute('aria-expanded', 'false')
+  await expect(answered).toBeHidden()
+  await title.click()
+  await expect(answered).toBeVisible()
+  await title.click()
+  await expect(answered).toBeHidden()
 })

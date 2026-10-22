@@ -21,7 +21,7 @@
   max-width: none;
   max-height: none;
   border-radius: var(--radius-panel);
-  font-size: 13.5px;
+  font-size: var(--text-body);
 }
 .settings-sheet[open] {
   display: flex;
@@ -89,7 +89,7 @@
   min-height: 0;
   height: 100%;
   padding: 0;
-  font-size: 13px;
+  font-size: var(--text-body);
   background: none;
   box-shadow: none;
 }
@@ -101,14 +101,14 @@
 }
 .settings-nav-label {
   margin: 16px 8px 4px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   line-height: 16px;
   color: var(--label-3);
 }
 .settings-nav-empty {
   margin: 16px 8px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .settings-nav-item {
@@ -119,7 +119,7 @@
   height: 34px;
   padding: 0 8px 0 5px;
   border-radius: var(--r-ctl);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 500;
   text-align: left;
   color: var(--label);
@@ -195,9 +195,8 @@
 }
 .settings-title h2 {
   overflow: hidden;
-  font-size: 15px;
+  font-size: var(--text-title-3);
   font-weight: 650;
-  letter-spacing: -0.01em;
   line-height: 1.3;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -207,7 +206,7 @@
 }
 .settings-crumb {
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--text-subheadline);
   font-weight: 550;
   line-height: 1.2;
   color: var(--label-3);
@@ -276,7 +275,7 @@
 }
 .set-label {
   margin: 0 var(--pad) 8px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   line-height: 16px;
   letter-spacing: 0.01em;
@@ -294,7 +293,7 @@
 }
 .set-foot {
   margin: 8px var(--pad) 0;
-  font-size: 12px;
+  font-size: var(--text-callout);
   line-height: 1.5;
   color: var(--label-3);
   overflow-wrap: anywhere;
@@ -308,7 +307,7 @@
   min-height: var(--row-h);
   margin: 0;
   padding: 8px var(--pad);
-  font-size: 13.5px;
+  font-size: var(--text-body);
   text-align: left;
   color: var(--label);
 }
@@ -360,7 +359,7 @@
 }
 .set-text > small {
   display: grid;
-  font-size: 12px;
+  font-size: var(--text-callout);
   line-height: 1.45;
   color: var(--label-3);
   overflow-wrap: anywhere;
@@ -390,7 +389,7 @@
   gap: 8px;
   max-width: 62%;
   min-width: 0;
-  font-size: 13px;
+  font-size: var(--text-body);
   color: var(--label-2);
 }
 .set-chevron {
@@ -417,7 +416,7 @@
   gap: 8px;
   min-width: 0;
   overflow: hidden;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -427,7 +426,7 @@
   margin-left: 8px;
   padding: 1px 6px;
   border-radius: 5px;
-  font-size: 10.5px;
+  font-size: var(--text-footnote);
   font-style: normal;
   font-weight: 650;
   letter-spacing: 0.02em;
@@ -458,16 +457,15 @@
   padding-block: 14px;
 }
 .set-hero-name {
-  font-size: 16px;
+  font-size: var(--text-title-3);
   font-weight: 650;
-  letter-spacing: -0.01em;
 }
 .set-hero-title {
-  font-size: 14px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 .set-row.hero .set-text > small {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
 }
 .set-tile,
 .set-badge {
@@ -577,7 +575,7 @@
   font-weight: 600;
 }
 .set-status {
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 550;
   white-space: nowrap;
 }
@@ -597,20 +595,20 @@
   text-align: right;
 }
 .set-value b {
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 550;
   color: var(--label);
   overflow-wrap: anywhere;
 }
 .set-value small {
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
 }
 .set-cap {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
 }
 .set-cap.yes {
@@ -647,7 +645,7 @@
   padding: 0 14px;
   flex: none;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   white-space: nowrap;
   color: var(--label);
@@ -740,7 +738,7 @@
   min-height: 0;
   padding: 0 30px 0 11px;
   border-radius: var(--r-ctl);
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: var(--ctl-h);
   text-overflow: ellipsis;
   background-position:
@@ -767,7 +765,7 @@
 }
 .set-note {
   width: var(--ctl-w);
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-3);
   text-align: right;
 }
@@ -856,7 +854,7 @@
   place-items: center;
   padding: 0 10px;
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 550;
   white-space: nowrap;
   color: var(--label-2);
@@ -867,7 +865,7 @@
 }
 .set-segmented.effort label {
   padding: 0 4px;
-  font-size: 12px;
+  font-size: var(--text-callout);
 }
 .set-segmented span {
   overflow: hidden;
@@ -953,7 +951,7 @@
   border-inline: 0.5px solid var(--sep);
 }
 .set-stepper output b {
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   line-height: 1;
 }
@@ -1001,7 +999,7 @@
   display: block;
   min-height: 0;
   padding-block: 0 12px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.55;
   color: var(--label-2);
   white-space: pre-wrap;
@@ -1033,7 +1031,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 550;
   color: var(--label-2);
 }
@@ -1060,7 +1058,7 @@
   margin-bottom: 24px;
   padding: 10px 12px 10px 14px;
   border-radius: var(--r-grp);
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.5;
   color: var(--label);
   overflow-wrap: anywhere;
@@ -1099,7 +1097,7 @@
   margin: 8px 0 0;
   padding: 8px var(--pad);
   border-radius: var(--r-ctl);
-  font-size: 12.5px;
+  font-size: var(--text-callout);
 }
 .set-block + .set-alert {
   margin: -16px 0 28px;
@@ -1108,7 +1106,7 @@
 /* Documents: identity files and backups */
 .set-document {
   padding: 20px 24px;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   line-height: 1.6;
   color: var(--label-2);
 }
@@ -1124,20 +1122,19 @@
 }
 .set-markdown h1 {
   margin-bottom: 10px;
-  font-size: 18px;
-  letter-spacing: -0.015em;
+  font-size: var(--text-title-2);
 }
 .set-markdown :is(h2, h3) {
   margin-top: 18px;
   margin-bottom: 6px;
-  font-size: 14px;
+  font-size: var(--text-body);
 }
 .set-markdown strong {
   color: var(--label);
 }
 .set-source {
   margin: 0;
-  font: 12.5px/1.65 var(--font-mono);
+  font: var(--text-callout)/1.65 var(--font-mono);
   color: var(--label-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -1156,7 +1153,7 @@
   padding: var(--pad);
   border: 0;
   border-radius: 0;
-  font: 13px/1.6 var(--font-mono);
+  font: var(--text-body)/1.6 var(--font-mono);
   color: var(--label);
   resize: vertical;
   background: transparent;
@@ -1167,7 +1164,7 @@
 }
 .settings-sheet .set-editor.set-card-statement {
   font-family: inherit;
-  font-size: 14px;
+  font-size: var(--text-reading);
   line-height: 1.5;
 }
 .settings-sheet .set-editor:focus {
@@ -1179,7 +1176,7 @@
 .settings-sheet .set-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .set-table tr {
   position: relative;
@@ -1212,7 +1209,7 @@
 }
 .set-range {
   width: 132px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-2);
 }
 .set-levels {
@@ -1370,12 +1367,12 @@
 .palette-name {
   display: grid;
   justify-items: center;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   line-height: 1.3;
 }
 .palette-name small {
-  font-size: 10.5px;
+  font-size: var(--text-footnote);
   font-weight: 500;
   color: var(--label-3);
 }
@@ -1421,7 +1418,7 @@
     var(--drop-lg);
 }
 .set-confirm h3 {
-  font-size: 15px;
+  font-size: var(--text-title-3);
   font-weight: 650;
 }
 .set-confirm-form {
@@ -1429,27 +1426,27 @@
   gap: 12px;
 }
 .set-confirm-form p {
-  font-size: 13px;
+  font-size: var(--text-body);
   line-height: 1.5;
   color: var(--label-2);
 }
 .set-type-name {
   display: grid;
   gap: 6px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   color: var(--label-2);
 }
 .settings-sheet .set-type-name input {
   height: var(--ctl-h);
   min-height: 0;
   padding: 0 10px;
-  font-size: 13px;
+  font-size: var(--text-body);
 }
 .set-check {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   line-height: 1.45;
   color: var(--label-2);
 }
@@ -1473,7 +1470,7 @@
   gap: 8px;
   padding: 8px 14px;
   border-radius: 999px;
-  font-size: 12.5px;
+  font-size: var(--text-callout);
   font-weight: 600;
   white-space: nowrap;
   translate: -50% 0;

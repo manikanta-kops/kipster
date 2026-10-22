@@ -1,4 +1,4 @@
-import { expect, test, demo, startDemo } from './demo.ts'
+import { expect, test, demo, openRichDoc, startDemo } from './demo.ts'
 import type { Page } from '@playwright/test'
 
 type Inspected = {
@@ -17,9 +17,7 @@ const pane = (page: Page) =>
   page.getByRole('region', { name: 'Rich doc: Rich docs: v1 plan' })
 
 async function openDoc(page: Page) {
-  await page
-    .getByRole('button', { name: 'Rich docs: v1 plan, needs you' })
-    .click()
+  await openRichDoc(page, 'Rich docs: v1 plan')
   await expect(pane(page).locator('h1.doc-title')).toHaveText(
     'Rich docs: v1 plan',
   )
@@ -255,4 +253,38 @@ test('Obsidian draws the doc on outline surfaces', async ({ page }) => {
   await expect(
     pane(page).getByRole('button', { name: 'Submit', exact: true }),
   ).toBeVisible()
+})
+
+test('formatting keeps the text tools beside the selection', async ({
+  page,
+}) => {
+  await startDemo(page)
+  await openDoc(page)
+  const field = pane(page).locator(
+    '[data-block="scope-text"][data-field="text"]',
+  )
+  await field.click({ clickCount: 3 })
+  const tools = page.getByRole('toolbar', { name: 'Text tools' })
+  await expect(tools).toBeVisible()
+  const near = async () => {
+    const bar = (await tools.boundingBox())!
+    const text = (await field.boundingBox())!
+    return Math.abs(bar.y + bar.height - text.y) < 80 && bar.x > text.x - 20
+  }
+  await expect.poll(near).toBe(true)
+  for (const name of ['Italic', 'Bold']) {
+    await tools.getByRole('button', { name, exact: true }).click()
+    await expect.poll(near).toBe(true)
+  }
+  await tools.getByRole('button', { name: 'Comment', exact: true }).click()
+  await page.keyboard.type('After formatting')
+  await page.keyboard.press('Enter')
+  await expect
+    .poll(
+      async () =>
+        (await inspect(page)).draft?.comments.find(
+          (c) => c.body === 'After formatting',
+        )?.quote,
+    )
+    .toBeTruthy()
 })

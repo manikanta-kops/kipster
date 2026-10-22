@@ -274,17 +274,17 @@ test('streamed incomplete inline delimiters remain literal until canonical final
     exact: true,
   })
   const id = crypto.randomUUID()
-  const pieces = [
-    '*',
-    '**',
-    '**incomplete',
-    '`',
-    '`unfinished',
-    'Before **partial',
-    '```ts\nconst unfinished = 1',
-    '**complete** and `complete`',
+  // Unmatched inline delimiters stay literal; an open fence already reads as code.
+  const pieces: [string, string][] = [
+    ['**', '**'],
+    ['**incomplete', '**incomplete'],
+    ['`', '`'],
+    ['`unfinished', '`unfinished'],
+    ['Before **partial', 'Before **partial'],
+    ['```ts\nconst unfinished = 1', 'const unfinished = 1'],
+    ['**complete** and `complete`', 'complete and complete'],
   ]
-  for (const [index, text] of pieces.entries()) {
+  for (const [index, [text, shown]] of pieces.entries()) {
     await demo(page, '/message', {
       threadId: thread.summary.threadId,
       message: {
@@ -298,9 +298,7 @@ test('streamed incomplete inline delimiters remain literal until canonical final
       },
     })
     const body = pane.locator('.thread-reply .message-text').last()
-    await expect(body).toHaveText(
-      index === pieces.length - 1 ? 'complete and complete' : text,
-    )
+    await expect(body).toHaveText(shown)
   }
   await expect(pane.locator('.message-state')).toHaveCount(0)
 })

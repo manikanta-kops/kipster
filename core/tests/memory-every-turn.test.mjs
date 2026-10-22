@@ -16,7 +16,7 @@ import { adminUrl, noDatabase } from './support/database.mjs'
 // Kip memory on every turn and the memory tools (decision record 10, sections 5 and 6), against real PostgreSQL with
 // the deterministic adapter and a deterministic embedding provider. Mechanics only: no model behaviour.
 
-const memoryTools = ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory']
+const memoryTools = ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory']
 const fixtureSettings = { adapterId: { set: 'deterministic-fixture' }, modelId: { set: 'fixture-model' } }
 
 /** A 768-dimension bag of words, so texts sharing words are near. `state.fail` makes it throw. */
@@ -69,10 +69,14 @@ async function setup(t, { embedding = true } = {}) {
 
   const context = organizationId => organizationId ? { kind: 'organization', organizationId } : { kind: 'installation', installationId }
   const chat = async (agentId, organizationId) => (await resolveDirectChat(db, actor, context(organizationId), agentId)).chatId
+  /** Sends the owner's message and returns its receipt without waiting for the turn. */
+  async function accept(agentId, organizationId, text, threadId) {
+    const chatId = await chat(agentId, organizationId)
+    return acceptText(db, runtime.jobs, runtime.artifacts, actor, { version: 1, submissionId: randomUUID(), scope: { installationId, callerId: actor.personId }, target: { context: context(organizationId), chatId }, ...(threadId ? { mode: 'reply', threadId } : { mode: 'root' }), parts: [{ kind: 'text', text }] })
+  }
   /** Starts a turn and waits for its execution; `finish()` ends it. */
   async function turn(agentId, organizationId, text, threadId) {
-    const chatId = await chat(agentId, organizationId)
-    const receipt = await acceptText(db, runtime.jobs, runtime.artifacts, actor, { version: 1, submissionId: randomUUID(), scope: { installationId, callerId: actor.personId }, target: { context: context(organizationId), chatId }, ...(threadId ? { mode: 'reply', threadId } : { mode: 'root' }), parts: [{ kind: 'text', text }] })
+    const receipt = await accept(agentId, organizationId, text, threadId)
     const index = executions.length
     for (let i = 0; i < 400 && executions.length === index; i++) await new Promise(resolve => setTimeout(resolve, 25))
     const { context: execution, handle } = executions[index]
@@ -121,7 +125,7 @@ async function setup(t, { embedding = true } = {}) {
   }
   const embedAll = () => embedPending(db, installationId, runtime.embedding)
   const rows = (sql, params = []) => db.query(sql, params).then(result => result.rows)
-  return { runtime, db, actor, installationId, kip, scout, penny, garden, studio, embeddingState, turn, thread, chunk, diary, card, cards, embedAll, rows }
+  return { runtime, db, actor, installationId, kip, scout, penny, garden, studio, embeddingState, accept, turn, thread, chunk, diary, card, cards, embedAll, rows }
 }
 
 const toolNames = execution => (execution.tools ?? []).map(tool => tool.name)
@@ -141,8 +145,8 @@ test('core cards join the stable instructions, capped, without organization card
 - [memory ${first}] fact, user: Vegetarian since October (inferred ${new Date().toISOString().slice(0, 10)})
 - [memory ${second}] person, Priya: Lives in Lisbon (inferred ${new Date().toISOString().slice(0, 10)})`), instructions)
   for (const absent of [third, organization, plain]) assert.ok(!instructions.includes(absent))
-  assert.match(instructions, /list_recent_threads for threads since last night/)
-  assert.deepEqual(toolNames(one.context).filter(name => ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), memoryTools)
+  assert.match(instructions, /list_threads with notSearchable true for recent threads search cannot find yet/)
+  assert.deepEqual(toolNames(one.context).filter(name => memoryTools.includes(name)), memoryTools)
   await one.finish()
 
   // The next turn, in the same thread and in a new one, gets exactly the same instructions.
@@ -166,7 +170,7 @@ test('memory off adds no memory sections and no memory tools, and refuses memory
   await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Unprocessed garden talk' }], { processed: false })
   await ctx.runtime.learning.setAgent(ctx.actor, ctx.scout, { enabled: false })
   const off = await ctx.turn(ctx.scout, ctx.garden, 'Vegetarian dinner ideas')
-  assert.deepEqual(toolNames(off.context).filter(name => ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), [])
+  assert.deepEqual(toolNames(off.context).filter(name => memoryTools.includes(name)), [])
   assert.ok(!off.context.instructions.includes('Core memory') && !off.context.instructions.includes('search_memory'))
   assert.equal(off.context.memory, undefined)
   assert.doesNotMatch(off.context.prompt, /Memory search|not searchable yet/)
@@ -174,14 +178,16 @@ test('memory off adds no memory sections and no memory tools, and refuses memory
   await assert.rejects(off.tool('search_memory', { query: 'dinner' }), /Memory is off for this kip/)
   await off.finish()
 
-  // The installation switch turns it off for Kip too; switched off during a turn, the tools refuse.
+  // The installation switch turns it off for Kip too; switched off during a turn, the tools refuse, except the admin
+  // kip's list_threads and read_thread.
   const on = await ctx.turn(ctx.kip, null, 'Vegetarian dinner ideas')
   assert.ok(toolNames(on.context).includes('search_memory'))
   await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: false })
-  await assert.rejects(on.tool('list_recent_threads', {}), /Memory is off for this kip/)
+  await assert.rejects(on.tool('search_memory', { query: 'dinner' }), /Memory is off for this kip/)
+  assert.ok((await on.tool('list_threads', {})).threads.length > 0)
   await on.finish()
   const kip = await ctx.turn(ctx.kip, null, 'Vegetarian dinner ideas')
-  assert.deepEqual(toolNames(kip.context).filter(name => ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), [])
+  assert.deepEqual(toolNames(kip.context).filter(name => memoryTools.includes(name)), ['list_threads', 'read_thread'])
   assert.ok(!kip.context.instructions.includes('Core memory'))
   assert.equal(kip.context.memory, undefined)
   await kip.finish()
@@ -256,14 +262,14 @@ test('without an embedding provider, or when it fails, search is unavailable whi
     await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'Unprocessed' }], { processed: false })
     const kip = await ctx.turn(ctx.kip, null, 'Dinner ideas?')
     assert.equal(kip.context.memory[0], 'Memory search is unavailable this turn.', mode)
-    assert.match(kip.context.memory[1], /^1 thread since last night is not searchable yet\./)
+    assert.match(kip.context.memory[1], /^1 thread is not searchable yet\./)
     assert.ok(kip.context.instructions.includes(core))
     assert.deepEqual(await kip.tool('search_memory', { query: 'dinner' }), { status: 'unavailable', reason: mode === 'none' ? 'No embedding provider is configured' : 'The embedding provider did not answer' })
     await kip.finish()
   }
 })
 
-test('the unprocessed line counts the kip\'s visible threads since last night, and Kip\'s adds other kips\' threads', { skip: noDatabase, timeout: 60000 }, async t => {
+test('the unprocessed line counts the kip\'s own visible threads search cannot find yet', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'One' }], { processed: false })
   await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'Two' }], { processed: false })
@@ -271,17 +277,17 @@ test('the unprocessed line counts the kip\'s visible threads since last night, a
   await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden' }], { processed: false })
   await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio' }], { processed: false })
   const kip = await ctx.turn(ctx.kip, null, 'Hi')
-  assert.equal(kip.context.memory.at(-1), '2 threads since last night are not searchable yet. If search does not answer, read them with `list_recent_threads`. Other kips\' recent threads are available through the same tool.')
+  assert.equal(kip.context.memory.at(-1), '2 threads are not searchable yet. If search does not answer, list them with `list_threads` and `notSearchable: true`.')
   await kip.finish()
   const scout = await ctx.turn(ctx.scout, ctx.garden, 'Hi')
-  assert.equal(scout.context.memory.at(-1), '1 thread since last night is not searchable yet. If search does not answer, read them with `list_recent_threads`.')
+  assert.equal(scout.context.memory.at(-1), '1 thread is not searchable yet. If search does not answer, list them with `list_threads` and `notSearchable: true`.')
   await scout.finish()
   const penny = await ctx.turn(ctx.penny, ctx.garden, 'Hi')
   assert.ok(!penny.context.memory?.some(section => section.includes('not searchable yet')), 'no line when nothing is waiting')
   await penny.finish()
 })
 
-test('list_recent_threads and read_thread: the admin kip reads every kip\'s threads, another kip only its own visible ones', { skip: noDatabase, timeout: 60000 }, async t => {
+test('list_threads and read_thread: the admin kip reads every kip\'s threads, another kip only its own visible ones', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
   const scoutGarden = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Garden plans\nsecond line' }, { text: 'Sure' }, { author: 'user', text: 'Third' }], { processed: false })
   const scoutStudio = await ctx.thread(ctx.scout, ctx.studio, [{ author: 'user', text: 'Studio plans' }], { processed: false })
@@ -292,10 +298,10 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   assert.deepEqual(page.messages.map(message => [message.position, message.author, message.text]), [[2, 'kip', 'Sure'], [3, 'person', 'Third']])
   assert.deepEqual([page.agentId, page.organizationId, page.nextPosition], [ctx.scout, ctx.garden, null])
   assert.equal((await kip.tool('read_thread', { threadId: scoutStudio.id })).messages[0].text, 'Studio plans')
-  const all = await kip.tool('list_recent_threads', {})
+  const all = await kip.tool('list_threads', { notSearchable: true })
   assert.deepEqual(new Set(all.threads.map(item => item.threadId)), new Set([scoutGarden.id, scoutStudio.id, kipThread.id]))
   assert.equal(all.threads.find(item => item.threadId === scoutGarden.id).firstLine, 'Garden plans')
-  const scoutOnly = await kip.tool('list_recent_threads', { agent: ctx.scout })
+  const scoutOnly = await kip.tool('list_threads', { agentId: ctx.scout, notSearchable: true })
   assert.deepEqual(new Set(scoutOnly.threads.map(item => item.threadId)), new Set([scoutGarden.id, scoutStudio.id]))
   assert.deepEqual(scoutOnly.threads.map(item => [item.agentName, item.processedPosition]), [['Scout', 0], ['Scout', 0]])
   await kip.finish()
@@ -304,9 +310,37 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
   await assert.rejects(scout.tool('read_thread', { threadId: kipThread.id }), /Thread not found/)
   await assert.rejects(scout.tool('read_thread', { threadId: scoutStudio.id }), /Thread not found/, 'another organization of the same kip')
   assert.equal((await scout.tool('read_thread', { threadId: scoutGarden.id, toPosition: 1 })).messages.length, 1)
-  assert.deepEqual((await scout.tool('list_recent_threads', {})).threads.map(item => item.threadId), [scoutGarden.id])
-  for (const [name, args] of [['list_recent_threads', { agent: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only the admin kip may name an agent/)
+  assert.deepEqual((await scout.tool('list_threads', { notSearchable: true })).threads.map(item => item.threadId), [scoutGarden.id])
+  for (const [name, args] of [['list_threads', { agentId: ctx.kip }], ['search_memory', { query: 'plans', agent: ctx.kip }]]) await assert.rejects(scout.tool(name, args), /only the admin kip may name an agent/)
   await scout.finish()
+})
+
+test('list_threads: the admin kip lists every kip\'s threads with their work, by kip, date range and searchability, with memory off', { skip: noDatabase, timeout: 60000 }, async t => {
+  const ctx = await setup(t)
+  await ctx.runtime.learning.setInstallation(ctx.actor, { enabled: false })
+  const september = await ctx.thread(ctx.scout, ctx.garden, [{ author: 'user', text: 'Order seeds' }, { text: 'Ordered' }], { at: '2026-09-20T09:00:00Z' })
+  const october = await ctx.thread(ctx.penny, ctx.garden, [{ author: 'user', text: 'Prune the roses' }], { processed: false, at: '2026-10-12T09:00:00Z' })
+  const scout = await ctx.turn(ctx.scout, ctx.garden, 'Plan the spring beds')
+  assert.equal(toolNames(scout.context).includes('list_threads'), false, 'another kip with memory off gets no list_threads')
+  await assert.rejects(scout.tool('list_threads', {}), /Memory is off for this kip/)
+  // A queued reply behind the running turn leaves the thread running.
+  await ctx.accept(ctx.scout, ctx.garden, 'And the herbs', scout.receipt.threadId)
+
+  const kip = await ctx.turn(ctx.kip, null, 'What are my kips doing?')
+  const work = async args => Object.fromEntries((await kip.tool('list_threads', args)).threads.map(item => [item.threadId, item.work]))
+  assert.deepEqual(await work({}), { [scout.receipt.threadId]: 'running', [october.id]: 'idle', [september.id]: 'idle' })
+  assert.equal((await kip.tool('list_threads', {})).threads[0].threadId, scout.receipt.threadId, 'latest activity first')
+  assert.deepEqual(Object.keys(await work({ agentId: ctx.penny })), [october.id])
+  assert.deepEqual(Object.keys(await work({ to: '2026-09-30' })), [september.id])
+  assert.deepEqual(new Set(Object.keys(await work({ from: '2026-10-01' }))), new Set([scout.receipt.threadId, october.id]))
+  assert.deepEqual(new Set(Object.keys(await work({ notSearchable: true }))), new Set([scout.receipt.threadId, october.id]))
+  await assert.rejects(kip.tool('list_threads', { from: '2026-10-02', to: '2026-10-01' }), /from must be before to/)
+  await assert.rejects(kip.tool('list_threads', { notSearchable: 'yes' }), /notSearchable must be true or false/)
+  assert.equal((await kip.tool('read_thread', { threadId: september.id })).messages[1].text, 'Ordered')
+
+  await scout.tool('message_user', { priority: 'normal', text: 'Which beds?', element: { type: 'choice', prompt: 'Which beds?', options: [{ id: 'front', label: 'Front' }] } })
+  assert.equal((await work({ agentId: ctx.scout }))[scout.receipt.threadId], 'waiting')
+  await kip.finish()
 })
 
 test('search_memory: the admin kip may search another kip with a date range; other kips search their own visible memory', { skip: noDatabase, timeout: 60000 }, async t => {

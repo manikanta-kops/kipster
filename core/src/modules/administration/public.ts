@@ -6,6 +6,7 @@ import { publishSettingsChange, settingsChange, settingsRecord, type Patch, type
 import { notifyThread, applicationCursor, publishAppEvent } from '../synchronization/public.js'
 import { fenceAffectedWork, lockInstallation } from '../work/public.js'
 import type { Jobs } from '../../platform/jobs/public.js'
+import { seedRoutines, type StarterRoutine } from '../routines/public.js'
 import type { DirectoryAgent, DirectoryGroup, DirectoryMembership, DirectoryOrganization, DirectorySnapshot, SettingsRecord } from '../../protocol/admin.js'
 import { claimOperation, completeOperation, lockOperation, operationStatus, pendingOperations, OperationConflictError, type OperationKey, type OperationStatus } from './operations.js'
 
@@ -158,6 +159,8 @@ export interface Starter {
   agents: readonly { key: string; name: string; description: string; files: AgentFiles }[]
   /** Groups of the first organization, in order, each listing its agents' keys in order. */
   groups: readonly { name: string; agents: readonly string[] }[]
+  /** The admin agent's routines. */
+  routines?: readonly StarterRoutine[]
 }
 
 type BootstrapRow = { installation_id: string; owner_id: string; initial_organization_id: string; root_agent_id: string }
@@ -165,7 +168,7 @@ const bootstrapIds = (row: BootstrapRow): Bootstrap => ({ installationId: row.in
 
 /**
  * Creates the installation on its first start: the owner, the first organization and the admin agent,
- * and with `starter`, its agents and groups. Later starts return the recorded IDs and only seed files
+ * and with `starter`, its agents, groups and the admin agent's routines. Later starts return the recorded IDs and only seed files
  * that are missing. Starter agents are recorded as pending creations in the same transaction, so
  * finishPendingCreations provisions them, also after an interrupted first start.
  */
@@ -178,7 +181,8 @@ export async function bootstrap(db: Postgres, home: Home, names: { owner: string
     const afterLock = (await client.query<BootstrapRow>('SELECT * FROM kipster.bootstrap')).rows[0]
     if (afterLock) return bootstrapIds(afterLock)
     const installationId = randomUUID(), ownerId = randomUUID(), organizationId = randomUUID(), rootAgentId = randomUUID()
-    await client.query('INSERT INTO kipster.installations(id) VALUES ($1)', [installationId])
+    // A new installation starts with memory on.
+    await client.query('INSERT INTO kipster.installations(id, learning_enabled) VALUES ($1, true)', [installationId])
     await client.query('INSERT INTO kipster.people VALUES ($1,$2,$3)', [ownerId, installationId, names.owner])
     await client.query('INSERT INTO kipster.agents(id, installation_id, display_name, description) VALUES ($1,$2,$3,$4)', [rootAgentId, installationId, names.rootAgent, starter?.rootAgent.description ?? ''])
     await client.query('INSERT INTO kipster.agent_roles VALUES ($1,$2)', [rootAgentId, 'root-admin'])
@@ -187,6 +191,7 @@ export async function bootstrap(db: Postgres, home: Home, names: { owner: string
     await client.query('INSERT INTO kipster.agent_memberships(organization_id, agent_id) VALUES ($1,$2)', [organizationId, rootAgentId])
     await client.query('INSERT INTO kipster.bootstrap VALUES ($1,$2,$3,$4)', [installationId, ownerId, organizationId, rootAgentId])
     if (starter) await recordStarter(client, installationId, ownerId, organizationId, starter)
+    if (starter?.routines) await seedRoutines(client, { installationId, ownerId, agentId: rootAgentId }, starter.routines, new Date())
     return { installationId, ownerId, organizationId, rootAgentId }
   })
   await home.initialize(ids.installationId)

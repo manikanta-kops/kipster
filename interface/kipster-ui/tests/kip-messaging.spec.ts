@@ -82,12 +82,10 @@ test('a linked thread names its sender in the feed, its pane chips and banner', 
   await expect(linked.locator('.kip-via')).toHaveText(
     `From “${berlin}” in Rowan’s chat`,
   )
-  // The footer is the usual one.
+  // The footer is the usual one: a finished thread shows only its replies.
   await expect(linked.locator('.reply-count')).toHaveText('1 reply')
-  await expect(linked.locator('.reply-description')).toContainText(
-    'Last reply by Kip',
-  )
-  await expect(linked.locator('.work-status')).toHaveText('Completed')
+  await expect(linked.locator('.reply-description')).toHaveCount(0)
+  await expect(linked.locator('.work-status')).toHaveCount(0)
   // A person's own thread carries no kip labels.
   await expect(card(page, plans).locator('.kip-tag, .kip-via')).toHaveCount(0)
 
@@ -321,9 +319,7 @@ test('the waiting line gives way to the thread’s own turn', async ({
     pane(page).getByText('Leave the Q4 launch out for now.'),
   ).toBeVisible()
   await expect(waiting).toHaveCount(0)
-  await expect(card(page, plans).locator('.work-status')).not.toHaveText(
-    'Waiting for Rowan',
-  )
+  await expect(card(page, plans)).not.toContainText('Waiting for Rowan')
   await expect(page.locator('.kip-home .kip-wait')).toHaveCount(0)
 })
 
@@ -357,13 +353,11 @@ test('an answer lands under the recipient’s name and the woken kip ends silent
   expect(
     (await threadOf(page, plans)).summary.links?.map((l) => l.waiting),
   ).toEqual([false])
-  await expect(card(page, plans).locator('.work-status')).toHaveText(
-    'Completed',
-  )
+  await expect(card(page, plans).locator('.work-status')).toHaveCount(0)
   await expect(replies).toHaveCount(5)
 })
 
-test('the filter capsule opens on hover, filters the feed and clears', async ({
+test('the filter capsule opens on click, filters the feed and clears', async ({
   page,
 }) => {
   await openAdmin(page)
@@ -371,7 +365,10 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
   const trigger = page.getByRole('button', { name: 'Filter threads' })
   const menu = page.getByRole('menu', { name: 'Show threads' })
   await expect(menu).toBeHidden()
+  // Hovering does nothing; a click opens the menu.
   await trigger.hover()
+  await expect(menu).toBeHidden()
+  await trigger.click()
   await expect(menu).toBeVisible()
   await expect(trigger).toHaveAttribute('aria-expanded', 'true')
   const item = (name: string) =>
@@ -385,12 +382,20 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
   await item('From other kips').click()
   await expect(feed(page)).toHaveCount(1)
   await expect(card(page, feedback)).toBeVisible()
-  await page.mouse.move(700, 700)
+  await expect(menu).toBeHidden()
+  // A second click closes the menu, and so does a click outside it.
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
+  await expect(menu).toBeVisible()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
+  await expect(menu).toBeHidden()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
+  await expect(menu).toBeVisible()
+  await page.mouse.click(700, 700)
   await expect(menu).toBeHidden()
   const capsule = page.locator('.thread-filter .capsule')
   await expect(capsule).toContainText('From other kips')
 
-  await page.locator('.thread-filter').hover()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
   await item('Started by you').click()
   await expect(feed(page)).toHaveCount(2)
   await expect(card(page, plans)).toBeVisible()
@@ -402,7 +407,7 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
 
   // Rowan's chat has one thread from the admin kip.
   await openRowan(page)
-  await page.locator('.thread-filter').hover()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
   await expect(item('All threads').locator('.filter-count')).toHaveText('3')
   await expect(item('From other kips').locator('.filter-count')).toHaveText('1')
   await expect(item('From other kips').locator('.avatar.kip')).toHaveCount(1)
@@ -418,7 +423,7 @@ test('the filter capsule opens on hover, filters the feed and clears', async ({
   await expect(page.locator('.feed-filter-empty')).toHaveText(
     'No kip has messaged Atlas yet.',
   )
-  await page.locator('.thread-filter').hover()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
   await expect(item('From other kips')).toHaveAttribute('aria-checked', 'true')
   await expect(item('From other kips').locator('.filter-count')).toHaveText('0')
 })
@@ -436,7 +441,7 @@ test('routine runs have their own filter, and Core keeps the choice', async ({
   const menu = page.getByRole('menu', { name: 'Show threads' })
   const item = (name: string) =>
     menu.getByRole('menuitemradio', { name: new RegExp(`^${name}`) })
-  await page.locator('.thread-filter').hover()
+  await page.getByRole('button', { name: /^Filter threads/ }).click()
   await expect(item('All threads').locator('.filter-count')).toHaveText('3')
   // A routine run counts only under Routines, though the person started it.
   await expect(item('Started by you').locator('.filter-count')).toHaveText('1')
@@ -469,12 +474,14 @@ test('the filter menu works from the keyboard and is kept', async ({
   await openThread(page, plans)
   const trigger = page.getByRole('button', { name: /^Filter threads/ })
   const menu = page.getByRole('menu', { name: 'Show threads' })
-  // Keyboard focus opens the menu; Escape closes it and keeps focus.
+  // Keyboard focus alone leaves the menu closed; Escape closes it and keeps focus.
   await page
     .getByRole('button', { name: /^Switch to (dark|light) mode$/ })
     .focus()
   await page.keyboard.press('Shift+Tab')
   await expect(trigger).toBeFocused()
+  await expect(menu).toBeHidden()
+  await page.keyboard.press('Enter')
   await expect(menu).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(menu).toBeHidden()

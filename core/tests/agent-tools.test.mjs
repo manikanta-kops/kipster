@@ -1,12 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { executionTools, memoryGuidance, toolGuidance } from '../dist/workflows/agent-tools.js'
+import { executionTools, memoryGuidance } from '../dist/workflows/agent-tools.js'
+import { kipInstructions } from '../dist/workflows/kip-instructions.js'
 import { adminSkill, skillsSection } from '../dist/workflows/skills.js'
 import { textPublicationHost } from '../dist/runtime.js'
 import { access, readFile } from 'node:fs/promises'
 
 const all = { organization: true, structured: true, vectors: true, administration: true }
 const names = scope => executionTools(scope).map(tool => tool.name)
+const instructionsFor = scope => kipInstructions({ kipLine: '', admin: !!scope.admin, workspace: !!scope.organization })
 
 test('Core offers each execution the tools its scope allows, with provider-safe names and JSON Schemas', () => {
   const base = names({ organization: false, structured: false, vectors: false, administration: false })
@@ -24,7 +26,12 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.deepEqual(Object.keys(messageUser.properties.attachments.items.properties), ['path', 'artifactId', 'documentId'])
   assert.deepEqual(messageUser.properties.element.properties.type.enum, ['choice', 'approval'])
   assert.deepEqual(Object.keys(executionTools(all).find(tool => tool.name === 'message_kip').inputSchema.properties.attachments.items.properties), ['path', 'artifactId'])
-  assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.deepEqual(names({ ...all, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  // The admin kip lists and reads every kip's threads with memory off too; only memory-on adds the other memory tools.
+  assert.deepEqual(names({ ...all, admin: true }).filter(name => !full.includes(name)), ['list_threads', 'read_thread'])
+  assert.deepEqual(names({ ...all, admin: true, linked: true }), names({ ...all, admin: true }))
+  assert.deepEqual(names({ ...all, admin: true, memory: true }).filter(name => !full.includes(name)), ['search_memory', 'list_threads', 'read_thread', 'save_memory', 'forget_memory'])
+  assert.match(memoryGuidance, /list_threads with notSearchable true/)
   assert.match(memoryGuidance, /search_memory/)
   // A linked thread offers read_thread for its source thread with memory off, and once with memory on.
   assert.deepEqual(names({ ...all, linked: true }).filter(name => !full.includes(name)), ['read_thread'])
@@ -32,13 +39,11 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
   assert.deepEqual(names({ ...all, memory: true, linked: true }), names({ ...all, memory: true }))
   const dataTables = executionTools(all).find(tool => tool.name === 'manage_data_tables')
   assert.equal(dataTables.inputSchema.properties.sql, undefined, 'task data takes no raw SQL')
-  const outside = toolGuidance({ organization: false }), inside = toolGuidance({ organization: true })
-  assert.match(outside, /The person sees only what you send with message_user\. Your final reply is not shown/)
-  assert.match(outside, /normal when the person should see it now/)
+  const outside = instructionsFor({ organization: false }), inside = instructionsFor({ organization: true })
   assert.match(outside, /For several questions at once, write a rich doc/)
   assert.match(outside, /create a rich doc with create_rich_doc and send it with message_user/)
   assert.match(outside, /something done later or on a repeat, create a routine with create_routine/)
-  assert.match(outside, /answer it with message_kip to that kip/)
+  assert.match(outside, /answer it with message_kip to that kip/i)
   assert.match(outside, /or end your turn without a message/)
   assert.doesNotMatch(outside, /delegat|post_chat_message|ask_user_question|request_user_approval|final reply is your answer/)
   assert.match(outside, /Attach files you create or download by path/)
@@ -53,14 +58,16 @@ test('only the admin kip gets the fields that reach other workspaces and kips, a
   const admin = { organization: false, structured: false, vectors: false, administration: true, memory: true, admin: true }
   const member = { organization: true, structured: false, vectors: false, administration: false, memory: true }
   assert.deepEqual(executionTools(admin).find(tool => tool.name === 'copy_attachment_to_workspace').inputSchema.required, ['artifactId', 'workspaceId'])
-  for (const [tool, name] of [['message_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_recent_threads', 'agent']]) {
+  for (const [tool, name] of [['message_kip', 'workspaceId'], ['create_rich_doc', 'workspaceId'], ['search_memory', 'agent'], ['list_threads', 'agentId']]) {
     assert.ok(field(admin, tool, name), `${tool}.${name} for the admin kip`)
     assert.equal(field(member, tool, name), undefined, `${tool}.${name} only for the admin kip`)
   }
   assert.equal(field(member, 'copy_attachment_to_workspace', 'workspaceId'), undefined)
   assert.match(executionTools(admin).find(tool => tool.name === 'list_kips').description, /every kip with the workspaces/)
-  assert.match(toolGuidance({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
-  for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + toolGuidance(scope), /\bKip\b/)
+  assert.match(instructionsFor({ organization: false, admin: true }), /copy_attachment_to_workspace with its workspaceId/)
+  assert.match(instructionsFor({ organization: false, admin: true }), /what other kips are doing or have done, list their threads with list_threads/)
+  assert.doesNotMatch(instructionsFor({ organization: true }), /list_threads/)
+  for (const scope of [admin, member]) assert.doesNotMatch(JSON.stringify(executionTools(scope)) + instructionsFor(scope), /\bKip\b/)
 })
 
 test('every offered tool name reaches its Core handler', async () => {

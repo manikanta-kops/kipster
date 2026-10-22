@@ -58,10 +58,9 @@
 .status-island .island-name > :is(h1, h2) {
   overflow: hidden;
   color: var(--label);
-  font-size: 14.5px;
+  font-size: var(--text-title-3);
   font-weight: 650;
   line-height: 17px;
-  letter-spacing: -0.015em;
   white-space: nowrap;
   text-overflow: ellipsis;
   transition: color 0.35s;
@@ -71,7 +70,7 @@
 }
 .island-word,
 .island-measure {
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 600;
   line-height: 16px;
   white-space: nowrap;
@@ -176,7 +175,7 @@
 }
 .action-menu h2 {
   margin: 4px 8px 6px;
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-3);
 }
@@ -218,18 +217,18 @@
 }
 .action-title {
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .action-label {
-  font-size: 12px;
+  font-size: var(--text-callout);
   color: var(--label-2);
 }
 .action-menu time {
   flex: none;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   color: var(--label-3);
   font-variant-numeric: tabular-nums;
 }
@@ -259,7 +258,7 @@
   gap: 6px;
   height: 34px;
   padding-right: 4px;
-  font-size: 13px;
+  font-size: var(--text-body);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -288,21 +287,13 @@
 .filter-menu[hidden] {
   display: none;
 }
-/* Opaque, like the island's menu, and bridged to the capsule so hover survives the gap. */
+/* Opaque, like the island's menu. */
 .filter-menu.mat {
   --m: var(--canvas);
 }
-.filter-menu::before {
-  content: '';
-  position: absolute;
-  top: -8px;
-  left: 0;
-  right: 0;
-  height: 8px;
-}
 .filter-menu h2 {
   margin: 6px 10px;
-  font-size: 11.5px;
+  font-size: var(--text-subheadline);
   font-weight: 650;
   letter-spacing: 0.02em;
   color: var(--label-3);
@@ -314,7 +305,7 @@
   width: 100%;
   padding: 8px 10px;
   border-radius: 12px;
-  font-size: 13.5px;
+  font-size: var(--text-body);
   font-weight: 550;
   text-align: left;
 }
@@ -347,7 +338,7 @@
   font-size: 9px;
 }
 .filter-count {
-  font-size: 12px;
+  font-size: var(--text-callout);
   font-weight: 600;
   color: var(--label-3);
   font-variant-numeric: tabular-nums;

@@ -1,15 +1,11 @@
 import { Icon } from '../../components/Icon'
-import type { Summary } from '../../data/documents'
 import {
-  useDocumentList,
   useDocumentsContext,
   useDocumentSummary,
   type DocumentStore,
 } from './store'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-const needsYou = (doc: Summary) =>
-  doc.turn === 'user' && doc.pendingQuestions > 0
 
 /** A doc shared in a message. */
 export function DocCard({
@@ -98,52 +94,5 @@ function Card({
         </span>
       )}
     </button>
-  )
-}
-
-/** Docs for the open organization and the installation, newest first. */
-export function DocsSection({
-  organizationId,
-}: {
-  organizationId: string | null
-}) {
-  const docs = useDocumentsContext()!
-  const list = useDocumentList(docs.store).filter(
-    (doc) =>
-      doc.context.kind === 'installation' ||
-      (doc.context.kind === 'organization' &&
-        doc.context.organizationId === organizationId),
-  )
-  if (!list.length) return null
-  return (
-    <section className="agent-group docs-group" aria-label="Rich docs">
-      <h2 className="group-heading">
-        <Icon name="doc" size={13} />
-        Rich docs
-      </h2>
-      {list.map((doc) => {
-        const open = docs.openId === doc.id
-        return (
-          <button
-            key={doc.id}
-            className={`agent-button doc-row gloss ${open ? 'selected' : ''}`}
-            aria-current={open ? 'page' : undefined}
-            aria-label={`${doc.title}${needsYou(doc) ? ', needs you' : ''}`}
-            onClick={() => docs.open(doc.id)}
-          >
-            <span className="doc-mini" aria-hidden="true">
-              <Icon name="doc" size={17} />
-            </span>
-            <span className="agent-info sidebar-label">
-              <span className="agent-name">{doc.title}</span>
-              <span className="agent-line">
-                {docs.author(doc.agentId).name} · Rev {doc.currentRevision}
-              </span>
-            </span>
-            {needsYou(doc) && <i className="needs" aria-hidden="true" />}
-          </button>
-        )
-      })}
-    </section>
   )
 }
