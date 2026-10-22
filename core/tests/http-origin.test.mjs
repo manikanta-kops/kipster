@@ -81,5 +81,5 @@ test('bootstrap reports the Core release and the protocol range it serves', asyn
   const { body } = await request(server)
   const manifest = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'))
   assert.equal(body.coreVersion, manifest.version)
-  assert.deepEqual(body.protocol, { current: 4, oldest: 1 })
+  assert.deepEqual(body.protocol, { current: 1, oldest: 1 })
 })

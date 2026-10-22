@@ -131,8 +131,6 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
     let cancelled = false
     let yielding = false
     let resulted = false
-    let requestedInteraction = false
-    let repeatedInteraction = false
     const consumed = new Set<string>()
     const port = await this.server.start()
     const finish = async (event: ExecutionEvent) => {
@@ -163,19 +161,8 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       call: async (name, args, toolUseId) => {
         const tool = tools.find(item => item.name === name)
         if (!tool || yielding) return { text: 'Unsupported tool or invalid arguments', isError: true }
-        if (tool.waits === 'question' || tool.waits === 'approval') {
-          if (requestedInteraction) { repeatedInteraction = true; return { text: 'Only one interaction is supported per provider turn', isError: true } }
-          requestedInteraction = true
-        }
         try {
           const result = await this.host.invokeTool({ attemptId, callId: toolUseId ?? randomUUID(), name: tool.name, arguments: args })
-          const saved = object(result)
-          if (tool.waits === 'question' || tool.waits === 'approval') {
-            if (saved.status !== 'pending' || !string(saved.interactionId)) throw new Error('Interaction was not recorded')
-            queue.push({ kind: 'waiting', attemptId, for: tool.waits, interactionId: string(saved.interactionId)! })
-          } else if (tool.waits === 'child' && !['completed', 'failed', 'cancelled', 'recovery-needed'].includes(String(saved.state))) {
-            queue.push({ kind: 'waiting', attemptId, for: 'child', interactionId: string(saved.id) ?? toolUseId ?? randomUUID() })
-          }
           return { text: JSON.stringify(result) }
         } catch (error) { return { text: String(error), isError: true } }
       },
@@ -259,7 +246,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
           settleText()
           const failure = message.is_error === true || message.subtype !== 'success'
             ? `Claude turn failed: ${string(message.result) ?? (Array.isArray(message.errors) ? message.errors.join('; ') : string(message.subtype) ?? 'error')}`
-            : repeatedInteraction ? 'Provider repeated an interaction request in one turn' : undefined
+            : undefined
           void (async () => {
             process.endInput()
             await process.settle(5000)

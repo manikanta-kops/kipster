@@ -18,8 +18,6 @@ test('Core offers each execution the tools its scope allows, with provider-safe 
     assert.equal(tool.inputSchema.type, 'object')
     assert.equal(tool.inputSchema.additionalProperties, false)
   }
-  // A pending result, not the tool, leaves a run waiting.
-  assert.equal(executionTools(all).filter(tool => tool.waits).length, 0)
   const messageUser = executionTools(all).find(tool => tool.name === 'message_user').inputSchema
   assert.deepEqual(messageUser.required, ['priority'])
   assert.deepEqual(messageUser.properties.priority.enum, ['silent', 'normal'])

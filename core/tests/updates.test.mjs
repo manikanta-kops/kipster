@@ -220,7 +220,6 @@ test('owner settings round-trip, validate, deduplicate and survive restart', { s
     ['POST', '/v1/updates/check', { version: 1 }], ['POST', '/v1/updates/install', install('1.4.0')], ['POST', '/v1/updates/unpin', unpin()]]) {
     assert.equal((await ctx.call(method, path, body, outsider)).status, 403)
   }
-  assert.equal((await ctx.call('GET', '/v1/bootstrap')).data.capabilities.updates, true)
 })
 
 test('checker handles newer, same, older, absent, prerelease and malformed channel files', { skip: noDatabase }, async t => {

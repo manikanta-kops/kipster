@@ -135,9 +135,8 @@ track?"; the kip sees the goal and its table and queries it.
 
 ## 6. Protocol and administration
 
-A clean break, before the first beta, that raises the protocol to 4. Clients
-of protocols 1 to 3 no longer see the `memoryCards` capability, so they hide
-their Memory view.
+A clean break, before the first beta. The protocol was later reset to 1 for
+the first beta, and Memory needs no bootstrap capability.
 
 
 - `/v1/memory/cards` becomes `/v1/memory/memories`; `/v1/memory/lessons` lists

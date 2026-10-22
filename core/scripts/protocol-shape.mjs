@@ -1,5 +1,6 @@
 // Snapshots the protocol's request and response shapes and rejects changes that are not
-// additive unless `protocolRange.current` was raised (decision record 5.1.7).
+// additive unless `protocolRange.current` was raised (decision record 5.1.7), or the protocol
+// was reset to a fresh 1 before any release.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -158,11 +159,13 @@ export function breakingChanges(base, head) {
 /** Problems that fail the check: breaking changes without a raised protocol, or an early drop. */
 export function verdict(base, head) {
   const changes = breakingChanges(base, head)
-  const raised = head.protocol.current > base.protocol.current
+  // A reset to protocol 1 starts the protocol over; every client must be built against it.
+  const reset = head.protocol.current === 1 && head.protocol.oldest === 1 && base.protocol.current > 1
+  const raised = reset || head.protocol.current > base.protocol.current
   const problems = raised ? [] : [...changes]
-  if (raised && head.protocol.oldest > base.protocol.current)
+  if (raised && !reset && head.protocol.oldest > base.protocol.current)
     problems.push(`protocolRange.oldest must keep serving protocol ${base.protocol.current} for at least one release after raising current`)
-  return { changes, raised, problems }
+  return { changes, raised, reset, problems }
 }
 
 /** JSON with each node that fits on one line written on one line. */
@@ -188,8 +191,8 @@ async function main([command, flag, basePath]) {
     failed = true
   }
   if (basePath && existsSync(basePath)) {
-    const { changes, raised, problems } = verdict(JSON.parse(readFileSync(basePath, 'utf8')), head)
-    if (raised && changes.length) console.log(`Protocol raised; breaking changes allowed:\n  ${changes.join('\n  ')}`)
+    const { changes, raised, reset, problems } = verdict(JSON.parse(readFileSync(basePath, 'utf8')), head)
+    if (raised && changes.length) console.log(`Protocol ${reset ? 'reset to 1' : 'raised'}; breaking changes allowed:\n  ${changes.join('\n  ')}`)
     if (problems.length) {
       console.error(`Protocol changes must be additive, or raise protocolRange.current in core/src/protocol/version.ts:\n  ${problems.join('\n  ')}`)
       failed = true

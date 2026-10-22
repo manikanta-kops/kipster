@@ -55,7 +55,7 @@ export interface Thread {
   title: string
   /** Ordered references. Message bodies have one home in messagesById. */
   messageIds: string[]
-  /** The author of the first message, the person or a kip; absent from older Cores. */
+  /** The author of the first message, the person or a kip; absent while the thread has none. */
   startedBy?: string
   /** A linked thread: the kip that messages it and the thread its messages come from. */
   linkedFrom?: {
@@ -110,9 +110,9 @@ export interface Message {
   threadId: string
   authorId: string
   createdAt: string
-  /** When Core created the message; absent from older Cores. */
-  sentAt?: string
-  /** When Core finalized the message; absent until final or from older Cores. */
+  /** When Core created the message. */
+  sentAt: string
+  /** When Core finalized the message; absent until final. */
   finishedAt?: string
   parts: ContentPart[]
   /** A message a kip sent from this thread to another kip's linked thread. */

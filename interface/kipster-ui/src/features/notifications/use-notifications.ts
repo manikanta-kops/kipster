@@ -33,8 +33,8 @@ function useForeground(platform: Platform | null) {
  */
 export function useNotifications(input: {
   endpoint: string
-  /** Core advertises batch read and clear. Undefined until connected. */
-  actions: boolean | undefined
+  /** Whether this window is connected to Core. */
+  connected: boolean
   scope: string
   items: InboxNotification[]
   arrivals: string[]
@@ -49,10 +49,8 @@ export function useNotifications(input: {
   const { items, selected, ready } = input
   const client = useMemo(
     () =>
-      input.actions === undefined
-        ? undefined
-        : createNotificationClient(input.endpoint, input.actions),
-    [input.endpoint, input.actions],
+      input.connected ? createNotificationClient(input.endpoint) : undefined,
+    [input.endpoint, input.connected],
   )
   const { canClear, read, clear, retry } = useNotificationActions(client, input)
   const unreadIn = (threadId: string) =>

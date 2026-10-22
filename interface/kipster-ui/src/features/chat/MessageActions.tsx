@@ -18,9 +18,8 @@ export function MessageActions({
   const texts = message.parts.flatMap((part) =>
     part.type === 'text' ? [part.text] : [],
   )
-  // Older Cores send no message times; the thread's time would be wrong for replies.
   const time = isSelf ? message.sentAt : (message.finishedAt ?? message.sentAt)
-  if (message.status === 'draft' || (!texts.length && !time)) return null
+  if (message.status === 'draft') return null
   return (
     <div className="message-actions">
       {texts.length > 0 && (
@@ -42,7 +41,7 @@ export function MessageActions({
           <Icon name={copied ? 'check' : 'copy'} size={15} />
         </button>
       )}
-      {time && <time dateTime={time}>{formatTime(time)}</time>}
+      <time dateTime={time}>{formatTime(time)}</time>
       <span className="sr-only" aria-live="polite">
         {copied ? 'Copied' : ''}
       </span>

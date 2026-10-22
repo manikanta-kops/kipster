@@ -752,15 +752,7 @@ export function createAdministration(options: Options = {}) {
     callerId: DEMO_IDS.caller,
     organizationId: DEMO_IDS.organization,
     rootAgentId: DEMO_IDS.rootAgent,
-    capabilities: {
-      voiceRecording: true,
-      interfacePreferences: true,
-      notificationActions: true,
-      documents: true,
-      permissionModes: true,
-      memories: true,
-      viewingWorkspace: true,
-    },
+    capabilities: { voiceRecording: true },
   })
   const adapters = () => ({
     version: 1,

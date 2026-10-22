@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":4,"oldest":1},
+  "protocol": {"current":1,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
@@ -863,17 +863,7 @@
     "bootstrapCapabilities": {
       "type": "object",
       "exact": false,
-      "fields": {
-        "voiceRecording": {"type":"boolean"},
-        "updates": {"type":"optional","of":{"type":"boolean"}},
-        "interfacePreferences": {"type":"optional","of":{"type":"boolean"}},
-        "notificationActions": {"type":"optional","of":{"type":"boolean"}},
-        "documents": {"type":"optional","of":{"type":"boolean"}},
-        "permissionModes": {"type":"optional","of":{"type":"boolean"}},
-        "memories": {"type":"optional","of":{"type":"boolean"}},
-        "plugins": {"type":"optional","of":{"type":"boolean"}},
-        "viewingWorkspace": {"type":"optional","of":{"type":"boolean"}}
-      }
+      "fields": {"voiceRecording":{"type":"boolean"},"plugins":{"type":"boolean"}}
     },
     "channelEntry": {
       "type": "object",
@@ -1715,23 +1705,20 @@
         "available": {"type":"boolean"},
         "agents": {"type":"array","items":{"ref":"agentLearning"}},
         "nightlyModel": {
-          "type": "optional",
+          "type": "nullable",
           "of": {
-            "type": "nullable",
-            "of": {
-              "type": "object",
-              "exact": false,
-              "fields": {
-                "adapterId": {"type":"string","min":1},
-                "modelId": {"type":"string","min":1},
-                "effort": {"type":"optional","of":{"type":"string","min":1}}
-              }
+            "type": "object",
+            "exact": false,
+            "fields": {
+              "adapterId": {"type":"string","min":1},
+              "modelId": {"type":"string","min":1},
+              "effort": {"type":"optional","of":{"type":"string","min":1}}
             }
           }
         },
-        "coreMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
-        "searchMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
-        "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0}}
+        "coreMemoryCount": {"type":"integer","min":0},
+        "searchMemoryCount": {"type":"integer","min":0},
+        "searchChunkCount": {"type":"integer","min":0}
       }
     },
     "lesson": {
@@ -1890,7 +1877,6 @@
         "kind": {
           "type": "union",
           "of": [
-            {"type":"literal","value":"completed"},
             {"type":"literal","value":"failed"},
             {"type":"literal","value":"recovery-needed"},
             {"type":"literal","value":"interaction"},
@@ -2543,21 +2529,6 @@
             "occurredAt": {"type":"string","format":"utc-timestamp"},
             "resourceId": {"type":"string","min":1},
             "revision": {"type":"integer","min":0},
-            "type": {"type":"literal","value":"delegation-changed"},
-            "data": {"ref":"threadDelegation"}
-          }
-        },
-        {
-          "type": "object",
-          "exact": false,
-          "fields": {
-            "version": {"type":"literal","value":1},
-            "eventId": {"type":"string","min":1},
-            "scope": {"ref":"streamScope"},
-            "cursor": {"type":"string","min":1},
-            "occurredAt": {"type":"string","format":"utc-timestamp"},
-            "resourceId": {"type":"string","min":1},
-            "revision": {"type":"integer","min":0},
             "type": {"type":"literal","value":"thread-summary"},
             "data": {"ref":"appThreadSummary"}
           }
@@ -2882,35 +2853,6 @@
         }
       ]
     },
-    "threadDelegation": {
-      "type": "object",
-      "exact": false,
-      "fields": {
-        "id": {"type":"string","min":1},
-        "parentRunId": {"type":"nullable","of":{"type":"string","min":1}},
-        "childRunId": {"type":"nullable","of":{"type":"string","min":1}},
-        "senderAgentId": {"type":"string","min":1},
-        "recipientAgentId": {"type":"string","min":1},
-        "originThreadId": {"type":"string","min":1},
-        "depth": {"type":"integer","min":0},
-        "ordinal": {"type":"integer","min":0},
-        "request": {"type":"string"},
-        "state": {
-          "type": "union",
-          "of": [
-            {"type":"literal","value":"queued"},
-            {"type":"literal","value":"running"},
-            {"type":"literal","value":"waiting"},
-            {"type":"literal","value":"completed"},
-            {"type":"literal","value":"failed"},
-            {"type":"literal","value":"cancelled"},
-            {"type":"literal","value":"recovery-needed"}
-          ]
-        },
-        "failure": {"type":"optional","of":{"type":"string"}},
-        "revision": {"type":"integer","min":0}
-      }
-    },
     "threadInteraction": {
       "type": "object",
       "exact": false,
@@ -3034,7 +2976,6 @@
         "messages": {"type":"array","items":{"ref":"threadMessage"}},
         "work": {"type":"array","items":{"ref":"threadWork"}},
         "interactions": {"type":"array","items":{"ref":"threadInteraction"}},
-        "delegations": {"type":"optional","of":{"type":"array","items":{"ref":"threadDelegation"}}},
         "next": {
           "type": "nullable",
           "of": {

@@ -740,7 +740,6 @@ test('memories list, read, edit and delete like Core', async (t) => {
     assert.equal(response.status, status, `${method} ${path}`)
     assert.equal(protocol.stableError.parse(await response.json()).code, code)
   }
-  assert.equal((await json('/v1/bootstrap')).capabilities.memories, true)
   const current = await json('/v1/memory/memories', protocol.memoryPage)
   assert.ok(current.memories.length)
   assert.ok(current.memories.every((item) => item.validTo === null))
@@ -2184,8 +2183,6 @@ test('automatic mode installs a newer Kipster Plugins release after a check', as
 
 test('notification previews, batch reads and clears keep pending questions', async (t) => {
   const { json, request } = harness(t)
-  const bootstrap = await json('/v1/bootstrap')
-  assert.equal(bootstrap.capabilities.notificationActions, true)
   const before = await json('/v1/app/snapshot', protocol.appSnapshot)
   assert.ok(before.notifications.every((n) => n.preview))
   const pending = before.notifications.filter(

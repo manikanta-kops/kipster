@@ -60,14 +60,14 @@ export function useNotificationActions(
   })
   return useMemo(
     () => ({
-      canClear: !!client?.canClear,
+      canClear: !!client,
       read(ids: string[]) {
         if (!ids.length) return
         applied.current.read(ids)
         queue?.read(ids)
       },
       clear(ids: string[]) {
-        if (!ids.length || !client?.canClear) return
+        if (!ids.length || !client) return
         applied.current.remove(ids)
         queue?.clear(ids)
       },

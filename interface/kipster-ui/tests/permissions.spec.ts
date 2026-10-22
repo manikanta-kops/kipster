@@ -93,31 +93,6 @@ test('a change made elsewhere, such as by Kip, appears in the open picker', asyn
   await expect(mode(page, 'Auto-accept edits')).toBeChecked()
 })
 
-test('a Core without permission modes shows no Permissions settings', async ({
-  page,
-}) => {
-  await page.route('**/v1/bootstrap', async (route) => {
-    const response = await route.fetch()
-    const body = await response.json()
-    delete body.capabilities.permissionModes
-    await route.fulfill({ response, json: body })
-  })
-  const reads: string[] = []
-  page.on('request', (request) => {
-    if (request.url().includes('/v1/settings/permissions'))
-      reads.push(request.url())
-  })
-  await startDemo(page)
-  await page.getByRole('button', { name: 'Settings', exact: true }).click()
-  await expect(
-    page.getByRole('button', { name: 'Memory', exact: true }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('button', { name: 'Permissions', exact: true }),
-  ).toHaveCount(0)
-  expect(reads).toEqual([])
-})
-
 test('a mode this app does not know is shown as unrecognized, with nothing chosen', async ({
   page,
 }) => {

@@ -187,22 +187,10 @@ test('the row is not selectable while the message text is', async ({
   expect(selected).not.toContain(await time.innerText())
 })
 
-test('without Core message times only copy shows, and an empty row is omitted', async ({
+test('a message with nothing to copy shows no copy button', async ({
   page,
 }) => {
-  const { pane, add, snapshot, thread } = await setup(page)
-  await add({
-    authorId: snapshot.ids.caller,
-    parts: [{ kind: 'text', text: 'Sent to an older Core' }],
-  })
-  const older = pane
-    .locator('.thread-reply')
-    .filter({ hasText: 'Sent to an older Core' })
-  await older.locator('.message-content').hover()
-  await expect(
-    older.getByRole('button', { name: 'Copy message', exact: true }),
-  ).toBeVisible()
-  await expect(older.locator('.message-actions time')).toHaveCount(0)
+  const { pane, add, thread } = await setup(page)
   await add({
     authorId: thread.summary.agentId,
     parts: [{ kind: 'unsupported-kind' }],
