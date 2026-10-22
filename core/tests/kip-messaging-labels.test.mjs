@@ -8,6 +8,7 @@ import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, startTextServer, TextDispatcher } from '../dist/runtime.js'
 import { textPublicationHost } from '../dist/workflows/text-dispatch.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
+import { replyReminder } from '../dist/workflows/turn-prompt.js'
 
 const fixtureSettings = { adapterId: 'kip-fixture', modelId: 'fixture' }
 async function until(read, match, label) {
@@ -136,7 +137,7 @@ scenario('the recipient\'s prompt names the sending kip and that the answer goes
   const stepIn = await e.say(e.planner, 'Also check the venue.', { threadId: sent.threadId, chatId: sent.chatId })
   const personTurn = await e.run(stepIn.runId)
   assert.deepEqual(personTurn.current.author, owner)
-  assert.ok(personTurn.context.prompt.endsWith(`Current message [${stepIn.messageId}] from Factory Owner (the person):\nAlso check the venue.`))
+  assert.ok(personTurn.context.prompt.endsWith(`Current message [${stepIn.messageId}] from Factory Owner (the person):\nAlso check the venue.\n\n${replyReminder}`))
   assert.match(personTurn.context.prompt, new RegExp(`^\\[${kipRun.input_message_id}\\] John \\(admin kip\\): Which launch date`, 'm'))
   assert.match(personTurn.context.prompt, /^\[[^\]]+\] Planner \(kip in Playground\), message sent with message_kip to John \(admin kip\): The team agreed on March 3\.$/m)
   await personTurn.end('Checking.')
