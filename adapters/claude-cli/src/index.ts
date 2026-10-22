@@ -300,7 +300,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       return { events: queue, cancel: async () => ({ acknowledged: true, confirmedEnded: true }), reconcile: async () => 'ended' }
     }
     // Only Kip memory's nightly steps; a task or step this adapter does not know fails before launch.
-    if (payload.task !== 'memory' || !['chunks', 'cards', 'diary', 'core'].includes(payload.step)) return refused('Unsupported maintenance task')
+    if (payload.task !== 'memory' || !['chunks', 'memories', 'lessons', 'diary', 'core'].includes(payload.step)) return refused('Unsupported maintenance task')
     const refusal = this.supported(settings)
     if (refusal) return refused(refusal)
     const sessionId = randomUUID()

@@ -751,7 +751,7 @@ export class TextDispatcher {
       const latest = interactions.at(-1)
       const administrationEnabled = await administrationRun(this.runtime.db, context.actor.installationId, runId)
       const adminReceipts = administrationEnabled ? await administrationReceipts(this.runtime.db, context.actor.installationId, context.agentId, runId) : undefined
-      // Memory: core cards in the stable instructions, then search results and the unprocessed-threads line before the history.
+      // Memory: core memories in the stable instructions, then search results and the unprocessed-threads line before the history.
       const trigger = input.find(message => message.messageId === context.inputMessageId)
       const query = (trigger?.parts ?? []).map(part => part.kind === 'text' ? part.text : part.transcription?.text ?? '').filter(Boolean).join('\n')
       const memory = await turnMemory(this.runtime.db, this.runtime.embedding, { installationId: context.actor.installationId, agentId: context.agentId, organizationId, threadId: context.threadId, query })
@@ -912,7 +912,7 @@ export class TextDispatcher {
   }
   /** Memory tools, for an agent with memory on. */
   async memoryTool(attemptId: string, _callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
-    return memoryTool(this.runtime.db, this.runtime.embedding, attemptId, this.incarnation, name, args)
+    return memoryTool(this.runtime.db, this.runtime.embedding, this.runtime.home.identity, attemptId, this.incarnation, name, args)
   }
   /** Plugin tools. A call that runs first adds a progress note naming the plugin and tool to the work block. */
   async pluginTool(attemptId: string, callId: string, name: string, args: Record<string, unknown>): Promise<unknown> {

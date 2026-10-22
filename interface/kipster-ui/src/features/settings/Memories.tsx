@@ -7,16 +7,16 @@ import {
 import type {
   CoreSettingsClient,
   Directory,
-  MemoryCard,
-  MemoryCardEdit,
+  Memory,
+  MemoryEdit,
 } from '../../data/core-settings'
 import { TextHttpError } from '../../data/text'
 import { ActionRow, Block, Callout, Confirm, Row, SaveRow, Switch } from './ui'
 import { useSheet } from './sheet'
 import { errorText } from './format'
 
-const cardsKey = (client: CoreSettingsClient) => [
-  'memory-cards',
+const memoriesKey = (client: CoreSettingsClient) => [
+  'memories',
   client.endpoint,
 ]
 const day = (value: string) =>
@@ -31,13 +31,15 @@ const workspace = (
 ) =>
   organizationId
     ? (directory?.organizations.find((o) => o.id === organizationId)?.name ??
-      'A deleted organization')
-    : 'Every organization'
-const details = (card: MemoryCard) =>
-  Object.keys(card.details).length ? JSON.stringify(card.details, null, 2) : ''
+      'A deleted workspace')
+    : 'Every workspace'
+const details = (memory: Memory) =>
+  Object.keys(memory.details).length
+    ? JSON.stringify(memory.details, null, 2)
+    : ''
 
-/** The cards every kip shares, newest first; replaced ones on demand. Reloads when opened. */
-export function CardsPage({
+/** The memories every kip shares, newest first; ended ones on demand. Reloads when opened. */
+export function MemoriesPage({
   client,
   directory,
 }: {
@@ -48,27 +50,27 @@ export function CardsPage({
   const [ended, setEnded] = useState(false)
   const switchId = useId()
   const query = useInfiniteQuery({
-    queryKey: [...cardsKey(client), ended],
+    queryKey: [...memoriesKey(client), ended],
     queryFn: ({ signal, pageParam }) =>
-      client.memoryCards({ ended, cursor: pageParam }, signal),
+      client.memories({ ended, cursor: pageParam }, signal),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.nextCursor,
     retry: false,
     gcTime: 0,
   })
-  const cards = query.data?.pages.flatMap((page) => page.cards) ?? []
+  const memories = query.data?.pages.flatMap((page) => page.memories) ?? []
   return (
     <>
-      <Block foot="Each night, while kips sleep, they learn cards from what you tell them. Every kip shares them; a card learned in an organization stays there.">
+      <Block foot="What your kips remember about you. Each night, while kips sleep, they learn memories from what you tell them. Every kip shares them; a memory learned in a workspace stays there.">
         <Row
-          label="Show replaced cards"
+          label="Show replaced and retired memories"
           labelId={switchId}
           control={<Switch labelId={switchId} on={ended} change={setEnded} />}
         />
       </Block>
       {query.isPending ? (
-        <Callout>Loading cards…</Callout>
-      ) : query.isError && !cards.length ? (
+        <Callout>Loading memories…</Callout>
+      ) : query.isError && !memories.length ? (
         <Callout
           tone="danger"
           alert
@@ -78,38 +80,42 @@ export function CardsPage({
             </button>
           }
         >
-          Cards are unavailable: {errorText(query.error)}
+          Memories are unavailable: {errorText(query.error)}
         </Callout>
-      ) : !cards.length ? (
+      ) : !memories.length ? (
         <Callout>
           {ended
-            ? 'No cards yet.'
-            : 'No cards yet. Kips learn them from your conversations each night.'}
+            ? 'No memories yet.'
+            : 'No memories yet. Kips learn them from your conversations each night.'}
         </Callout>
       ) : (
         <Block
-          region="Cards"
-          label={`${cards.length}${query.hasNextPage ? '+' : ''} cards`}
+          region="Memories"
+          label={`${memories.length}${query.hasNextPage ? '+' : ''} memories`}
         >
-          {cards.map((card) => (
+          {memories.map((memory) => (
             <Row
-              key={card.id}
-              label={card.statement}
+              key={memory.id}
+              label={memory.statement}
               sub={[
-                card.type,
-                card.subject,
-                workspace(directory, card.organizationId),
-                card.validTo
-                  ? `Replaced ${day(card.validTo)}`
-                  : card.confirmed
+                memory.type,
+                memory.subject,
+                workspace(directory, memory.organizationId),
+                memory.validTo
+                  ? `${memory.replacedBy ? 'Replaced' : 'Retired'} ${day(memory.validTo)}`
+                  : memory.confirmed
                     ? 'Confirmed'
                     : 'Inferred',
-                ...(card.core ? ['Core'] : []),
+                ...(memory.core ? ['Core'] : []),
               ].join(' · ')}
-              dim={!!card.validTo}
+              dim={!!memory.validTo}
               chevron
               onClick={() =>
-                push({ kind: 'card', cardId: card.id, title: card.subject })
+                push({
+                  kind: 'memory',
+                  memoryId: memory.id,
+                  title: memory.subject,
+                })
               }
             />
           ))}
@@ -118,14 +124,14 @@ export function CardsPage({
               disabled={query.isFetchingNextPage}
               onClick={() => void query.fetchNextPage()}
             >
-              {query.isFetchingNextPage ? 'Loading…' : 'Show more cards'}
+              {query.isFetchingNextPage ? 'Loading…' : 'Show more memories'}
             </ActionRow>
           )}
         </Block>
       )}
       {query.isFetchNextPageError && (
         <p role="alert" className="set-alert">
-          More cards are unavailable: {errorText(query.error)}
+          More memories are unavailable: {errorText(query.error)}
         </p>
       )}
     </>
@@ -139,32 +145,32 @@ type State =
   | 'deleting'
   | { error: string; deleting?: boolean }
 
-/** One card: read it, correct a current card, or delete it with confirmation. */
-export function CardPage({
+/** One memory: read it, correct a current memory, or delete it with confirmation. */
+export function MemoryPage({
   client,
   directory,
-  cardId,
+  memoryId,
 }: {
   client: CoreSettingsClient
   directory: Directory | null
-  cardId: string
+  memoryId: string
 }) {
   const { push, pop, toast } = useSheet()
   const queries = useQueryClient()
-  const key = [...cardsKey(client), 'card', cardId]
+  const key = [...memoriesKey(client), 'memory', memoryId]
   const query = useQuery({
     queryKey: key,
-    queryFn: ({ signal }) => client.memoryCard(cardId, signal),
+    queryFn: ({ signal }) => client.memory(memoryId, signal),
     retry: false,
     gcTime: 0,
   })
   const [draft, setDraft] = useState<Record<string, string>>({})
   const [state, setState] = useState<State>('idle')
-  if (query.isPending) return <Callout>Loading card…</Callout>
+  if (query.isPending) return <Callout>Loading memory…</Callout>
   if (query.isError)
     return query.error instanceof TextHttpError &&
       query.error.code === 'not-found' ? (
-      <Callout>This card was deleted.</Callout>
+      <Callout>This memory was deleted.</Callout>
     ) : (
       <Callout
         tone="danger"
@@ -175,16 +181,16 @@ export function CardPage({
           </button>
         }
       >
-        This card is unavailable: {errorText(query.error)}
+        This memory is unavailable: {errorText(query.error)}
       </Callout>
     )
-  const card = query.data
-  const current = !card.validTo
+  const memory = query.data
+  const current = !memory.validTo
   const fields = {
-    statement: card.statement,
-    type: card.type,
-    subject: card.subject,
-    details: details(card),
+    statement: memory.statement,
+    type: memory.type,
+    subject: memory.subject,
+    details: details(memory),
   }
   const value = (field: keyof typeof fields) => draft[field] ?? fields[field]
   const changed = (Object.keys(fields) as (keyof typeof fields)[]).filter(
@@ -194,11 +200,10 @@ export function CardPage({
     setDraft((old) => ({ ...old, [field]: next }))
   const busy = state === 'saving' || state === 'deleting'
   const reloaded = () =>
-    void queries.invalidateQueries({ queryKey: cardsKey(client) })
+    void queries.invalidateQueries({ queryKey: memoriesKey(client) })
 
   async function save() {
-    const edit: { -readonly [K in keyof MemoryCardEdit]: MemoryCardEdit[K] } =
-      {}
+    const edit: { -readonly [K in keyof MemoryEdit]: MemoryEdit[K] } = {}
     for (const field of changed) {
       const text = draft[field]!.trim()
       if (field === 'details') {
@@ -220,8 +225,8 @@ export function CardPage({
     }
     setState('saving')
     try {
-      const saved = await client.saveMemoryCard(
-        cardId,
+      const saved = await client.saveMemory(
+        memoryId,
         edit,
         AbortSignal.timeout(20000),
       )
@@ -229,7 +234,7 @@ export function CardPage({
       setDraft({})
       setState('idle')
       reloaded()
-      toast('Card saved')
+      toast('Memory saved')
     } catch (error) {
       setState({ error: errorText(error) })
       if (error instanceof TextHttpError && error.code === 'conflict')
@@ -239,9 +244,9 @@ export function CardPage({
   async function remove() {
     setState('deleting')
     try {
-      await client.deleteMemoryCard(cardId, AbortSignal.timeout(20000))
+      await client.deleteMemory(memoryId, AbortSignal.timeout(20000))
       reloaded()
-      toast('Card deleted')
+      toast('Memory deleted')
       pop()
     } catch (error) {
       setState({ error: errorText(error), deleting: true })
@@ -251,21 +256,26 @@ export function CardPage({
   const facts: [string, string][] = [
     [
       'Learned',
-      card.confirmed
+      memory.confirmed
         ? 'Confirmed: you said it'
         : 'Inferred from a conversation',
     ],
-    ['Core', card.core ? 'Loaded into every turn' : 'Found when relevant'],
-    ['Organization', workspace(directory, card.organizationId)],
-    ['Valid from', day(card.validFrom)],
-    ...(card.validTo
-      ? [['Replaced', day(card.validTo)] as [string, string]]
+    ['Core', memory.core ? 'Loaded into every turn' : 'Found when relevant'],
+    ['Workspace', workspace(directory, memory.organizationId)],
+    ['Valid from', day(memory.validFrom)],
+    ...(memory.validTo
+      ? [
+          [memory.replacedBy ? 'Replaced' : 'Retired', day(memory.validTo)] as [
+            string,
+            string,
+          ],
+        ]
       : []),
     [
       'Sources',
-      card.sources.length === 1
+      memory.sources.length === 1
         ? '1 message'
-        : `${card.sources.length} messages`,
+        : `${memory.sources.length} messages`,
     ],
   ]
   return (
@@ -273,13 +283,13 @@ export function CardPage({
       {!current && (
         <Callout
           actions={
-            card.replacedBy && (
+            memory.replacedBy && (
               <button
                 className="set-button"
                 onClick={() =>
                   push({
-                    kind: 'card',
-                    cardId: card.replacedBy!,
+                    kind: 'memory',
+                    memoryId: memory.replacedBy!,
                     title: 'Replacement',
                   })
                 }
@@ -289,8 +299,8 @@ export function CardPage({
             )
           }
         >
-          This card was replaced on {day(card.validTo!)}. Only a current card
-          can be edited.
+          This memory {memory.replacedBy ? 'was replaced' : 'was retired'} on{' '}
+          {day(memory.validTo!)}. Only a current memory can be edited.
         </Callout>
       )}
       <Block label="Statement" bare>
@@ -382,7 +392,7 @@ export function CardPage({
               )}
             </SaveRow>
           </div>
-          <p className="set-foot">Saving marks the card as confirmed.</p>
+          <p className="set-foot">Saving marks the memory as confirmed.</p>
         </div>
       )}
       {typeof state === 'object' && (
@@ -400,16 +410,16 @@ export function CardPage({
           ))}
         </dl>
       </Block>
-      <Block foot="Kips forget the card. The messages it was learned from stay.">
+      <Block foot="Kips forget the memory. The messages it was learned from stay.">
         <ActionRow disabled={busy} onClick={() => setState('confirm')}>
-          Delete card…
+          Delete memory…
         </ActionRow>
       </Block>
       {(state === 'confirm' || state === 'deleting') && (
-        <Confirm title="Delete this card?" cancel={() => setState('idle')}>
+        <Confirm title="Delete this memory?" cancel={() => setState('idle')}>
           <div className="set-confirm-form">
             <p>
-              Kips forget “{card.statement}”. The messages it was learned from
+              Kips forget “{memory.statement}”. The messages it was learned from
               stay.
             </p>
             <div className="set-confirm-actions">
@@ -425,7 +435,7 @@ export function CardPage({
                 disabled={state === 'deleting'}
                 onClick={() => void remove()}
               >
-                {state === 'deleting' ? 'Deleting…' : 'Delete card'}
+                {state === 'deleting' ? 'Deleting…' : 'Delete memory'}
               </button>
             </div>
           </div>

@@ -4,13 +4,13 @@
 
 - Global soul.md and identity.md files.
 - Editable identity guidance, compare-and-swap writes, backups and restore.
-- Kip memory (decision record 10), stored in Core: the Settings Memory section and its Cards view.
+- Kip memory (decision records 10 and 14), stored in Core: the Settings Memory section and its Memories and Lessons views.
 
 ## How to get to it (user point of view)
 
 Settings → Kips selects a kip. Its file rows open identity/soul/instructions editors and saved backups. Identity belongs to the global kip across memberships.
 
-Settings → Memory has the learning switch, default sleep time, nightly model and per-turn card and conversation counts, plus a row per kip opening its own switch and sleep time. Its Cards row opens the cards every kip shares, to list, read, edit and delete them. Cards appear only when bootstrap advertises `capabilities.memoryCards`.
+Settings → Memory has the learning switch, default sleep time, nightly model and per-turn memory and conversation counts, plus a row per kip opening its own switch and sleep time. Its Memories row opens the memories every kip shares, to list, read, edit and delete them. Its Lessons row lists each kip's lessons with how often they came up and which are in its identity.md, to reword or delete them. Both appear only when bootstrap advertises `capabilities.memories`.
 
 ## Driving it
 

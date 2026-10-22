@@ -7,14 +7,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, TextDispatcher } from '../dist/runtime.js'
-import { CardService, embedPending, removeThreadMemory, settleInterruptedMemoryCalls, sleepDay } from '../dist/modules/memory/public.js'
+import { LessonService, MemoryService, embedPending, removeThreadMemory, settleInterruptedMemoryCalls, sleepDay } from '../dist/modules/memory/public.js'
 import { EmbeddingProfile } from '../dist/modules/vectors/public.js'
 import { removeThreads } from '../dist/modules/conversations/public.js'
 import { NIGHTLY_CALLS } from '../dist/workflows/nightly-dispatch.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
-// Kip memory's nightly run and cards service against real PostgreSQL, with a scripted adapter that answers each nightly
+// Kip memory's nightly run and memories service against real PostgreSQL, with a scripted adapter that answers each nightly
 // step with canned structured output and a deterministic embedding provider. Mechanics only: no model behaviour.
 
 const day = '2026-10-12'
@@ -66,11 +66,11 @@ function scripted(host, script) {
   return { adapter, calls }
 }
 
-/** Default answers: one topic per window, no card changes, a diary line per day. */
+/** Default answers: one topic per window, no memory or lesson changes, a diary line per day. */
 const quiet = context => {
   const { step, instructions } = context.maintenance
   if (step === 'chunks') return { topics: [{ start: 'm1', title: 'Topic' }] }
-  if (step === 'cards') return { changes: [] }
+  if (step === 'memories' || step === 'lessons') return { changes: [] }
   if (step === 'diary') return { days: [...instructions.matchAll(/^Day (\d{4}-\d\d-\d\d)/gm)].map(match => ({ day: match[1], summary: `Diary of ${match[1]}` })) }
   return { core: [] }
 }
@@ -143,18 +143,19 @@ async function setup(t, { embedding = true, script = quiet, executionLimit } = {
   const processed = async threadId => Number((await rows('SELECT processed_position FROM kipster.memory_thread_state WHERE thread_id=$1', [threadId]))[0]?.processed_position ?? 0)
   const holder = () => { const created = new Postgres(url.href, 1); holders.push(created); return created }
   await runtime.learning.setInstallation(actor, { enabled: true })
-  return { runtime, db, actor, installationId, kip, clock, calls, state, dispatcher, thread, append, organization, agent, rows, processed, embeddingCalls, holder, cards: new CardService(db, installationId, runtime.embedding) }
+  return { runtime, db, actor, installationId, kip, clock, calls, state, dispatcher, thread, append, organization, agent, rows, processed, embeddingCalls, holder, memories: new MemoryService(db, installationId, runtime.embedding), lessons: new LessonService(db, installationId, runtime.embedding) }
 }
 
-test('a nightly run saves full-text chunks, cards with their sources, a diary page and the processed position, then embeds them', { skip: noDatabase }, async t => {
+test('a nightly run saves full-text chunks, memories with their sources, a diary page and the processed position, then embeds them', { skip: noDatabase }, async t => {
   const ctx = await setup(t, {
     script: context => {
       const { step, instructions } = context.maintenance
-      if (step === 'cards') {
+      if (step === 'memories') {
         const [first] = refs(instructions, 'citable')
         return { changes: [
-          { action: 'add', card: null, type: 'event', subject: 'user', statement: 'Dentist on 13 Oct 2026 at 3 pm', details: [{ key: 'date', value: '2026-10-13' }, { key: 'time', value: '15:00' }], confirmed: true, sources: [first] },
-          { action: 'skip', card: null, type: 'fact', subject: 'user', statement: 'ignored', details: [], confirmed: false, sources: [first] },
+          // With nothing to name, models may fill the placeholder in; an add names nothing either way.
+          { action: 'add', memories: ['none'], type: 'event', subject: 'user', statement: 'Dentist on 13 Oct 2026 at 3 pm', details: [{ key: 'date', value: '2026-10-13' }, { key: 'time', value: '15:00' }], confirmed: true, sources: [first] },
+          { action: 'skip', memories: [], type: 'fact', subject: 'user', statement: 'ignored', details: [], confirmed: false, sources: [first] },
         ] }
       }
       return quiet(context)
@@ -170,7 +171,7 @@ test('a nightly run saves full-text chunks, cards with their sources, a diary pa
   await dispatcher.nightlyTick()
 
   // A short thread is one chunk, without a model call for its boundaries.
-  assert.deepEqual(ctx.calls.map(call => call.context.maintenance.step), ['cards', 'diary'])
+  assert.deepEqual(ctx.calls.map(call => call.context.maintenance.step), ['memories', 'lessons', 'diary'])
   for (const { context } of ctx.calls) {
     assert.equal(context.kind, 'maintenance')
     assert.equal(context.maintenance.task, 'memory')
@@ -182,18 +183,18 @@ test('a nightly run saves full-text chunks, cards with their sources, a diary pa
   assert.equal(chunk.title, 'Move my dentist appointment to 13 October at 3 pm.')
   assert.equal(chunk.text, 'Mon 12 Oct 2026, with Kip\n\nSam, 09:14:\nMove my dentist appointment to 13 October at 3 pm.\n\nKip, 09:15:\nDone, the dentist is now on 13 October at 15:00.')
   assert.deepEqual([Number(chunk.from_position), Number(chunk.to_position), chunk.started_at.toISOString(), chunk.ended_at.toISOString(), chunk.agent_id, chunk.organization_id], [1, 2, at('09:14').toISOString(), at('09:15').toISOString(), ctx.kip, null])
-  const [card] = await ctx.rows('SELECT * FROM kipster.cards')
+  const [card] = await ctx.rows('SELECT * FROM kipster.memories')
   assert.deepEqual([card.type, card.subject, card.statement, card.details, card.confirmed, card.organization_id, card.valid_to, card.core], ['event', 'user', 'Dentist on 13 Oct 2026 at 3 pm', { date: '2026-10-13', time: '15:00' }, true, null, null, true])
   const userMessage = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1 AND position=1', [threadId]))[0].id
-  assert.deepEqual(await ctx.rows('SELECT card_id, thread_id, message_id FROM kipster.card_sources'), [{ card_id: card.id, thread_id: threadId, message_id: userMessage }])
+  assert.deepEqual(await ctx.rows('SELECT memory_id, thread_id, message_id FROM kipster.memory_sources'), [{ memory_id: card.id, thread_id: threadId, message_id: userMessage }])
   assert.deepEqual(await ctx.rows(`SELECT day::text AS day, summary, thread_ids FROM kipster.diary WHERE agent_id=$1`, [ctx.kip]), [{ day, summary: `Diary of ${day}`, thread_ids: [threadId] }])
   assert.equal(await ctx.processed(threadId), 2)
   // Every row is embedded with the document format and names its model.
-  for (const table of ['thread_chunks', 'cards', 'diary']) assert.deepEqual(await ctx.rows(`SELECT DISTINCT embedding_model, embedding IS NULL AS missing FROM kipster.${table}`), [{ embedding_model: 'fake-gemma', missing: false }], table)
+  for (const table of ['thread_chunks', 'memories', 'diary']) assert.deepEqual(await ctx.rows(`SELECT DISTINCT embedding_model, embedding IS NULL AS missing FROM kipster.${table}`), [{ embedding_model: 'fake-gemma', missing: false }], table)
   assert.ok(ctx.embeddingCalls.includes(`title: Move my dentist appointment to 13 October at 3 pm. | text: ${chunk.text}`))
   // Calls ran as settled work and released their permits.
   assert.deepEqual(await ctx.rows(`SELECT m.step, m.state, i.state AS intent, a.state AS attempt FROM kipster.memory_calls m JOIN kipster.work_intents i ON i.id=m.id JOIN kipster.attempts a ON a.intent_id=m.id ORDER BY m.created_at`),
-    [{ step: 'cards', state: 'completed', intent: 'settled', attempt: 'settled' }, { step: 'diary', state: 'completed', intent: 'settled', attempt: 'settled' }])
+    [{ step: 'memories', state: 'completed', intent: 'settled', attempt: 'settled' }, { step: 'lessons', state: 'completed', intent: 'settled', attempt: 'settled' }, { step: 'diary', state: 'completed', intent: 'settled', attempt: 'settled' }])
   assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.owned_permits'))[0].n, 0)
   const [night] = await ctx.rows('SELECT night::text AS night, owner, failures FROM kipster.memory_nights WHERE agent_id=$1', [ctx.kip])
   assert.deepEqual(night, { night: '2026-10-13', owner: null, failures: 0 })
@@ -202,7 +203,7 @@ test('a nightly run saves full-text chunks, cards with their sources, a diary pa
   await dispatcher.nightlyTick()
   ctx.clock.now = at('01:30', '2026-10-14')
   await dispatcher.nightlyTick()
-  assert.equal(ctx.calls.length, 2)
+  assert.equal(ctx.calls.length, 3)
 })
 
 test('the sleep-time schedule runs each kip with memory on at its own sleep time, once per night, and skips kips with memory off', { skip: noDatabase }, async t => {
@@ -308,18 +309,18 @@ test('a long thread splits at the returned boundaries, the size cap is enforced,
   assert.equal(await ctx.processed(threadId), 8)
 })
 
-test('a card citing a kip message or an unknown ref is rejected; organization cards carry their organization; replace ends the old card', { skip: noDatabase }, async t => {
+test('a memory citing a kip message or an unknown ref is rejected; organization memories carry their organization; a merge ends the old memory', { skip: noDatabase }, async t => {
   const answers = []
   const ctx = await setup(t, {
     script: context => {
-      if (context.maintenance.step !== 'cards') return quiet(context)
+      if (context.maintenance.step !== 'memories') return quiet(context)
       const { instructions } = context.maintenance
       const user = refs(instructions, 'citable')
       const kip = [...instructions.matchAll(/^\[(m\d+)\] Kip \(kip/gm)].map(match => match[1])
       const changeable = [...instructions.matchAll(/^\[(k\d+)\] .*\(changeable\)$/gm)].map(match => match[1])
-      const card = (statement, sources, extra = {}) => ({ action: 'add', card: null, type: 'preference', subject: 'user', statement, details: [], confirmed: true, sources, ...extra })
+      const card = (statement, sources, extra = {}) => ({ action: 'add', memories: [], type: 'preference', subject: 'user', statement, details: [], confirmed: true, sources, ...extra })
       const answer = changeable.length
-        ? { changes: [card('Vegetarian since Oct 2026', user, { action: 'replace', card: changeable[0] })] }
+        ? { changes: [card('Vegetarian since Oct 2026', user, { action: 'merge', memories: [changeable[0]] })] }
         : { changes: [card('Loves steak', user), card('Kip suggested it', kip), card('Unknown ref', ['m99']), card('No sources', [])] }
       answers.push(answer)
       return answer
@@ -332,40 +333,40 @@ test('a card citing a kip message or an unknown ref is rejected; organization ca
   const dispatcher = ctx.dispatcher()
   await dispatcher.start()
   await dispatcher.nightlyTick()
-  const cards = await ctx.rows('SELECT id, statement, organization_id, valid_to, replaced_by, core FROM kipster.cards ORDER BY organization_id NULLS FIRST, created_at')
+  const cards = await ctx.rows('SELECT id, statement, organization_id, valid_to, replaced_by, core FROM kipster.memories ORDER BY organization_id NULLS FIRST, created_at')
   assert.deepEqual(cards.map(card => [card.statement, card.organization_id, card.core]), [['Loves steak', null, true], ['Loves steak', studio, false]], 'only the card citing the user\'s own message is saved; the organization card is never core')
-  const sources = await ctx.rows('SELECT c.organization_id, s.thread_id FROM kipster.card_sources s JOIN kipster.cards c ON c.id=s.card_id ORDER BY c.organization_id NULLS FIRST')
+  const sources = await ctx.rows('SELECT c.organization_id, s.thread_id FROM kipster.memory_sources s JOIN kipster.memories c ON c.id=s.memory_id ORDER BY c.organization_id NULLS FIRST')
   assert.deepEqual(sources.map(row => [row.organization_id, row.thread_id]), [[null, home], [studio, work]])
   const chunk = (await ctx.rows('SELECT organization_id, text FROM kipster.thread_chunks WHERE thread_id=$1', [work]))[0]
   assert.equal(chunk.organization_id, studio)
   assert.match(chunk.text, /^Mon 12 Oct 2026, with Kip in Studio\n/)
 
-  // A later thread replaces the installation card: the old card keeps its row, ends and points to its replacement.
+  // A later thread merges into the installation memory: the old memory keeps its row, ends and points to its replacement.
   const later = await ctx.thread([{ author: 'user', text: 'I am vegetarian now, no more steak', at: at('09:00', '2026-10-13') }])
   ctx.clock.now = at('01:30', '2026-10-14')
   await dispatcher.nightlyTick()
-  const [old] = await ctx.rows('SELECT valid_to, replaced_by, core FROM kipster.cards WHERE id=$1', [cards[0].id])
-  const [replacement] = await ctx.rows('SELECT id, statement, organization_id, valid_to, core FROM kipster.cards WHERE id=$1', [old.replaced_by])
+  const [old] = await ctx.rows('SELECT valid_to, replaced_by, core FROM kipster.memories WHERE id=$1', [cards[0].id])
+  const [replacement] = await ctx.rows('SELECT id, statement, organization_id, valid_to, core FROM kipster.memories WHERE id=$1', [old.replaced_by])
   assert.ok(old.valid_to instanceof Date)
   assert.equal(old.core, false)
   assert.deepEqual([replacement.statement, replacement.organization_id, replacement.valid_to, replacement.core], ['Vegetarian since Oct 2026', null, null, true])
-  assert.equal((await ctx.rows('SELECT thread_id FROM kipster.card_sources WHERE card_id=$1', [replacement.id]))[0].thread_id, later)
-  // The organization card was shown for comparison but could not be changed from an installation thread.
-  const prompt = ctx.calls.filter(call => call.context.maintenance.step === 'cards').at(-1).context.maintenance
+  assert.equal((await ctx.rows('SELECT thread_id FROM kipster.memory_sources WHERE memory_id=$1', [replacement.id]))[0].thread_id, later)
+  // The organization memory was shown for comparison but could not be changed from an installation thread.
+  const prompt = ctx.calls.filter(call => call.context.maintenance.step === 'memories').at(-1).context.maintenance
   assert.doesNotMatch(prompt.instructions, /At the studio/)
-  assert.deepEqual(prompt.outputSchema.properties.changes.items.properties.card.enum, ['k1', null])
+  assert.deepEqual(prompt.outputSchema.properties.changes.items.properties.memories.items.enum, ['k1'])
 })
 
-test('core cards are re-picked up to the core card count among current installation cards, with the model ranking', { skip: noDatabase }, async t => {
+test('core memories are re-picked up to the core memory count among current installation memories, with the model ranking', { skip: noDatabase }, async t => {
   const ctx = await setup(t, {
     script: context => {
       const { step, instructions } = context.maintenance
       if (step === 'core') {
-        // Ranks every card, last listed first, and an unknown ref.
+        // Ranks every memory, last listed first, and an unknown ref.
         const listed = [...instructions.matchAll(/^\[(k\d+)\]/gm)].map(match => match[1])
         return { core: ['k99', ...listed.reverse()] }
       }
-      if (step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
+      if (step === 'memories') return { changes: [{ action: 'add', memories: [], type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
       return quiet(context)
     },
   })
@@ -373,36 +374,36 @@ test('core cards are re-picked up to the core card count among current installat
   const source = await ctx.thread([{ author: 'user', text: 'Facts' }])
   const [message] = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [source])).map(row => row.id)
   await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [source, ctx.installationId])
-  for (let i = 0; i < 4; i++) await ctx.cards.create({ type: 'fact', subject: 'user', statement: `Fact ${i}`, organizationId: null }, [{ threadId: source, messageId: message }])
+  for (let i = 0; i < 4; i++) await ctx.memories.create({ type: 'fact', subject: 'user', statement: `Fact ${i}`, organizationId: null }, [{ threadId: source, messageId: message }])
   const work = await ctx.thread([{ author: 'user', text: 'Studio fact' }], { organizationId: studio })
   await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [work, ctx.installationId])
   const workMessage = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [work]))[0].id
-  await ctx.cards.create({ type: 'fact', subject: 'studio', statement: 'Studio fact', organizationId: studio }, [{ threadId: work, messageId: workMessage }])
-  await ctx.db.query('UPDATE kipster.cards SET core=true WHERE organization_id IS NOT NULL')
-  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 3 })
+  await ctx.memories.create({ type: 'fact', subject: 'studio', statement: 'Studio fact', organizationId: studio }, [{ threadId: work, messageId: workMessage }])
+  await ctx.db.query('UPDATE kipster.memories SET core=true WHERE organization_id IS NOT NULL')
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreMemoryCount: 3 })
   await ctx.thread([{ author: 'user', text: 'One more fact' }])
   ctx.clock.now = at('01:30', '2026-10-13')
   const dispatcher = ctx.dispatcher()
   await dispatcher.start()
   await dispatcher.nightlyTick()
-  const core = await ctx.rows('SELECT statement FROM kipster.cards WHERE core ORDER BY statement')
+  const core = await ctx.rows('SELECT statement FROM kipster.memories WHERE core ORDER BY statement')
   assert.equal(core.length, 3)
   assert.ok(!core.some(card => card.statement === 'Studio fact'), 'organization cards never become core')
   const ranked = ctx.calls.find(call => call.context.maintenance.step === 'core').context.maintenance
   assert.equal(ranked.outputSchema.properties.core.maxItems, 3)
   assert.doesNotMatch(ranked.instructions, /Studio fact/)
-  // Five current installation cards, three core: the last three listed, as the model ranked them.
+  // Five current installation memories, three core: the last three listed, as the model ranked them.
   const listed = [...ranked.instructions.matchAll(/^\[k\d+\] fact \| user \| (.*?)( \(confirmed\))?$/gm)].map(match => match[1])
   assert.deepEqual(core.map(card => card.statement), listed.slice(-3).sort())
 
-  // While they fit the count, every current installation card is core, without a model call.
-  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 10 })
+  // While they fit the count, every current installation memory is core, without a model call.
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreMemoryCount: 10 })
   await ctx.thread([{ author: 'user', text: 'Yet another', at: at('09:00', '2026-10-13') }])
   ctx.clock.now = at('01:30', '2026-10-14')
   const before = ctx.calls.filter(call => call.context.maintenance.step === 'core').length
   await dispatcher.nightlyTick()
   assert.equal(ctx.calls.filter(call => call.context.maintenance.step === 'core').length, before)
-  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.cards WHERE core')).at(0).n, 6)
+  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.memories WHERE core')).at(0).n, 6)
 })
 
 test('a failed or cancelled call leaves the position unchanged, and a later run catches up without duplicates', { skip: noDatabase }, async t => {
@@ -413,7 +414,7 @@ test('a failed or cancelled call leaves the position unchanged, and a later run 
     script: context => {
       if (context.maintenance.step === 'diary' && mode === 'fail') return new Error('provider failed')
       if (context.maintenance.step === 'diary' && mode === 'hang') { started(); return new Promise(() => {}) }
-      if (context.maintenance.step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'Likes tea', details: [], confirmed: true, sources: refs(context.maintenance.instructions, 'citable') }] }
+      if (context.maintenance.step === 'memories') return { changes: [{ action: 'add', memories: [], type: 'fact', subject: 'user', statement: 'Likes tea', details: [], confirmed: true, sources: refs(context.maintenance.instructions, 'citable') }] }
       return quiet(context)
     },
   })
@@ -422,16 +423,16 @@ test('a failed or cancelled call leaves the position unchanged, and a later run 
   const first = ctx.dispatcher()
   await first.start()
   await first.nightlyTick()
-  const empty = async () => (await ctx.rows(`SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.cards) + (SELECT count(*) FROM kipster.diary)
+  const empty = async () => (await ctx.rows(`SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.memories) + (SELECT count(*) FROM kipster.diary)
     + (SELECT count(*) FROM kipster.memory_thread_state) AS n`))[0].n
   assert.equal(Number(await empty()), 0, 'a failed step saves nothing for the thread')
   const [night] = await ctx.rows('SELECT night, failures, failure, retry_at, owner FROM kipster.memory_nights WHERE agent_id=$1', [ctx.kip])
   assert.deepEqual([night.night, night.failures, night.owner], [null, 1, null])
   assert.match(night.failure, /Nightly diary step failed: provider failed/)
-  assert.deepEqual(await ctx.rows(`SELECT step, state, failure FROM kipster.memory_calls ORDER BY created_at`), [{ step: 'cards', state: 'completed', failure: null }, { step: 'diary', state: 'failed', failure: 'provider failed' }])
+  assert.deepEqual(await ctx.rows(`SELECT step, state, failure FROM kipster.memory_calls ORDER BY created_at`), [{ step: 'memories', state: 'completed', failure: null }, { step: 'lessons', state: 'completed', failure: null }, { step: 'diary', state: 'failed', failure: 'provider failed' }])
   // Retried after a while, not at once.
   await first.nightlyTick()
-  assert.equal(ctx.calls.length, 2)
+  assert.equal(ctx.calls.length, 3)
 
   // A run cancelled at shutdown also leaves the position, and frees the capacity.
   mode = 'hang'
@@ -447,16 +448,16 @@ test('a failed or cancelled call leaves the position unchanged, and a later run 
   assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.owned_permits'))[0].n, 0)
   assert.equal((await ctx.rows('SELECT owner FROM kipster.memory_nights'))[0].owner, null)
 
-  // The next process catches up once: one chunk, one card, one diary page.
+  // The next process catches up once: one chunk, one memory, one diary page.
   mode = 'ok'
   const second = ctx.dispatcher()
   await second.start()
   await second.nightlyTick()
   assert.equal(await ctx.processed(threadId), 1)
-  for (const table of ['thread_chunks', 'cards', 'card_sources', 'diary']) assert.equal((await ctx.rows(`SELECT count(*)::int AS n FROM kipster.${table}`))[0].n, 1, table)
+  for (const table of ['thread_chunks', 'memories', 'memory_sources', 'diary']) assert.equal((await ctx.rows(`SELECT count(*)::int AS n FROM kipster.${table}`))[0].n, 1, table)
   assert.deepEqual(await ctx.rows('SELECT failures, failure, night::text AS night FROM kipster.memory_nights'), [{ failures: 0, failure: null, night: '2026-10-13' }])
   await second.nightlyTick()
-  for (const table of ['thread_chunks', 'cards', 'diary']) assert.equal((await ctx.rows(`SELECT count(*)::int AS n FROM kipster.${table}`))[0].n, 1, table)
+  for (const table of ['thread_chunks', 'memories', 'diary']) assert.equal((await ctx.rows(`SELECT count(*)::int AS n FROM kipster.${table}`))[0].n, 1, table)
 })
 
 test('a call lost with its process is failed by the next coordinator and its permit freed', { skip: noDatabase }, async t => {
@@ -488,17 +489,17 @@ test('a failed core re-pick is caught up by the retry, though its threads were s
         if (fail) return new Error('provider failed')
         return { core: [[...instructions.matchAll(/^\[(k\d+)\] fact \| user \| New fact/gm)][0][1]] }
       }
-      if (step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
+      if (step === 'memories') return { changes: [{ action: 'add', memories: [], type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
       return quiet(context)
     },
   })
-  // The core set is already full, so only the card change calls for a re-pick.
+  // The core set is already full, so only the memory change calls for a re-pick.
   const source = await ctx.thread([{ author: 'user', text: 'Old fact' }])
   await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [source, ctx.installationId])
   const [message] = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [source])).map(row => row.id)
-  await ctx.cards.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, [{ threadId: source, messageId: message }])
-  await ctx.db.query('UPDATE kipster.cards SET core=true')
-  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 1 })
+  await ctx.memories.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, [{ threadId: source, messageId: message }])
+  await ctx.db.query('UPDATE kipster.memories SET core=true')
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreMemoryCount: 1 })
   const threadId = await ctx.thread([{ author: 'user', text: 'A new fact' }])
   ctx.clock.now = at('01:30', '2026-10-13')
   const dispatcher = ctx.dispatcher()
@@ -506,14 +507,14 @@ test('a failed core re-pick is caught up by the retry, though its threads were s
   await dispatcher.nightlyTick()
   assert.equal(await ctx.processed(threadId), 1, 'the thread is saved before the re-pick')
   assert.deepEqual(await ctx.rows('SELECT failures, repick, retry_at FROM kipster.memory_nights'), [{ failures: 1, repick: true, retry_at: at('02:00', '2026-10-13') }])
-  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.cards WHERE core'), [{ statement: 'Old fact' }])
+  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.memories WHERE core'), [{ statement: 'Old fact' }])
 
-  // No thread waits, but the retry re-picks the core cards.
+  // No thread waits, but the retry re-picks the core memories.
   fail = false
   ctx.clock.now = at('02:01', '2026-10-13')
   await dispatcher.nightlyTick()
   assert.equal(ctx.calls.filter(call => call.context.maintenance.step === 'core').length, 2)
-  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.cards WHERE core'), [{ statement: 'New fact' }])
+  assert.deepEqual(await ctx.rows('SELECT statement FROM kipster.memories WHERE core'), [{ statement: 'New fact' }])
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failures, failure, repick, owner FROM kipster.memory_nights'), [{ night: '2026-10-13', failures: 0, failure: null, repick: false, owner: null }])
 
   // A re-pick still owed after the night gave up is done the next night.
@@ -524,50 +525,50 @@ test('a failed core re-pick is caught up by the retry, though its threads were s
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-14', failure: null, repick: false }])
 })
 
-test('a card replaced or deleted while the model ranks the core cards is never made core again', { skip: noDatabase }, async t => {
+test('a memory replaced or deleted while the model ranks the core memories is never made core again', { skip: noDatabase }, async t => {
   const pending = []
   const ctx = await setup(t, {
     script: context => {
       const { step, instructions } = context.maintenance
       if (step === 'core') return new Promise(resolve => pending.push(() => resolve({ core: [[...instructions.matchAll(/^\[(k\d+)\] fact \| user \| Old fact/gm)][0][1]] })))
-      if (step === 'cards') return { changes: [{ action: 'add', card: null, type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
+      if (step === 'memories') return { changes: [{ action: 'add', memories: [], type: 'fact', subject: 'user', statement: 'New fact', details: [], confirmed: true, sources: refs(instructions, 'citable') }] }
       return quiet(context)
     },
   })
   const source = await ctx.thread([{ author: 'user', text: 'Old fact' }])
   await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [source, ctx.installationId])
   const sources = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [source])).map(row => ({ threadId: source, messageId: row.id }))
-  const old = await ctx.cards.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, sources)
-  await ctx.db.query('UPDATE kipster.cards SET core=true')
-  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 1 })
+  const old = await ctx.memories.create({ type: 'fact', subject: 'user', statement: 'Old fact', organizationId: null }, sources)
+  await ctx.db.query('UPDATE kipster.memories SET core=true')
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreMemoryCount: 1 })
   await ctx.thread([{ author: 'user', text: 'A new fact' }])
   ctx.clock.now = at('01:30', '2026-10-13')
   const dispatcher = ctx.dispatcher()
   await dispatcher.start()
-  const core = () => ctx.rows('SELECT statement, valid_to IS NOT NULL AS ended FROM kipster.cards WHERE core')
+  const core = () => ctx.rows('SELECT statement, valid_to IS NOT NULL AS ended FROM kipster.memories WHERE core')
 
-  // Replaced: the ranked card's place goes to its current replacement.
+  // Replaced: the ranked memory's place goes to its current replacement.
   let tick = dispatcher.nightlyTick()
   while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
-  const refined = await ctx.cards.replace(old, { type: 'fact', subject: 'user', statement: 'Refined fact' }, sources)
-  assert.equal((await ctx.cards.get(old)).core, false)
+  const refined = await ctx.memories.merge([old], { type: 'fact', subject: 'user', statement: 'Refined fact' }, sources)
+  assert.equal((await ctx.memories.get(old)).core, false)
   pending.shift()()
   await tick
   assert.deepEqual(await core(), [{ statement: 'Refined fact', ended: false }])
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-13', failure: null, repick: false }])
 
-  // Deleted: no card takes its place until the next re-pick.
-  await ctx.db.query(`UPDATE kipster.cards SET statement='Old fact' WHERE id=$1`, [refined])
+  // Deleted: no memory takes its place until the next re-pick.
+  await ctx.db.query(`UPDATE kipster.memories SET statement='Old fact' WHERE id=$1`, [refined])
   await ctx.db.query('UPDATE kipster.memory_nights SET repick=true')
   ctx.clock.now = at('01:30', '2026-10-14')
   tick = dispatcher.nightlyTick()
   while (pending.length === 0) await new Promise(resolve => setTimeout(resolve, 10))
-  assert.equal(await ctx.cards.delete([refined]), 1)
+  assert.equal(await ctx.memories.delete([refined]), 1)
   pending.shift()()
   await tick
   assert.deepEqual(await core(), [])
   assert.deepEqual(await ctx.rows('SELECT night::text AS night, failure, repick FROM kipster.memory_nights'), [{ night: '2026-10-14', failure: null, repick: false }])
-  assert.deepEqual((await ctx.rows('SELECT statement, core FROM kipster.cards WHERE id=$1', [old])), [{ statement: 'Old fact', core: false }])
+  assert.deepEqual((await ctx.rows('SELECT statement, core FROM kipster.memories WHERE id=$1', [old])), [{ statement: 'Old fact', core: false }])
 })
 
 test('a former owner\'s late answer or failure neither saves nor changes the new owner\'s claim', { skip: noDatabase }, async t => {
@@ -638,8 +639,8 @@ test('nightly work leaves the last free permit to waiting user turns and is defe
 test('without an embedding provider rows are saved unembedded, and a later embedPending embeds them', { skip: noDatabase }, async t => {
   const ctx = await setup(t, {
     embedding: false,
-    script: context => context.maintenance.step === 'cards'
-      ? { changes: [{ action: 'add', card: null, type: 'person', subject: 'Priya', statement: "User's sister", details: [{ key: 'relation', value: 'sister' }], confirmed: true, sources: refs(context.maintenance.instructions, 'citable') }] }
+    script: context => context.maintenance.step === 'memories'
+      ? { changes: [{ action: 'add', memories: [], type: 'person', subject: 'Priya', statement: "User's sister", details: [{ key: 'relation', value: 'sister' }], confirmed: true, sources: refs(context.maintenance.instructions, 'citable') }] }
       : quiet(context),
   })
   await ctx.thread([{ author: 'user', text: 'Priya is my sister' }])
@@ -647,18 +648,18 @@ test('without an embedding provider rows are saved unembedded, and a later embed
   const dispatcher = ctx.dispatcher()
   await dispatcher.start()
   await dispatcher.nightlyTick()
-  for (const table of ['thread_chunks', 'cards', 'diary']) assert.deepEqual(await ctx.rows(`SELECT embedding IS NULL AS missing, embedding_model FROM kipster.${table}`), [{ missing: true, embedding_model: null }], table)
+  for (const table of ['thread_chunks', 'memories', 'diary']) assert.deepEqual(await ctx.rows(`SELECT embedding IS NULL AS missing, embedding_model FROM kipster.${table}`), [{ missing: true, embedding_model: null }], table)
   assert.deepEqual(await embedPending(ctx.db, ctx.installationId, undefined), { embedded: 0, failed: false })
   // Once a provider is configured, embedPending embeds the waiting rows.
   const calls = []
   const profile = new EmbeddingProfile(ctx.db, ctx.installationId, embedder(calls))
   assert.deepEqual(await embedPending(ctx.db, ctx.installationId, profile), { embedded: 3, failed: false })
-  for (const table of ['thread_chunks', 'cards', 'diary']) assert.deepEqual(await ctx.rows(`SELECT embedding IS NULL AS missing, embedding_model FROM kipster.${table}`), [{ missing: false, embedding_model: 'fake-gemma' }], table)
+  for (const table of ['thread_chunks', 'memories', 'diary']) assert.deepEqual(await ctx.rows(`SELECT embedding IS NULL AS missing, embedding_model FROM kipster.${table}`), [{ missing: false, embedding_model: 'fake-gemma' }], table)
   assert.ok(calls.includes("title: person: Priya | text: User's sister\n{\"relation\": \"sister\"}"))
   assert.ok(calls.some(text => text.startsWith('title: Mon 12 Oct 2026 | text: Diary of 2026-10-12')))
 })
 
-test('the cards service creates, updates, replaces and deletes cards with sources, and nearest respects visibility', { skip: noDatabase }, async t => {
+test('the memories service creates, updates, replaces and deletes memories with sources, and nearest respects visibility', { skip: noDatabase }, async t => {
   const ctx = await setup(t)
   const studio = await ctx.organization('Studio')
   const other = await ctx.organization('Other')
@@ -669,57 +670,57 @@ test('the cards service creates, updates, replaces and deletes cards with source
   const source = async (threadId, position) => ({ threadId, messageId: await message(threadId, position) })
   const messagesBefore = await ctx.rows('SELECT id, parts, revision FROM kipster.messages ORDER BY id')
 
-  const trip = await ctx.cards.create({ type: 'Event', subject: 'Berlin trip', statement: 'Berlin trip with Priya in December', details: { month: '2026-12' }, confirmed: true, organizationId: null }, [await source(home)])
-  const rent = await ctx.cards.create({ type: 'commitment', subject: 'studio', statement: 'Studio rent is due monthly', organizationId: studio }, [await source(work)])
-  const office = await ctx.cards.create({ type: 'fact', subject: 'office', statement: 'Other Berlin office', organizationId: other }, [await source(elsewhere)])
-  const created = await ctx.cards.get(trip)
+  const trip = await ctx.memories.create({ type: 'Event', subject: 'Berlin trip', statement: 'Berlin trip with Priya in December', details: { month: '2026-12' }, confirmed: true, organizationId: null }, [await source(home)])
+  const rent = await ctx.memories.create({ type: 'commitment', subject: 'studio', statement: 'Studio rent is due monthly', organizationId: studio }, [await source(work)])
+  const office = await ctx.memories.create({ type: 'fact', subject: 'office', statement: 'Other Berlin office', organizationId: other }, [await source(elsewhere)])
+  const created = await ctx.memories.get(trip)
   assert.deepEqual([created.type, created.subject, created.details, created.confirmed, created.core, created.organizationId, created.embedded, created.sources], ['event', 'Berlin trip', { month: '2026-12' }, true, false, null, false, [await source(home)]])
-  // Sources are user messages in the card's own context.
-  await assert.rejects(ctx.cards.create({ type: 'fact', subject: 'x', statement: 'From Kip', organizationId: null }, [await source(home, 2)]), /user message/)
-  await assert.rejects(ctx.cards.create({ type: 'fact', subject: 'x', statement: 'Leaked', organizationId: null }, [await source(work)]), /user message/)
-  await assert.rejects(ctx.cards.create({ type: '', subject: 'x', statement: 'y', organizationId: null }, []), /Invalid card type/)
+  // Sources are user messages in the memory's own context.
+  await assert.rejects(ctx.memories.create({ type: 'fact', subject: 'x', statement: 'From Kip', organizationId: null }, [await source(home, 2)]), /person's message/)
+  await assert.rejects(ctx.memories.create({ type: 'fact', subject: 'x', statement: 'Leaked', organizationId: null }, [await source(work)]), /person's message/)
+  await assert.rejects(ctx.memories.create({ type: '', subject: 'x', statement: 'y', organizationId: null }, []), /Invalid memory type/)
 
   // A content change clears the embedding; confirming alone keeps it.
   await embedPending(ctx.db, ctx.installationId, ctx.runtime.embedding)
-  assert.equal((await ctx.cards.get(trip)).embedded, true)
-  assert.equal(await ctx.cards.update(trip, { confirmed: false }, []), true)
-  assert.equal((await ctx.cards.get(trip)).embedded, true)
-  assert.equal(await ctx.cards.update(trip, { statement: 'Berlin trip with Priya on 5 December' }, [await source(home)]), true)
-  const [row] = await ctx.rows('SELECT embedding, embedding_model, statement FROM kipster.cards WHERE id=$1', [trip])
+  assert.equal((await ctx.memories.get(trip)).embedded, true)
+  assert.equal(await ctx.memories.update(trip, { confirmed: false }, []), true)
+  assert.equal((await ctx.memories.get(trip)).embedded, true)
+  assert.equal(await ctx.memories.update(trip, { statement: 'Berlin trip with Priya on 5 December' }, [await source(home)]), true)
+  const [row] = await ctx.rows('SELECT embedding, embedding_model, statement FROM kipster.memories WHERE id=$1', [trip])
   assert.deepEqual(row, { embedding: null, embedding_model: null, statement: 'Berlin trip with Priya on 5 December' })
   await embedPending(ctx.db, ctx.installationId, ctx.runtime.embedding)
 
-  // Nearest: installation cards plus the given organization's, current only, nearest first.
-  const scoped = organizationId => ctx.cards.nearest({ text: 'Berlin office' }, { organizationId }, 10)
+  // Nearest: installation memories plus the given organization's, current only, nearest first.
+  const scoped = organizationId => ctx.memories.nearest({ text: 'Berlin office' }, { organizationId }, 10)
   assert.deepEqual((await scoped(null)).map(card => card.id), [trip])
   assert.deepEqual(new Set((await scoped(studio)).map(card => card.id)), new Set([trip, rent]))
   assert.deepEqual((await scoped(other)).map(card => card.id), [office, trip], 'the nearer card first')
-  assert.equal((await ctx.cards.nearest({ text: 'Berlin' }, 'all', 10)).length, 3)
+  assert.equal((await ctx.memories.nearest({ text: 'Berlin' }, 'all', 10)).length, 3)
 
-  // Replace ends the old card in its context and keeps its row.
-  const next = await ctx.cards.replace(rent, { type: 'commitment', subject: 'studio', statement: 'Studio rent is due quarterly' }, [await source(work)])
-  const ended = await ctx.cards.get(rent)
+  // A merge ends the old memory in its context and keeps its row.
+  const next = await ctx.memories.merge([rent], { type: 'commitment', subject: 'studio', statement: 'Studio rent is due quarterly' }, [await source(work)])
+  const ended = await ctx.memories.get(rent)
   assert.equal(ended.replacedBy, next)
   assert.ok(ended.validTo)
-  assert.equal((await ctx.cards.get(next)).organizationId, studio)
-  assert.equal(await ctx.cards.update(rent, { statement: 'Too late' }, []), false, 'an ended card is not changed')
-  assert.equal(await ctx.cards.replace(rent, { type: 'x', subject: 'y', statement: 'z' }, []), null)
+  assert.equal((await ctx.memories.get(next)).organizationId, studio)
+  assert.equal(await ctx.memories.update(rent, { statement: 'Too late' }, []), false, 'an ended card is not changed')
+  assert.equal(await ctx.memories.merge([rent], { type: 'x', subject: 'y', statement: 'z' }, []), null)
   assert.deepEqual((await scoped(studio)).map(card => card.id).sort(), [trip, next].sort())
   // Without a provider, nearest falls back to the same subject, then the most recent.
-  const plain = new CardService(ctx.db, ctx.installationId)
+  const plain = new MemoryService(ctx.db, ctx.installationId)
   assert.deepEqual((await plain.nearest({ text: 'anything', subject: 'Berlin trip' }, { organizationId: studio }, 1)).map(card => card.id), [trip])
   assert.deepEqual((await plain.nearest({ text: 'anything' }, { organizationId: studio }, 1)).map(card => card.id), [next])
-  const listed = await ctx.cards.list({ scope: { organizationId: studio }, limit: 1 })
-  assert.equal(listed.cards.length, 1)
-  assert.deepEqual((await ctx.cards.list({ scope: { organizationId: studio }, cursor: listed.nextCursor })).cards.length, 1)
-  assert.equal((await ctx.cards.list({ ended: true })).cards.length, 4)
+  const listed = await ctx.memories.list({ scope: { organizationId: studio }, limit: 1 })
+  assert.equal(listed.memories.length, 1)
+  assert.deepEqual((await ctx.memories.list({ scope: { organizationId: studio }, cursor: listed.nextCursor })).memories.length, 1)
+  assert.equal((await ctx.memories.list({ ended: true })).memories.length, 4)
 
-  // Delete removes cards with their sources and embeddings; messages stay as they were.
-  assert.equal(await ctx.cards.delete([trip, next]), 2)
-  assert.equal(await ctx.cards.get(trip), null)
-  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.card_sources WHERE card_id = ANY($1::uuid[])', [[trip, next]]))[0].n, 0)
-  assert.equal((await ctx.cards.get(rent)).replacedBy, null, 'a card replaced by a deleted card keeps its end')
-  assert.ok((await ctx.cards.get(rent)).validTo)
+  // Delete removes memories with their sources and embeddings; messages stay as they were.
+  assert.equal(await ctx.memories.delete([trip, next]), 2)
+  assert.equal(await ctx.memories.get(trip), null)
+  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.memory_sources WHERE memory_id = ANY($1::uuid[])', [[trip, next]]))[0].n, 0)
+  assert.equal((await ctx.memories.get(rent)).replacedBy, null, 'a card replaced by a deleted card keeps its end')
+  assert.ok((await ctx.memories.get(rent)).validTo)
   assert.deepEqual(await ctx.rows('SELECT id, parts, revision FROM kipster.messages ORDER BY id'), messagesBefore)
 })
 
@@ -760,4 +761,162 @@ test('deleting a thread or a kip during a run fails neither that run nor the oth
   ctx.clock.now = at('01:30', '2026-10-14')
   await dispatcher.nightlyTick()
   assert.equal(await ctx.processed(kept), 2)
+})
+
+/** Refs of the listed lessons by statement. */
+function lessonRefs(instructions) {
+  return Object.fromEntries([...instructions.matchAll(/^\[(l\d+)\] (.*) \(confirmed \d+x\)/gm)].map(match => [match[2], match[1]]))
+}
+const learnedFile = ctx => ctx.runtime.home.identity.read(ctx.kip, 'identity.md')
+
+test('the lessons step learns from the person and other kips, names authors and the kip, and writes the top lessons into identity.md', { skip: noDatabase }, async t => {
+  const prompts = []
+  const ctx = await setup(t, {
+    script: context => {
+      const { step, instructions } = context.maintenance
+      if (step !== 'lessons') return quiet(context)
+      prompts.push(instructions)
+      const listed = lessonRefs(instructions)
+      if (listed['For hotel searches, give Planner the dates and the budget first']) return { changes: [{ action: 'update', lessons: [listed['For hotel searches, give Planner the dates and the budget first']], statement: 'For hotel searches, give Planner the dates and the budget first', sources: refs(instructions, 'citable') }] }
+      return { changes: [{ action: 'add', lessons: [], statement: 'For hotel searches, give Planner the dates and the budget first', sources: refs(instructions, 'citable') }] }
+    },
+  })
+  const planner = await ctx.agent('Planner')
+  const threadId = await ctx.thread([
+    { author: 'user', text: 'Plan Berlin with Priya.', at: at('09:00') },
+    { author: 'kip', text: 'Asking Planner for hotels.', at: at('09:01') },
+    { author: planner, text: 'I need the dates and the budget before I can search hotels.', at: at('09:02') },
+  ])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const dispatcher = ctx.dispatcher()
+  await dispatcher.start()
+  await dispatcher.nightlyTick()
+
+  const [prompt] = prompts
+  assert.deepEqual(ctx.calls.find(call => call.context.maintenance.step === 'lessons').context.maintenance.outputSchema.properties.changes.items.properties.lessons, { type: 'array', maxItems: 0 }, 'with no lessons there is nothing to name')
+  assert.match(prompt, /You keep the lessons of Kip \(the admin kip\)/)
+  assert.match(prompt, /\] Sam \(person, new, citable\)/)
+  assert.match(prompt, /\] Kip \(admin kip, new\)/, "the kip's own message is context only")
+  assert.match(prompt, /\] Planner \(kip, new, citable\)/)
+  const memoriesPrompt = ctx.calls.find(call => call.context.maintenance.step === 'memories').context.maintenance.instructions
+  assert.deepEqual(refs(memoriesPrompt, 'citable'), ['m1'], 'only the person\'s own messages become memories')
+  const diaryPrompt = ctx.calls.find(call => call.context.maintenance.step === 'diary').context.maintenance.instructions
+  assert.match(diaryPrompt, /Keep the diary of Kip \(the admin kip\).*with whom: the person, or other kips/s)
+
+  const [lesson] = await ctx.rows('SELECT id, agent_id, organization_id, statement, confirmations, last_confirmed_night::text AS night, embedding IS NOT NULL AS embedded FROM kipster.lessons')
+  assert.deepEqual([lesson.agent_id, lesson.organization_id, lesson.statement, lesson.confirmations, lesson.night, lesson.embedded], [ctx.kip, null, 'For hotel searches, give Planner the dates and the budget first', 1, '2026-10-13', true])
+  const messages = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1 ORDER BY position', [threadId])).map(row => row.id)
+  assert.deepEqual((await ctx.rows('SELECT message_id FROM kipster.lesson_sources WHERE lesson_id=$1 ORDER BY message_id', [lesson.id])).map(row => row.message_id), [messages[0], messages[2]].sort())
+  const first = await learnedFile(ctx)
+  assert.match(first.content, /<!-- kipster:learned:begin -->\n## Learned\n\n.*\n\n- For hotel searches, give Planner the dates and the budget first\n<!-- kipster:learned:end -->/s)
+
+  // Two threads the next night confirm it: one more confirmation, not two, and the unchanged section is not written again.
+  await ctx.thread([{ author: 'user', text: 'Hotels for Paris now.', at: at('10:00', '2026-10-13') }, { author: planner, text: 'Dates and budget, please.', at: at('10:01', '2026-10-13') }])
+  await ctx.thread([{ author: 'user', text: 'And hotels in Rome.', at: at('11:00', '2026-10-13') }, { author: planner, text: 'Again: dates and budget.', at: at('11:01', '2026-10-13') }])
+  ctx.clock.now = at('01:30', '2026-10-14')
+  await dispatcher.nightlyTick()
+  assert.equal(prompts.length, 3)
+  assert.ok(prompts.slice(1).every(text => /\(confirmed \d+x\) \(changeable\)/.test(text)), 'the top lessons are listed as changeable')
+  assert.deepEqual(await ctx.rows('SELECT confirmations, last_confirmed_night::text AS night FROM kipster.lessons WHERE valid_to IS NULL'), [{ confirmations: 2, night: '2026-10-14' }])
+  assert.equal((await learnedFile(ctx)).sha256, first.sha256)
+  assert.equal((await ctx.runtime.home.identity.listBackups(ctx.kip, 'identity.md')).length, 1, 'one write, on the first night')
+})
+
+test('merge combines lessons and sums their confirmations, retire ends one, the cap retires the least confirmed, and deleted threads take their lessons', { skip: noDatabase }, async t => {
+  const ctx = await setup(t, {
+    script: context => {
+      const { step, instructions } = context.maintenance
+      if (step !== 'lessons') return quiet(context)
+      const listed = lessonRefs(instructions), sources = refs(instructions, 'citable')
+      return { changes: [
+        { action: 'merge', lessons: [listed['Q3 numbers come from the shared sheet'], listed['Never take quarterly numbers from email']], statement: 'Quarterly numbers come from the shared sheet, never from email', sources },
+        { action: 'retire', lessons: [listed['Use the 2025 expense template']], statement: '', sources },
+        { action: 'update', lessons: [listed['Use the 2025 expense template']], statement: 'Named twice', sources },
+      ] }
+    },
+  })
+  const seedThread = await ctx.thread([{ author: 'user', text: 'Q3 numbers are in the shared sheet; never use email. The 2025 template is the one.', at: at('08:00', '2026-10-01') }])
+  await ctx.db.query('INSERT INTO kipster.memory_thread_state(thread_id, installation_id, processed_position) VALUES ($1,$2,1)', [seedThread, ctx.installationId])
+  const [seedMessage] = (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [seedThread])).map(row => row.id)
+  const seed = [{ threadId: seedThread, messageId: seedMessage }]
+  const sheet = await ctx.lessons.create(ctx.kip, { statement: 'Q3 numbers come from the shared sheet', organizationId: null }, seed, '2026-10-01')
+  const email = await ctx.lessons.create(ctx.kip, { statement: 'Never take quarterly numbers from email', organizationId: null }, seed, '2026-10-02')
+  await ctx.lessons.update(ctx.kip, email, {}, seed, '2026-10-03')
+  const template = await ctx.lessons.create(ctx.kip, { statement: 'Use the 2025 expense template', organizationId: null }, seed, '2026-10-01')
+  // A full kip: 397 more old lessons, once confirmed long ago.
+  await ctx.db.query(`INSERT INTO kipster.lessons(id, installation_id, agent_id, statement, last_confirmed_night, created_at)
+    SELECT gen_random_uuid(), $1, $2, 'Old lesson ' || n, '2026-01-01', now() - make_interval(days => n) FROM generate_series(1, 397) n`, [ctx.installationId, ctx.kip])
+  const work = await ctx.thread([{ author: 'user', text: 'From now on the 2026 template; and the quarterly numbers, as always, from the sheet.', at: at('09:00') }])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const dispatcher = ctx.dispatcher()
+  await dispatcher.start()
+  await dispatcher.nightlyTick()
+
+  const byId = Object.fromEntries((await ctx.rows('SELECT id, statement, confirmations, valid_to IS NOT NULL AS ended, replaced_by FROM kipster.lessons WHERE id = ANY($1::uuid[])', [[sheet, email, template]])).map(row => [row.id, row]))
+  assert.equal(byId[sheet].ended && byId[email].ended, true)
+  assert.equal(byId[sheet].replaced_by, byId[email].replaced_by)
+  assert.deepEqual([byId[template].ended, byId[template].replaced_by, byId[template].statement], [true, null, 'Use the 2025 expense template'], 'retired, and the second change naming it is dropped')
+  const [merged] = await ctx.rows('SELECT id, statement, confirmations, last_confirmed_night::text AS night FROM kipster.lessons WHERE id=$1', [byId[sheet].replaced_by])
+  assert.deepEqual([merged.statement, merged.confirmations, merged.night], ['Quarterly numbers come from the shared sheet, never from email', 1 + 2 + 1, '2026-10-13'])
+  assert.deepEqual((await ctx.rows('SELECT thread_id FROM kipster.lesson_sources WHERE lesson_id=$1 ORDER BY thread_id', [merged.id])).map(row => row.thread_id), [seedThread, work].sort(), 'the merged lesson keeps the old sources')
+  // 397 old + the merged lesson = 398 current lessons: under the cap, nothing else retired.
+  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.lessons WHERE valid_to IS NULL'))[0].n, 398)
+  await ctx.db.query(`INSERT INTO kipster.lessons(id, installation_id, agent_id, statement, last_confirmed_night) SELECT gen_random_uuid(), $1, $2, 'Newer ' || n, '2026-06-01' FROM generate_series(1, 3) n`, [ctx.installationId, ctx.kip])
+  assert.equal(await ctx.lessons.enforceCap(ctx.kip), 1, 'past 400, the least confirmed and longest unconfirmed one is retired')
+  assert.deepEqual((await ctx.rows(`SELECT statement FROM kipster.lessons WHERE valid_to IS NOT NULL AND statement LIKE 'Old lesson %'`)).length, 1)
+  assert.match((await learnedFile(ctx)).content, /- Quarterly numbers come from the shared sheet, never from email\n/)
+
+  // Deleting the seed thread keeps the lessons with a source in the other thread, the merged one and the retired one
+  // whose retirement cited it, and deletes the merged-away ones.
+  await ctx.db.transaction(client => removeThreadMemory(client, [seedThread]))
+  assert.deepEqual((await ctx.rows('SELECT id FROM kipster.lessons WHERE id = ANY($1::uuid[]) ORDER BY id', [[sheet, email, template, merged.id]])).map(row => row.id), [template, merged.id].sort())
+})
+
+test('the memories step sees the data tables of the kip and the workspace, and a goal names its table', { skip: noDatabase }, async t => {
+  const ctx = await setup(t, {
+    script: context => {
+      const { step, instructions } = context.maintenance
+      if (step !== 'memories') return quiet(context)
+      return { changes: [{ action: 'add', memories: [], type: 'goal', subject: 'user', statement: 'Reach 75 kg by December 2026', details: [{ key: 'table', value: 'weight_log' }], confirmed: true, sources: refs(instructions, 'citable') }] }
+    },
+  })
+  const schema = `task_a_${ctx.kip.replaceAll('-', '')}`
+  await ctx.db.query(`CREATE SCHEMA "${schema}"`)
+  await ctx.db.query(`CREATE TABLE "${schema}".weight_log (id uuid PRIMARY KEY, kg double precision)`)
+  await ctx.db.query(`COMMENT ON TABLE "${schema}".weight_log IS 'Body weight, logged daily; goal 75 kg by December'`)
+  await ctx.thread([{ author: 'user', text: 'Track my weight every day, goal 75 kg by December.', at: at('09:00') }])
+  ctx.clock.now = at('01:30', '2026-10-13')
+  const dispatcher = ctx.dispatcher()
+  await dispatcher.start()
+  await dispatcher.nightlyTick()
+  const prompt = ctx.calls.find(call => call.context.maintenance.step === 'memories').context.maintenance.instructions
+  assert.match(prompt, /Data tables:\n- weight_log: Body weight, logged daily; goal 75 kg by December/)
+  assert.match(prompt, /add its name to details as table/)
+  assert.deepEqual(await ctx.rows('SELECT type, statement, details, core FROM kipster.memories'), [{ type: 'goal', statement: 'Reach 75 kg by December 2026', details: { table: 'weight_log' }, core: true }])
+})
+
+test('a memory merge combines several memories of one context and keeps their sources; retire ends one with no replacement', { skip: noDatabase }, async t => {
+  const ctx = await setup(t)
+  const studio = await ctx.organization()
+  const home = await ctx.thread([{ author: 'user', text: 'I love tea. Green tea mostly.' }])
+  const later = await ctx.thread([{ author: 'user', text: 'Only green tea now, and I stopped running.' }])
+  const work = await ctx.thread([{ author: 'user', text: 'Studio opens at nine.' }], { organizationId: studio })
+  const source = async threadId => ({ threadId, messageId: (await ctx.rows('SELECT id FROM kipster.messages WHERE thread_id=$1', [threadId]))[0].id })
+  const tea = await ctx.memories.create({ type: 'preference', subject: 'user', statement: 'Loves tea', organizationId: null }, [await source(home)])
+  const green = await ctx.memories.create({ type: 'preference', subject: 'user', statement: 'Drinks green tea', organizationId: null }, [await source(home)])
+  const running = await ctx.memories.create({ type: 'routine', subject: 'user', statement: 'Runs every morning', organizationId: null }, [await source(home)])
+  const opens = await ctx.memories.create({ type: 'fact', subject: 'studio', statement: 'Studio opens at nine', organizationId: studio }, [await source(work)])
+  await ctx.db.query('UPDATE kipster.memories SET core=true')
+
+  assert.equal(await ctx.memories.merge([tea, opens], { type: 'x', subject: 'y', statement: 'z' }, []), null, 'memories of two contexts never merge')
+  const merged = await ctx.memories.merge([tea, green], { type: 'preference', subject: 'user', statement: 'Drinks only green tea', confirmed: true }, [await source(later)])
+  const ended = await ctx.rows('SELECT valid_to IS NOT NULL AS ended, replaced_by, core FROM kipster.memories WHERE id = ANY($1::uuid[])', [[tea, green]])
+  assert.deepEqual(ended, [{ ended: true, replaced_by: merged, core: false }, { ended: true, replaced_by: merged, core: false }])
+  assert.deepEqual((await ctx.memories.get(merged)).sources.map(item => item.threadId).sort(), [home, later].sort())
+  assert.equal(await ctx.memories.merge([tea], { type: 'x', subject: 'y', statement: 'z' }, []), null, 'an ended memory cannot merge again')
+
+  assert.equal(await ctx.memories.retire(running, [await source(later)]), true)
+  const retired = await ctx.memories.get(running)
+  assert.deepEqual([Boolean(retired.validTo), retired.replacedBy, retired.core], [true, null, false])
+  assert.equal(await ctx.memories.retire(running, []), false)
 })

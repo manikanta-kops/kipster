@@ -2564,7 +2564,7 @@ export function Workspace({
               initialTab={settingsInitialTab}
               versions={identity}
               permissionModes={identity.capabilities?.permissionModes === true}
-              memoryCards={identity.capabilities?.memoryCards === true}
+              memories={identity.capabilities?.memories === true}
               plugins={identity.capabilities?.plugins === true}
               manage={
                 <Management

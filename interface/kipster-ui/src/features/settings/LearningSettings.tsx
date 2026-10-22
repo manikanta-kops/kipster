@@ -12,16 +12,16 @@ import { clockTime, effortLabel, errorText } from './format'
 
 type State = 'idle' | 'saving' | { error: string }
 
-/** The installation switch, the default sleep time, the nightly model and counts, cards and each kip's summary. */
+/** The installation switch, the default sleep time, the nightly model and counts, memories, lessons and each kip's summary. */
 export function LearningPage({
   settings,
   look,
-  memoryCards,
+  memories,
 }: {
   settings: Settings
   look: (agentId: string) => KipLook
-  /** Core advertises the memory card actions; older Cores show no Cards. */
-  memoryCards: boolean
+  /** Core advertises the memory and lesson actions. */
+  memories: boolean
 }) {
   const learning = settings.learning!
   const directory: Directory = settings.directory!
@@ -104,19 +104,25 @@ export function LearningPage({
           Not saved: {state.error}
         </p>
       )}
-      {learning.coreCardCount !== undefined && (
+      {learning.coreMemoryCount !== undefined && (
         <>
           <NightlyModel settings={settings} />
           <MemoryCounts settings={settings} learning={learning} />
         </>
       )}
-      {memoryCards && (
+      {memories && (
         <Block>
           <Row
-            label="Cards"
-            sub="What kips remember about you. Read, correct or delete it."
+            label="Memories"
+            sub="What your kips remember about you. Read, correct or delete it."
             chevron
-            onClick={() => push({ kind: 'cards', title: 'Cards' })}
+            onClick={() => push({ kind: 'memories', title: 'Memories' })}
+          />
+          <Row
+            label="Lessons"
+            sub="What each kip learned about doing its work."
+            chevron
+            onClick={() => push({ kind: 'lessons', title: 'Lessons' })}
           />
         </Block>
       )}
@@ -365,14 +371,14 @@ function NightlyModel({ settings }: { settings: Settings }) {
 
 const counts = [
   {
-    key: 'coreCardCount',
-    label: 'Core cards',
+    key: 'coreMemoryCount',
+    label: 'Core memories',
     sub: 'Loaded into every turn',
     max: 200,
   },
   {
-    key: 'searchCardCount',
-    label: 'Cards from search',
+    key: 'searchMemoryCount',
+    label: 'Memories from search',
     sub: 'Added when a message matches them by meaning',
     max: 50,
   },
@@ -385,7 +391,7 @@ const counts = [
 ] as const
 type Count = (typeof counts)[number]['key']
 
-/** How many core cards, cards and conversation pieces each turn gets, saved together. */
+/** How many core memories, memories and conversation pieces each turn gets, saved together. */
 function MemoryCounts({
   settings,
   learning,

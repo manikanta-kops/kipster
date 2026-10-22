@@ -9,8 +9,10 @@ export type Frame = { title: string } & (
   | { kind: 'adapter'; adapterId: string }
   | { kind: 'instructions'; organizationId: string }
   | { kind: 'testing' }
-  | { kind: 'cards' }
-  | { kind: 'card'; cardId: string }
+  | { kind: 'memories' }
+  | { kind: 'memory'; memoryId: string }
+  | { kind: 'lessons' }
+  | { kind: 'lesson'; lessonId: string }
   | { kind: 'plugin'; pluginId: string }
 )
 

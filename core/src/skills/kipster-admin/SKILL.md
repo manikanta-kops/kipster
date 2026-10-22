@@ -26,8 +26,8 @@ Read an operation with `list_admin_operations` before you call it for the first 
 | dark mode, light mode, colours, theme | palette and theme | `interface` |
 | alerts, notifications | desktop notifications | `interface` |
 | permissions, asking first, approvals, full access, always allowed | permission mode, always-allowed actions | `permissions` |
-| memory, learning, sleep, nightly model, core cards | memory switch, sleep time, nightly model and memory counts | `learning` |
-| what you know about me, remembered facts, forget that | memory cards | `memory` |
+| memory, learning, sleep, nightly model, core memories | memory switch, sleep time, nightly model and memory counts | `learning` |
+| what you know about me, remembered facts, forget that, what a kip learned | memories and lessons | `memory` |
 | updates, version, beta, next builds | update channel, mode, install | `updates` |
 | plugins, connections, integrations, connect my GitHub or Notion, accounts | plugins and their signed-in accounts | `plugins` |
 | routines, schedules, recurring tasks, reminders | routines and their daily run limit | `routines` and the routine tools |
@@ -78,18 +78,26 @@ person's approval; say plainly that it removes every prompt.
 `removeAlwaysAllowed: [id]`. Only the person adds them, from a card.
 
 **Memory.** `learning.get` shows the memory settings. Each night, at a kip's sleep time, Kipster turns that kip's new
-conversation into searchable thread chunks, shared cards about the person and a diary. `learning.set` turns memory on or
+conversation into searchable thread chunks, shared memories about the person, that kip's lessons and a diary. `learning.set` turns memory on or
 off for every kip and sets the default `sleepTime` ("HH:MM", local time); `learning.agent_set` does the same for one
 kip. `learning.set` also sets `nightlyModel` (`{ adapterId, modelId, effort? }` from `adapters.list`, or `null` to use
-the admin kip's model), `coreCardCount` (cards every turn loads, 0-200, default 60) and `searchCardCount` and `searchChunkCount`
-(cards and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only what they ask for.
+the admin kip's model), `coreMemoryCount` (memories every turn loads, 0-200, default 60) and `searchMemoryCount` and
+`searchChunkCount` (memories and thread chunks a turn's memory search adds, 0-50 and 0-30, defaults 10 and 6). Change only
+what they ask for.
 
-**Memory cards.** Cards are the facts about the person every kip shares, such as a preference, a person they know or a
-date. `memory.cards_list` lists them newest first with their workspace (`organizationId`, null for every workspace) and
-the messages they came from; `ended: true` adds replaced cards. When the person corrects a card, change it with
-`memory.card_update`; the card becomes confirmed. A replaced card cannot be edited: edit the card that replaced it. When
-they want something forgotten, `memory.card_delete` removes the card; their messages stay. Both need an `operationId`.
-Find the card first and change only the cards they mean.
+**Memories.** Memories are the facts about the person every kip shares, such as a preference, a person they know or a
+date. `memory.memories_list` lists them newest first with their workspace (`organizationId`, null for every workspace)
+and the messages they came from; `ended: true` adds replaced and retired ones. When the person corrects a memory, change
+it with `memory.memory_update`; it becomes confirmed. A replaced memory cannot be edited: edit the one that replaced it.
+When they want something forgotten, `memory.memory_delete` removes it; their messages stay. Both need an `operationId`.
+Find the memory first and change only the ones they mean.
+
+**Lessons.** Lessons are how one kip should do its work, such as "For expense reports, use the 2026 template", learned
+each night from what the person and other kips told it. A kip keeps its lessons in every workspace; `organizationId`
+names the workspace a lesson was learned in. `confirmations` counts the nights it came up, and a kip's 10 most confirmed
+lessons are the Learned section of its identity.md, which Kipster writes; do not edit that section by hand. List them with
+`memory.lessons_list` (`agentId` for one kip), reword one with `memory.lesson_update` and remove one with
+`memory.lesson_delete`; both need an `operationId`, and the Learned section follows at once.
 
 **Updates.** `updates.get` shows the running version, any newer one and the channel. `updates.settings_set` switches
 between `stable` and `next` (early builds) and between `automatic` and `notify`. To install a version, call
@@ -117,7 +125,8 @@ skipped and recorded.
 and any kip's own ones: set `target` in `manage_data_tables` or `manage_vector_collections` to
 `{"kind": "organization", "ownerId": "<workspace ID>"}` or `{"kind": "agent", "ownerId": "<kip ID>"}`, with IDs from
 `directory.get`. You need no membership and need not be in that workspace's conversation. A deleted workspace or kip is
-refused.
+refused. Every table has a description of what it is for; give one with `create_table` and keep it current with
+`set_description`.
 
 ## What you cannot change
 

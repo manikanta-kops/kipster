@@ -73,7 +73,7 @@ test('errors keep any code and the named codes and paths are stable', () => {
 
 test('bootstrap reads the plugins capability, and a Core without it as false', () => {
   const base = { version: 1, coreVersion: '0.8.0', protocol: { current: 1, oldest: 1 }, installationId: 'i', callerId: 'c', organizationId: 'o', rootAgentId: 'k' }
-  assert.equal(bootstrap.parse({ ...base, capabilities: { voiceRecording: true, updates: true, memoryCards: true } }).capabilities.plugins, false)
+  assert.equal(bootstrap.parse({ ...base, capabilities: { voiceRecording: true, updates: true, memories: true } }).capabilities.plugins, false)
   assert.equal(bootstrap.parse({ ...base, capabilities: { voiceRecording: false, plugins: true, futureFlag: true } }).capabilities.plugins, true)
   assert.equal(bootstrap.parse({ ...base, capabilities: { voiceRecording: false, plugins: false } }).capabilities.plugins, false)
   assert.throws(() => bootstrap.parse({ ...base, capabilities: { voiceRecording: false, plugins: 'yes' } }), TypeError)
@@ -88,5 +88,5 @@ test('Core\'s bootstrap reports plugins off, read through the client', async t =
   const raw = await (await fetch(new URL('/v1/bootstrap', server.url))).json()
   assert.equal(raw.capabilities.plugins, false)
   const read = await createClient({ baseUrl: server.url }).bootstrap()
-  assert.deepEqual([read.installationId, read.callerId, read.capabilities.plugins, read.capabilities.memoryCards], ['i', 'c', false, true])
+  assert.deepEqual([read.installationId, read.callerId, read.capabilities.plugins, read.capabilities.memories], ['i', 'c', false, true])
 })
