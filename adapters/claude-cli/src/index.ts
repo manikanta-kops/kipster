@@ -208,7 +208,7 @@ class ClaudeAdapter implements MaintenanceCapableAdapter {
       const resume = context.resume?.providerStateScope === recoveryScope && sessionIdPattern.test(context.resume.threadId) && (await this.sessionFiles(context.resume.threadId)).length ? context.resume : undefined
       const args = [...streamJson, '--include-partial-messages', '--chrome', ...(resume ? ['--resume', resume.threadId] : []), '--model', settings.modelId, ...(settings.effort ? ['--effort', settings.effort] : []),
         '--mcp-config', join(directory, 'mcp.json'), '--permission-prompt-tool', `mcp__kipster_permission__${permissionTool}`, '--disallowedTools', `mcp__kipster_permission__${permissionTool}`,
-        '--append-system-prompt-file', join(directory, 'instructions.md'), '--permission-mode', claudePermissionMode(context.permissionMode),
+        '--system-prompt-file', join(directory, 'instructions.md'), '--settings', JSON.stringify({ outputStyle: 'default' }), '--permission-mode', claudePermissionMode(context.permissionMode),
         // Allowed up front: Claude Code's auto mode otherwise asks its classifier, which can refuse a kip's own messages.
         '--allowedTools', 'mcp__kipster', ...readable.map(path => `Read(/${path})`)]
       child = this.spawn(args, workingDirectory)

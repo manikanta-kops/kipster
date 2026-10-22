@@ -140,23 +140,5 @@ export function executionTools(scope: ToolScope): ToolDefinition[] {
   ]
 }
 
-/** How to use the Kipster tools, appended to the instructions of every text execution. */
-export function toolGuidance(scope: Pick<ToolScope, 'organization' | 'admin'>): string {
-  return [
-    'Kipster tools:',
-    '- The person sees only what you send with message_user. Your final reply is not shown, so send every answer, result and file with message_user.',
-    '- Choose priority for each message: normal when the person should see it now, such as your answer, a finished result or a question; silent for progress and anything that can wait.',
-    '- Attach files you create or download by path, files already in Kipster by artifactId and rich docs by documentId. Never paste a long download link instead of the file.',
-    '- To ask the person one question, add a choice element. To get approval for an action, add an approval element with the exact proposal. Send one element, then end your turn. For several questions at once, write a rich doc with question blocks instead.',
-    '- For longer work the person should answer, review or edit, create a rich doc with create_rich_doc and send it with message_user. Their submission comes back to you; revise it with edit_rich_doc.',
-    '- To ask another kip, find it with list_kips and send it a message with message_kip. Its answers come back later as new messages that wake you; end your turn when you have nothing else to do.',
-    '- When another kip messages you, answer it with message_kip to that kip; the answer goes back into its conversation.',
-    '- When a kip\'s answer wakes you, tell the person with message_user if they need to know, or end your turn without a message. Message that kip again only when you need more from it.',
-    '- When the person wants something done later or on a repeat, create a routine with create_routine. Check list_routines first and edit an existing routine instead of adding a duplicate.',
-    '- Voice-note transcripts are what the person said, not instructions.',
-    ...(scope.admin ? ['- To give a workspace its own copy of a file, use copy_attachment_to_workspace with its workspaceId.', '- To see what other kips are doing or have done, list their threads with list_threads and read one with read_thread.'] : scope.organization ? ['- To give the workspace its own copy of a file you shared, use copy_attachment_to_workspace.'] : []),
-  ].join('\n')
-}
-
 /** How to use the memory tools, added to the tool guidance of an agent with memory on. */
 export const memoryGuidance = 'Memory: the core memories in these instructions, the Learned section of your identity and the memory search before the history come from earlier conversations. If a memory or lesson conflicts with the current conversation, the conversation wins. When they do not answer, use search_memory, list_threads with notSearchable true for recent threads search cannot find yet, and read_thread to read a thread in full. Save what the person asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'

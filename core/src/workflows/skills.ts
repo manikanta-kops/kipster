@@ -10,5 +10,5 @@ export const adminSkill = skill('kipster-admin', 'Change anything in Kipster for
 /** The instructions section that names the skills of a run. */
 export function skillsSection(skills: readonly Skill[]): string {
   if (!skills.length) return ''
-  return `Skills. Before work that matches a skill, read its file with your file tools and follow it.\n${skills.map(item => `- ${item.name}: ${item.description} File: ${item.path}`).join('\n')}`
+  return `Skills hold step-by-step procedures for specific jobs. When a task needs the steps a skill describes, read its file with your file tools and follow it; a simple question does not need one.\n${skills.map(item => `- ${item.name}: ${item.description} File: ${item.path}`).join('\n')}`
 }

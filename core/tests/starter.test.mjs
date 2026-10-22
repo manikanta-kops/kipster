@@ -9,6 +9,7 @@ import { Home } from '../dist/platform/home/public.js'
 import { loadMigrations, openRuntime } from '../dist/runtime.js'
 import { bootstrap, readDirectory } from '../dist/modules/administration/public.js'
 import { playground, playgroundNames } from '../dist/starter/playground.js'
+import { deleteRoutine, hostTimeZone, listRoutines } from '../dist/modules/routines/public.js'
 import { adminUrl, noDatabase } from './support/database.mjs'
 
 // The Playground starter a new installation begins with, against real PostgreSQL.
@@ -70,6 +71,26 @@ test('a new installation starts with Playground, Kip and four agents in two grou
   assert.equal(await home.organizationInstructions(runtime.bootstrap.organizationId), starter.organization.instructions)
   // Every starter file has real content, not only a heading.
   for (const agent of [starter.rootAgent, ...starter.agents]) for (const content of Object.values(agent.files)) assert.ok(content.trim().split('\n').length > 3)
+})
+
+test('a new installation gives the admin kip a morning check-in and an evening wrap-up in the host time zone', { skip: noDatabase }, async t => {
+  const base = await database(t)
+  const { runtime } = await start(base, await playground())
+  const { installationId, ownerId, rootAgentId } = runtime.bootstrap
+  const routines = await listRoutines(runtime.db, { installationId, personId: ownerId })
+  assert.deepEqual(routines.map(item => [item.name, item.agentId, item.contextKind, item.triggers, item.timeZone, item.enabled]), [
+    ['Morning check-in', rootAgentId, 'installation', [{ type: 'times', times: ['08:00'] }], hostTimeZone(), true],
+    ['Evening wrap-up', rootAgentId, 'installation', [{ type: 'times', times: ['18:00'] }], hostTimeZone(), true],
+  ])
+  assert.ok(routines.every(item => item.nextRunAt), 'both are scheduled')
+  assert.match(routines[0].instructions, /still unanswered after two days or more/)
+  assert.match(routines[1].instructions, /priority silent/)
+  // A routine the person deleted stays deleted on later starts.
+  await deleteRoutine(runtime.db, { installationId, personId: ownerId }, routines[0].id)
+  await runtime.close()
+  const again = await start(base, await playground())
+  t.after(() => again.runtime.close())
+  assert.deepEqual((await listRoutines(again.runtime.db, { installationId, personId: ownerId })).map(item => item.name), ['Evening wrap-up'])
 })
 
 test('an interrupted first start finishes the starter agents on the next start', { skip: noDatabase }, async t => {

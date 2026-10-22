@@ -92,6 +92,10 @@ test('a turn streams text, offers Core tools over MCP and forwards only offered 
   assert.equal(launch.env.KIPSTER_DATABASE_URL, undefined, 'Core credentials are not inherited')
   assert.equal(launch.env.FAKE_CLAUDE_LOG.endsWith('log.jsonl'), true, 'configured environment is passed')
   assert.equal(launch.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY, '1', 'Claude Code auto memory stays off')
+  assert.equal(launch.env.CLAUDE_CODE_DISABLE_CLAUDE_MDS, '1', 'the user\'s CLAUDE.md files stay out')
+  assert.equal(launch.env.CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS, '1', 'Claude Code\'s git instructions stay out')
+  assert.equal(launch.argv.includes('--append-system-prompt-file'), false, 'Core\'s instructions replace Claude Code\'s prompt')
+  assert.deepEqual(JSON.parse(launch.argv[launch.argv.indexOf('--settings') + 1]), { outputStyle: 'default' }, 'the user\'s output style stays out')
   assert.equal(launch.env.MCP_TIMEOUT, '5000', 'MCP server startup is bounded')
   const user = records.find(record => record.user).user
   assert.deepEqual(user[0], { type: 'text', text: 'Core prompt' })

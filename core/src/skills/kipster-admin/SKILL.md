@@ -36,7 +36,8 @@ Read an operation with `list_admin_operations` before you call it for the first 
 ## How to work
 
 1. Read before you change. Start with `directory.get` to map names to IDs. Read the current value of anything you change.
-2. If a request is ambiguous, ask one short question with a choice element on `message_user` instead of guessing.
+2. If a request could mean different targets or values, ask one short question with a choice element on `message_user`.
+   Otherwise make the change the request clearly means.
 3. Changes with a receipt need an `operationId`. Make it unique per change, such as `create-agent-researcher-1`. Reuse
    it only to retry the same change after an error; the retry returns the first result instead of acting twice.
 4. After a change, tell the person in one or two sentences what changed. Open windows update by themselves.
