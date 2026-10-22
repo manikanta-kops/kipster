@@ -270,8 +270,10 @@ export async function seedRoutines(client: SqlClient, ids: { installationId: str
     ON CONFLICT (installation_id,caller_id,context_kind,context_id,agent_id) DO UPDATE SET id=kipster.direct_chats.id RETURNING id`, [randomUUID(), ids.installationId, ids.ownerId, ids.agentId])).rows[0]!.id
   const zone = hostTimeZone()
   for (const [index, routine] of routines.entries()) {
+    // Routines list by creation time, so each one is a millisecond after the one before to keep the starter's order.
+    const created = new Date(now.getTime() + index)
     await insertRoutine(client, { installationId: ids.installationId, chatId, agentId: ids.agentId, personId: ids.ownerId, createdBy: ids.ownerId, requestKey: `starter:${ids.installationId}:${index}`,
-      name: routine.name, instructions: routine.instructions, triggers: parseTriggers(routine.triggers, zone, now), timeZone: zone }, now)
+      name: routine.name, instructions: routine.instructions, triggers: parseTriggers(routine.triggers, zone, created), timeZone: zone }, created)
   }
 }
 /** Creates a routine for the kip of one of the person's chats. A repeat with the same operation ID returns the first routine. */

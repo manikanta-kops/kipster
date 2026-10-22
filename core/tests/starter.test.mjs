@@ -75,22 +75,24 @@ test('a new installation starts with Playground, Kip and four agents in two grou
 
 test('a new installation gives the admin kip a morning check-in and an evening wrap-up in the host time zone', { skip: noDatabase }, async t => {
   const base = await database(t)
-  const { runtime } = await start(base, await playground())
-  const { installationId, ownerId, rootAgentId } = runtime.bootstrap
-  const routines = await listRoutines(runtime.db, { installationId, personId: ownerId })
-  assert.deepEqual(routines.map(item => [item.name, item.agentId, item.contextKind, item.triggers, item.timeZone, item.enabled]), [
-    ['Morning check-in', rootAgentId, 'installation', [{ type: 'times', times: ['08:00'] }], hostTimeZone(), true],
-    ['Evening wrap-up', rootAgentId, 'installation', [{ type: 'times', times: ['18:00'] }], hostTimeZone(), true],
-  ])
-  assert.ok(routines.every(item => item.nextRunAt), 'both are scheduled')
-  assert.match(routines[0].instructions, /still unanswered after two days or more/)
-  assert.match(routines[1].instructions, /priority silent/)
-  // A routine the person deleted stays deleted on later starts.
-  await deleteRoutine(runtime.db, { installationId, personId: ownerId }, routines[0].id)
-  await runtime.close()
+  const first = await start(base, await playground())
+  const { installationId, ownerId, rootAgentId } = first.runtime.bootstrap
+  const owner = { installationId, personId: ownerId }
+  try {
+    const routines = await listRoutines(first.runtime.db, owner)
+    assert.deepEqual(routines.map(item => [item.name, item.agentId, item.contextKind, item.triggers, item.timeZone, item.enabled]), [
+      ['Morning check-in', rootAgentId, 'installation', [{ type: 'times', times: ['08:00'] }], hostTimeZone(), true],
+      ['Evening wrap-up', rootAgentId, 'installation', [{ type: 'times', times: ['18:00'] }], hostTimeZone(), true],
+    ])
+    assert.ok(routines.every(item => item.nextRunAt), 'both are scheduled')
+    assert.match(routines[0].instructions, /still unanswered after two days or more/)
+    assert.match(routines[1].instructions, /priority silent/)
+    // A routine the person deleted stays deleted on later starts.
+    await deleteRoutine(first.runtime.db, owner, routines[0].id)
+  } finally { await first.runtime.close() }
   const again = await start(base, await playground())
   t.after(() => again.runtime.close())
-  assert.deepEqual((await listRoutines(again.runtime.db, { installationId, personId: ownerId })).map(item => item.name), ['Evening wrap-up'])
+  assert.deepEqual((await listRoutines(again.runtime.db, owner)).map(item => item.name), ['Evening wrap-up'])
 })
 
 test('an interrupted first start finishes the starter agents on the next start', { skip: noDatabase }, async t => {
