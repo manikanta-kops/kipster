@@ -1,5 +1,5 @@
 {
-  "protocol": {"current":3,"oldest":1},
+  "protocol": {"current":4,"oldest":1},
   "requests": {
     "adaptersRefresh": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "agentCreate": {
@@ -299,10 +299,15 @@
         "enabled": {"type":"optional","of":{"type":"boolean"}},
         "sleepTime": {"type":"optional","of":{"type":"string","format":"clock-time"}},
         "nightlyModel": {"type":"optional","of":{"type":"nullable","of":{"ref":"nightlyModel"}}},
-        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0,"max":200}},
-        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0,"max":50}},
+        "coreMemoryCount": {"type":"optional","of":{"type":"integer","min":0,"max":200}},
+        "searchMemoryCount": {"type":"optional","of":{"type":"integer","min":0,"max":50}},
         "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0,"max":30}}
       }
+    },
+    "lessonUpdate": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"statement":{"type":"string","min":1,"max":1000}}
     },
     "membershipAdd": {
       "type": "object",
@@ -313,7 +318,7 @@
         "agentId": {"type":"string","min":1}
       }
     },
-    "memoryCardUpdate": {
+    "memoryUpdate": {
       "type": "object",
       "exact": true,
       "fields": {
@@ -864,7 +869,7 @@
         "notificationActions": {"type":"optional","of":{"type":"boolean"}},
         "documents": {"type":"optional","of":{"type":"boolean"}},
         "permissionModes": {"type":"optional","of":{"type":"boolean"}},
-        "memoryCards": {"type":"optional","of":{"type":"boolean"}},
+        "memories": {"type":"optional","of":{"type":"boolean"}},
         "plugins": {"type":"optional","of":{"type":"boolean"}},
         "viewingWorkspace": {"type":"optional","of":{"type":"boolean"}}
       }
@@ -1691,8 +1696,8 @@
             }
           }
         },
-        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0}},
-        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "coreMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
         "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0}}
       }
     },
@@ -1721,10 +1726,52 @@
             }
           }
         },
-        "coreCardCount": {"type":"optional","of":{"type":"integer","min":0}},
-        "searchCardCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "coreMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
+        "searchMemoryCount": {"type":"optional","of":{"type":"integer","min":0}},
         "searchChunkCount": {"type":"optional","of":{"type":"integer","min":0}}
       }
+    },
+    "lesson": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "id": {"type":"string","min":1},
+        "agentId": {"type":"string","min":1},
+        "organizationId": {"type":"nullable","of":{"type":"string","min":1}},
+        "statement": {"type":"string","min":1},
+        "confirmations": {"type":"integer","min":0},
+        "lastConfirmedNight": {"type":"string","min":1},
+        "validFrom": {"type":"string","format":"utc-timestamp"},
+        "validTo": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}},
+        "replacedBy": {"type":"nullable","of":{"type":"string","min":1}},
+        "createdAt": {"type":"string","format":"utc-timestamp"},
+        "updatedAt": {"type":"string","format":"utc-timestamp"},
+        "embedded": {"type":"boolean"},
+        "sources": {"type":"array","items":{"ref":"memorySource"}}
+      }
+    },
+    "lessonPage": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "lessons": {"type":"array","items":{"ref":"lesson"}},
+        "nextCursor": {"type":"nullable","of":{"type":"string","min":1}}
+      }
+    },
+    "lessonRemoval": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "lessonId": {"type":"string","min":1},
+        "deleted": {"type":"boolean"}
+      }
+    },
+    "lessonResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"lesson":{"ref":"lesson"}}
     },
     "membershipRemovalResult": {
       "type": "object",
@@ -1755,7 +1802,7 @@
         "membership": {"ref":"directoryMembership"}
       }
     },
-    "memoryCard": {
+    "memory": {
       "type": "object",
       "exact": false,
       "fields": {
@@ -1773,33 +1820,33 @@
         "createdAt": {"type":"string","format":"utc-timestamp"},
         "updatedAt": {"type":"string","format":"utc-timestamp"},
         "embedded": {"type":"boolean"},
-        "sources": {"type":"array","items":{"ref":"memoryCardSource"}}
+        "sources": {"type":"array","items":{"ref":"memorySource"}}
       }
     },
-    "memoryCardPage": {
+    "memoryPage": {
       "type": "object",
       "exact": false,
       "fields": {
         "version": {"type":"literal","value":1},
-        "cards": {"type":"array","items":{"ref":"memoryCard"}},
+        "memories": {"type":"array","items":{"ref":"memory"}},
         "nextCursor": {"type":"nullable","of":{"type":"string","min":1}}
       }
     },
-    "memoryCardRemoval": {
+    "memoryRemoval": {
       "type": "object",
       "exact": false,
       "fields": {
         "version": {"type":"literal","value":1},
-        "cardId": {"type":"string","min":1},
+        "memoryId": {"type":"string","min":1},
         "deleted": {"type":"boolean"}
       }
     },
-    "memoryCardResult": {
+    "memoryResult": {
       "type": "object",
       "exact": false,
-      "fields": {"version":{"type":"literal","value":1},"card":{"ref":"memoryCard"}}
+      "fields": {"version":{"type":"literal","value":1},"memory":{"ref":"memory"}}
     },
-    "memoryCardSource": {
+    "memorySource": {
       "type": "object",
       "exact": false,
       "fields": {"threadId":{"type":"string","min":1},"messageId":{"type":"string","min":1}}

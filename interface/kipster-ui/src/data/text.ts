@@ -40,8 +40,8 @@ export type Bootstrap = Scope & {
     notificationActions?: boolean
     documents?: boolean
     permissionModes?: boolean
-    /** Core lists, reads, edits and deletes memory cards. */
-    memoryCards?: boolean
+    /** Core lists, reads, edits and deletes memories and lessons. */
+    memories?: boolean
     /** Kipster Plugins are ready; absent from Cores that predate them. */
     plugins?: boolean
     /** Core accepts the open workspace with a message. */
@@ -536,7 +536,7 @@ export class TextClient {
               typeof data.capabilities.documents,
             ) &&
             ['undefined', 'boolean'].includes(
-              typeof data.capabilities.memoryCards,
+              typeof data.capabilities.memories,
             ))),
     )
     return data as Bootstrap

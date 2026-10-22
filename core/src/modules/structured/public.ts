@@ -3,11 +3,11 @@ import { Postgres, type SqlClient } from '../../platform/postgres/public.js'
 
 type Value = string | number | boolean | null | Record<string, unknown> | unknown[]
 type Input = Record<string, unknown>
-type Target = { kind: 'agent' | 'organization'; ownerId: string }
+export type Target = { kind: 'agent' | 'organization'; ownerId: string }
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const identifier = /^[a-z][a-z0-9_]{0,39}$/
 const types = new Set(['text', 'bigint', 'double precision', 'boolean', 'timestamptz', 'jsonb', 'uuid'])
-const mutations = new Set(['create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'drop_table', 'insert', 'update', 'delete'])
+const mutations = new Set(['create_table', 'set_description', 'add_column', 'drop_column', 'create_index', 'drop_index', 'drop_table', 'insert', 'update', 'delete'])
 const operations = new Set([...mutations, 'discover', 'describe', 'query'])
 // The guard as migration 033 defines it.
 const guardSourceHash = 'd27a55c6d66008bad89db4f8d6846148e3f9ec01d20b063ba8d6a6fc7b9b5961'
@@ -28,6 +28,12 @@ function name(value: unknown): string {
   return value
 }
 function quote(value: string): string { return `"${value}"` }
+/** What a table is for, such as "Body weight, logged daily; goal 75 kg by December". */
+export const TABLE_DESCRIPTION_MAX = 500
+function description(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim() || value.length > TABLE_DESCRIPTION_MAX || /[\0-\x08\x0b\x0c\x0e-\x1f]/.test(value)) throw new Error(`Invalid table description: text of at most ${TABLE_DESCRIPTION_MAX} characters`)
+  return value.trim()
+}
 function target(value: unknown): Target {
   const input = object(value)
   only(input, ['kind', 'ownerId'])
@@ -179,7 +185,8 @@ export class StructuredDataService {
     bounded(input, 20000)
     const table = operation === 'discover' ? undefined : name(input.table)
     const allowed = operation === 'discover' ? ['operation','target'] :
-      operation === 'create_table' ? ['operation','target','table','columns'] :
+      operation === 'create_table' ? ['operation','target','table','description','columns'] :
+      operation === 'set_description' ? ['operation','target','table','description'] :
       operation === 'add_column' ? ['operation','target','table','column','type'] :
       operation === 'drop_column' ? ['operation','target','table','column'] :
       operation === 'create_index' || operation === 'drop_index' ? ['operation','target','table','index','column'] :
@@ -235,10 +242,19 @@ export class StructuredDataService {
   private async execute(client: SqlClient, namespace: string, operation: string, table: string | undefined, input: Input): Promise<unknown> {
     const ns = quote(namespace), qualified = `${ns}.${quote(table ?? '')}`
     if (operation === 'discover') {
-      const rows = (await client.query<{ table_name: string }>('SELECT table_name FROM information_schema.tables WHERE table_schema=$1 AND table_type=$2 ORDER BY table_name LIMIT 33', [namespace, 'BASE TABLE'])).rows
-      return { tables: rows.slice(0,32).map(row => row.table_name), truncated: rows.length > 32 }
+      const rows = (await client.query<{ name: string; description: string | null }>(`SELECT c.relname AS name, pg_catalog.obj_description(c.oid,'pg_class') AS description
+        FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relkind='r' ORDER BY c.relname LIMIT 33`, [namespace])).rows
+      return { tables: rows.slice(0,32).map(row => ({ name: row.name, description: row.description })), truncated: rows.length > 32 }
+    }
+    if (operation === 'set_description') {
+      const text = description(input.description)
+      const found = (await client.query('SELECT 1 FROM information_schema.tables WHERE table_schema=$1 AND table_name=$2 AND table_type=$3', [namespace, table, 'BASE TABLE'])).rows[0]
+      if (!found) throw new Error('Task-data table unavailable')
+      await this.comment(client, qualified, text)
+      return { status:'completed', table, description: text }
     }
     if (operation === 'create_table') {
+      const text = description(input.description)
       if (!Array.isArray(input.columns) || input.columns.length < 1 || input.columns.length > 16) throw new Error('Invalid table columns')
       const columns = input.columns.map(value => {
         const col = object(value); only(col,['name','type']); const column = name(col.name)
@@ -249,13 +265,16 @@ export class StructuredDataService {
       const count = (await client.query<{ n: string }>('SELECT count(*) AS n FROM information_schema.tables WHERE table_schema=$1 AND table_type=$2',[namespace,'BASE TABLE'])).rows[0]!
       if (Number(count.n) >= 32) throw new Error('Task-data table limit reached')
       await client.query(`CREATE TABLE ${qualified} (id uuid PRIMARY KEY,${columns.map(item => `${quote(item.name)} ${item.type}`).join(',')})`)
-      return { status:'completed', table }
+      await this.comment(client, qualified, text)
+      return { status:'completed', table, description: text }
     }
     if (operation === 'describe') {
       const columns = (await client.query<{ column_name: string; data_type: string }>('SELECT column_name,data_type FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2 ORDER BY ordinal_position',[namespace,table])).rows
       if (!columns.length) throw new Error('Task-data table unavailable')
       const indexes = (await client.query<{ indexname: string; indexdef: string }>('SELECT indexname,indexdef FROM pg_catalog.pg_indexes WHERE schemaname=$1 AND tablename=$2 ORDER BY indexname LIMIT 33',[namespace,table])).rows
-      return { table, columns: columns.map(c => ({ name:c.column_name,type:c.data_type })), indexes:indexes.slice(0,32).map(i => i.indexname) }
+      const about = (await client.query<{ description: string | null }>(`SELECT pg_catalog.obj_description(c.oid,'pg_class') AS description FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=$1 AND c.relname=$2 AND c.relkind='r'`, [namespace, table])).rows[0]?.description ?? null
+      return { table, description: about, columns: columns.map(c => ({ name:c.column_name,type:c.data_type })), indexes:indexes.slice(0,32).map(i => i.indexname) }
     }
     if (operation === 'add_column') {
       const column = name(input.column)
@@ -328,5 +347,18 @@ export class StructuredDataService {
     }
     throw new Error('Unsupported task-data operation')
   }
+  /** COMMENT takes no parameters, so the text is quoted by the server. */
+  private async comment(client: SqlClient, qualified: string, text: string): Promise<void> {
+    const literal = (await client.query<{ literal: string }>('SELECT pg_catalog.quote_literal($1::text) AS literal', [text])).rows[0]!.literal
+    await client.query(`COMMENT ON TABLE ${qualified} IS ${literal}`)
+  }
   async close(): Promise<void> { try { await this.restricted.close() } finally { await this.admin.close() } }
+}
+
+/** The task-data tables of `owners` with their descriptions, by name, at most 64. Reads only the catalog, so any login may call it. */
+export async function taskTables(client: Postgres | SqlClient, owners: readonly Target[]): Promise<{ name: string; description: string | null }[]> {
+  if (!owners.length) return []
+  return (await client.query<{ name: string; description: string | null }>(`SELECT c.relname AS name, pg_catalog.obj_description(c.oid,'pg_class') AS description
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname = ANY($1::text[]) AND c.relkind='r' ORDER BY c.relname LIMIT 64`,
+    [owners.map(owner => schema({ kind: owner.kind, ownerId: id(owner.ownerId) }))])).rows
 }

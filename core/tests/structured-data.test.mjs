@@ -44,7 +44,7 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await until(()=>adapter.contexts.length,n=>n===1)
     const attempt=adapter.contexts[0].attemptId, target={kind:'agent',ownerId:rootAgentId}
     const call=(callId,input)=>dispatcher.structuredTool(attempt,callId,{target,...input})
-    const created=await call('create',{operation:'create_table',table:'projects',columns:[{name:'title',type:'text'},{name:'budget',type:'bigint'}]})
+    const created=await call('create',{operation:'create_table',description:'Test table',table:'projects',columns:[{name:'title',type:'text'},{name:'budget',type:'bigint'}]})
     assert.equal(created.status,'completed')
     await call('index',{operation:'create_index',table:'projects',index:'projects_title',column:'title'})
     const request={operation:'insert',table:'projects',values:{title:'North',budget:'9007199254740993'}}
@@ -55,7 +55,7 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await assert.rejects(call('bytes',{operation:'insert',table:'projects',values:{title:'x'.repeat(17000)}}),/byte limit/)
     await assert.rejects(call('escape',{operation:'query',table:'kipster.threads'}),/Invalid task-data name/)
     await assert.rejects(call('multi',{operation:'query',table:'projects; DROP SCHEMA kipster'}),/Invalid task-data name/)
-    await call('large-table',{operation:'create_table',table:'large_rows',columns:[{name:'note',type:'text'}]})
+    await call('large-table',{operation:'create_table',description:'Test table',table:'large_rows',columns:[{name:'note',type:'text'}]})
     for(let n=0;n<5;n++)await call(`large-${n}`,{operation:'insert',table:'large_rows',values:{note:'x'.repeat(15000)}})
     await assert.rejects(call('large-query',{operation:'query',table:'large_rows',limit:10}),/byte limit/)
     await call('large-drop',{operation:'drop_table',table:'large_rows'})
@@ -64,6 +64,13 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await call('update',{operation:'update',table:'projects',id:inserted.id,values:{active:true}})
     assert.equal((await call('query',{operation:'query',table:'projects',where:{column:'title',equals:'North'}})).rows[0].active,true)
     assert.equal((await call('describe',{operation:'describe',table:'projects'})).indexes.includes('projects_title'),true)
+    // Every table says what it is for: required at creation, changed with set_description, read back by discover and describe.
+    await assert.rejects(call('no-description',{operation:'create_table',table:'undescribed',columns:[{name:'note',type:'text'}]}),/Invalid table description/)
+    await assert.rejects(call('long-description',{operation:'create_table',description:'x'.repeat(501),table:'undescribed',columns:[{name:'note',type:'text'}]}),/Invalid table description/)
+    assert.deepEqual(await call('set-description',{operation:'set_description',table:'projects',description:"Client projects; budget in cents, it's \\ quoted"}),{status:'completed',table:'projects',description:"Client projects; budget in cents, it's \\ quoted"})
+    assert.equal((await call('describe-again',{operation:'describe',table:'projects'})).description,"Client projects; budget in cents, it's \\ quoted")
+    assert.deepEqual((await call('discover-described',{operation:'discover'})).tables,[{name:'projects',description:"Client projects; budget in cents, it's \\ quoted"}])
+    await assert.rejects(call('missing-table',{operation:'set_description',table:'nowhere',description:'Gone'}),/Task-data table unavailable/)
     const namespace=`task_a_${rootAgentId.replaceAll('-','')}`
     let releaseRow, rowLocked
     const rowLockedBarrier=new Promise(resolve=>rowLocked=resolve)
@@ -128,8 +135,8 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await call('drop-index',{operation:'drop_index',table:'projects',index:'projects_title'})
     await call('drop-column',{operation:'drop_column',table:'projects',column:'active'})
     const orgTarget={kind:'organization',ownerId:organizationId}
-    await dispatcher.structuredTool(attempt,'org-create',{operation:'create_table',target:orgTarget,table:'shared',columns:[{name:'note',type:'text'}]})
-    assert.deepEqual((await dispatcher.structuredTool(attempt,'org-discover',{operation:'discover',target:orgTarget})).tables,['shared'])
+    await dispatcher.structuredTool(attempt,'org-create',{operation:'create_table',description:'Test table',target:orgTarget,table:'shared',columns:[{name:'note',type:'text'}]})
+    assert.deepEqual((await dispatcher.structuredTool(attempt,'org-discover',{operation:'discover',target:orgTarget})).tables,[{name:'shared',description:'Test table'}])
     const otherOrg=randomUUID()
     // The admin kip may use another workspace's task data, but not a removed one.
     await runtime.db.query('INSERT INTO kipster.organizations(id,installation_id,display_name,provisioned) VALUES ($1,$2,$3,false)',[otherOrg,installationId,'Other org'])
@@ -160,7 +167,7 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
       if(args[3].ownerId===b)await runtime.db.query('UPDATE kipster.text_runs SET stop_requested=true WHERE current_attempt_id=$1',[attempt])
       return registered
     }
-    await assert.rejects(dispatcher.structuredTool(attempt,'provision-first',{operation:'create_table',target:{kind:'agent',ownerId:b},table:'late_table',columns:[{name:'note',type:'text'}]}),/Attempt no longer owns task data/)
+    await assert.rejects(dispatcher.structuredTool(attempt,'provision-first',{operation:'create_table',description:'Test table',target:{kind:'agent',ownerId:b},table:'late_table',columns:[{name:'note',type:'text'}]}),/Attempt no longer owns task data/)
     runtime.structured.provision=originalProvision
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM task_data.namespaces WHERE owner_id=$1',[b])).rows[0].n,1)
     assert.equal((await runtime.db.query('SELECT to_regclass($1) AS table',[`task_a_${b.replaceAll('-','')}.late_table`])).rows[0].table,null)
@@ -196,8 +203,8 @@ test('restricted task-data lifecycle, replay, fencing and restart', { skip:noDat
     await until(()=>adapter.contexts.length,n=>n===2)
     const child=adapter.contexts[1]
     assert.equal(child.agentId,b)
-    await dispatcher.structuredTool(child.attemptId,'child-table',{operation:'create_table',target:{kind:'agent',ownerId:b},table:'child_tasks',columns:[{name:'note',type:'text'}]})
-    await dispatcher.structuredTool(child.attemptId,'child-collab',{operation:'create_table',target,table:'collab_tasks',columns:[{name:'note',type:'text'}]})
+    await dispatcher.structuredTool(child.attemptId,'child-table',{operation:'create_table',description:'Test table',target:{kind:'agent',ownerId:b},table:'child_tasks',columns:[{name:'note',type:'text'}]})
+    await dispatcher.structuredTool(child.attemptId,'child-collab',{operation:'create_table',description:'Test table',target,table:'collab_tasks',columns:[{name:'note',type:'text'}]})
     const identity=(await runtime.db.query('SELECT actor_id,owner_id FROM task_data.receipts WHERE attempt_id=$1 AND call_id=$2',[child.attemptId,'child-collab'])).rows[0]
     assert.deepEqual(identity,{actor_id:b,owner_id:rootAgentId})
     const elsewhere=randomUUID()

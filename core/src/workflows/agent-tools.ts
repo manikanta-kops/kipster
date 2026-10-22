@@ -41,9 +41,9 @@ const collaboration = (admin: boolean) => [
   messageKip(admin),
 ]
 const dataOwners = (admin: boolean) => admin ? 'any kip (agent) or any workspace (organization)' : 'a kip (agent) or this conversation\'s workspace (organization)'
-const dataTables = (admin: boolean) => tool('manage_data_tables', `Use bounded Core task-data tables. Set an explicit owner target: ${dataOwners(admin)}. Operations: discover, describe, create_table, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.`, {
-  operation: { type: 'string', enum: ['discover', 'describe', 'create_table', 'add_column', 'drop_column', 'create_index', 'drop_index', 'query', 'insert', 'update', 'delete', 'drop_table'] },
-  target: owner, table: text,
+const dataTables = (admin: boolean) => tool('manage_data_tables', `Use bounded Core task-data tables. Set an explicit owner target: ${dataOwners(admin)}. Operations: discover, describe, create_table, set_description, add_column, drop_column, create_index, drop_index, query, insert, update, delete, drop_table. create_table needs a description of what the table is for, such as "Body weight, logged daily; goal 75 kg by December"; keep it current with set_description. Tables have Core-generated UUID row IDs. Query uses optional equality where, afterId and limit; bigint values are decimal strings. No raw SQL is accepted.`, {
+  operation: { type: 'string', enum: ['discover', 'describe', 'create_table', 'set_description', 'add_column', 'drop_column', 'create_index', 'drop_index', 'query', 'insert', 'update', 'delete', 'drop_table'] },
+  target: owner, table: text, description: text,
   columns: { type: 'array', maxItems: 16, items: { type: 'object', properties: { name: text, type: { type: 'string', enum: ['text', 'bigint', 'double precision', 'boolean', 'timestamptz', 'jsonb', 'uuid'] } }, required: ['name', 'type'], additionalProperties: false } },
   column: text, type: text, index: text, id: text, values: { type: 'object' },
   where: { type: 'object', properties: { column: text, equals: {} }, required: ['column', 'equals'], additionalProperties: false },
@@ -114,14 +114,14 @@ const readThread = (what: string) => tool('read_thread', `${what}, by position, 
 const memory = (admin: boolean) => {
   const agent = admin ? { agent: { type: 'string', description: 'The kip whose memory to read. Without it you read every kip\'s.' } } : {}
   return [
-    tool('search_memory', 'Meaning search over the memory you may see: cards about the user, conversation chunks of threads before last night, and diary pages. Optional from and to limit it to a date range. Returns whole items with their thread IDs and dates, or an unavailable status.',
+    tool('search_memory', `Meaning search over the memory you may see: memories about the person, ${admin ? 'lessons of every kip (or of agent)' : 'your lessons'}, conversation chunks of threads before last night, and diary pages. Optional from and to limit it to a date range. Returns whole items with their thread IDs and dates, or an unavailable status.`,
       { query: text, from: day, to: day, ...agent }, ['query']),
     tool('list_recent_threads', 'List threads with messages since last night that search cannot find yet, each with its ID, time and first line.', { ...agent }),
     readThread('Read a thread\'s messages'),
-    tool('save_memory', 'Save a confirmed card now: one fact the user just told you in the current message. type is a short kind such as fact, preference, person, goal, commitment, event or routine; subject names who or what it is about, such as user. details holds optional structured values.',
+    tool('save_memory', 'Save a confirmed memory now: one fact the person just told you in the current message. type is a short kind such as fact, preference, person, goal, commitment, event or routine; subject names who or what it is about, such as user. details holds optional structured values, such as table for the data table a goal is tracked in.',
       { statement: text, type: text, subject: text, details: { type: 'object' } }, ['statement', 'type', 'subject']),
-    tool('forget_memory', 'Delete cards the user asks you to forget, by cardId or by a query matching their statement or subject. A query deletes at most 20 cards; with more matches nothing is deleted and the candidates are returned. Messages are kept.',
-      { cardId: text, query: text }),
+    tool('forget_memory', 'Delete what the person asks you to forget: a memory by memoryId, one of your lessons by lessonId, or both kinds by a query matching their statement or subject. A query deletes at most 20; with more matches nothing is deleted and the candidates are returned. Messages are kept.',
+      { memoryId: text, lessonId: text, query: text }),
   ]
 }
 
@@ -157,4 +157,4 @@ export function toolGuidance(scope: Pick<ToolScope, 'organization' | 'admin'>): 
 }
 
 /** How to use the memory tools, added to the tool guidance of an agent with memory on. */
-export const memoryGuidance = 'Memory: the core cards in these instructions and the memory search before the history come from earlier conversations. When they do not answer, use search_memory, list_recent_threads for threads since last night, and read_thread to read a thread in full. Save what the user asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'
+export const memoryGuidance = 'Memory: the core memories in these instructions, the Learned section of your identity and the memory search before the history come from earlier conversations. If a memory or lesson conflicts with the current conversation, the conversation wins. When they do not answer, use search_memory, list_recent_threads for threads since last night, and read_thread to read a thread in full. Save what the person asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'

@@ -80,8 +80,8 @@ async function completeTextRun(ctx, text) {
   await until(async () => (await ctx.db.query('SELECT state FROM kipster.text_runs WHERE id=$1', [saved.runId])).rows[0]?.state, state => state === 'completed', `run completed ${saved.runId}`)
   return saved
 }
-const memoryDefaults = { nightlyModel: null, coreCardCount: 60, searchCardCount: 10, searchChunkCount: 6 }
-const memoryRows = ctx => count(ctx.db, `SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.cards) + (SELECT count(*) FROM kipster.diary)
+const memoryDefaults = { nightlyModel: null, coreMemoryCount: 60, searchMemoryCount: 10, searchChunkCount: 6 }
+const memoryRows = ctx => count(ctx.db, `SELECT (SELECT count(*) FROM kipster.thread_chunks) + (SELECT count(*) FROM kipster.memories) + (SELECT count(*) FROM kipster.diary)
   + (SELECT count(*) FROM kipster.memory_thread_state) AS n`)
 
 test('memory is off for the installation and on for each agent by default', { skip: noDatabase }, async t => {
@@ -182,25 +182,25 @@ test('the nightly model and memory counts are installation settings, validated, 
   const owner = await ctx.serve(ctx.actor)
   const stranger = await ctx.serve({ installationId: ctx.actor.installationId, personId: randomUUID() })
   const model = { adapterId: 'deterministic-fixture', modelId: 'fixture-model' }
-  const changed = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: model, coreCardCount: 0, searchCardCount: 50, searchChunkCount: 30 })).data)
-  assert.deepEqual([changed.nightlyModel, changed.coreCardCount, changed.searchCardCount, changed.searchChunkCount, changed.enabled, changed.revision], [model, 0, 50, 30, false, 1])
-  assert.equal(learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, coreCardCount: 0 })).data).revision, 1, 'an unchanged value is not a change')
-  const kips = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: null, coreCardCount: 200 })).data)
-  assert.deepEqual([kips.nightlyModel, kips.coreCardCount, kips.revision], [null, 200, 2])
+  const changed = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: model, coreMemoryCount: 0, searchMemoryCount: 50, searchChunkCount: 30 })).data)
+  assert.deepEqual([changed.nightlyModel, changed.coreMemoryCount, changed.searchMemoryCount, changed.searchChunkCount, changed.enabled, changed.revision], [model, 0, 50, 30, false, 1])
+  assert.equal(learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, coreMemoryCount: 0 })).data).revision, 1, 'an unchanged value is not a change')
+  const kips = learningSettings.parse((await owner('PUT', '/v1/settings/learning', { version: 1, nightlyModel: null, coreMemoryCount: 200 })).data)
+  assert.deepEqual([kips.nightlyModel, kips.coreMemoryCount, kips.revision], [null, 200, 2])
   for (const bad of [
-    { coreCardCount: 201 }, { coreCardCount: -1 }, { coreCardCount: 1.5 }, { searchCardCount: 51 }, { searchChunkCount: 31 }, { searchChunkCount: '6' },
+    { coreMemoryCount: 201 }, { coreMemoryCount: -1 }, { coreMemoryCount: 1.5 }, { searchMemoryCount: 51 }, { searchChunkCount: 31 }, { searchChunkCount: '6' },
     { nightlyModel: { adapterId: 'deterministic-fixture' } }, { nightlyModel: { ...model, extra: 1 } }, { nightlyModel: { ...model, modelId: '' } },
     // The connected catalog has no such adapter, model or effort.
     { nightlyModel: { adapterId: 'missing', modelId: 'fixture-model' } }, { nightlyModel: { ...model, modelId: 'missing' } }, { nightlyModel: { ...model, effort: 'high' } },
   ]) assert.equal((await owner('PUT', '/v1/settings/learning', { version: 1, ...bad })).status, 400, JSON.stringify(bad))
-  assert.equal((await owner('PUT', `/v1/agents/${ctx.agentId}/learning`, { version: 1, coreCardCount: 5 })).status, 400, 'counts belong to the installation')
-  assert.equal((await stranger('PUT', '/v1/settings/learning', { version: 1, coreCardCount: 5 })).status, 403)
+  assert.equal((await owner('PUT', `/v1/agents/${ctx.agentId}/learning`, { version: 1, coreMemoryCount: 5 })).status, 400, 'counts belong to the installation')
+  assert.equal((await stranger('PUT', '/v1/settings/learning', { version: 1, coreMemoryCount: 5 })).status, 403)
   // The service checks the same rules for the admin tools.
-  await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { searchCardCount: 99 }), /Invalid searchCardCount/)
+  await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { searchMemoryCount: 99 }), /Invalid searchMemoryCount/)
   await assert.rejects(ctx.runtime.learning.setInstallation(ctx.actor, { nightlyModel: { adapterId: 'x', modelId: 'y' } }, ctx.dispatcher.catalog()), /Invalid nightly model/)
   const events = (await readEvents(ctx.db, scope, start)).events.map(event => textEvent.parse(JSON.parse(JSON.stringify(event))))
   assert.deepEqual(events.map(event => [event.type, event.revision, event.data]), [
-    ['learning-changed', 1, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: model, coreCardCount: 0, searchCardCount: 50, searchChunkCount: 30 }],
-    ['learning-changed', 2, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: null, coreCardCount: 200, searchCardCount: 50, searchChunkCount: 30 }],
+    ['learning-changed', 1, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: model, coreMemoryCount: 0, searchMemoryCount: 50, searchChunkCount: 30 }],
+    ['learning-changed', 2, { target: 'installation', enabled: false, sleepTime: '01:00', nightlyModel: null, coreMemoryCount: 200, searchMemoryCount: 50, searchChunkCount: 30 }],
   ])
 })

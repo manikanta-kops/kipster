@@ -82,7 +82,7 @@ test('the admin kip uses any workspace\'s and any kip\'s data tables and vector 
     assert.match(johnTurn.tools.find(tool => tool.name === 'manage_vector_collections').description, /any workspace/)
     const asJohn = tools(johnTurn.attemptId)
     for (const [label, target] of [['studio', studioTarget], ['scout', scoutTarget]]) {
-      await asJohn.data(`${label}-create`, target, { operation: 'create_table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
+      await asJohn.data(`${label}-create`, target, { operation: 'create_table', description: 'Test table', table: 'notes', columns: [{ name: 'note', type: 'text' }] })
       const row = await asJohn.data(`${label}-insert`, target, { operation: 'insert', table: 'notes', values: { note: `${label} note` } })
       await asJohn.data(`${label}-update`, target, { operation: 'update', table: 'notes', id: row.id, values: { note: `${label} note, edited` } })
       assert.deepEqual((await asJohn.data(`${label}-query`, target, { operation: 'query', table: 'notes' })).rows, [{ id: row.id, note: `${label} note, edited` }])
@@ -103,7 +103,7 @@ test('the admin kip uses any workspace\'s and any kip\'s data tables and vector 
     await assert.rejects(asScout.data('scout-playground', playgroundTarget, { operation: 'discover' }), /Organization target unavailable in this context/)
     await assert.rejects(asScout.vectors('scout-playground-vectors', playgroundTarget, { operation: 'discover' }), /outside active context/)
     assert.equal((await runtime.db.query('SELECT count(*)::int AS n FROM task_data.namespaces WHERE owner_id=$1', [playground])).rows[0].n, 0)
-    await asScout.data('scout-john-table', johnTarget, { operation: 'create_table', table: 'from_scout', columns: [{ name: 'note', type: 'text' }] })
+    await asScout.data('scout-john-table', johnTarget, { operation: 'create_table', description: 'Test table', table: 'from_scout', columns: [{ name: 'note', type: 'text' }] })
     await asScout.vectors('scout-john-vectors', johnTarget, { operation: 'discover' })
     // A Studio kip that left Studio keeps its chat but loses the workspace's data.
     await runtime.db.query('DELETE FROM kipster.agent_memberships WHERE organization_id=$1 AND agent_id=$2', [studio, scout])

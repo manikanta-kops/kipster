@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Postgres } from '../dist/platform/postgres/public.js'
 import { openRuntime, TextDispatcher, textPublicationHost } from '../dist/runtime.js'
-import { CardService, embedPending } from '../dist/modules/memory/public.js'
+import { LessonService, MemoryService, embedPending } from '../dist/modules/memory/public.js'
 import { acceptText, resolveDirectChat } from '../dist/modules/conversations/public.js'
 import { addMembership, createAgent, createOrganization } from '../dist/modules/administration/public.js'
 import { fixtureAdapter } from './.build/tests/fixtures/deterministic-adapter.js'
@@ -113,10 +113,10 @@ async function setup(t, { embedding = true } = {}) {
   }
   /** A diary page of one context: the installation, or `organizationId`. */
   const diary = (agentId, day, summary, threadIds = [], organizationId = null) => db.query('INSERT INTO kipster.diary(agent_id, day, organization_id, installation_id, summary, thread_ids) VALUES ($1,$2,$3,$4,$5,$6::uuid[])', [agentId, day, organizationId, installationId, summary, threadIds])
-  const cards = new CardService(db, installationId, runtime.embedding)
+  const cards = new MemoryService(db, installationId, runtime.embedding)
   async function card(statement, { organizationId = null, core = false, subject = 'user', type = 'fact', sources = [] } = {}) {
     const id = await cards.create({ type, subject, statement, organizationId }, sources)
-    if (core) await db.query('UPDATE kipster.cards SET core=true WHERE id=$1', [id])
+    if (core) await db.query('UPDATE kipster.memories SET core=true WHERE id=$1', [id])
     return id
   }
   const embedAll = () => embedPending(db, installationId, runtime.embedding)
@@ -128,7 +128,7 @@ const toolNames = execution => (execution.tools ?? []).map(tool => tool.name)
 
 test('core cards join the stable instructions, capped, without organization cards, and byte-identical between turns', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
-  await ctx.runtime.learning.setInstallation(ctx.actor, { coreCardCount: 2 })
+  await ctx.runtime.learning.setInstallation(ctx.actor, { coreMemoryCount: 2 })
   const first = await ctx.card('Vegetarian since October', { core: true })
   const second = await ctx.card('Lives in Lisbon', { core: true, type: 'person', subject: 'Priya' })
   const third = await ctx.card('Plays the cello', { core: true })
@@ -137,9 +137,9 @@ test('core cards join the stable instructions, capped, without organization card
 
   const one = await ctx.turn(ctx.kip, null, 'Hello')
   const instructions = one.context.instructions
-  assert.ok(instructions.endsWith(`Core memory: cards about the user, shared by every kip. A card's ID works with forget_memory.
-- [card ${first}] fact, user: Vegetarian since October (inferred ${new Date().toISOString().slice(0, 10)})
-- [card ${second}] person, Priya: Lives in Lisbon (inferred ${new Date().toISOString().slice(0, 10)})`), instructions)
+  assert.ok(instructions.endsWith(`Core memory: memories about the person, shared by every kip. A memory's ID works with forget_memory.
+- [memory ${first}] fact, user: Vegetarian since October (inferred ${new Date().toISOString().slice(0, 10)})
+- [memory ${second}] person, Priya: Lives in Lisbon (inferred ${new Date().toISOString().slice(0, 10)})`), instructions)
   for (const absent of [third, organization, plain]) assert.ok(!instructions.includes(absent))
   assert.match(instructions, /list_recent_threads for threads since last night/)
   assert.deepEqual(toolNames(one.context).filter(name => ['search_memory', 'list_recent_threads', 'read_thread', 'save_memory', 'forget_memory'].includes(name)), memoryTools)
@@ -189,7 +189,7 @@ test('memory off adds no memory sections and no memory tools, and refuses memory
 
 test('the turn\'s memory search shows whole visible cards, chunks and diary pages, nearest first and within the counts', { skip: noDatabase, timeout: 60000 }, async t => {
   const ctx = await setup(t)
-  await ctx.runtime.learning.setInstallation(ctx.actor, { searchCardCount: 2, searchChunkCount: 3 })
+  await ctx.runtime.learning.setInstallation(ctx.actor, { searchMemoryCount: 2, searchChunkCount: 3 })
   const long = `Berlin trip planning ${Array.from({ length: 700 }, (_, index) => `detail${index}`).join(' ')} berlin flights end`
   const kipThread = await ctx.thread(ctx.kip, null, [{ author: 'user', text: 'Berlin flights' }, { text: 'Booked' }])
   const kipChunk = await ctx.chunk(kipThread.id, ctx.kip, null, long, { at: '2026-10-10T09:00:00Z', end: '2026-10-11T10:00:00Z' })
@@ -206,6 +206,9 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   const gardenCard = await ctx.card('Berlin garden show in spring', { organizationId: ctx.garden })
   const studioCard = await ctx.card('Berlin studio rent is due', { organizationId: ctx.studio })
   await ctx.card('Likes tea')
+  const lessons = new LessonService(ctx.db, ctx.installationId)
+  const kipLesson = await lessons.create(ctx.kip, { statement: 'For berlin trip flights, book the morning flight', organizationId: null }, [{ threadId: kipThread.id, messageId: kipThread.messages[0] }], '2026-10-10')
+  const scoutLesson = await lessons.create(ctx.scout, { statement: 'For the berlin trip garden show, buy tickets early', organizationId: ctx.garden }, [{ threadId: scoutGarden.id, messageId: scoutGarden.messages[0] }], '2026-10-10')
   assert.equal((await ctx.embedAll()).failed, false)
 
   const kip = await ctx.turn(ctx.kip, null, 'What about the berlin trip flights?')
@@ -214,9 +217,10 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   assert.match(search, /^Memory search for the current message: whole items you may see, nearest first\./)
   assert.ok(search.includes(`[thread ${kipThread.id}, messages 1-2, 2026-10-10 to 2026-10-11]\n${long}`), 'a chunk is whole, with its thread and dates')
   assert.ok(search.includes(`[diary 2026-10-10, threads ${kipThread.id}]\nPlanned the Berlin trip and berlin flights.`))
-  assert.ok(search.includes(`- [card ${installationCard}] fact, user: Berlin trip with Priya in December (inferred `) && search.includes(`; threads ${kipThread.id})`))
+  assert.ok(search.includes(`- [memory ${installationCard}] fact, user: Berlin trip with Priya in December (inferred `) && search.includes(`; threads ${kipThread.id})`))
   // Kip's prompt holds only its own chunks and diary, and installation cards: nothing of other kips or organizations.
-  for (const hidden of [scoutGardenChunk, scoutStudioChunk, pennyChunk, 'garden show', 'studio rent', 'bakery', gardenCard, studioCard]) assert.ok(!search.includes(hidden), hidden)
+  assert.ok(search.includes(`Your lessons:\n- [lesson ${kipLesson}] For berlin trip flights, book the morning flight (confirmed 1x, last 2026-10-10)`), 'the kip\'s own nearest lessons')
+  for (const hidden of [scoutGardenChunk, scoutStudioChunk, pennyChunk, 'garden show', 'studio rent', 'bakery', gardenCard, studioCard, scoutLesson]) assert.ok(!search.includes(hidden), hidden)
   assert.ok(!search.includes(kipChunk), 'chunk IDs are not shown; thread IDs are')
   // The memory sections come first, then the current message; a first message has no history.
   assert.ok(kip.context.prompt.startsWith(`${search}\n\nCurrent message [`))
@@ -226,20 +230,20 @@ test('the turn\'s memory search shows whole visible cards, chunks and diary page
   const scout = await ctx.turn(ctx.scout, ctx.garden, 'The berlin trip garden show')
   const scoutSearch = scout.context.memory[0]
   assert.ok(scoutSearch.includes('Berlin garden show tickets for the berlin trip') && scoutSearch.includes('Talked about the berlin trip garden show.'))
-  assert.ok(scoutSearch.includes(gardenCard) && scoutSearch.includes(installationCard))
+  assert.ok(scoutSearch.includes(gardenCard) && scoutSearch.includes(installationCard) && scoutSearch.includes(scoutLesson) && !scoutSearch.includes(kipLesson))
   for (const hidden of ['studio rent', 'bakery', long, studioCard, scoutStudio.id]) assert.ok(!scoutSearch.includes(hidden), hidden.slice(0, 40))
-  assert.equal((scoutSearch.match(/^- \[card /gm) ?? []).length, 2)
+  assert.equal((scoutSearch.match(/^- \[memory /gm) ?? []).length, 2)
   await scout.finish()
 
   // Counts bound the items; a chunk of the current thread is left out, as the history already holds it.
-  await ctx.runtime.learning.setInstallation(ctx.actor, { searchCardCount: 0, searchChunkCount: 1 })
+  await ctx.runtime.learning.setInstallation(ctx.actor, { searchMemoryCount: 0, searchChunkCount: 1 })
   const current = await ctx.turn(ctx.kip, null, 'Berlin flights again')
   await current.finish()
   await ctx.chunk(current.receipt.threadId, ctx.kip, null, 'Berlin flights again and again berlin flights berlin flights')
   await ctx.embedAll()
   const next = await ctx.turn(ctx.kip, null, 'Berlin flights again and again', current.receipt.threadId)
   const nextSearch = next.context.memory[0]
-  assert.ok(!nextSearch.includes('again and again') && !nextSearch.includes('Cards:'))
+  assert.ok(!nextSearch.includes('again and again') && !nextSearch.includes('Memories:'))
   assert.equal((nextSearch.match(/^\[(thread|diary) /gm) ?? []).length, 1)
   await next.finish()
 })
@@ -285,7 +289,7 @@ test('list_recent_threads and read_thread: the admin kip reads every kip\'s thre
 
   const kip = await ctx.turn(ctx.kip, null, 'Catch up')
   const page = await kip.tool('read_thread', { threadId: scoutGarden.id, fromPosition: 2 })
-  assert.deepEqual(page.messages.map(message => [message.position, message.author, message.text]), [[2, 'kip', 'Sure'], [3, 'user', 'Third']])
+  assert.deepEqual(page.messages.map(message => [message.position, message.author, message.text]), [[2, 'kip', 'Sure'], [3, 'person', 'Third']])
   assert.deepEqual([page.agentId, page.organizationId, page.nextPosition], [ctx.scout, ctx.garden, null])
   assert.equal((await kip.tool('read_thread', { threadId: scoutStudio.id })).messages[0].text, 'Studio plans')
   const all = await kip.tool('list_recent_threads', {})
@@ -319,7 +323,7 @@ test('search_memory: the admin kip may search another kip with a date range; oth
   const everything = await kip.tool('search_memory', { query: 'lamp order', agent: ctx.scout })
   assert.equal(everything.status, 'ok')
   assert.deepEqual(new Set(everything.items.map(item => item.kind === 'chunk' ? item.text : item.summary)), new Set(['Studio lamp order', 'Garden lamp order', 'Ordered a lamp for the garden.']))
-  assert.ok(everything.cards.some(card => card.id === studioCard), 'Kip\'s tools see every card')
+  assert.ok(everything.memories.some(card => card.id === studioCard), 'Kip\'s tools see every card')
   const october = await kip.tool('search_memory', { query: 'lamp order', from: '2026-10-01', to: '2026-10-31' })
   assert.deepEqual(new Set(october.items.map(item => item.kind === 'chunk' ? item.text : item.summary)), new Set(['Garden lamp order', 'Ordered a lamp for the garden.']))
   assert.equal((await kip.tool('search_memory', { query: 'lamp order', to: '2026-09-01' })).items.map(item => item.text).join(), 'Studio lamp order')
@@ -329,7 +333,7 @@ test('search_memory: the admin kip may search another kip with a date range; oth
   const scout = await ctx.turn(ctx.scout, ctx.garden, 'Lamps')
   const own = await scout.tool('search_memory', { query: 'lamp order' })
   assert.deepEqual(own.items.map(item => item.kind === 'chunk' ? item.text : item.summary).sort(), ['Garden lamp order', 'Ordered a lamp for the garden.'])
-  assert.ok(!own.cards.some(card => card.id === studioCard))
+  assert.ok(!own.memories.some(card => card.id === studioCard))
   await scout.finish()
 })
 
@@ -337,18 +341,18 @@ test('save_memory saves a confirmed card sourced to the current message, in the 
   const ctx = await setup(t)
   const scout = await ctx.turn(ctx.scout, ctx.garden, 'Remember that the greenhouse key is under the pot')
   const saved = await scout.tool('save_memory', { statement: 'Greenhouse key is under the pot', type: 'Fact', subject: 'greenhouse', details: { place: 'pot' } })
-  assert.deepEqual([saved.card.type, saved.card.subject, saved.card.statement, saved.card.details, saved.card.confirmed, saved.card.organizationId, saved.card.core, saved.embedded],
+  assert.deepEqual([saved.memory.type, saved.memory.subject, saved.memory.statement, saved.memory.details, saved.memory.confirmed, saved.memory.organizationId, saved.memory.core, saved.embedded],
     ['fact', 'greenhouse', 'Greenhouse key is under the pot', { place: 'pot' }, true, ctx.garden, false, true])
-  assert.deepEqual(saved.card.sources, [{ threadId: scout.receipt.threadId, messageId: scout.receipt.messageId }])
-  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.cards WHERE id=$1', [saved.card.id]), [{ embedding_model: 'fake-gemma' }])
-  await assert.rejects(scout.tool('save_memory', { statement: '', type: 'fact', subject: 'user' }), /Invalid card statement/)
+  assert.deepEqual(saved.memory.sources, [{ threadId: scout.receipt.threadId, messageId: scout.receipt.messageId }])
+  assert.deepEqual(await ctx.rows('SELECT embedding_model FROM kipster.memories WHERE id=$1', [saved.memory.id]), [{ embedding_model: 'fake-gemma' }])
+  await assert.rejects(scout.tool('save_memory', { statement: '', type: 'fact', subject: 'user' }), /Invalid memory statement/)
   await scout.finish()
 
   const kip = await ctx.turn(ctx.kip, null, 'Remember I am vegetarian')
   ctx.embeddingState.fail = true
   const installation = await kip.tool('save_memory', { statement: 'Vegetarian', type: 'preference', subject: 'user' })
-  assert.deepEqual([installation.card.organizationId, installation.card.confirmed, installation.embedded], [null, true, false])
-  assert.deepEqual(await ctx.rows('SELECT embedding IS NULL AS waiting FROM kipster.cards WHERE id=$1', [installation.card.id]), [{ waiting: true }], 'left for the nightly run')
+  assert.deepEqual([installation.memory.organizationId, installation.memory.confirmed, installation.embedded], [null, true, false])
+  assert.deepEqual(await ctx.rows('SELECT embedding IS NULL AS waiting FROM kipster.memories WHERE id=$1', [installation.memory.id]), [{ waiting: true }], 'left for the nightly run')
   await kip.finish()
 })
 
@@ -362,22 +366,22 @@ test('forget_memory deletes visible cards with their sources, by ID or by query,
   for (let index = 0; index < 21; index++) coffee.push(await ctx.card(`Coffee preference ${index}`, { sources }))
 
   const scout = await ctx.turn(ctx.scout, ctx.garden, 'Forget things')
-  await assert.rejects(scout.tool('forget_memory', { cardId: studio }), /Card not found/, 'another organization\'s card is not visible')
-  await assert.rejects(scout.tool('forget_memory', {}), /give cardId or query/)
+  await assert.rejects(scout.tool('forget_memory', { memoryId: studio }), /Memory not found/, 'another organization\'s card is not visible')
+  await assert.rejects(scout.tool('forget_memory', {}), /give memoryId, lessonId or query/)
   const tooMany = await scout.tool('forget_memory', { query: 'COFFEE' })
   assert.deepEqual([tooMany.deleted, tooMany.candidates.length, tooMany.hasMore], [[], 21, false])
-  assert.match(tooMany.refused, /More than 20 cards match; none were deleted/)
-  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.cards')).at(0).n, 23)
-  const byId = await scout.tool('forget_memory', { cardId: cat })
+  assert.match(tooMany.refused, /More than 20 memories and lessons match; none were deleted/)
+  assert.equal((await ctx.rows('SELECT count(*)::int AS n FROM kipster.memories')).at(0).n, 23)
+  const byId = await scout.tool('forget_memory', { memoryId: cat })
   assert.deepEqual(byId.deleted.map(item => [item.id, item.subject, item.current]), [[cat, 'Tom', true]])
   await scout.finish()
 
-  await ctx.db.query('DELETE FROM kipster.cards WHERE id = ANY($1::uuid[])', [coffee.slice(0, 2)])
+  await ctx.db.query('DELETE FROM kipster.memories WHERE id = ANY($1::uuid[])', [coffee.slice(0, 2)])
   const kip = await ctx.turn(ctx.kip, null, 'Forget my coffee preferences')
   const byQuery = await kip.tool('forget_memory', { query: 'coffee' })
   assert.deepEqual(new Set(byQuery.deleted.map(item => item.id)), new Set([...coffee.slice(2), studio]), 'Kip sees every card, organization ones included')
-  assert.deepEqual(await ctx.rows('SELECT count(*)::int AS n FROM kipster.cards'), [{ n: 0 }])
-  assert.deepEqual(await ctx.rows('SELECT count(*)::int AS n FROM kipster.card_sources'), [{ n: 0 }])
+  assert.deepEqual(await ctx.rows('SELECT count(*)::int AS n FROM kipster.memories'), [{ n: 0 }])
+  assert.deepEqual(await ctx.rows('SELECT count(*)::int AS n FROM kipster.memory_sources'), [{ n: 0 }])
   assert.deepEqual(await ctx.rows('SELECT parts FROM kipster.messages WHERE id=$1', [source.messages[0]]), [{ parts: [{ kind: 'text', text: 'I love coffee and my cat Tom' }] }], 'messages stay')
   await kip.finish()
 })

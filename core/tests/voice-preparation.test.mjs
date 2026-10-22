@@ -50,7 +50,7 @@ test('voice preparation saves derived result and preserves ordered originals and
   runtime=await openRuntime({connectionString:url.href,home,names:{owner:'Owner',organization:'Org',rootAgent:'Root'},transcription:provider})
   const actor={installationId:runtime.bootstrap.installationId,personId:runtime.bootstrap.ownerId},context={kind:'installation',installationId:actor.installationId}
   const server=await startTextServer(runtime,actor,{host:'127.0.0.1',port:0})
-  try{const {capabilities}=await (await fetch(server.url+'/v1/bootstrap')).json();assert.equal(capabilities.voiceRecording,true);assert.equal(capabilities.memoryCards,true)}finally{await server.close()}
+  try{const {capabilities}=await (await fetch(server.url+'/v1/bootstrap')).json();assert.equal(capabilities.voiceRecording,true);assert.equal(capabilities.memories,true)}finally{await server.close()}
   const {chatId}=await resolveDirectChat(runtime.db,actor,context,runtime.bootstrap.rootAgentId)
   await runtime.db.query('UPDATE kipster.agents SET settings=$2::jsonb WHERE id=$1',[runtime.bootstrap.rootAgentId,JSON.stringify({adapterId:'test-adapter',modelId:'test-model'})])
   const target={installationId:actor.installationId,callerId:actor.personId,context,chatId}

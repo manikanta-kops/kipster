@@ -11,21 +11,21 @@ export interface LearningSettings {
   enabled: boolean; sleepTime: string; revision: number; available: boolean; agents: AgentLearning[]
   /** Null runs the nightly steps with the admin kip's model. */
   nightlyModel: NightlyModel | null
-  coreCardCount: number; searchCardCount: number; searchChunkCount: number
+  coreMemoryCount: number; searchMemoryCount: number; searchChunkCount: number
 }
 export interface LearningUpdate {
   enabled?: boolean | undefined; sleepTime?: string | undefined; nightlyModel?: { adapterId: string; modelId: string; effort?: string | undefined } | null | undefined
-  coreCardCount?: number | undefined; searchCardCount?: number | undefined; searchChunkCount?: number | undefined
+  coreMemoryCount?: number | undefined; searchMemoryCount?: number | undefined; searchChunkCount?: number | undefined
 }
 export interface AgentLearningUpdate { enabled?: boolean | undefined; sleepTime?: string | null | undefined }
 /** The installation's memory limits and nightly model, read by the nightly run and each turn. */
-export interface MemorySettings { nightlyModel: NightlyModel | null; coreCardCount: number; searchCardCount: number; searchChunkCount: number }
+export interface MemorySettings { nightlyModel: NightlyModel | null; coreMemoryCount: number; searchMemoryCount: number; searchChunkCount: number }
 
-/** Bounds of the count settings, inclusive. Counts are whole items: core cards on every turn, and cards and thread
+/** Bounds of the count settings, inclusive. Counts are whole items: core memories on every turn, and memories and thread
  * chunks from a turn's meaning search. */
 export const MEMORY_LIMITS = {
-  coreCardCount: { min: 0, max: 200, default: 60 },
-  searchCardCount: { min: 0, max: 50, default: 10 },
+  coreMemoryCount: { min: 0, max: 200, default: 60 },
+  searchMemoryCount: { min: 0, max: 50, default: 10 },
   searchChunkCount: { min: 0, max: 30, default: 6 },
 } as const
 type Count = keyof typeof MEMORY_LIMITS
@@ -39,10 +39,10 @@ export function learningCondition(agentColumn: string): string {
 
 /** Reads the installation's memory settings. */
 export async function memorySettings(client: Postgres | SqlClient, installationId: string): Promise<MemorySettings> {
-  const row = (await client.query<{ nightly_model: NightlyModel | null; core_card_count: number; search_card_count: number; search_chunk_count: number }>(
-    'SELECT nightly_model, core_card_count, search_card_count, search_chunk_count FROM kipster.installations WHERE id=$1', [installationId])).rows[0]
+  const row = (await client.query<{ nightly_model: NightlyModel | null; core_memory_count: number; search_memory_count: number; search_chunk_count: number }>(
+    'SELECT nightly_model, core_memory_count, search_memory_count, search_chunk_count FROM kipster.installations WHERE id=$1', [installationId])).rows[0]
   if (!row) throw new Error('Installation not found')
-  return { nightlyModel: row.nightly_model, coreCardCount: row.core_card_count, searchCardCount: row.search_card_count, searchChunkCount: row.search_chunk_count }
+  return { nightlyModel: row.nightly_model, coreMemoryCount: row.core_memory_count, searchMemoryCount: row.search_memory_count, searchChunkCount: row.search_chunk_count }
 }
 
 /** Installation and per-agent memory switches and sleep times, and the installation's nightly model and memory counts.
@@ -71,18 +71,18 @@ export class LearningService {
       const values = [this.installationId, change.enabled ?? null, change.sleepTime ?? null, change.nightlyModel !== undefined,
         change.nightlyModel ? JSON.stringify(change.nightlyModel) : null, ...counts.map(key => change[key] ?? null)]
       const model = 'CASE WHEN $4 THEN $5::jsonb ELSE nightly_model END'
-      const next = `(COALESCE($2, learning_enabled), COALESCE($3::time, sleep_time), ${model}, COALESCE($6, core_card_count), COALESCE($7, search_card_count), COALESCE($8, search_chunk_count))`
-      const changed = (await client.query<{ learning_revision: string; learning_enabled: boolean; sleep_time: string; nightly_model: NightlyModel | null; core_card_count: number; search_card_count: number; search_chunk_count: number }>(
+      const next = `(COALESCE($2, learning_enabled), COALESCE($3::time, sleep_time), ${model}, COALESCE($6, core_memory_count), COALESCE($7, search_memory_count), COALESCE($8, search_chunk_count))`
+      const changed = (await client.query<{ learning_revision: string; learning_enabled: boolean; sleep_time: string; nightly_model: NightlyModel | null; core_memory_count: number; search_memory_count: number; search_chunk_count: number }>(
         `UPDATE kipster.installations SET learning_enabled=COALESCE($2, learning_enabled), sleep_time=COALESCE($3::time, sleep_time), nightly_model=${model},
-           core_card_count=COALESCE($6, core_card_count), search_card_count=COALESCE($7, search_card_count), search_chunk_count=COALESCE($8, search_chunk_count),
+           core_memory_count=COALESCE($6, core_memory_count), search_memory_count=COALESCE($7, search_memory_count), search_chunk_count=COALESCE($8, search_chunk_count),
            learning_revision=learning_revision+1
-         WHERE id=$1 AND (learning_enabled, sleep_time, nightly_model, core_card_count, search_card_count, search_chunk_count) IS DISTINCT FROM ${next}
-         RETURNING learning_revision, learning_enabled, left(sleep_time::text, 5) AS sleep_time, nightly_model, core_card_count, search_card_count, search_chunk_count`,
+         WHERE id=$1 AND (learning_enabled, sleep_time, nightly_model, core_memory_count, search_memory_count, search_chunk_count) IS DISTINCT FROM ${next}
+         RETURNING learning_revision, learning_enabled, left(sleep_time::text, 5) AS sleep_time, nightly_model, core_memory_count, search_memory_count, search_chunk_count`,
         values)).rows[0]
       if (changed) {
         await publishAppEvent(client, this.installationId, 'learning-changed', this.installationId, Number(changed.learning_revision), {
           target: 'installation', enabled: changed.learning_enabled, sleepTime: changed.sleep_time, nightlyModel: changed.nightly_model,
-          coreCardCount: changed.core_card_count, searchCardCount: changed.search_card_count, searchChunkCount: changed.search_chunk_count,
+          coreMemoryCount: changed.core_memory_count, searchMemoryCount: changed.search_memory_count, searchChunkCount: changed.search_chunk_count,
         })
       }
       return this.read(client)

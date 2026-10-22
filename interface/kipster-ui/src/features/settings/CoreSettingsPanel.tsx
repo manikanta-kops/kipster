@@ -31,7 +31,8 @@ import { BackupPage, BackupsPage, IdentityFilePage } from './IdentityFiles'
 import type { KipLook } from './KipAvatar'
 import { KipPage, KipsPage } from './KipsSettings'
 import { LearningPage } from './LearningSettings'
-import { CardPage, CardsPage } from './MemoryCards'
+import { MemoriesPage, MemoryPage } from './Memories'
+import { LessonPage, LessonsPage } from './Lessons'
 import { PermissionSettings } from './PermissionSettings'
 import { PluginPage, PluginsPage } from './PluginsSettings'
 import { InstructionsPage, OrganizationPage } from './OrganizationSettings'
@@ -121,7 +122,8 @@ const pages: Record<
     label: 'Memory',
     icon: 'brain',
     hue: 'var(--hue-sage)',
-    words: 'sleep learning learn cards remember forget nightly model',
+    words:
+      'sleep learning learn memories lessons remember forget nightly model',
   },
   connection: {
     label: 'Connection',
@@ -154,7 +156,7 @@ export function CoreSettingsPanel({
   updates,
   softwareUpdates,
   permissionModes = false,
-  memoryCards = false,
+  memories = false,
   plugins = false,
   initialTab,
   appearance,
@@ -182,8 +184,8 @@ export function CoreSettingsPanel({
   softwareUpdates?: SoftwareUpdates
   /** Core advertises the permission mode setting. */
   permissionModes?: boolean
-  /** Core advertises the memory card actions. */
-  memoryCards?: boolean
+  /** Core advertises the memory and lesson actions. */
+  memories?: boolean
   /** Core reports Kipster Plugins ready. */
   plugins?: boolean
   initialTab?: 'workspace' | 'updates' | 'plugins'
@@ -394,18 +396,33 @@ export function CoreSettingsPanel({
           )
         case 'adapter':
           return <AdapterPage settings={settings} adapterId={frame.adapterId} />
-        case 'cards':
+        case 'memories':
           return (
-            memoryCards && <CardsPage client={client} directory={directory} />
+            memories && <MemoriesPage client={client} directory={directory} />
           )
-        case 'card':
+        case 'memory':
           return (
-            memoryCards && (
-              <CardPage
-                key={frame.cardId}
+            memories && (
+              <MemoryPage
+                key={frame.memoryId}
                 client={client}
                 directory={directory}
-                cardId={frame.cardId}
+                memoryId={frame.memoryId}
+              />
+            )
+          )
+        case 'lessons':
+          return (
+            memories && <LessonsPage client={client} directory={directory} />
+          )
+        case 'lesson':
+          return (
+            memories && (
+              <LessonPage
+                key={frame.lessonId}
+                client={client}
+                directory={directory}
+                lessonId={frame.lessonId}
               />
             )
           )
@@ -498,11 +515,7 @@ export function CoreSettingsPanel({
         )
       case 'learning':
         return (
-          <LearningPage
-            settings={settings}
-            look={look}
-            memoryCards={memoryCards}
-          />
+          <LearningPage settings={settings} look={look} memories={memories} />
         )
     }
   }

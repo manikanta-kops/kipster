@@ -638,10 +638,10 @@ test('learning, interface, identity and update reads and writes match their HTTP
   const agentSleep = await run.tool('agent-sleep', 'admin.learning.agent_set', { agentId: scout, sleepTime: '01:15', enabled: false })
   assert.deepEqual([agentSleep.sleepTime, agentSleep.enabled], ['01:15', false])
   await assert.rejects(run.tool('bad-sleep', 'admin.learning.set', { sleepTime: '25:00' }), /Invalid wire value/)
-  const counts = await run.tool('memory-counts', 'admin.learning.set', { coreCardCount: 12, searchCardCount: 4, searchChunkCount: 3 })
-  assert.deepEqual([counts.coreCardCount, counts.searchCardCount, counts.searchChunkCount, counts.nightlyModel], [12, 4, 3, null])
-  assert.deepEqual((({ coreCardCount, searchCardCount, searchChunkCount }) => [coreCardCount, searchCardCount, searchChunkCount])(await ctx.ok('GET', '/v1/settings/learning')), [12, 4, 3])
-  await assert.rejects(run.tool('bad-count', 'admin.learning.set', { coreCardCount: 500 }), /Invalid wire value/)
+  const counts = await run.tool('memory-counts', 'admin.learning.set', { coreMemoryCount: 12, searchMemoryCount: 4, searchChunkCount: 3 })
+  assert.deepEqual([counts.coreMemoryCount, counts.searchMemoryCount, counts.searchChunkCount, counts.nightlyModel], [12, 4, 3, null])
+  assert.deepEqual((({ coreMemoryCount, searchMemoryCount, searchChunkCount }) => [coreMemoryCount, searchMemoryCount, searchChunkCount])(await ctx.ok('GET', '/v1/settings/learning')), [12, 4, 3])
+  await assert.rejects(run.tool('bad-count', 'admin.learning.set', { coreMemoryCount: 500 }), /Invalid wire value/)
   await assert.rejects(run.tool('bad-model', 'admin.learning.set', { nightlyModel: { adapterId: 'nowhere', modelId: 'none' } }), /Invalid nightly model/)
 
   // Interface
