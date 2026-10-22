@@ -121,7 +121,7 @@ test('Stop fences queued, preparing and waiting continuation; Resume releases on
   let waiting = step(initialWork('w'), 'admit', { attemptId: 'a' })
   waiting = step(waiting, 'dispatch-issued', { attemptId: 'a' })
   waiting = step(waiting, 'started', { attemptId: 'a' })
-  waiting = step(waiting, 'await', { attemptId: 'a', pending: 'child' })
+  waiting = step(waiting, 'await', { attemptId: 'a', pending: 'question' })
   waiting = step(waiting, 'provider-ended', { attemptId: 'a', confirmed: true })
   waiting = step(waiting, 'stop')
   assert.equal(waiting.run, 'cancelled')
@@ -220,11 +220,11 @@ test('normal continuations and later retries never reuse an earlier attempt iden
   assert.equal(step(s, 'retry', { attemptId: 'c', continueAfterSuccess: false }).attemptId, 'c')
 })
 
-test('stopped pending child clears after safe terminal failure regardless of end route', () => {
+test('a stopped pending question clears after safe terminal failure regardless of end route', () => {
   let s = step(initialWork('r'), 'admit', { attemptId: 'a' })
   s = step(s, 'dispatch-issued', { attemptId: 'a' })
   s = step(s, 'started', { attemptId: 'a' })
-  s = step(s, 'await', { attemptId: 'a', pending: 'child' })
+  s = step(s, 'await', { attemptId: 'a', pending: 'question' })
   s = step(s, 'stop')
   s = step(s, 'failed', { attemptId: 'a', phase: 'issued', confirmedEnded: true, effectsResolved: true })
   assert.equal(s.run, 'cancelled')

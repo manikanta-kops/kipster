@@ -15,7 +15,7 @@ export interface WorkState {
   readonly attempt: AttemptState | null
   readonly permit: PermitState
   readonly retrySafety: 'safe' | 'unresolved'
-  readonly pending: 'none' | 'question' | 'child'
+  readonly pending: 'none' | 'question'
   readonly continuationDue: boolean
   readonly queueHold: boolean
   readonly stopRequested: boolean
@@ -37,7 +37,7 @@ export type Transition =
   | { kind: 'dispatch-issued'; attemptId: string }
   | { kind: 'started'; attemptId: string }
   | { kind: 'text'; attemptId: string; messageId: string; text: string; final: boolean }
-  | { kind: 'await'; attemptId: string; pending: 'question' | 'child' }
+  | { kind: 'await'; attemptId: string; pending: 'question' }
   | { kind: 'provider-ended'; attemptId: string; confirmed: boolean }
   | {
       kind: 'failed'
