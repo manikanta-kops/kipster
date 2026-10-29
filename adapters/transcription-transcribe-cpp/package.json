@@ -32,6 +32,6 @@
     "@kipster/core": "*"
   },
   "dependencies": {
-    "transcribe-cpp": "0.4.0"
+    "transcribe-cpp": "0.4.1"
   }
 }
