@@ -27,11 +27,11 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@types/node": "26.6.5",
+    "@types/node": "26.6.6",
     "typescript": "7.0.2",
     "@kipster/core": "*"
   },
   "dependencies": {
-    "transcribe-cpp": "0.4.0"
+    "transcribe-cpp": "0.4.1"
   }
 }
