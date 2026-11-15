@@ -223,7 +223,7 @@ export async function turnMemory(db: Postgres, embedding: EmbeddingProfile | und
     sections.push(`${unprocessed === 1 ? '1 thread is' : `${unprocessed} threads are`} not searchable yet. If search does not answer, list them with \`list_threads\` and \`notSearchable: true\`.`)
   }
   const core = await coreMemories(db, turn.installationId, settings.coreMemoryCount)
-  return { instructions: core.length ? `Core memory: memories about the person, shared by every kip. A memory's ID works with forget_memory.\n${core.map(item => memoryLine(item)).join('\n')}` : '', sections }
+  return { instructions: core.length ? `# Core memory\n\nMemories about the person, shared by every kip. A memory's ID works with forget_memory.\n${core.map(item => memoryLine(item)).join('\n')}` : '', sections }
 }
 
 /** One memory on one line, with the day it became true, and its source threads when asked. */

@@ -212,7 +212,7 @@ test('every plugin route relays the plugin server, and a sign-in returns through
   const ready = await ctx.run('With plugins')
   assert.ok(!('mcpServers' in ready.context))
   assert.deepEqual(ready.context.tools.filter(tool => tool.name.includes('plugin')).map(tool => tool.name), ['search_plugin_tools', 'run_plugin_tool'])
-  assert.match(ready.context.instructions, /Plugins: the person connected [Ff]ixture\./)
+  assert.match(ready.context.instructions, /# Plugins\n\nPlugins connect Kipster to other services\. The person connected [Ff]ixture\./)
   // Without an embedding provider, keywords of three or more letters rank the tools.
   const byKeyword = await ready.handle.callTool('keywords', 'search_plugin_tools', { query: 'save a note' })
   assert.equal(byKeyword.plugins[0].tools[0].name, 'fixture__create_note')
@@ -320,7 +320,7 @@ test('kips find plugin tools through search and run them after the person approv
   // Without an account kips get no plugin tools, only the line that nothing is connected.
   const none = await ctx.run('Anything connected?')
   assert.ok(!none.context.tools.some(tool => tool.name.includes('plugin')))
-  assert.match(none.context.instructions, /Plugins: no services are connected/)
+  assert.match(none.context.instructions, /None are connected yet/)
   await finish(none)
 
   const alice = await signIn('alice')
@@ -366,7 +366,7 @@ test('kips find plugin tools through search and run them after the person approv
 
   // Approved once: the same call runs once in the continuation, with a progress note in the work block.
   const second = await next(first.context.runId, first.context.attemptId)
-  assert.match(second.context.instructions, /Plugins: the person connected Fixture\./)
+  assert.match(second.context.instructions, /The person connected Fixture\./)
   const ran = await run(second, 'r5', { tool: 'fixture__create_note', arguments: { text: 'hello' } })
   assert.equal(ran.text, `${JSON.stringify({ id: 1, text: 'hello', owner: 'alice' })}\n\nAccount: ${alice.label}`)
   assert.deepEqual(ran.structuredContent, { id: 1, text: 'hello', owner: 'alice' })
@@ -410,7 +410,7 @@ test('kips find plugin tools through search and run them after the person approv
   await ctx.runtime.pluginTools.sync()
   assert.equal(Number((await ctx.db.query('SELECT count(*) FROM kipster.plugin_tools')).rows[0].count), 0)
   const last = await ctx.run('Anything now?')
-  assert.match(last.context.instructions, /Plugins: no services are connected/)
+  assert.match(last.context.instructions, /None are connected yet/)
   await finish(last)
 })
 

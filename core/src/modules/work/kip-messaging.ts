@@ -8,7 +8,7 @@ import { MAX_FILES_PER_MESSAGE, requireMessageFileLimit } from '../artifacts/pub
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-export interface AvailableAgent { id: string; name: string; workspaces?: { id: string; name: string }[] }
+export interface AvailableAgent { id: string; name: string; description: string; workspaces?: { id: string; name: string }[] }
 const isAdmin = async (client: SqlClient, agentId: string): Promise<boolean> => (await client.query("SELECT 1 FROM kipster.agent_roles WHERE agent_id=$1 AND role='root-admin'", [agentId])).rows.length > 0
 /** The live workspaces an agent works in, by name. */
 const workspacesOf = async (client: SqlClient, agentId: string): Promise<{ id: string; name: string }[]> => (await client.query<{ id: string; name: string }>(`SELECT o.id,o.display_name AS name FROM kipster.agent_memberships m JOIN kipster.organizations o ON o.id=m.organization_id
@@ -34,13 +34,13 @@ export async function boundScope(client: SqlClient, attemptId: string, incarnati
 export async function listAgents(db: Postgres, attemptId: string, incarnation: string): Promise<AvailableAgent[]> {
   const scope = await boundScope(db, attemptId, incarnation)
   if (await isAdmin(db, scope.agentId)) {
-    const rows = await db.query<{ id: string; display_name: string }>('SELECT a.id,a.display_name FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$2 ORDER BY a.display_name,a.id', [scope.installationId, scope.agentId])
-    return Promise.all(rows.rows.map(async row => ({ id: row.id, name: row.display_name, workspaces: await workspacesOf(db, row.id) })))
+    const rows = await db.query<{ id: string; display_name: string; description: string }>('SELECT a.id,a.display_name,a.description FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$2 ORDER BY a.display_name,a.id', [scope.installationId, scope.agentId])
+    return Promise.all(rows.rows.map(async row => ({ id: row.id, name: row.display_name, description: row.description, workspaces: await workspacesOf(db, row.id) })))
   }
-  const rows = await db.query<{ id: string; display_name: string }>(`SELECT a.id,a.display_name FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$3
+  const rows = await db.query<{ id: string; display_name: string; description: string }>(`SELECT a.id,a.display_name,a.description FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$3
       AND (EXISTS (SELECT 1 FROM kipster.agent_memberships m WHERE m.agent_id=a.id AND m.organization_id=$2) OR EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin'))
     ORDER BY a.display_name,a.id`, [scope.installationId, scope.contextKind === 'organization' ? scope.contextId : null, scope.agentId])
-  return rows.rows.map(row => ({ id: row.id, name: row.display_name }))
+  return rows.rows.map(row => ({ id: row.id, name: row.display_name, description: row.description }))
 }
 export async function getAgent(db: Postgres, attemptId: string, incarnation: string, agentId: string): Promise<AvailableAgent | null> {
   return (await listAgents(db, attemptId, incarnation)).find(x => x.id === agentId) ?? null

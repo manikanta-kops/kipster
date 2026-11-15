@@ -94,6 +94,33 @@ async function kipFacts(db: Postgres | SqlClient, installationId: string, agentI
   const viewing = row.admin && row.viewing_id && row.viewing_id !== organizationId ? { id: row.viewing_id, name: row.viewing_name! } : undefined
   return { admin: row.admin, line, trigger: row.trigger ?? 'person', ...(viewing ? { viewing } : {}) }
 }
+/**
+ * The kips a kip works with, from their descriptions: the admin kip sees every workspace and its kips, a workspace kip
+ * sees its teammates and the admin kip. A kip outside every workspace gets none.
+ */
+async function teamSection(db: Postgres, installationId: string, agentId: string, organizationId: string | null, admin: boolean): Promise<string> {
+  const described = (name: string, description: string) => description.trim() ? `${name}: ${description.trim()}` : name
+  if (admin) {
+    const workspaces = (await db.query<{ id: string; name: string; description: string }>('SELECT id,display_name AS name,description FROM kipster.organizations WHERE installation_id=$1 AND kipster.live_organization(id) ORDER BY display_name,id', [installationId])).rows
+    if (!workspaces.length) return ''
+    const members = (await db.query<{ organization_id: string; name: string; description: string }>(`SELECT m.organization_id,a.display_name AS name,a.description FROM kipster.agent_memberships m JOIN kipster.agents a ON a.id=m.agent_id
+      WHERE m.organization_id=ANY($1::uuid[]) AND kipster.live_agent(a.id) AND a.id<>$2 ORDER BY a.display_name,a.id`, [workspaces.map(w => w.id), agentId])).rows
+    const lines = workspaces.map(w => {
+      const kips = members.filter(m => m.organization_id === w.id).map(m => `  - ${described(m.name, m.description)}`)
+      return `- **${described(w.name, w.description)}**\n${kips.length ? kips.join('\n') : '  - No kips yet.'}`
+    })
+    return `# Workspaces\n\nWorkspaces group kips, for example one for personal life and one for a startup. You can work in all of them. Each workspace and its kips:\n${lines.join('\n')}`
+  }
+  if (!organizationId) return ''
+  const workspace = (await db.query<{ name: string }>('SELECT display_name AS name FROM kipster.organizations WHERE id=$1', [organizationId])).rows[0]
+  const rows = (await db.query<{ name: string; description: string; admin: boolean }>(`SELECT a.display_name AS name,a.description,EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin') AS admin
+    FROM kipster.agents a WHERE a.installation_id=$1 AND kipster.live_agent(a.id) AND a.id<>$3
+      AND (EXISTS (SELECT 1 FROM kipster.agent_memberships m WHERE m.agent_id=a.id AND m.organization_id=$2) OR EXISTS (SELECT 1 FROM kipster.agent_roles r WHERE r.agent_id=a.id AND r.role='root-admin'))
+    ORDER BY admin DESC,a.display_name,a.id`, [installationId, organizationId, agentId])).rows
+  if (!rows.length) return ''
+  const lines = rows.map(row => `- ${described(row.admin ? `${row.name} (admin kip)` : row.name, row.description)}`)
+  return `# Your team\n\nThe kips you work with${workspace ? ` in ${workspace.name}` : ''}:\n${lines.join('\n')}\n\nWhen a request fits a teammate better, message them yourself with message_kip.`
+}
 /** The people and kips with these IDs as message authors; a kip names its live workspaces, sorted. */
 async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map<string, MessageAuthor>> {
   const rows = (await db.query<{ id: string; name: string; agent: boolean; admin: boolean; workspaces: string[] }>(`SELECT p.id,p.display_name AS name,false AS agent,false AS admin,'{}'::text[] AS workspaces FROM kipster.people p WHERE p.id=ANY($1::uuid[])
@@ -106,7 +133,7 @@ async function messageAuthors(db: Postgres, ids: readonly string[]): Promise<Map
 async function linkedThreadLine(db: Postgres, threadId: string): Promise<string> {
   const row = (await db.query<{ name: string; sender_agent_id: string; source_thread_id: string }>(`SELECT a.display_name AS name,l.sender_agent_id,l.source_thread_id FROM kipster.kip_links l JOIN kipster.agents a ON a.id=l.sender_agent_id WHERE l.linked_thread_id=$1`, [threadId])).rows[0]
   if (!row) return ''
-  return `This thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation; answer them with message_kip to ${row.name} (recipientId ${row.sender_agent_id}), and the answer goes back there. If a message lacks a detail you need, read that conversation with read_thread. Answer a message the person writes here to the person, with message_user.`
+  return `# Linked conversation\n\nThis thread is linked to a conversation of ${row.name}, another kip (thread ${row.source_thread_id}). Messages from ${row.name} here come from that conversation; answer them with message_kip to ${row.name} (recipientId ${row.sender_agent_id}), and the answer goes back there. If a message lacks a detail you need, read that conversation with read_thread. Answer a message the person writes here to the person, with message_user.`
 }
 
 export function textPublicationHost(dispatcher: Pick<TextDispatcher, 'messageUserTool' | 'askToolInteraction' | 'structuredTool' | 'vectorTool' | 'copyArtifactTool' | 'transcribeTool' | 'transcribePathTool' | 'agentTool'> & Partial<Pick<TextDispatcher, 'adminTool' | 'documentTool' | 'memoryTool' | 'pluginTool' | 'routineTool'>>): AdapterHost {
@@ -759,10 +786,11 @@ export class TextDispatcher {
       const kip = await kipFacts(this.runtime.db, context.actor.installationId, context.agentId, organizationId, runId)
       const plugins = await this.runtime.pluginTools?.connected()
       const linked = await linkedThreadLine(this.runtime.db, context.threadId)
+      const team = await teamSection(this.runtime.db, context.actor.installationId, context.agentId, organizationId, kip.admin)
       const tools = executionTools({ organization: organizationId !== null, structured: !!this.runtime.structured, vectors: !!this.runtime.vectors, administration: administrationEnabled, memory: memory !== null, admin: kip.admin, plugins: !!plugins?.length, linked: !!linked })
       const permissionMode = await permissionModeFor(this.runtime.db, context.actor.installationId)
       const approvalGrants = await approvalGrantKeys(this.runtime.db, context.actor.installationId, context.threadId)
-      const instructions = kipInstructions({ kipLine: kip.line, admin: kip.admin, workspace: organizationId !== null, system: resolved.instructions.system, soul: resolved.instructions.soul, identity: resolved.instructions.identity, organization: resolved.instructions.organization, linked, memoryGuidance: memory ? memoryGuidance : '', plugins: plugins ? pluginGuidance(plugins) : '', skills: skillsSection(administrationEnabled ? [adminSkill] : []), memories: memory?.instructions ?? null })
+      const instructions = kipInstructions({ kipLine: kip.line, admin: kip.admin, workspace: organizationId !== null, system: resolved.instructions.system, soul: resolved.instructions.soul, identity: resolved.instructions.identity, organization: resolved.instructions.organization, team, linked, memoryGuidance: memory ? memoryGuidance : '', plugins: plugins ? pluginGuidance(plugins, kip.admin && administrationEnabled) : '', skills: skillsSection(administrationEnabled ? [adminSkill] : []), memories: memory?.instructions ?? null })
       const prepared = { ...(adminReceipts ? { administrationReceipts: adminReceipts } : {}), runId, attemptId: attempt.id, attemptGeneration: attempt.generation, incarnation: attempt.incarnation, organizationId, agentId: context.agentId, threadId: context.threadId, ...(memory?.sections.length ? { memory: memory.sections } : {}), workingDirectory: this.runtime.home.agent(context.agentId), outputDirectory, instructions, tools, settings: { adapterId: resolved.settings.adapterId!, modelId: resolved.settings.modelId!, ...(resolved.settings.effort ? { effort: resolved.settings.effort } : {}), ...(resolved.settings.options ? { options: resolved.settings.options } : {}) }, permissionMode, approvalGrants, triggerMessageId: context.inputMessageId, input, interactions, ...(latest ? { continuation: { kind: latest.kind, prompt: latest.prompt, ...(latest.proposalId ? { proposalId: latest.proposalId } : {}), ...(latest.proposal ? { proposal: latest.proposal } : {}) , answer: latest.response.answer } } : {}) }
       // The provider session of the previous attempt continues when that attempt stopped to wait and the wait was
       // answered. A failed attempt never qualifies, so Retry starts fresh.
