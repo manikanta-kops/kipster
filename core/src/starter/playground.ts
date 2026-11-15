@@ -1,15 +1,19 @@
 import { readFile } from 'node:fs/promises'
-import { identityFileNames } from '../platform/home/public.js'
-import type { AgentFiles, Starter } from '../modules/administration/public.js'
+import { identityFileNames, type Home } from '../platform/home/public.js'
+import { createAgent, type AgentCreateResult, type AgentFiles, type Applied, type Starter } from '../modules/administration/public.js'
+import type { AdminCaller } from '../modules/identity/public.js'
+import type { StarterKey } from '../protocol/admin.js'
+import type { Postgres } from '../platform/postgres/public.js'
 
 export const playgroundNames = { owner: 'Owner', organization: 'Playground', rootAgent: 'Kip' } as const
 
-const agents = [
+/** The starter kips the person can pick during onboarding. */
+export const starterKips: readonly { key: StarterKey; name: string; description: string }[] = [
   { key: 'planner', name: 'Planner', description: 'Turns goals into plans and hands each step to the right teammate.' },
   { key: 'researcher', name: 'Researcher', description: 'Reads, compares and explains, including attached files.' },
   { key: 'writer', name: 'Writer', description: 'Drafts posts, emails and documents and saves them as files.' },
   { key: 'coach', name: 'Coach', description: 'Helps with personal goals and habits and remembers progress.' },
-] as const
+]
 
 /** The admin kip's daily check-ins. A run with nothing worth telling sends nothing. */
 const routines = [
@@ -31,16 +35,25 @@ async function files(key: string): Promise<AgentFiles> {
   return Object.fromEntries(await Promise.all(identityFileNames.map(async file => [file, await text(`${key}/${file}`)] as const)))
 }
 
-/** The content a new installation starts with: the Playground organization, the admin kip with its daily check-ins and a team of four agents in two groups. */
+/** The content a new installation starts with: the Playground organization and the admin kip with its daily check-ins. */
 export async function playground(): Promise<Starter> {
   return {
     organization: { description: 'A starter organization for trying Kipster.', instructions: await text('organization.md') },
     rootAgent: { description: 'Manages organizations, agents, groups and settings.', files: await files('admin') },
-    agents: await Promise.all(agents.map(async agent => ({ ...agent, files: await files(agent.key) }))),
-    groups: [
-      { name: 'Team', agents: ['planner', 'researcher', 'writer'] },
-      { name: 'Personal', agents: ['coach'] },
-    ],
     routines,
   }
+}
+
+/**
+ * Creates the chosen starter kips in the organization, in order, each with its identity files. Each creation is
+ * recorded as `${operationId}:${key}`, so a repeated request returns the same kips.
+ */
+export async function createStarterKips(db: Postgres, home: Home, actor: AdminCaller, operationId: string, organizationId: string, keys: readonly StarterKey[]): Promise<{ created: (Applied<AgentCreateResult> & { operationId: string })[] }> {
+  const created: (Applied<AgentCreateResult> & { operationId: string })[] = []
+  for (const key of keys) {
+    const kip = starterKips.find(item => item.key === key)!
+    const kipOperationId = `${operationId}:${key}`
+    created.push({ operationId: kipOperationId, ...await createAgent(db, home, actor, kipOperationId, { name: kip.name, description: kip.description, organizationId, files: await files(key) }) })
+  }
+  return { created }
 }

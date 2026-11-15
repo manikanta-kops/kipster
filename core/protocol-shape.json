@@ -347,6 +347,7 @@
         "notificationIds": {"type":"array","items":{"type":"string","min":1}}
       }
     },
+    "onboardingComplete": {"type":"object","exact":true,"fields":{"version":{"type":"literal","value":1}}},
     "operationRequest": {
       "type": "object",
       "exact": true,
@@ -387,6 +388,11 @@
         "mode": {"type":"optional","of":{"ref":"permissionMode"}},
         "removeAlwaysAllowed": {"type":"optional","of":{"type":"array","items":{"type":"string","min":1}}}
       }
+    },
+    "personSettingsWrite": {
+      "type": "object",
+      "exact": true,
+      "fields": {"version":{"type":"literal","value":1},"name":{"type":"string","min":1,"max":200}}
     },
     "pluginAccountRename": {
       "type": "object",
@@ -620,6 +626,16 @@
         "version": {"type":"literal","value":1},
         "operationId": {"type":"string","min":1,"max":200},
         "settings": {"ref":"settingsPatch"}
+      }
+    },
+    "startersCreate": {
+      "type": "object",
+      "exact": true,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "organizationId": {"type":"string","min":1},
+        "keys": {"type":"array","items":{"ref":"starterKey"}}
       }
     },
     "textPart": {
@@ -1911,6 +1927,15 @@
         "notificationIds": {"type":"array","items":{"type":"string","min":1}}
       }
     },
+    "onboardingState": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "completed": {"type":"boolean"},
+        "completedAt": {"type":"nullable","of":{"type":"string","format":"utc-timestamp"}}
+      }
+    },
     "operationStatus": {
       "type": "object",
       "exact": false,
@@ -1982,6 +2007,11 @@
         "mode": {"type":"string"},
         "alwaysAllowed": {"type":"array","items":{"ref":"alwaysAllowed"}}
       }
+    },
+    "personSettings": {
+      "type": "object",
+      "exact": false,
+      "fields": {"version":{"type":"literal","value":1},"name":{"type":"string"}}
     },
     "pluginAccount": {
       "type": "object",
@@ -2452,6 +2482,40 @@
         },
         "message": {"type":"string"},
         "requestId": {"type":"string","min":1}
+      }
+    },
+    "starterCatalog": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "starters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "exact": false,
+            "fields": {"key":{"type":"string"},"name":{"type":"string"},"description":{"type":"string"}}
+          }
+        }
+      }
+    },
+    "starterCreated": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "operationId": {"type":"string","min":1,"max":200},
+        "alreadyApplied": {"type":"boolean"},
+        "agent": {"ref":"directoryAgent"},
+        "membership": {"type":"nullable","of":{"ref":"directoryMembership"}}
+      }
+    },
+    "startersResult": {
+      "type": "object",
+      "exact": false,
+      "fields": {
+        "version": {"type":"literal","value":1},
+        "operationId": {"type":"string","min":1,"max":200},
+        "created": {"type":"array","items":{"ref":"starterCreated"}}
       }
     },
     "submissionReceipt": {"type":"union","of":[{"ref":"acceptedReceipt"},{"ref":"rejectedReceipt"}]},
@@ -3270,6 +3334,15 @@
     "settingsTarget": {
       "type": "union",
       "of": [{"type":"literal","value":"agent"},{"type":"literal","value":"organization"}]
+    },
+    "starterKey": {
+      "type": "union",
+      "of": [
+        {"type":"literal","value":"planner"},
+        {"type":"literal","value":"researcher"},
+        {"type":"literal","value":"writer"},
+        {"type":"literal","value":"coach"}
+      ]
     },
     "streamScope": {
       "type": "union",

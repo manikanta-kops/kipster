@@ -129,7 +129,8 @@ export async function changeLifecycle(client: SqlClient, jobs: Jobs, installatio
 // sweep finishes an interrupted creation with the recorded IDs.
 
 export interface OrganizationFields { name: string; description?: string; settings?: Patch }
-export interface AgentFields { name: string; description?: string; settings?: Patch; organizationId?: string }
+/** `files` gives the new agent's identity files their first content. */
+export interface AgentFields { name: string; description?: string; settings?: Patch; organizationId?: string; files?: AgentFiles }
 export interface Changes { name?: string; description?: string; settings?: Patch }
 export type Applied<T> = T & { alreadyApplied: boolean }
 export interface OrganizationResult { organization: DirectoryOrganization }
@@ -151,14 +152,10 @@ async function requireLive(client: SqlClient, kind: 'organization' | 'agent', in
 /** Initial content of an agent's identity files; a file left out starts with only a heading. */
 export type AgentFiles = Partial<Record<IdentityFileName, string>>
 
-/** What a new installation starts with besides its owner, first organization and admin agent. */
+/** The content of a new installation's first organization and admin agent. */
 export interface Starter {
   organization: { description: string; instructions: string }
   rootAgent: { description: string; files: AgentFiles }
-  /** Agents of the first organization. `key` names the agent in `groups` and in its creation's operation ID. */
-  agents: readonly { key: string; name: string; description: string; files: AgentFiles }[]
-  /** Groups of the first organization, in order, each listing its agents' keys in order. */
-  groups: readonly { name: string; agents: readonly string[] }[]
   /** The admin agent's routines. */
   routines?: readonly StarterRoutine[]
 }
@@ -168,9 +165,8 @@ const bootstrapIds = (row: BootstrapRow): Bootstrap => ({ installationId: row.in
 
 /**
  * Creates the installation on its first start: the owner, the first organization and the admin agent,
- * and with `starter`, its agents, groups and the admin agent's routines. Later starts return the recorded IDs and only seed files
- * that are missing. Starter agents are recorded as pending creations in the same transaction, so
- * finishPendingCreations provisions them, also after an interrupted first start.
+ * and with `starter`, their content and the admin agent's routines. Later starts return the recorded IDs
+ * and only seed files that are missing.
  */
 export async function bootstrap(db: Postgres, home: Home, names: { owner: string; organization: string; rootAgent: string }, starter?: Starter): Promise<Bootstrap> {
   const ids = await db.transaction(async client => {
@@ -190,7 +186,6 @@ export async function bootstrap(db: Postgres, home: Home, names: { owner: string
     await client.query('INSERT INTO kipster.human_memberships VALUES ($1,$2)', [organizationId, ownerId])
     await client.query('INSERT INTO kipster.agent_memberships(organization_id, agent_id) VALUES ($1,$2)', [organizationId, rootAgentId])
     await client.query('INSERT INTO kipster.bootstrap VALUES ($1,$2,$3,$4)', [installationId, ownerId, organizationId, rootAgentId])
-    if (starter) await recordStarter(client, installationId, ownerId, organizationId, starter)
     if (starter?.routines) await seedRoutines(client, { installationId, ownerId, agentId: rootAgentId }, starter.routines, new Date())
     return { installationId, ownerId, organizationId, rootAgentId }
   })
@@ -198,29 +193,6 @@ export async function bootstrap(db: Postgres, home: Home, names: { owner: string
   await provisionLive(db, 'agents', ids.rootAgentId, () => home.provisionAgent(ids.rootAgentId, starter?.rootAgent.files))
   await provisionLive(db, 'organizations', ids.organizationId, () => home.provisionOrganization(ids.organizationId, starter?.organization.instructions))
   return ids
-}
-
-/** Records the starter agents as the owner's pending creations, with their memberships, groups and appearances. */
-async function recordStarter(client: SqlClient, installationId: string, ownerId: string, organizationId: string, starter: Starter): Promise<void> {
-  const memberships = new Map<string, string>()
-  for (const agent of starter.agents) {
-    const fields = { name: agent.name, description: agent.description, organizationId }
-    const membershipId = randomUUID()
-    const key: OperationKey = { installationId, actorKind: 'person', actorId: ownerId, operationId: `starter:${agent.key}` }
-    const { operation } = await claimOperation(client, key, 'agent.create', { kind: 'agent', id: randomUUID() }, { ...fields, membershipId, files: agent.files }, { kind: 'agent.create', fields })
-    await client.query('INSERT INTO kipster.agents(id, installation_id, display_name, description) VALUES ($1,$2,$3,$4)', [operation.targetId, installationId, agent.name, agent.description])
-    await client.query('INSERT INTO kipster.agent_memberships(id, organization_id, agent_id) VALUES ($1,$2,$3)', [membershipId, organizationId, operation.targetId])
-    memberships.set(agent.key, membershipId)
-  }
-  for (const [position, group] of starter.groups.entries()) {
-    const groupId = randomUUID()
-    await client.query('INSERT INTO kipster.groups(id, organization_id, name, position) VALUES ($1,$2,$3,$4)', [groupId, organizationId, group.name, position])
-    for (const [index, agentKey] of group.agents.entries()) {
-      const membershipId = memberships.get(agentKey)
-      if (!membershipId) throw new Error(`Unknown starter agent: ${agentKey}`)
-      await client.query('INSERT INTO kipster.group_appearances(group_id, membership_id, organization_id, position) VALUES ($1,$2,$3,$4)', [groupId, membershipId, organizationId, index])
-    }
-  }
 }
 
 /** Seeds the home of an active row and marks it provisioned. Other rows, such as a deleted organization, get no home. */

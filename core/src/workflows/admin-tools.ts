@@ -4,10 +4,11 @@ import type { Jobs } from '../platform/jobs/public.js'
 import { MAX_IDENTITY_BYTES, MAX_ORGANIZATION_INSTRUCTIONS_BYTES, type Home, type IdentityFileName } from '../platform/home/public.js'
 import { authorizeAdministration, type AgentCaller } from '../modules/identity/public.js'
 import { addAppearance, addMembership, changeSettings, createAgent, createGroup, createOrganization, deleteGroup, readDirectory, readOperation, readOrganizationInstructions, removeAppearance, removeMembership, renameGroup, reorderAppearances, reorderGroups, restoreAgent, updateAgent, updateOrganization, writeOrganizationInstructions, type Changes } from '../modules/administration/public.js'
-import { effectiveSettings, listIdentityBackups, readAdapters, readIdentityBackup, readIdentityFile, readInterfacePreferences, readPermissions, readSettings, requireSettingsOwner, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences, writePermissions, type Catalog, type Patch } from '../modules/settings/public.js'
+import { completeOnboarding, effectiveSettings, listIdentityBackups, readAdapters, readIdentityBackup, readIdentityFile, readInterfacePreferences, readOnboarding, readPermissions, readPerson, readSettings, requireSettingsOwner, restoreIdentityBackup, writeIdentityFile, writeInterfacePreferences, writePermissions, writePerson, type Catalog, type Patch } from '../modules/settings/public.js'
 import type { LearningService } from '../modules/memory/public.js'
 import type { UpdatesService } from '../modules/updates/public.js'
-import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget } from '../protocol/admin.js'
+import { agentCreate, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, interfacePreferencesWrite, membershipAdd, permissionSettingsWrite, personSettingsWrite, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsTarget, startersCreate } from '../protocol/admin.js'
+import { createStarterKips, starterKips } from '../starter/playground.js'
 import { agentLearningUpdate, identityFileName, identityRestore, identityWrite, learningUpdate } from '../protocol/text.js'
 import { updateChannel, updateInstall, updateMode, updatePluginsInstall } from '../protocol/updates.js'
 import { lessonUpdate, memoryUpdate } from '../protocol/memory.js'
@@ -49,6 +50,8 @@ const areas = {
   updates: 'Software updates of Kipster Core and Kipster Plugins: channel, automatic or notify mode, checks, installs and pins.',
   plugins: 'Kipster Plugins: the services kips can use, signing in to them, and the signed-in accounts with their names and the default account of each plugin.',
   routines: 'Routines, work kips do on their own on a schedule: the most routine runs one kip starts a day. Kips create and change routines with their routine tools.',
+  person: 'The person\'s own name, which every kip uses for them.',
+  onboarding: 'First-run onboarding: whether the person has finished it.',
   operations: 'The state and result of an earlier change, by its operationId.',
 } as const
 type Area = keyof typeof areas
@@ -189,6 +192,11 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     area: 'agents', kind: 'write', receipt: true, input: fields({ agentId: id }),
     description: 'Restore an archived kip. It takes new work again; work stopped when it was archived stays stopped.',
     run: async ({ host, caller, operationId, args }) => recorded(operationId, await restoreAgent(host.db, host.jobs, caller, args.agentId, operationId)),
+  }),
+  'agents.create_starters': operation({
+    area: 'agents', kind: 'write', receipt: true, input: fields({}, startersCreate),
+    description: `Create starter kips in a workspace, each with its identity files, in the order of keys: ${starterKips.map(kip => `${kip.key} (${kip.name}: ${kip.description})`).join('; ')}. Each kip is recorded as <operationId>:<key>.`,
+    run: async ({ host, caller, operationId, args }) => recorded(operationId, await createStarterKips(host.db, host.home, caller, operationId, args.organizationId, args.keys)),
   }),
   'identity.get': operation({
     area: 'identity', kind: 'read', input: fields(identityTarget),
@@ -476,6 +484,26 @@ export const adminOperations: Readonly<Record<string, Operation<any>>> = {
     area: 'routines', kind: 'write', input: fields({}, routineSettingsWrite),
     description: 'Set dailyRunLimit, the most routine runs one kip starts a day across its routines: 1 to 1000. The default is 50.',
     run: ({ host, caller, args }) => writeRoutineSettings(host.db, caller, { version: 1, ...args }),
+  }),
+  'person.get': operation({
+    area: 'person', kind: 'read', input: none,
+    description: 'Read the person\'s name. Kips see it in every conversation as "<name> (the person)".',
+    run: ({ host, caller }) => readPerson(host.db, caller),
+  }),
+  'person.set': operation({
+    area: 'person', kind: 'write', input: fields({}, personSettingsWrite),
+    description: 'Change the person\'s name, 1 to 200 characters; surrounding spaces are dropped. The next turn of every kip uses it.',
+    run: ({ host, caller, args }) => writePerson(host.db, caller, { version: 1, ...args }),
+  }),
+  'onboarding.get': operation({
+    area: 'onboarding', kind: 'read', input: none,
+    description: 'Read whether the person finished first-run onboarding (completed) and when (completedAt, or null).',
+    run: ({ host, caller }) => readOnboarding(host.db, caller),
+  }),
+  'onboarding.complete': operation({
+    area: 'onboarding', kind: 'write', input: none,
+    description: 'Record that first-run onboarding is finished, so the app does not show it again. A later call keeps the first completedAt.',
+    run: ({ host, caller }) => completeOnboarding(host.db, caller),
   }),
   'operations.get': operation({
     area: 'operations', kind: 'read', input: fields({ operationId: boundedString(1, 200) }),
