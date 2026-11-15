@@ -150,8 +150,9 @@ harness, access its account, invoke a CLI and send synthetic embedding text to
 the configured provider; obtain operator authorization first. No conversation or
 microphone recording is part of the probe. `serve` likewise initializes configured
 providers. The first setup creates the installation: the owner, the Playground
-organization, the Admin agent, and the Planner, Researcher, Writer and Coach
-agents in the Team and Personal groups, each with starter instructions. Setup
+organization and the admin kip with its starter instructions. Starter kips such
+as Planner or Writer are created on request through `POST /v1/starters` or by
+asking the admin kip. Setup
 repeats bootstrap without replacing authored identity files or changing
 installation identity. Stop this installation before repeating setup.
 

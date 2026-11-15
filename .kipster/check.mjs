@@ -117,7 +117,6 @@ try {
     }
   }
   await visit(join(root, '.kipster'))
-  files.push(join(root, '.changeset/factory-onboarding.md'))
   await run('npm', [
     'exec',
     '--',
