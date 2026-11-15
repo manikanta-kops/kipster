@@ -36,7 +36,7 @@ const adminCopy = tool('copy_attachment_to_workspace', 'Give a workspace its own
 const messageKip = (admin: boolean) => tool('message_kip', `Send another kip a message, with the files it needs. It works on it in a thread of its own chat with the person, linked to this conversation; your messages to that kip from here always go to that thread. Returns at once. The kip answers with its own message_kip, which arrives here later as a new message and wakes you, so end your turn when you have nothing else to do. In a linked thread, messaging the kip whose messages it holds answers that kip in its conversation. ${admin ? 'You can message every kip.' : 'You can message the kips of your workspace and the admin kip.'} One turn sends at most 4 messages.`,
   { recipientId: text, text, attachments: attachments(false), ...(admin ? { workspaceId: workspaceId('The workspace the kip works in for this message. Needed only when the kip is in more than one.') } : {}) }, ['recipientId', 'text'])
 const collaboration = (admin: boolean) => [
-  tool('list_kips', admin ? 'List every kip with the workspaces it works in.' : 'List the kips you can message: those of your workspace and the admin kip.', {}),
+  tool('list_kips', admin ? 'List every kip with what it does and the workspaces it works in.' : 'List the kips you can message, with what each one does: those of your workspace and the admin kip.', {}),
   tool('get_kip', 'Get a kip you can message by ID.', { agentId: text }, ['agentId']),
   messageKip(admin),
 ]
@@ -141,4 +141,9 @@ export function executionTools(scope: ToolScope): ToolDefinition[] {
 }
 
 /** How to use the memory tools, added to the tool guidance of an agent with memory on. */
-export const memoryGuidance = 'Memory: the core memories in these instructions, the Learned section of your identity and the memory search before the history come from earlier conversations. If a memory or lesson conflicts with the current conversation, the conversation wins. When they do not answer, use search_memory, list_threads with notSearchable true for recent threads search cannot find yet, and read_thread to read a thread in full. Save what the person asks you to remember with save_memory, and delete what they ask you to forget with forget_memory.'
+export const memoryGuidance = `# Memory
+
+You remember across conversations. Your core memories are at the end of these instructions, lessons you learned are in the Learned part of your identity, and a memory search for the current message comes before the conversation. If any of it conflicts with the current conversation, the conversation wins.
+- search_memory finds earlier conversations, facts about the person and lessons.
+- list_threads lists threads, and read_thread reads one in full. With notSearchable true, list_threads lists recent threads that search cannot find yet.
+- When the person asks you to remember or forget something, use save_memory or forget_memory.`

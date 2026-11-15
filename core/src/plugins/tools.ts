@@ -275,8 +275,9 @@ export class PluginToolService {
 }
 
 /** The instructions' plugins section: connected services and how to reach their tools. */
-export function pluginGuidance(plugins: readonly ConnectedPlugin[]): string {
-  if (!plugins.length) return 'Plugins: no services are connected. If the person asks for one, tell them they can connect it in Plugins.'
+export function pluginGuidance(plugins: readonly ConnectedPlugin[], admin: boolean): string {
+  const connect = admin ? 'connect it for them with the kipster-admin skill' : 'they can connect it in Plugins, or ask the admin kip to do it'
+  if (!plugins.length) return `# Plugins\n\nPlugins connect Kipster to other services. None are connected yet. When the person wants one, ${connect}.`
   const names = plugins.map(plugin => plugin.accounts.some(account => account.status === 'working') ? plugin.name : `${plugin.name} (needs reconnecting)`)
-  return `Plugins: the person connected ${names.join(', ')}. Each service has many tools. Find them with search_plugin_tools, then run one with run_plugin_tool. Search before you say you cannot do something. If no connected service fits, tell the person they can connect one in Plugins.`
+  return `# Plugins\n\nPlugins connect Kipster to other services. The person connected ${names.join(', ')}. Each service has many tools. Find them with search_plugin_tools, then run one with run_plugin_tool. Search before you say you cannot do something. When the person wants a service that is not connected, ${connect}.`
 }

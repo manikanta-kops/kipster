@@ -599,7 +599,15 @@ scenario('who can message whom, and which kips each kip sees', {}, async e => {
   const seen = await planner.call('list_kips', {})
   assert.deepEqual(seen.agents.map(agent => agent.name), ['John', 'Researcher', 'Writer'])
   assert.equal(seen.agents.some(agent => agent.workspaces), false)
-  assert.deepEqual((await planner.call('get_kip', { agentId: e.john })).agent, { id: e.john, name: 'John' })
+  const johnSeen = (await planner.call('get_kip', { agentId: e.john })).agent
+  assert.deepEqual({ id: johnSeen.id, name: johnSeen.name }, { id: e.john, name: 'John' })
+  assert.equal(typeof johnSeen.description, 'string')
+  // Its instructions name its team: the kips of its workspace and the admin kip, not kips of other workspaces.
+  const team = planner.context.instructions.slice(planner.context.instructions.indexOf('# Your team'))
+  assert.match(team, /^# Your team\n\nThe kips you work with in Playground:\n- John \(admin kip\)/)
+  assert.match(team, /\n- Researcher/)
+  assert.match(team, /\n- Writer/)
+  assert.doesNotMatch(team, /Scout/)
   assert.equal((await planner.call('get_kip', { agentId: e.scout })).agent, null)
   assert.equal(planner.context.tools.find(tool => tool.name === 'message_kip').inputSchema.properties.workspaceId, undefined)
   assert.ok(!planner.context.tools.some(tool => ['delegate_to_kip', 'check_kip_task'].includes(tool.name)))
@@ -617,6 +625,9 @@ scenario('who can message whom, and which kips each kip sees', {}, async e => {
   const brief = await e.say(e.john, 'Talk to everyone')
   const john = await e.run(brief.runId)
   const all = await john.call('list_kips', {})
+  // The admin kip's instructions list every workspace with its kips.
+  assert.match(john.context.instructions, /# Workspaces\n\n.*\n- \*\*Playground[^\n]*\*\*\n  - Planner/)
+  assert.match(john.context.instructions, /- \*\*Studio[^\n]*\*\*\n  - Scout/)
   assert.deepEqual(all.agents.map(agent => [agent.name, agent.workspaces.map(item => item.name)]), [['Planner', ['Playground']], ['Researcher', ['Playground']], ['Scout', ['Studio']], ['Writer', ['Playground', 'Studio']]])
   assert.deepEqual((await john.call('get_kip', { agentId: e.scout })).agent.workspaces, [{ id: e.studio, name: 'Studio' }])
   assert.equal(john.context.tools.find(tool => tool.name === 'message_kip').inputSchema.properties.workspaceId.type, 'string')
