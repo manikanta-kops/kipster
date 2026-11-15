@@ -35,7 +35,7 @@ async function files(key: string): Promise<AgentFiles> {
 export async function playground(): Promise<Starter> {
   return {
     organization: { description: 'A starter organization for trying Kipster.', instructions: await text('organization.md') },
-    rootAgent: { description: 'Manages organizations, agents, groups and settings.', files: await files('admin') },
+    rootAgent: { description: 'Runs Kipster for the person: kips, workspaces, routines and settings.', files: await files('admin') },
     agents: await Promise.all(agents.map(async agent => ({ ...agent, files: await files(agent.key) }))),
     groups: [
       { name: 'Team', agents: ['planner', 'researcher', 'writer'] },
