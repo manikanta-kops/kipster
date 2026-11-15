@@ -192,6 +192,11 @@ Administration is owner-only:
 | `GET /v1/operations/{operationId}` | An operation recorded under the owner's operation ID: `state`, current `step`, `waitingFor`, `result` and `error`. |
 | `GET`/`PUT /v1/settings/interface` | The installation's interface choices: `palette`, `theme` (`light`, `dark` or `system`) and `desktopNotifications`; null leaves the interface default. A `PUT` (`{ "version": 1, "palette"?, "theme"?, "desktopNotifications"? }`) changes the given ones and publishes `interface-changed` when one differs. |
 | `GET`/`PUT /v1/settings/permissions` | The installation's permission mode and always-allowed actions, `{ "version": 1, "revision", "mode", "alwaysAllowed": [{ "id", "label", "createdAt" }] }`: what kips may do without asking. `supervised` asks before commands and file changes, `acceptEdits` approves edits and asks before other actions, `auto` (the default) lets providers that support it approve routine actions, and `fullAccess` allows commands and edits without prompts. A `PUT` (`{ "version": 1, "mode"?, "removeAlwaysAllowed"?: [id] }`) publishes `permissions-changed` when anything changes. Every text execution receives the mode as `permissionMode`; maintenance executions are unaffected. |
+| `GET`/`PUT /v1/settings/person` | The person's name, `{ "version": 1, "name" }`, which kip prompts show as `Name (the person)`. A `PUT` (`{ "version": 1, "name" }`) saves it without surrounding spaces; a blank name is refused. |
+| `GET /v1/settings/onboarding` | Whether first-run onboarding is finished: `{ "version": 1, "completed", "completedAt" }`, with `completedAt` null until then. |
+| `POST /v1/settings/onboarding/complete` | Record onboarding as finished (`{ "version": 1 }`). The first `completedAt` is kept and returned on later calls. |
+| `GET /v1/starters` | The starter kips the person can pick: `{ "version": 1, "starters": [{ "key", "name", "description" }] }`. |
+| `POST /v1/starters` | Create the chosen starter kips (`organizationId`, `keys`) in order, each with its identity files. Returns `created`, one agent creation per key, each recorded as `<operationId>:<key>`, so a retry returns the same kips. |
 
 An approval card raised by an adapter for a provider's own request may carry a
 `grant`: a label for the action and the `scopes` the person may choose,
@@ -602,8 +607,9 @@ loads file status without network activity, and the host calls
 ## Host commands
 
 A host's first start creates the Playground starter from `src/starter/playground`:
-the Playground organization, Admin, and four agents in two groups, each with
-starter identity files. The admin agent also gets two daily routines in the host's
+the Playground organization and the admin agent with its starter identity files.
+The four starter kips there (Planner, Researcher, Writer and Coach) are created
+only when the person picks them, with `POST /v1/starters`. The admin agent also gets two daily routines in the host's
 time zone: a morning check-in at 08:00 and an evening wrap-up at 18:00. A later
 start never adds them again.
 

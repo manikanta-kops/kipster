@@ -1,10 +1,11 @@
 import type { Runtime } from '../../runtime.js'
 import type { TrustedActor } from '../../modules/identity/public.js'
 import { addAppearance, addMembership, archiveAgent, changeSettings, createAgent, createGroup, createOrganization, deleteAgent, deleteOrganization, deleteGroup, readOperation, readOrganizationInstructions, removeAppearance, removeMembership, renameGroup, reorderAppearances, reorderGroups, restoreAgent, updateAgent, updateOrganization, writeOrganizationInstructions, type Changes } from '../../modules/administration/public.js'
-import { adaptersRefresh, agentCreate, agentDelete, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, membershipAdd, operationRequest, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsWrite } from '../../protocol/admin.js'
+import { adaptersRefresh, agentCreate, agentDelete, agentUpdate, appearanceAdd, appearanceOrder, groupCreate, groupOrder, groupRename, membershipAdd, operationRequest, organizationCreate, organizationInstructionsWrite, organizationUpdate, settingsWrite, startersCreate } from '../../protocol/admin.js'
 import { effectiveSettings, readAdapters, readSettings, requireSettingsOwner } from '../../modules/settings/public.js'
 import type { TextDispatcher } from '../../workflows/text-dispatch.js'
 import { MAX_ORGANIZATION_INSTRUCTIONS_BYTES } from '../../platform/home/public.js'
+import { createStarterKips, starterKips } from '../../starter/playground.js'
 import { updateCheck, updateInstall, updatePluginsInstall, updateSettingsWrite, updateUnpin } from '../../protocol/updates.js'
 
 /** The server lacks a service the route needs; mapped to 503 `unavailable`. */
@@ -68,6 +69,11 @@ export async function administrationRoute(runtime: Runtime, actor: TrustedActor,
     const input = agentCreate.parse(await read())
     const fields = { name: input.name, ...changes(input), ...(input.organizationId !== undefined ? { organizationId: input.organizationId } : {}) }
     return { version: 1, operationId: input.operationId, ...await createAgent(db, home, actor, input.operationId, fields) }
+  }
+  if (path === '/v1/starters' && method === 'GET') return { version: 1, starters: starterKips }
+  if (path === '/v1/starters' && method === 'POST') {
+    const input = startersCreate.parse(await read())
+    return { version: 1, operationId: input.operationId, ...await createStarterKips(db, home, actor, input.operationId, input.organizationId, input.keys) }
   }
   const organization = /^\/v1\/organizations\/([0-9a-f-]{36})(\/instructions)?$/.exec(path)
   if (organization && !organization[2] && method === 'DELETE') {

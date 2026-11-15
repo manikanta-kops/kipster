@@ -193,3 +193,28 @@ export type PermissionSettings = Infer<typeof permissionSettings>
 /** Changes the mode, removes always-allowed actions by ID, or both. Unknown IDs are already removed. */
 export const permissionSettingsWrite = object({ version: literal(1), mode: optional(permissionMode), removeAlwaysAllowed: optional(array(id)) })
 export type PermissionSettingsWrite = Infer<typeof permissionSettingsWrite>
+
+/** The person's own name, which kips use for them. */
+export const personSettings = object({ version: literal(1), name: string() }, false)
+export type PersonSettings = Infer<typeof personSettings>
+/** Saved without surrounding spaces; it must not be blank. */
+export const personSettingsWrite = object({ version: literal(1), name })
+export type PersonSettingsWrite = Infer<typeof personSettingsWrite>
+/** Whether the person finished first-run onboarding; `completedAt` is the first time it was recorded. */
+export const onboardingState = object({ version: literal(1), completed: boolean(), completedAt: nullable(utcTimestamp()) }, false)
+export type OnboardingState = Infer<typeof onboardingState>
+export const onboardingComplete = object({ version: literal(1) })
+export type OnboardingComplete = Infer<typeof onboardingComplete>
+
+/** The starter kips the person can pick during onboarding. Readers keep an unknown key as a string. */
+export const starterKey = union(literal('planner'), literal('researcher'), literal('writer'), literal('coach'))
+export type StarterKey = Infer<typeof starterKey>
+export const starterCatalog = object({ version: literal(1), starters: array(object({ key: string(), name: string(), description: string() }, false)) }, false)
+export type StarterCatalog = Infer<typeof starterCatalog>
+/** Creates the chosen starter kips in the organization, in order. A repeated operation ID returns the same kips. */
+export const startersCreate = object({ version: literal(1), operationId, organizationId: id, keys: array(starterKey) })
+export type StartersCreate = Infer<typeof startersCreate>
+/** One agent creation per key, in request order, each recorded under `<operationId>:<key>`. */
+export const starterCreated = object({ operationId, alreadyApplied: boolean(), agent: directoryAgent, membership: nullable(directoryMembership) }, false)
+export const startersResult = object({ version: literal(1), operationId, created: array(starterCreated) }, false)
+export type StartersResult = Infer<typeof startersResult>

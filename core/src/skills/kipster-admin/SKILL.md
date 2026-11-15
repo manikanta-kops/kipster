@@ -32,6 +32,9 @@ Read an operation with `list_admin_operations` before you call it for the first 
 | plugins, connections, integrations, connect my GitHub or Notion, accounts | plugins and their signed-in accounts | `plugins` |
 | routines, schedules, recurring tasks, reminders | routines and their daily run limit | `routines` and the routine tools |
 | what kips are doing, their chats, recent work | threads and their work | `list_threads` and `read_thread` |
+| my name, call me, what kips call me | the person's name | `person` |
+| setup, getting started, welcome steps | first-run onboarding | `onboarding` |
+| starter kips, Planner, Researcher, Writer, Coach | starter kips | `agents` |
 
 ## How to work
 
@@ -54,6 +57,17 @@ same approval twice. The admin kip cannot be archived or deleted.
 Call `agents.create` with `organizationId`. Then make it real: read and rewrite its `soul.md` (character, tone and
 working rules) and `identity.md` (role and responsibilities) with `identity.get` and `identity.set`. Keep each file
 short and specific. Optionally show it in a group with `appearances.add`.
+
+**Add starter kips.** Kipster comes with four ready-made kips: Planner, Researcher, Writer and Coach.
+`agents.create_starters` creates the ones the person picks in a workspace, with their identity files already written;
+its description lists the keys. Use `agents.create` instead for a kip of their own design.
+
+**The person's name.** `person.get` reads the name kips use for the person and `person.set` changes it, such as when
+they say "call me Sam". Every kip's next turn uses it.
+
+**Onboarding.** `onboarding.get` tells whether the person finished first-run onboarding in the app, and
+`onboarding.complete` records that they did; the first time is kept. Complete it only when the person says they are
+done or asks to skip it.
 
 **Change how a kip behaves.** Read the file with `identity.get`, edit the relevant part and save it with `identity.set`
 and the `sha256` you read as `expectedSha256`. If the save reports a conflict, read the file again and redo the edit.
