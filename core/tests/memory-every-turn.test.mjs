@@ -141,11 +141,13 @@ test('core cards join the stable instructions, capped, without organization card
 
   const one = await ctx.turn(ctx.kip, null, 'Hello')
   const instructions = one.context.instructions
-  assert.ok(instructions.endsWith(`Core memory: memories about the person, shared by every kip. A memory's ID works with forget_memory.
+  assert.ok(instructions.endsWith(`# Core memory
+
+Memories about the person, shared by every kip. A memory's ID works with forget_memory.
 - [memory ${first}] fact, user: Vegetarian since October (inferred ${new Date().toISOString().slice(0, 10)})
 - [memory ${second}] person, Priya: Lives in Lisbon (inferred ${new Date().toISOString().slice(0, 10)})`), instructions)
   for (const absent of [third, organization, plain]) assert.ok(!instructions.includes(absent))
-  assert.match(instructions, /list_threads with notSearchable true for recent threads search cannot find yet/)
+  assert.match(instructions, /With notSearchable true, list_threads lists recent threads that search cannot find yet/)
   assert.deepEqual(toolNames(one.context).filter(name => memoryTools.includes(name)), memoryTools)
   await one.finish()
 
